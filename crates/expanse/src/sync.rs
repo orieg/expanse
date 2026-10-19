@@ -13070,8 +13070,10 @@ impl SyncExpanseBlobMap {
     /// allocate from the system, as on any miss. Blocks still in their grace
     /// period are released by a later call, once reclaimed. Arena chunks are
     /// not touched: a chunk retired by a compaction or a clear is freed
-    /// straight to the system at the end of its grace period, and a live
-    /// chunk's dead records are returned only by [`Self::compact`].
+    /// straight to the system at the end of its grace period, by the epoch
+    /// advance that ends it or, past that advance's per-call budget, by a
+    /// later one (#1481), and a live chunk's dead records are returned only
+    /// by [`Self::compact`].
     pub fn shrink_to_fit(&self) -> usize {
         self.shared.release_collector()
     }
@@ -13107,6 +13109,16 @@ impl SyncExpanseBlobMap {
     #[must_use]
     pub fn collector_counters(&self) -> CollectorCounters {
         self.shared.collector_counters()
+    }
+
+    /// Lowers the byte budget one epoch advance frees of the blocks no size
+    /// class serves (arena chunks, chunk tables), so a test can drive the
+    /// advancer's carry list on small chunks (feature `collector-census`,
+    /// #1481). A diagnostic, not a stability surface.
+    #[cfg(feature = "collector-census")]
+    #[doc(hidden)]
+    pub fn set_collector_free_budget(&self, bytes: usize) {
+        self.shared.collector.set_free_budget(bytes);
     }
 
     /// Runs `f` over the map with all writers excluded — the escape hatch to

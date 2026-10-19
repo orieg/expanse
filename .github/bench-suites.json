@@ -367,6 +367,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "reclaim_stall_free_gate",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "G2 and G3 of the bounded chunk free (METHODOLOGY.md \u00a742.3, Refs #1481): the SyncExpanseBlobMap W = 1, R = 2 overwrite cells at 200,000 and 3,600,000 live on the merge base and the head in one run, 5 interleaved rounds per (build, cell), the largest non-compaction insert latency and the peak heap; outputs gate_1481_reclaim_free.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",

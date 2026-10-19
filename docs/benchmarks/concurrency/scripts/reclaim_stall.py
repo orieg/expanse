@@ -17,8 +17,21 @@ the same ticks, never wall time times threads. The counters are TSC deltas and
 include time a waiting thread was descheduled, which CPU time does not, so a
 share can exceed the waits' true CPU cost. No verdict reads these figures.
 
+`--free-gate --base-ref REF` evaluates METHODOLOGY §42.3's G2 and G3
+(#1481): the `SyncExpanseBlobMap` overwrite cells at W = 1, R = 2, at
+200,000 and 3,600,000 live, on two builds in one run, the head (this tree)
+and the base (`REF`, normally the merge base on main). Both builds run the
+head's harness file, so both record `insert_top_noncompact_ns`, the largest
+latencies of the inserts that ran no compaction; the engine is each build's
+own. One process per (build, cell, round), interleaved, the order rotated per
+round. G2 and G3 are decided at 200,000 live; the 3,600,000 cell is reported
+and decides nothing. `--quick` runs the same code on a 64 MiB arena with small
+live sets for three rounds, as a smoke test whose output is not a measurement.
+
 Usage:
     python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --out ARTIFACT.json
+    python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --free-gate --base-ref REF --out ARTIFACT.json
+    python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --free-gate --base-ref REF --quick --out SCRATCH.json
     python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --out ARTIFACT.json --wait-counters
     python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --self-test
 """
@@ -28,9 +41,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -78,12 +93,16 @@ def rotated(cells: tuple, r: int) -> list:
     return list(cells[k:]) + list(cells[:k])
 
 
-def build(features: tuple[str, ...] = ()) -> Path:
+def build(features: tuple[str, ...] = (), tree: Path | None = None,
+          target_dir: Path | None = None) -> Path:
+    env = dict(os.environ)
+    if target_dir is not None:
+        env["CARGO_TARGET_DIR"] = str(target_dir)
     out = subprocess.run(
         ["cargo", "build", "--release", "-p", "expanse-trie", "--bench", "reclaim_stall",
          *(["--features", ",".join(features)] if features else []),
          "--message-format=json-render-diagnostics"],
-        cwd=REPO_ROOT, check=True, stdout=subprocess.PIPE, text=True,
+        cwd=tree or REPO_ROOT, check=True, stdout=subprocess.PIPE, text=True, env=env,
     ).stdout
     exes = [json.loads(ln).get("executable") for ln in out.splitlines() if ln.startswith("{")]
     exes = [e for e in exes if e and Path(e).name.startswith("reclaim_stall")]
@@ -132,9 +151,12 @@ def check_affinity(row: dict[str, Any], pin: str | None, where: str) -> None:
         raise DriverError(f"{where}: the process ran on CPUs {got!r}, not the requested pin {pin}")
 
 
-def run_one(exe: Path, c: dict[str, Any], r: int, pin: str | None = None) -> dict[str, Any]:
+def run_one(exe: Path, c: dict[str, Any], r: int, pin: str | None = None,
+            extra: tuple[str, ...] = (), seed: int | None = None) -> dict[str, Any]:
+    if seed is None:
+        seed = 0x1300_0000 + 97 * r + CELLS.index(c)
     argv = [str(exe), "--map", c["map"], "--mode", c["mode"], "--writers", str(c["writers"]),
-            "--readers", str(c["readers"]), "--round", str(r), "--seed", str(0x1300_0000 + 97 * r + CELLS.index(c))]
+            "--readers", str(c["readers"]), "--round", str(r), "--seed", str(seed), *extra]
     if c["live"] is not None:
         argv += ["--live", str(c["live"])]
     if c["mode"] == "full":
@@ -417,6 +439,253 @@ def self_test_wait_counters() -> None:
     assert code.count("CLOCK_THREAD_CPUTIME_ID") == 1
 
 
+# --- METHODOLOGY §42.3: G2 and G3 of the bounded chunk free (#1481) ----------
+
+# The cells: §29.2's SyncExpanseBlobMap overwrite cells at W = 1, R = 2.
+FREE_GATE_CELLS: tuple[dict[str, Any], ...] = tuple(
+    {"map": "sync", "mode": "overwrite", "live": live, "writers": 1, "readers": 2}
+    for live in (SMALL, LARGE))
+# The cell that decides; the other is reported and decides nothing.
+FREE_GATE_DECIDING_LIVE = SMALL
+G2_FACTOR = 0.25
+G3_FACTOR = 1.02
+BUILDS = ("base", "head")
+# `--quick`: a smoke run of the same code, not a measurement.
+QUICK_CAP_MIB = 64
+QUICK_LIVE = (20_000, 60_000)
+QUICK_ROUNDS = 3  # the fewest the BCa estimator accepts
+HARNESS_REL = "crates/expanse/benches/reclaim_stall.rs"
+
+
+def largest_noncompact_ns(row: dict[str, Any], where: str) -> int:
+    """G2's per-round statistic: the largest latency among inserts that ran no compaction."""
+    top = row.get("insert_top_noncompact_ns")
+    if not isinstance(top, list) or not top:
+        raise DriverError(f"{where}: the row has no `insert_top_noncompact_ns` "
+                          "(a harness without `--noncompact-top`, or a window with no such insert)")
+    return int(max(top))
+
+
+def gate_checks(rows: list[dict[str, Any]]) -> list[int]:
+    """Rounds that are not §29's window: two compactions and no refused insert."""
+    return [row["round"] for row in rows
+            if row["compactions"] != EXPECTED_COMPACTIONS or row["inserts_refused"] != 0]
+
+
+def evaluate_free_gate(cells: list[dict[str, Any]], deciding_live: int = FREE_GATE_DECIDING_LIVE) -> dict[str, Any]:
+    """G2 and G3 as METHODOLOGY §42.3 states them, per live set.
+
+    G2: `H` and `B` are the head's and the base's largest non-compaction insert
+    latency, the median over rounds with the BCa 95% interval over rounds;
+    PASS iff the upper bound of `H` <= 0.25 x the lower bound of `B`.
+    G3: `heap_peak`, the same estimator; PASS iff the upper bound of the head's
+    <= 1.02 x the lower bound of the base's. Decided at `deciding_live`; any
+    other live set is reported with verdict None. A cell whose rounds are not
+    §29's two-compaction window is VOID, not read.
+    """
+    out: dict[str, Any] = {"G2": [], "G3": [], "deciding_live": deciding_live}
+    lives = sorted({c["live"] for c in cells})
+    for live in lives:
+        per = {b: find(cells, live=live, build=b) for b in BUILDS}
+        bad = {b: gate_checks(per[b]["rounds_raw"]) for b in BUILDS}
+        void = any(bad.values())
+        h = interval([float(largest_noncompact_ns(r, f"head L{live} round {r['round']}"))
+                      for r in per["head"]["rounds_raw"]])
+        b = interval([float(largest_noncompact_ns(r, f"base L{live} round {r['round']}"))
+                      for r in per["base"]["rounds_raw"]])
+        hp = interval([float(r["heap_peak"]) for r in per["head"]["rounds_raw"]])
+        bp = interval([float(r["heap_peak"]) for r in per["base"]["rounds_raw"]])
+        g2_pass = h["ci_upper"] <= G2_FACTOR * b["ci_lower"]
+        g3_pass = hp["ci_upper"] <= G3_FACTOR * bp["ci_lower"]
+        deciding = live == deciding_live
+
+        def verdict(ok: bool) -> str | None:
+            if not deciding:
+                return None
+            return "VOID" if void else ("PASS" if ok else "FAIL")
+        common = {"live": live, "deciding": deciding, "rounds_not_two_compactions_or_refused": bad}
+        out["G2"].append({**common, "H_ns": h, "B_ns": b, "bound_ns": G2_FACTOR * b["ci_lower"],
+                          "rule": "PASS iff H ci_upper <= 0.25 x B ci_lower", "verdict": verdict(g2_pass)})
+        out["G3"].append({**common, "head_heap_peak": hp, "base_heap_peak": bp,
+                          "bound_bytes": G3_FACTOR * bp["ci_lower"],
+                          "rule": "PASS iff head ci_upper <= 1.02 x base ci_lower", "verdict": verdict(g3_pass)})
+    return out
+
+
+def git_out(*args: str, cwd: Path = REPO_ROOT) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=True, stdout=subprocess.PIPE, text=True).stdout.strip()
+
+
+def base_tree(base_ref: str, into: Path) -> str:
+    """A detached worktree of `base_ref` at `into`, carrying the head's harness file.
+
+    The harness is the instrument and must be the same in both builds; the
+    engine under it is the base's. Returns the base commit."""
+    sha = git_out("rev-parse", "--verify", f"{base_ref}^{{commit}}")
+    head = git_out("rev-parse", "HEAD")
+    if sha == head:
+        raise DriverError(f"the base {base_ref} is the head commit {head}: nothing to compare")
+    subprocess.run(["git", "worktree", "add", "--detach", str(into), sha], cwd=REPO_ROOT, check=True,
+                   stdout=subprocess.DEVNULL)
+    shutil.copy2(REPO_ROOT / HARNESS_REL, into / HARNESS_REL)
+    return sha
+
+
+def measure_free_gate(base_ref: str, rounds: int, out_path: Path, quick: bool = False) -> dict[str, Any]:
+    if not base_ref:
+        raise DriverError("--free-gate needs --base-ref: the comparison is the point of the run")
+    out_abs = out_path.resolve()
+    if quick and (REPO_ROOT / "docs").resolve() in out_abs.parents:
+        raise DriverError(f"--quick writes scratch output only, never under docs/ ({out_path})")
+    applied = bench_pin.apply("reclaim_stall.py --free-gate")
+    cells_def = FREE_GATE_CELLS
+    extra: tuple[str, ...] = ("--noncompact-top", "1")
+    deciding = FREE_GATE_DECIDING_LIVE
+    if quick:
+        rounds = QUICK_ROUNDS
+        cells_def = tuple({**c, "live": live} for c, live in zip(FREE_GATE_CELLS, QUICK_LIVE))
+        extra += ("--cap-mib", str(QUICK_CAP_MIB))
+        deciding = QUICK_LIVE[0]
+    prov = new_provenance("concurrency", 1481, "§42.3 G2/G3 bounded chunk free (base vs head)", REPO_ROOT,
+                          cell_isolation="process", rounds=rounds, core_pin_applied=applied,
+                          quick=quick)
+    tmp = Path(tempfile.mkdtemp(prefix="reclaim-free-base-"))
+    tree = tmp / "tree"
+    try:
+        prov["base_commit"] = base_tree(base_ref, tree)
+        prov["head_commit"] = git_out("rev-parse", "HEAD")
+        exes = {"head": build(), "base": build(tree=tree, target_dir=tmp / "target")}
+        for exe in exes.values():
+            probe(exe)
+        pin = child_pin(applied)
+        by_cell: dict[tuple[str, int], dict[str, Any]] = {}
+        order = [(b, c) for c in cells_def for b in BUILDS]
+        for r in range(rounds):
+            for b, c in rotated(tuple(order), r):
+                key = (b, c["live"])
+                start = begin_cell(prov, f"cell:{b}:{cell_id(c)}:r{r}")
+                # The same seed for both builds within a round and cell.
+                seed = 0x1481_0000 + 97 * r + cells_def.index(c)
+                row = run_one(exes[b], c, r, pin, extra, seed)
+                row["load"] = end_cell(start)
+                row["build"] = b
+                largest_noncompact_ns(row, f"{b} {cell_id(c)} round {r}")
+                cell = by_cell.setdefault(key, {"cell": f"{b}:{cell_id(c)}", "build": b,
+                                                **{k: c[k] for k in ("map", "mode", "live", "writers", "readers")},
+                                                "rounds_raw": []})
+                cell["rounds_raw"].append(row)
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=REPO_ROOT,
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        shutil.rmtree(tmp, ignore_errors=True)
+    cells = [by_cell[(b, c["live"])] for c in cells_def for b in BUILDS]
+    for cell in cells:
+        loads = [row["load"] for row in cell["rounds_raw"]]
+        cell["load"] = max(loads, key=lambda ld: ld.get("foreign_busy_cpus") or 0.0)
+    art = {"provenance": prov, "throughput": cells,
+           "gates": evaluate_free_gate(cells, deciding_live=deciding)}
+    if quick:
+        art["note"] = "quick smoke run on a 64 MiB arena: not a measurement, decides nothing"
+    else:
+        rel = check_bench_provenance.rel_path(out_abs)
+        findings = check_bench_provenance.findings_for(rel, json.loads(json.dumps(art)))
+        if findings:
+            raise DriverError("the artifact fails the provenance gate: " + "; ".join(findings))
+    out_path.write_text(json.dumps(art, indent=2) + "\n")
+    return art
+
+
+def free_gate_lines(gates: dict[str, Any]) -> list[str]:
+    """The run's printed verdict lines."""
+    lines = []
+    for g, (hk, bk, unit) in (("G2", ("H_ns", "B_ns", "ns")), ("G3", ("head_heap_peak", "base_heap_peak", "B"))):
+        for e in gates[g]:
+            h, b = e[hk], e[bk]
+            role = "decides" if e["deciding"] else "reported, decides nothing"
+            lines.append(
+                f"{g} L={e['live']:,} ({role}): head median {h['median']:,.0f} {unit} "
+                f"[{h['ci_lower']:,.0f}, {h['ci_upper']:,.0f}], base median {b['median']:,.0f} {unit} "
+                f"[{b['ci_lower']:,.0f}, {b['ci_upper']:,.0f}] ({h['ci_method']}); "
+                f"{e['rule']}: bound {e.get('bound_ns', e.get('bound_bytes')):,.0f} {unit}; "
+                f"verdict {e['verdict'] or 'none (reported)'}")
+    return lines
+
+
+def _gate_cells(h: float, b: float, hp: float, bp: float, large_head_scale: float = 1.0,
+                rounds: int = 5, compactions: int = 2) -> list[dict[str, Any]]:
+    cells = []
+    for c in FREE_GATE_CELLS:
+        for build_ in BUILDS:
+            rows = []
+            for r in range(rounds):
+                j = 1 + 0.01 * (r % 3)
+                lat = (h if build_ == "head" else b) * j
+                if build_ == "head" and c["live"] == LARGE:
+                    lat *= large_head_scale
+                peak = (hp if build_ == "head" else bp) * j
+                rows.append({"round": r, "compactions": compactions, "inserts_refused": 0,
+                             "insert_top_noncompact_ns": [int(lat), int(lat * 0.9)],
+                             "insert_top_ns": [int(lat * 10)], "heap_peak": int(peak)})
+            cells.append({"cell": f"{build_}:{cell_id(c)}", "build": build_,
+                          **{k: c[k] for k in ("map", "mode", "live", "writers", "readers")}, "rounds_raw": rows})
+    return cells
+
+
+def self_test_free_gate() -> None:
+    def verdicts(cells):
+        v = evaluate_free_gate(cells)
+        return ({e["live"]: e["verdict"] for e in v["G2"]}, {e["live"]: e["verdict"] for e in v["G3"]})
+    # G2 PASS, G3 PASS: the head's stall far under 0.25 x the base's, the peak unchanged.
+    g2, g3 = verdicts(_gate_cells(2e6, 30e6, 1.0e9, 1.0e9))
+    assert g2 == {SMALL: "PASS", LARGE: None} and g3 == {SMALL: "PASS", LARGE: None}, (g2, g3)
+    # G2 negative control: the head at 0.3 x the base fails; G3 unaffected.
+    g2, g3 = verdicts(_gate_cells(9e6, 30e6, 1.0e9, 1.0e9))
+    assert g2[SMALL] == "FAIL" and g3[SMALL] == "PASS", (g2, g3)
+    # G2 reads the interval, not the medians: medians at 0.24 x pass only if the upper bound does.
+    e = evaluate_free_gate(_gate_cells(7.45e6, 30e6, 1.0e9, 1.0e9))["G2"][0]
+    assert e["H_ns"]["median"] < 0.25 * e["B_ns"]["median"], e
+    assert e["H_ns"]["ci_upper"] > 0.25 * e["B_ns"]["ci_lower"], e
+    assert e["verdict"] == "FAIL", e
+    e = evaluate_free_gate(_gate_cells(1.0e9, 1.0e9, 1.015e9, 1.0e9))["G3"][0]
+    assert e["head_heap_peak"]["median"] < 1.02 * e["base_heap_peak"]["median"], e
+    assert e["head_heap_peak"]["ci_upper"] > 1.02 * e["base_heap_peak"]["ci_lower"], e
+    assert e["verdict"] == "FAIL", e
+    # G2 reads the non-compaction list, not `insert_top_ns` (ten times larger here).
+    assert verdicts(_gate_cells(2e6, 30e6, 1.0e9, 1.0e9))[0][SMALL] == "PASS"
+    # G3 negative control: a head peak 3% above the base fails; G2 unaffected.
+    g2, g3 = verdicts(_gate_cells(2e6, 30e6, 1.03e9, 1.0e9))
+    assert g3[SMALL] == "FAIL" and g2[SMALL] == "PASS", (g2, g3)
+    # The 3,600,000 cell decides nothing: a failing large cell leaves the verdicts to the small one.
+    cells = _gate_cells(2e6, 30e6, 1.0e9, 1.0e9, large_head_scale=10.0)
+    assert evaluate_free_gate(cells)["G2"][1]["H_ns"]["median"] > 0.25 * 30e6
+    g2, g3 = verdicts(cells)
+    assert g2 == {SMALL: "PASS", LARGE: None}, g2
+    # A window without its two compactions voids the deciding cell.
+    g2, g3 = verdicts(_gate_cells(2e6, 30e6, 1.0e9, 1.0e9, compactions=1))
+    assert g2[SMALL] == "VOID" and g3[SMALL] == "VOID"
+    # A row without the non-compaction list is refused, never read as zero.
+    cells = _gate_cells(2e6, 30e6, 1.0e9, 1.0e9)
+    del cells[0]["rounds_raw"][0]["insert_top_noncompact_ns"]
+    assert "insert_top_noncompact_ns" in _refused(evaluate_free_gate, cells)
+    cells = _gate_cells(2e6, 30e6, 1.0e9, 1.0e9)
+    cells[1]["rounds_raw"][0]["insert_top_noncompact_ns"] = []
+    assert "insert_top_noncompact_ns" in _refused(evaluate_free_gate, cells)
+    # The printed lines carry both verdicts and the rule.
+    lines = free_gate_lines(evaluate_free_gate(_gate_cells(2e6, 30e6, 1.0e9, 1.0e9)))
+    assert len(lines) == 4 and sum("verdict PASS" in ln for ln in lines) == 2
+    assert sum("decides nothing" in ln for ln in lines) == 2
+    # No base: refused before anything runs.
+    assert "--base-ref" in _refused(measure_free_gate, "", 1, Path("x.json"))
+    # The harness records the list only behind the flag, from a generation read outside the timed call.
+    src = (REPO_ROOT / HARNESS_REL).read_text()
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("//"))
+    i = code.index("} else if noncompact {")
+    body = code[i:code.index("} else {", i)]
+    assert body.index("timed_insert(") < body.index("let after = m.with_locked") < body.index("if after == g")
+    assert "push_top(&mut ops.top_noncompact, ns)" in body
+    assert code.count("top_noncompact, ns)") == 1
+
+
 def self_test() -> int:
     assert len(CELLS) == 10 and len({cell_id(c) for c in CELLS}) == 10
     assert rotated(CELLS, 3)[0] is CELLS[3] and sorted(map(cell_id, rotated(CELLS, 7))) == sorted(map(cell_id, CELLS))
@@ -447,6 +716,7 @@ def self_test() -> int:
     assert CI_METHOD_BCA
     self_test_identity_and_pin()
     self_test_wait_counters()
+    self_test_free_gate()
     print("reclaim_stall.py self-test PASSED")
     return 0
 
@@ -458,6 +728,11 @@ def main() -> int:
     ap.add_argument("--out", type=Path)
     ap.add_argument("--wait-counters", action="store_true",
                     help="after the timed rounds, record each sync stall window's wait counters from an occ-stats build")
+    ap.add_argument("--free-gate", action="store_true",
+                    help="METHODOLOGY §42.3's G2 and G3: base and head builds in one run")
+    ap.add_argument("--base-ref", default="", help="the base for --free-gate (the merge base on main)")
+    ap.add_argument("--quick", action="store_true",
+                    help="with --free-gate: a 64 MiB smoke run, scratch output only, decides nothing")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
@@ -465,6 +740,13 @@ def main() -> int:
         ap.error("--out is required")
     if os.environ.get("EXPANSE_RECLAIM_STALL_ROUNDS"):
         args.rounds = int(os.environ["EXPANSE_RECLAIM_STALL_ROUNDS"])
+    if args.quick and not args.free_gate:
+        ap.error("--quick applies to --free-gate only")
+    if args.free_gate:
+        art = measure_free_gate(args.base_ref, args.rounds, args.out, args.quick)
+        for line in free_gate_lines(art["gates"]):
+            print(line)
+        return 0
     art = measure(args.rounds, args.out, args.wait_counters)
     print(json.dumps(art["predictions"], indent=2))
     return 0

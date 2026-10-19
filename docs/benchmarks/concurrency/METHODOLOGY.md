@@ -6604,3 +6604,120 @@ The base pair ran as suite `concurrency_update_cells_blob` at `5cbbba94` (engine
 **G3** was met on the engine head `a2f0cf0e` (CI run [39187395954](https://github.com/orieg/expanse/actions/runs/39187395954), head-versus-`main` passes): `instructions` 270/270 and `search_instructions` 50/50 No change; `rmw_instructions` `sync_blobmap_update_rmw/random` 112,445,082 → 99,525,924 (−11.49%), and every other arm reads No change in `perf_report.py`. One of those, `sync_bytesmap_cas_remove/routes`, moved by +34,946 (+0.0177%), below the 0.1% review threshold; it is disclosed in the pull request body with its unmeasured attribution. **G4** (no `%fs:` change outside the `Sync*` wrappers, plain-tree insert and remove paths at zero) is recorded in the pull request body.
 
 Not measured here: contention below W = 8 is reported in the artifacts but decides nothing.
+
+## 42. Pre-registration for #1481 item 1 — a bounded free of a compaction's retired chunk set (appended 2026-10-18, locked before any engine code of the change below; next free section after #1575's §41, may be renumbered at merge)
+
+README §29.1 found that on `SyncExpanseBlobMap` the free of a compaction's old chunk set lands on a later plain insert: 29.2–32.7 ms at 200,000 live, the largest insert of the window, above the two compactions. `crates/expanse/tests/test_blob_chunk_free_attribution.rs` (#1578) attributes it deterministically: the whole set (512–513 chunks and the chunk table) is taken and freed in one `Collector::try_advance` call, reached from a plain insert's advance countdown within 2 × `ADVANCE_EVERY` operations. Code references are to `origin/main` at `e76bb2ef`. Refs #1481.
+
+### 42.1 The change
+
+`Collector::try_advance` (`crates/expanse/src/occ.rs:2096`) frees the blocks no size class serves (`free_raw`, `occ.rs:2557`: arena chunks, chunk tables) up to a byte budget per call, `UNCLASSED_FREE_BUDGET`, and always at least one block per call. Classed blocks still go to their freelists as today; the budget does not apply to them.
+
+- A call frees the next unclassed block when it has freed nothing yet, or when the block fits what remains of the budget. The first unclassed block that does not fit, and every unclassed block after it in the bin it took, move to a **carry list**: blocks already past their grace period, owned by the collector.
+- The carry list is touched only by the holder of the existing `advancing` try-lock (`occ.rs:2099`). No lock is added, and no thread-local buffer exists (AGENTS.md §2.6 item 1): there is one list per collector.
+- A later call frees from the carry list first, before it checks readers, since a carried block is past its grace period whatever the readers do. It then advances as today, if it can, with what remains of the budget.
+- `drain` (drop) takes the same try-lock and frees whatever the carry list still holds.
+- `retained_bytes()` counts a carried block until it is freed, so the figure falls at the actual free, and `CollectorCensus::unclassed_grace` counts carried blocks too, so `grace_bytes() == retained_bytes()` keeps holding on a quiesced collector. Both are read through two counters the advancer writes (blocks and bytes carried).
+- Under `collector-census`, `UnclassedCounters` gains `freed_blocks` and `freed_bytes`, counted at the free site. `released_*` keep their meaning, blocks taken from a bin by an advance, which a bounded free makes different from freed.
+- Under `collector-census` only, the budget is a per-collector value a test can lower (a hidden setter on `SyncExpanseBlobMap`), so a deterministic test can drive the carry on a 4 KiB-chunk arena. A default build reads the constant.
+
+**Allocation behaviour.** The tail of the bin's list is compacted in place (`Vec::retain`) and moved into the carry list with one `Vec::append`, a bulk move of the remaining elements, not a push per element. The carry list's capacity is kept, never shrunk. `try_advance` therefore allocates only when a carry is larger than every earlier one on that collector: the **first carry does allocate** (the list starts empty), as does a later, larger one. In the steady state of a workload whose compactions retire sets of one size, it does not allocate. The bin's own list is taken and dropped as today.
+
+**Not changed.** The epoch protocol, the grace period, the reader registry, the classed freelists, `retire`, `ADVANCE_EVERY` and `tick_advance`. No mutation entry point is added (AGENTS.md §2.1 invariant 5).
+
+### 42.2 The budget, and its rationale
+
+`UNCLASSED_FREE_BUDGET` = **64 MiB** (67,108,864 B): 32 chunks of the default 2 MiB.
+
+- **Bounds** (`scripts/blob_reclaim_bounds.py`, §8.8 commit 1). The worst measured per-chunk free in README §29.1's Step 0 log is 59.53 µs (`step0_max_dispose_ns_per_chunk`: 30,481,160 ns over 512 chunks, a first compaction's dispose phase on `ExpanseBlobMap`, where each chunk is an `munmap`). At that cost a 64 MiB call frees 32 chunks in **1.905 ms — a projection, not a measurement** (`projected_free_ns_per_call`). The default set at the cap, 512 chunks and the table, drains in 17 calls (`bounded_free_calls`, matched by `bounded_free_calls_bound`), within 608 single-writer operations with no reader pinned (`drain_ops_bound`: (17 + 2) × 32).
+- **Why 64 MiB and not smaller.** G2 below needs the projected per-call free well under 0.25 × the base stall (29.2 ms × 0.25 = 7.3 ms at §29.1's lower figure); 1.905 ms leaves 3.8× margin for a free cost above Step 0's worst. A smaller budget lengthens the drain, which holds freed-in-principle memory longer (G3, G4) and adds calls, for a stall that is already projected far below the gate.
+- **Why not larger.** At 128 MiB the projection is 3.81 ms, half the margin; the drain shortens from 17 calls to 9, which no gate rewards.
+
+### 42.3 Gates
+
+Deterministic, on the pull request:
+
+- **G1, per-call free and drain.** A `collector-census` test (`crates/expanse/tests/test_blob_chunk_free_attribution.rs`, run by `scripts/test_collector_census.sh`) on a 4 KiB-chunk arena of more than 512 chunks, budget lowered to 16 chunks (64 KiB), one writer, no reader:
+  - (a) on every operation after the compaction, `freed_bytes` grows by at most the budget (every block of the set is at most the budget in this geometry, which the test asserts);
+  - (b) the whole set is freed within `drain_ops_bound(bounded_free_calls_bound(set_bytes, set_blocks, max_block, budget))` operations of the compaction, the bound computed in the test by the same formula as the Python;
+  - (c) at least `ceil(set_bytes / budget)` operations free part of the set, so the carry is exercised and the set is not freed on one operation;
+  - each clause shown to fail on its own (AGENTS.md §5, one negative control per clause), and the existing attribution tests re-read against `freed_*` at the default budget, where the 4 KiB set (about 2 MiB) still frees in one call.
+- **G4, retained bytes.** In the same test, `collector_census().unclassed_grace.bytes` is above its pre-compaction value while any of the set is carried and returns to its pre-compaction value within G1's operation bound. Its own negative control.
+- **G5, instructions.** `instructions` arms, PR versus `main` (the `|main_base`, `|rmw_main_base` and `|search_main_base` blocks): **No change at the 0.1% review threshold (AGENTS.md §6; `perf_report.py`'s `NOISE_PCT`) on every arm except `sync_blobmap_reclaim_free`**, which may rise by **at most +0.1%**. Every arm whose count moves at all, below the threshold included, is listed in the pull request with its change. At the 64 MiB default that arm's 2 MiB set frees in one call, so it never reaches the carry path; G5 there measures only the budget bookkeeping on the free loop. The multi-call drain is measured by G1 and G4, not by Callgrind. A rise above 0.1% on that arm, or any change on another arm, falsifies "the bookkeeping is free on the paths that do not carry" and is attributed from a base-versus-head `callgrind_annotate` diff before anything else (AGENTS.md §6).
+- **Plain paths (§2.1 invariant 5).** `try_advance`'s x86_64 disassembly gains no `%fs:`-relative instruction, and no plain-tree insert or remove path changes its count of them (zero). Recorded in the pull request.
+
+Wall-clock, on the reference host — **pending the maintainer's go-ahead; not run by this pull request**:
+
+- **G2, stall.** Suite `reclaim_stall`, `SyncExpanseBlobMap`, W = 1, R = 2, 200,000 live, 5 rounds per build, base (`main` at the pull request's merge base) and head in one dispatch. `H` and `B` are the head's and the base's largest insert latency among inserts that ran no compaction, median over rounds with the BCa 95% interval over rounds (§29.2's estimator). **`PASS` when the upper bound of `H` ≤ 0.25 × the lower bound of `B`; `FAIL` otherwise.** The 3,600,000-live cell is run and reported with its intervals and decides nothing. *Instrument requirement:* `reclaim_stall` records the 8 largest latencies of all inserts, not of inserts that ran no compaction. Before any G2 run it gains, in its own commit, the same top-8 over the inserts whose arena generation did not change across the call, the generation read outside the timed call, at W = 1 only; that change is not a gate.
+- **G3, peak heap.** Same cells: `heap_peak`, median over rounds. **`PASS` when the upper bound of the head's ≤ 1.02 × the lower bound of the base's.**
+
+### 42.4 Falsifiers, and what follows
+
+| Outcome | What follows |
+|---|---|
+| G1 or G4 fails | the rule does not do what §42.1 states; the change does not merge |
+| G5 fails | attributed first; a cost that cannot be removed is disclosed and the change waits for the maintainer's decision, not for an override |
+| G2 `FAIL` | the budgeted free does not remove the stall it targets at 200,000 live; recorded here and on #1481, and the budget is not tuned against the measured value (AGENTS.md §8.19) |
+| G3 `FAIL` | the carry holds memory past the compaction peak; recorded, and the change is reverted unless the maintainer decides otherwise |
+
+### 42.5 Expected outcomes, and what is not predicted
+
+Every reason is a hypothesis.
+
+| Quantity | Expected | Reason |
+|---|---|---|
+| G1 calls on the 4 KiB set at a 64 KiB budget | 33 calls (`bounded_free_calls`, with an 8-byte-over-chunk table as an illustrative size), within the bound's 35 | the greedy rule frees 16 chunks a call |
+| G5 `sync_blobmap_reclaim_free` | a rise of a few instructions per advance, far under 0.1% | one compare per unclassed block and a carry-length check per call |
+| G2 head `H` at 200,000 | near the projection, about 2 ms | 32 chunks a call at Step 0's per-chunk cost |
+| G3 | inside the band | a compaction's peak precedes the free, and the drain ends within 608 operations of millions per cycle |
+
+**Expected losses.** None on the gated quantities. Possible elsewhere: with readers pinned, the carry still drains (carried blocks are past their grace period), but a bin taken while the carry is non-empty carries more; a workload that compacts more often than the drain completes would grow the carry, and none in the suites does.
+
+**Not predicted:** multi-writer drain order; any wall-clock magnitude beyond §42.2's projection; other allocators or chunk sizes; the free's cost on other hosts.
+
+**Silent constants,** fixed here: the 64 MiB budget, the at-least-one-block rule, carry-first order, the census test's 64 KiB budget and 4 KiB chunks, G2's 0.25 factor, G3's 1.02 factor, G5's 0.1% bound on the one arm, §29.2's harness parameters and 5 rounds. Changing any of them after a measurement relabels that result `INTERMEDIATE` (AGENTS.md §8.19).
+
+### 42.6 Expiry
+
+A change to `try_advance`, `retire`, the bins, `ADVANCE_EVERY` or the arena's chunk retirement expires G1, G4 and G5, which are re-run.
+
+### 42.7 G5 on the first engine head, and the re-measured head (appended 2026-10-19, after both runs were observed; §42.1 to §42.6 are not rewritten)
+
+**First head (`759e309e`): G5 `FAIL`.** Run [39210615318](https://github.com/orieg/expanse/actions/runs/39210615318), PR-vs-`main` blocks: 60 arms moved, 15 of them by more than 0.5% (13 in the `|main_base` block, 2 in `|rmw_main_base`); the worst were `sync_blobmap_reclaim_free/random` +2.01% (281,740 against 276,201 instructions) and `sync_set_churn/leaf` +1.42%.
+
+**Attribution** (§42.4's first step; AGENTS.md §6). A probe of 50,000 `SyncExpanseMap` inserts and removes, run under Callgrind (valgrind 3.24, an aarch64 Linux container, not the CI host) at base `e76bb2ef` and at `759e309e`, read with `callgrind_annotate --inclusive=no` and `--auto=yes`:
+
+- The probe gained 1,203,860 instructions over base, 1.02%, as CI's `sync_map_remove` did. Of these, 1,197,450 were `Collector::try_advance`'s own instructions; no other function moved by more than 6,230.
+- Per line, the cost was in the classed-block loop, which every advance runs. The index loop that replaced `for g in stale` cost 178,879 instructions against 55,473, `class_for` 216,462 against 105,516, and the freelist link 251,715 against 100,686.
+- That the loop lost the bin's pointer and length from registers once the vector could be passed `&mut` to the carry helper is read from the line counts and the x86_64 assembly (381 to 466 instructions in `try_advance`); it is not a counter measurement.
+
+**Change, with the thresholds unchanged** (§8.19). Commit `df142e08` reads the stripe's retained bytes after the bin is taken. Every block in the bin was counted there under the bin's lock before its push, so the figure bounds the bin. When the call's frees plus that bound fit the budget, the bin is freed by the base loop unchanged; otherwise the budgeted loop runs out of line. G1 and G4 are unchanged in outcome: 514 blocks over 33 operations, drained at operation 1,064 against a bound of 1,344.
+
+**Re-measured head (`df142e08`, rebased onto `83dc1fb6`): G5 `PASS`.** Run [39229197570](https://github.com/orieg/expanse/actions/runs/39229197570), PR-vs-`main` blocks (`|main_base`, `|rmw_main_base`, `|search_main_base`):
+
+- 331 arms, of which 271 are unchanged.
+- 60 moved, every one below 0.1%. The largest are `sync_set_churn/random` +0.0997%, `sync_set_churn/leaf` +0.0961% and `sync_blobmap_insert_reclaiming/random` +0.0910%.
+- `sync_blobmap_reclaim_free/random` moved +0.0152% (276,243 against 276,201), inside its +0.1% bound.
+- The margin on `sync_set_churn/random` is 0.0003 percentage points. It is a pass at the registered threshold and nothing more.
+
+**The sub-claim G5 also stated is falsified.** §42.3 states that any change on an arm other than `sync_blobmap_reclaim_free` falsifies "the bookkeeping is free on the paths that do not carry". Sixty arms moved, so that claim does not hold: the re-measured head adds a cost below the review threshold on every `sync_*` path that advances. The gate passes at its registered threshold. The residual cost is not attributed by its own profile; the retained-bytes read and the budget comparison after each bin is taken are the only code `df142e08` adds to the path that does not carry, and the probe above measured +40,518 instructions over base on it (+0.034%, aarch64 container, not the CI host).
+
+### 42.8 How G2 and G3 are read, fixed before their run (appended 2026-10-19, before any G2 or G3 dispatch; §42.1 to §42.7 are not rewritten)
+
+The instrument §42.3 requires is commit `661e25c5`: `reclaim_stall --noncompact-top 1` records the 8 largest latencies of inserts across which the arena generation did not change, the generation read under `with_locked` outside the timed call, at W = 1 only; `reclaim_stall.py --free-gate --base-ref REF` builds base and head with the same harness file, one process per build, cell and round, 5 rounds, order rotated per round, one seed per cell and round for both builds, suite `reclaim_stall_free_gate`. Two readings §42.3 leaves implicit are fixed here, before any data:
+
+- **G3 decides at 200,000 live only.** §42.3 gives G3 "the same cells" as G2, and G2 decides at 200,000 live and reports 3,600,000; G3 is read the same way. Its 3,600,000-live figure is reported and decides nothing.
+- **A deciding cell can be `VOID`.** A 200,000-live cell in which any round of either build did not run exactly two compactions, or refused an insert, is `VOID`, reusing §29's window check, and is not read as `PASS` or `FAIL`. A `VOID` cell is re-run once at the same commits; a second `VOID` is reported as the outcome and decides nothing. This rule was not stated in §42.3 and is added here, before any run, so it carries no `INTERMEDIATE` label.
+
+### 42.9 G2 and G3 outcome (appended 2026-10-19, after the run was observed; §42.1 to §42.8 are not rewritten)
+
+One dispatch of suite `reclaim_stall_free_gate`, run [39284534803](https://github.com/orieg/expanse/actions/runs/39284534803): base `83dc1fb6` (the merge base on `main`) and head `b0642d03`, the same harness file in both, 5 rounds per build and cell, on a quiet host (load average 0.21 at dispatch, worst foreign activity during the run 0.14 core-equivalents). No round of either build at either cell lacked its two compactions or refused an insert, so no cell is `VOID`. Artifact: `results/gate_1481_reclaim_free.json`. Medians over rounds with their 95% interval.
+
+| gate | live | head | base | bound | verdict |
+|---|---:|---|---|---:|---|
+| G2, largest non-compaction insert | 200,000 | 2,053,489 ns [2,004,873, 2,119,215] (BCa) | 28,946,338 ns [26,259,406, 29,111,323] (BCa) | 6,564,852 ns | **PASS** |
+| G2 | 3,600,000 | 2,067,835 ns [2,054,479, 2,110,466] (BCa) | 28,943,834 ns [27,624,987, 29,066,561] (BCa) | — | reported |
+| G3, `heap_peak` | 200,000 | 1,108,986,802 B (degenerate) | 1,108,975,170 B (degenerate) | 1,131,154,673 B | **PASS** |
+| G3 | 3,600,000 | 1,683,245,043 B (degenerate) | 1,683,233,411 B (degenerate) | — | reported |
+
+The `heap_peak` interval is degenerate because every round of a build reached the same peak; the head's is 11,632 B above the base's at both cells. With G1, G4 and G5 met (§42.7), every gate of §42.3 is met; G5's free-bookkeeping sub-claim stays falsified as §42.7 records. The head's largest non-compaction insert, about 2.05 ms, sits near §42.2's projected 1.905 ms per budgeted call; the projection was not a gate.

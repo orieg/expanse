@@ -19,6 +19,15 @@
 //!   driver probes the binary with it before any cell, and every measured row
 //!   carries the same two fields.
 //!
+//! `--noncompact-top 1` (sync `overwrite` at `--writers 1` only; METHODOLOGY
+//! §42.3, #1481) adds `insert_top_noncompact_ns`: the 8 largest latencies
+//! of the inserts across which the arena generation did not change, so the
+//! inserts that ran a compaction are left out. The generation is read under
+//! `with_locked` after each insert, outside the timed call, and the reading
+//! after one insert is the reading before the next. The existing
+//! `insert_top_ns` is unchanged. `--cap-mib N` replaces the 1 GiB cap with
+//! N MiB of 2 MiB chunks for the driver's `--quick` smoke run.
+//!
 //! Built with `occ-stats`, a `--map sync` row also carries the window's
 //! `counters` (METHODOLOGY section 37.2): the gate and drain waits, the
 //! `SeqVersion::sample` spins, and the CPU time the window's worker threads
@@ -45,7 +54,7 @@
 //! | `value_dereference` | reads take a pinned zero-copy view and consume its length |
 //! | `measured_region` | `Instant::now()` around each insert and each read, uncalibrated; the prefill and fill are outside every histogram |
 //! | `arm_symmetry` | N/A — one map per process; the two maps are compared only on their own predictions (§29.3) |
-//! | `statistics` | HdrHistogram (3 significant figures) per operation kind per process, plus the 8 largest insert latencies and a counting allocator's peak heap; the driver runs 5 rounds per cell as separate processes and computes BCa intervals over rounds |
+//! | `statistics` | HdrHistogram (3 significant figures) per operation kind per process, plus the 8 largest insert latencies (with `--noncompact-top 1`, also the 8 largest of the inserts that ran no compaction) and a counting allocator's peak heap; the driver runs 5 rounds per cell as separate processes and computes BCa intervals over rounds |
 //! | `verdict` | **PRE-REGISTERED** — METHODOLOGY §29; read by the driver |
 
 use expanse_trie::blobmap::{ArenaError, ExpanseBlobMap};
@@ -115,6 +124,10 @@ const HOT_META: u32 = 1;
 /// arena (`records_per_chunk` and `max_chunks` in
 /// `scripts/blob_reclaim_bounds.py`; the driver checks the cycle against it).
 const ARENA_RECORDS: u64 = 14_563 * 512;
+/// Records of 128 B one 2 MiB chunk holds.
+const RECORDS_PER_CHUNK: u64 = 14_563;
+/// The default arena chunk, which `--cap-mib` divides.
+const CHUNK_BYTES: u64 = 2 << 20;
 const TOP: usize = 8;
 
 struct XorShift64(u64);
@@ -149,8 +162,20 @@ fn hist() -> Histogram<u64> {
 struct Ops {
     hist: Histogram<u64>,
     top: Vec<u64>,
+    /// The largest latencies of the inserts that ran no compaction
+    /// (`--noncompact-top`); empty otherwise.
+    top_noncompact: Vec<u64>,
     ok: u64,
     refused: u64,
+}
+
+/// Inserts `ns` into a descending top-`TOP` list.
+fn push_top(top: &mut Vec<u64>, ns: u64) {
+    if top.len() < TOP || ns > *top.last().expect("non-empty") {
+        let at = top.partition_point(|&t| t >= ns);
+        top.insert(at, ns);
+        top.truncate(TOP);
+    }
 }
 
 impl Ops {
@@ -158,6 +183,7 @@ impl Ops {
         Self {
             hist: hist(),
             top: Vec::with_capacity(TOP + 1),
+            top_noncompact: Vec::with_capacity(TOP + 1),
             ok: 0,
             refused: 0,
         }
@@ -166,11 +192,7 @@ impl Ops {
         self.hist
             .record(ns.clamp(1, 59_999_999_999))
             .expect("in range");
-        if self.top.len() < TOP || ns > *self.top.last().expect("non-empty") {
-            let at = self.top.partition_point(|&t| t >= ns);
-            self.top.insert(at, ns);
-            self.top.truncate(TOP);
-        }
+        push_top(&mut self.top, ns);
     }
     fn merge(&mut self, other: Ops) {
         self.hist.add(other.hist).expect("same bounds");
@@ -179,12 +201,15 @@ impl Ops {
             self.top.insert(at, t);
         }
         self.top.truncate(TOP);
+        for t in other.top_noncompact {
+            push_top(&mut self.top_noncompact, t);
+        }
         self.ok += other.ok;
         self.refused += other.refused;
     }
 }
 
-fn timed_insert<F: FnOnce() -> Result<(), ArenaError>>(ops: &mut Ops, f: F) {
+fn timed_insert<F: FnOnce() -> Result<(), ArenaError>>(ops: &mut Ops, f: F) -> u64 {
     let t = Instant::now();
     let r = f();
     let ns = t.elapsed().as_nanos() as u64;
@@ -196,6 +221,7 @@ fn timed_insert<F: FnOnce() -> Result<(), ArenaError>>(ops: &mut Ops, f: F) {
         Err(ArenaError::OffsetOverflow | ArenaError::ArenaFull) => ops.refused += 1,
         Err(e) => panic!("insert failed with {e:?}"),
     }
+    ns
 }
 
 fn percentiles(h: &Histogram<u64>) -> serde_json::Value {
@@ -394,8 +420,33 @@ fn main() {
             black_box(&m);
         }
         ("sync", "overwrite") | ("sync", "full") => {
-            let m = Arc::new(SyncExpanseBlobMap::new());
             let full = mode == "full";
+            let noncompact = a.0.get("noncompact-top").is_some_and(|v| v == "1");
+            assert!(
+                !noncompact || (!full && writers == 1),
+                "--noncompact-top is defined for one overwrite writer only"
+            );
+            let cap_mib = a.0.get("cap-mib").map(|v| {
+                v.parse::<u64>()
+                    .unwrap_or_else(|_| panic!("--cap-mib must be an integer"))
+            });
+            let (m, arena_records) = match cap_mib {
+                None => (Arc::new(SyncExpanseBlobMap::new()), ARENA_RECORDS),
+                Some(mib) => {
+                    let cap = mib << 20;
+                    assert!(
+                        cap >= 4 * CHUNK_BYTES && cap % CHUNK_BYTES == 0,
+                        "--cap-mib must be a multiple of 2 and at least 8"
+                    );
+                    (
+                        Arc::new(SyncExpanseBlobMap::with_chunk_size_and_max_capacity(
+                            CHUNK_BYTES as usize,
+                            cap as usize,
+                        )),
+                        RECORDS_PER_CHUNK * (cap / CHUNK_BYTES),
+                    )
+                }
+            };
             let live = if full {
                 let mut n = 0u64;
                 loop {
@@ -422,7 +473,7 @@ fn main() {
             let appends = if full {
                 0
             } else {
-                (ARENA_RECORDS - live) * 22 / 10
+                (arena_records - live) * 22 / 10
             };
             let seconds = if full { a.num("seconds") } else { 0 };
             let stop = Arc::new(AtomicBool::new(false));
@@ -454,6 +505,21 @@ fn main() {
                                 let p = payload(k, 1);
                                 timed_insert(&mut ops, || m.insert(k, &p, HOT_META));
                                 i += 1;
+                            }
+                        } else if noncompact {
+                            // The generation after one insert is the one
+                            // before the next; both reads are outside the
+                            // timed call.
+                            let mut g = m.with_locked(|t| t.arena().generation());
+                            for i in 0..share {
+                                let k = rng.next() % live;
+                                let p = payload(k, i + 1);
+                                let ns = timed_insert(&mut ops, || m.insert(k, &p, HOT_META));
+                                let after = m.with_locked(|t| t.arena().generation());
+                                if after == g {
+                                    push_top(&mut ops.top_noncompact, ns);
+                                }
+                                g = after;
                             }
                         } else {
                             for i in 0..share {
@@ -510,6 +576,12 @@ fn main() {
             row["arena_total_allocated"] = arena_total.into();
             row["insert"] = percentiles(&ops.hist);
             row["insert_top_ns"] = ops.top.clone().into();
+            if noncompact {
+                row["insert_top_noncompact_ns"] = ops.top_noncompact.clone().into();
+            }
+            if let Some(mib) = cap_mib {
+                row["cap_mib"] = mib.into();
+            }
             row["inserts_ok"] = ops.ok.into();
             row["inserts_refused"] = ops.refused.into();
             row["read"] = percentiles(&reads);
