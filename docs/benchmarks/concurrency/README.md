@@ -5689,7 +5689,12 @@ threads included. Ranges are per compaction across rounds:
   (30.4–32.6 ms). §29's P1 therefore measured the collector's free, not a
   compaction, in its 200,000-record sync cells. That is also why P3 read
   `MIXED` there: readers wait for the compaction, about 16 ms, and not for
-  the free. Which code path runs the free is not separated by this probe.
+  the free. Which code path runs the free is not separated by this probe;
+  `crates/expanse/tests/test_blob_chunk_free_attribution.rs` separates it
+  deterministically, with one writer and no reader, on a 512-chunk arena of
+  4 KiB chunks: the compacting insert retires the whole chunk set and frees
+  none of it, and one later plain insert frees all of it in
+  `Collector::try_advance`, the one caller of the counted take (Refs #1481).
 - **What item 2 can remove from readers.** Collect and phase 1 do not write
   the index. Running them with writers excluded and the reader bracket closed
   leaves phase 2 and the publish inside the bracket: 1.4–1.7 ms at 200,000 and
