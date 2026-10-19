@@ -2597,7 +2597,7 @@ jobs:
           python -m pip install --require-hashes -r .github/requirements/python-bindings.txt
 
       - name: Build and install expanse-trie
-        run: pip install .
+        run: pip install --no-deps --no-build-isolation .
 
       - name: Run Pytest suite
         run: pytest tests/test_python_bindings.py -v

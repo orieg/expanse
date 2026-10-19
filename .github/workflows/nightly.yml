@@ -435,7 +435,7 @@ jobs:
       - name: Build and install Python extension
         run: |
           python -m pip install --require-hashes -r .github/requirements/python-bindings.txt
-          pip install .
+          pip install --no-deps --no-build-isolation .
 
       - name: Build WASM pkg (Node target)
         run: |
