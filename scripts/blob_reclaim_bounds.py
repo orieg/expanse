@@ -999,7 +999,15 @@ def self_test() -> int:
             pass
         else:
             raise AssertionError("invalid input accepted")
-    # #1481 item 1: the bounded free of a retired chunk set.
+    # #1481 item 1: the bounded free of a retired chunk set. The engine's
+    # budget and advance interval are the ones modelled here.
+    occ_src = (REPO_ROOT / "crates" / "expanse" / "src" / "occ.rs").read_text()
+    assert "pub(crate) const UNCLASSED_FREE_BUDGET: usize = 64 << 20;" in occ_src, \
+        "occ.rs UNCLASSED_FREE_BUDGET no longer reads 64 << 20"
+    assert 64 << 20 == CHUNK_FREE_BUDGET
+    sync_src = (REPO_ROOT / "crates" / "expanse" / "src" / "sync.rs").read_text()
+    assert re.search(r"pub\(crate\) const ADVANCE_EVERY: u\w+ = 32;", sync_src), \
+        "sync.rs ADVANCE_EVERY is no longer 32"
     # Step 0's plain-map dispose phase, per chunk: the first compactions'
     # munmap-per-chunk frees are the worst case.
     disp = step0_dispose_ns_per_chunk()

@@ -1356,7 +1356,9 @@ pub struct CollectorCensus {
     pub classes: Vec<ClassCensus>,
     /// Retired blocks in their grace period that no size class serves (for
     /// example string-map suffix leaves). They never reach a freelist: the
-    /// advance that ends their grace period returns them to the allocator.
+    /// advance that ends their grace period returns them to the allocator,
+    /// up to its per-call budget, and carries the rest to later advances
+    /// (#1481). Carried blocks are counted here until they are freed.
     pub unclassed_grace: BlockTally,
     /// Freelist blocks per writer stripe, every class summed. A reclaimed
     /// block goes to the freelist of the stripe that retired it and is
@@ -1432,12 +1434,19 @@ pub struct UnclassedCounters {
     pub retired_blocks: u64,
     /// Their bytes.
     pub retired_bytes: u64,
-    /// Blocks returned to the allocator by the epoch advance that ended
-    /// their grace period. Counted when the advance takes them from their
-    /// bin, under the bin's lock; the free follows once the lock is dropped.
+    /// Blocks the epoch advance that ended their grace period took from
+    /// their bin, under the bin's lock. The advance frees them up to its
+    /// per-call budget and carries the rest to later advances (#1481), so a
+    /// block counted here may not be freed yet: see [`Self::freed_blocks`].
     pub released_blocks: u64,
     /// Their bytes.
     pub released_bytes: u64,
+    /// Blocks an epoch advance returned to the allocator, counted at the
+    /// free: on the advance that took them, or on a later one that freed
+    /// them from the carry list. `drain` counts nothing.
+    pub freed_blocks: u64,
+    /// Their bytes.
+    pub freed_bytes: u64,
 }
 
 /// An epoch collector's cumulative block counters (feature
@@ -1823,6 +1832,55 @@ pub(crate) fn line<X>(x: X) -> Line<X> {
     x
 }
 
+/// Bytes of blocks no size class serves (arena chunks, chunk tables) that one
+/// [`Collector::try_advance`] call frees at most, past the first block it
+/// frees (#1481, METHODOLOGY §42). Blocks over the budget are carried to the
+/// next calls. 32 chunks of the default 2 MiB: one compaction at the default
+/// cap retires 512 of them, which one call used to free together.
+#[cfg(feature = "std")]
+pub(crate) const UNCLASSED_FREE_BUDGET: usize = 64 << 20;
+
+/// Unclassed blocks past their grace period that an epoch advance took from
+/// a bin but did not free within its budget (#1481).
+///
+/// Touched only by the thread holding `Collector::advancing`, the advancer
+/// try-lock: `try_advance` after winning it, `drain` after spinning for it.
+/// One list per collector, so nothing is buffered per thread (AGENTS.md
+/// §2.6 item 1), and no lock is added.
+///
+/// Allocation: a carry moves a bin's leftover tail in with one `append`, and
+/// the list's capacity is never shrunk, so the list allocates only when a
+/// carry is larger than every earlier one on this collector — the first
+/// carry does. Frees pop from the end, which never allocates.
+#[cfg(feature = "std")]
+struct Carry(core::cell::UnsafeCell<Vec<Garbage>>);
+
+// SAFETY: the list is only read or written by the holder of
+// `Collector::advancing`, which is acquired with an `Acquire` CAS and
+// released with a `Release` store, so every access happens-after the previous
+// holder's. `Garbage` is `Send`.
+#[cfg(feature = "std")]
+unsafe impl Sync for Carry {}
+
+// The `UnsafeCell` would otherwise make `Collector`, and every public type
+// that holds one, `!RefUnwindSafe`. A panic inside the advancer leaves the
+// list holding only blocks it still owns: a block is popped before it is
+// freed and appended after it was taken, so no block is freed twice or lost
+// to a later advance; at worst `carried_*` misreport until the next one.
+#[cfg(feature = "std")]
+impl core::panic::RefUnwindSafe for Carry {}
+#[cfg(feature = "std")]
+impl core::panic::UnwindSafe for Carry {}
+
+#[cfg(feature = "std")]
+impl core::fmt::Debug for Carry {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // The list is not read here: only the advancer may touch it. Its
+        // size is `Collector::carried_blocks`.
+        f.write_str("Carry")
+    }
+}
+
 /// Epoch-based reclamation for one tree: readers pin the current epoch
 /// around each walk; retired allocations wait two epoch advances before
 /// they are freed, so a pinned reader can never observe freed memory.
@@ -1846,6 +1904,20 @@ pub struct Collector {
     freelists: [Mutex<FreeListHead>; NUM_CLASSES],
     #[cfg(not(feature = "ablation-unstriped-freelist"))]
     freelists: [PaddedFreelists; NUM_FREELIST_STRIPES],
+    // Cold fields, after every hot one: the advancer's carry list (#1481)
+    // and the two counters that let readers of `retained_bytes` and
+    // `census` see what it holds without touching it.
+    carry: Carry,
+    /// Blocks on the carry list. Written only by the advancer.
+    carried_blocks: AtomicUsize,
+    /// Their bytes, counted in `retained_bytes()` until they are freed.
+    carried_bytes: AtomicUsize,
+    /// The per-call budget a `collector-census` test may lower.
+    #[cfg(feature = "collector-census")]
+    free_budget: AtomicUsize,
+    /// Unclassed blocks and bytes an advance freed, counted at the free.
+    #[cfg(feature = "collector-census")]
+    freed_unclassed: [AtomicU64; 2],
     #[cfg(test)]
     registrations: core::sync::atomic::AtomicU64,
 }
@@ -1875,8 +1947,141 @@ impl Collector {
             freelists: core::array::from_fn(|_| {
                 PaddedFreelists(core::array::from_fn(|_| Mutex::new(FreeListHead::empty())))
             }),
+            carry: Carry(core::cell::UnsafeCell::new(Vec::new())),
+            carried_blocks: AtomicUsize::new(0),
+            carried_bytes: AtomicUsize::new(0),
+            #[cfg(feature = "collector-census")]
+            free_budget: AtomicUsize::new(UNCLASSED_FREE_BUDGET),
+            #[cfg(feature = "collector-census")]
+            freed_unclassed: [AtomicU64::new(0), AtomicU64::new(0)],
             #[cfg(test)]
             registrations: core::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// The per-call budget for unclassed frees: [`UNCLASSED_FREE_BUDGET`],
+    /// or what a `collector-census` test set.
+    #[inline(always)]
+    fn free_budget(&self) -> usize {
+        #[cfg(feature = "collector-census")]
+        {
+            self.free_budget.load(Ordering::Relaxed)
+        }
+        #[cfg(not(feature = "collector-census"))]
+        {
+            UNCLASSED_FREE_BUDGET
+        }
+    }
+
+    /// Sets the per-call budget for unclassed frees (feature
+    /// `collector-census`), so a test can drive the carry list on small
+    /// chunks. Clamped to at least one byte; a call still frees at least one
+    /// block whatever the budget.
+    #[cfg(feature = "collector-census")]
+    #[doc(hidden)]
+    pub fn set_free_budget(&self, bytes: usize) {
+        self.free_budget.store(bytes.max(1), Ordering::Relaxed);
+    }
+
+    /// Counts one unclassed block freed by an advance (feature
+    /// `collector-census`); a no-op without the feature.
+    #[inline(always)]
+    #[cfg_attr(not(feature = "collector-census"), allow(unused_variables))]
+    fn count_unclassed_freed(&self, bytes: usize) {
+        #[cfg(feature = "collector-census")]
+        {
+            self.freed_unclassed[0].fetch_add(1, Ordering::Relaxed);
+            self.freed_unclassed[1].fetch_add(bytes as u64, Ordering::Relaxed);
+        }
+    }
+
+    /// Frees carried blocks from the end of `carry` while the budget allows,
+    /// at least one, and returns the bytes freed. The caller holds
+    /// `advancing` and passes the carry list it borrowed under it.
+    #[cold]
+    #[inline(never)]
+    fn free_carried(&self, carry: &mut Vec<Garbage>, budget: usize) -> usize {
+        let mut freed = 0usize;
+        let mut blocks = 0usize;
+        while let Some(g) = carry.last() {
+            if freed != 0 && freed.saturating_add(g.bytes) > budget {
+                break;
+            }
+            let (ptr, bytes, align) = (g.ptr, g.bytes, g.align);
+            carry.pop();
+            free_raw(ptr, bytes, align);
+            self.count_unclassed_freed(bytes);
+            freed += bytes;
+            blocks += 1;
+        }
+        // Capacity is kept: a later carry reuses it without allocating.
+        self.carried_blocks.fetch_sub(blocks, Ordering::Relaxed);
+        self.carried_bytes.fetch_sub(freed, Ordering::Relaxed);
+        crate::occ_stats::record_reclaim(freed);
+        freed
+    }
+
+    /// Moves the unclassed blocks of `stale[first..]` onto the carry list,
+    /// after reclaiming its classed blocks to `stripe`'s freelists as the
+    /// advance would have, and returns `(reclaimed, carried)`: the bytes of
+    /// the classed blocks reclaimed and of the blocks carried.
+    /// `stale[..first]` was already processed by the caller. The caller holds
+    /// `advancing`.
+    ///
+    /// No per-element push: the processed prefix is dropped and the classed
+    /// blocks removed in place, and the remaining tail is moved with one
+    /// `append`, which allocates only when the carry list's kept capacity is
+    /// short (the first carry, or a larger one than any before).
+    #[cold]
+    #[inline(never)]
+    fn carry_tail(
+        &self,
+        carry: &mut Vec<Garbage>,
+        stale: &mut Vec<Garbage>,
+        first: usize,
+        stripe: usize,
+    ) -> (usize, usize) {
+        stale.drain(..first);
+        let mut reclaimed = 0usize;
+        let mut carried = 0usize;
+        stale.retain(|g| {
+            if let Some(class) = class_for(g.bytes, g.align) {
+                self.reclaim_block(g, stripe, class);
+                reclaimed += g.bytes;
+                false
+            } else {
+                carried += g.bytes;
+                true
+            }
+        });
+        // Counted before the caller subtracts the stripe's share, so
+        // `retained_bytes()` never reads the carried bytes as freed.
+        self.carried_blocks
+            .fetch_add(stale.len(), Ordering::Relaxed);
+        self.carried_bytes.fetch_add(carried, Ordering::Relaxed);
+        carry.append(stale);
+        (reclaimed, carried)
+    }
+
+    /// Pushes a classed block past its grace period onto `stripe`'s
+    /// freelist of `class`.
+    #[inline(always)]
+    fn reclaim_block(&self, g: &Garbage, stripe: usize, class: usize) {
+        let block = g.ptr.as_ptr().cast::<FreeBlock>();
+        let mut head = self
+            .reclaim_freelist(stripe, class)
+            .lock()
+            .expect("freelist poisoned");
+        // SAFETY: block was retired by a well-aligned allocation
+        // matching this size class, and grace period elapsed.
+        unsafe {
+            (*block).next = head.0;
+        }
+        head.0 = block;
+        #[cfg(feature = "collector-census")]
+        {
+            head.1.len += 1;
+            head.1.reclaimed += 1;
         }
     }
 
@@ -2110,6 +2315,18 @@ impl Collector {
         }
         let _guard = AdvancingGuard(&self.advancing);
 
+        // Unclassed frees this call may make (#1481): carried blocks first,
+        // whatever the readers do (they are past their grace period), then
+        // the stale bin's, while the budget lasts; at least one block.
+        let budget = self.free_budget();
+        // SAFETY: `advancing` is held (won above, released by `_guard`), so
+        // this is the only live reference to the carry list (see `Carry`).
+        let carry = unsafe { &mut *self.carry.0.get() };
+        let mut freed = 0usize;
+        if !carry.is_empty() {
+            freed = self.free_carried(carry, budget);
+        }
+
         let e = self.epoch.load(Ordering::Relaxed);
         // Store-buffer pairing with `Reader::pin` (its slot store /
         // epoch load run against our epoch store / slot loads): the
@@ -2148,11 +2365,14 @@ impl Collector {
             if !p_bin.nonempty.load(Ordering::Relaxed) {
                 continue;
             }
-            let stale = p_bin.take::<false>();
+            let mut stale = p_bin.take::<false>();
             let mut freed_bytes = 0;
-            for g in stale {
-                freed_bytes += g.bytes;
+            let mut carried = 0;
+            let mut i = 0;
+            while i < stale.len() {
+                let g = &stale[i];
                 if let Some(class) = class_for(g.bytes, g.align) {
+                    freed_bytes += g.bytes;
                     let block = g.ptr.as_ptr().cast::<FreeBlock>();
                     let mut head = self
                         .reclaim_freelist(stripe, class)
@@ -2169,13 +2389,26 @@ impl Collector {
                         head.1.len += 1;
                         head.1.reclaimed += 1;
                     }
-                } else {
+                } else if freed == 0 || freed.saturating_add(g.bytes) <= budget {
+                    freed_bytes += g.bytes;
+                    freed += g.bytes;
                     free_raw(g.ptr, g.bytes, g.align);
+                    self.count_unclassed_freed(g.bytes);
+                } else {
+                    // Over budget: this block and the rest of the stripe's
+                    // unclassed blocks wait on the carry list.
+                    let reclaimed;
+                    (reclaimed, carried) = self.carry_tail(carry, &mut stale, i, stripe);
+                    freed_bytes += reclaimed;
+                    break;
                 }
+                i += 1;
             }
+            // Everything taken leaves the stripe's count; what was carried
+            // stays in `carried_bytes`, which `carry_tail` raised first.
             self.retained_bytes[stripe]
                 .0
-                .fetch_sub(freed_bytes, Ordering::Relaxed);
+                .fetch_sub(freed_bytes + carried, Ordering::Relaxed);
             crate::occ_stats::record_reclaim(freed_bytes);
         }
     }
@@ -2187,7 +2420,9 @@ impl Collector {
     /// blocks transition to collector size-class freelists for reuse).
     #[must_use]
     pub fn retained_bytes(&self) -> usize {
-        let mut sum: usize = 0;
+        // Blocks on the advancer's carry list are past their grace period
+        // but not freed yet (#1481): counted until the free.
+        let mut sum: usize = self.carried_bytes.load(Ordering::Relaxed);
         for s in self.retained_bytes.iter() {
             sum += s.0.load(Ordering::Relaxed);
         }
@@ -2246,6 +2481,32 @@ impl Collector {
                 crate::occ_stats::record_reclaim(freed_bytes);
             }
         }
+        // The carry list, under the advancer try-lock: a `try_advance` still
+        // running on another thread (a writer that outlives the last reader)
+        // finishes first. Counts nothing, as the bins' drain above.
+        while self
+            .advancing
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            #[cfg(loom)]
+            loom::thread::yield_now();
+            #[cfg(not(loom))]
+            core::hint::spin_loop();
+        }
+        // SAFETY: `advancing` is held, so this is the only reference to the
+        // carry list (see `Carry`).
+        let carry = unsafe { &mut *self.carry.0.get() };
+        let mut carried_bytes = 0;
+        for g in carry.drain(..) {
+            carried_bytes += g.bytes;
+            free_raw(g.ptr, g.bytes, g.align);
+        }
+        self.carried_blocks.store(0, Ordering::Relaxed);
+        self.carried_bytes
+            .fetch_sub(carried_bytes, Ordering::Relaxed);
+        crate::occ_stats::record_reclaim(carried_bytes);
+        self.advancing.store(false, Ordering::Release);
         self.release_free_lists_as::<true>();
     }
 
@@ -2387,6 +2648,13 @@ impl Collector {
                 }
             }
         }
+        // Unclassed blocks an advance took but has not freed yet, on its
+        // carry list (#1481): read through the advancer's counters, since
+        // only the advancer may touch the list.
+        unclassed_grace.add(
+            self.carried_blocks.load(Ordering::Relaxed),
+            self.carried_bytes.load(Ordering::Relaxed),
+        );
         CollectorCensus {
             classes,
             unclassed_grace,
@@ -2440,6 +2708,8 @@ impl Collector {
                 unclassed.released_bytes += c.unclassed.released_bytes;
             }
         }
+        unclassed.freed_blocks = self.freed_unclassed[0].load(Ordering::Relaxed);
+        unclassed.freed_bytes = self.freed_unclassed[1].load(Ordering::Relaxed);
         CollectorCounters { classes, unclassed }
     }
 }
@@ -2819,6 +3089,71 @@ mod tests {
         drop(r1);
         c.try_advance();
         assert_eq!(c.epoch.load(Ordering::Relaxed), epoch_before + 2);
+    }
+
+    /// #1481: an advance frees unclassed blocks up to `UNCLASSED_FREE_BUDGET`
+    /// (at least one), carries the rest, counts carried blocks in
+    /// `retained_bytes` and the census until they are freed, frees them on
+    /// the next advance even while a reader blocks the epoch, and `drain`
+    /// frees what is still carried (LeakSanitizer sees a leak otherwise).
+    /// Three blocks of 24 MiB: two fit 64 MiB, the third is carried.
+    #[test]
+    #[cfg_attr(miri, ignore = "allocates 72 MiB")]
+    fn collector_bounded_unclassed_free_carries_the_rest() {
+        const BIG: usize = 24 << 20;
+        const _: () = assert!(2 * BIG <= UNCLASSED_FREE_BUDGET && 3 * BIG > UNCLASSED_FREE_BUDGET);
+        assert!(class_for(BIG, TEST_ALIGN).is_none());
+        let carried = |c: &Collector| {
+            (
+                c.carried_blocks.load(Ordering::Relaxed),
+                c.carried_bytes.load(Ordering::Relaxed),
+            )
+        };
+        for drain_with_carry in [false, true] {
+            let c = Arc::new(Collector::new());
+            for _ in 0..3 {
+                // SAFETY: a fresh `(BIG, TEST_ALIGN)` global allocation,
+                // never published.
+                unsafe { c.retire(alloc_test_block(BIG), BIG, TEST_ALIGN) };
+            }
+            c.try_advance(); // epoch 0 -> 1: frees bin 2, empty
+            assert_eq!(c.retained_bytes(), 3 * BIG);
+            // Pinned at epoch 1: allows the next advance, blocks the one after.
+            let reader = c.register();
+            let pin = reader.pin();
+            c.try_advance(); // epoch 1 -> 2: takes bin 0, frees two, carries one
+            assert_eq!(carried(&c), (1, BIG));
+            assert_eq!(c.retained_bytes(), BIG, "a carried block is retained");
+            let census = c.census();
+            assert_eq!(
+                census.unclassed_grace,
+                BlockTally {
+                    blocks: 1,
+                    bytes: BIG
+                }
+            );
+            assert_eq!(census.grace_bytes(), c.retained_bytes());
+            assert_eq!(c.epoch_now(), 2);
+            if drain_with_carry {
+                // Dropping the collector drains the carry list.
+                drop(pin);
+                drop(reader);
+                drop(c);
+                continue;
+            }
+            // The reader lags at epoch 1: the epoch stays, the carried
+            // block, past its grace period, is freed anyway.
+            c.try_advance();
+            assert_eq!(
+                c.epoch_now(),
+                2,
+                "the lagging reader did not block the advance"
+            );
+            assert_eq!(carried(&c), (0, 0));
+            assert_eq!(c.retained_bytes(), 0);
+            drop(pin);
+            drop(reader);
+        }
     }
 
     #[test]
