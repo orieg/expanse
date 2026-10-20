@@ -6886,3 +6886,62 @@ Every reason is a hypothesis.
 ### 43.7 Expiry
 
 A change to a shared-twin or optimistic write path of the string map, to `AllocShard`, or to `new_suffix` or `dispose_*` expires G1, G2 and G5, which are then re-run.
+
+### 43.8 G1 outcome: FAIL (appended 2026-10-20, after the runs were observed; §43.1 to §43.7 are not rewritten)
+
+**G1 at `999303f4`: `FAIL`.** Run [39427869070](https://github.com/orieg/expanse/actions/runs/39427869070), PR-vs-`main` blocks (`|main_base`, `|rmw_main_base`, `|search_main_base`). The job's own guard tripped: 7 arms above 0.5%, worst +1.99%.
+
+Arms with a §43.4 bound:
+
+| arm | measured | bound | verdict |
+|---|---:|---:|---|
+| `sync_strmap_insert/routes` | +1.994% | +0.581% | over |
+| `sync_strmap_remove/routes` | +0.305% | +0.169% | over |
+| `sync_strmap_insert_short/short` | +1.060% | +1.225% | within |
+| `sync_strmap_insert_sorted/uuid` | +0.934% | +1.037% | within |
+| `sync_strmap_churn_short/short` | +0.862% | +1.025% | within |
+| `sync_strmap_cas_insert/routes` | −1.555% | +0.445% | within (a fall) |
+
+Arms gated at No change (|Δ| ≤ 0.1%) that moved past it:
+
+| arm | measured |
+|---|---:|
+| `sync_strmap_churn/routes` (no event) | +1.098% |
+| `sync_strmap_cas` | −2.834% |
+| `sync_strmap_update_rmw` | −1.690% |
+| `strmap_insert/routes` | +0.621% |
+| `strmap_churn/routes` | +0.535% |
+| `strmap_clear_refill/routes` | +0.478% |
+| `strmap_refill_small/routes` | +0.306% |
+| `domain_dict_insert/routes` | +0.302% |
+| `strmap_refill/routes` | +0.257% |
+| `strmap_raw_insert/clean` | +0.232% |
+| `strmap_transcode_insert/clean` | +0.213% |
+| `ordered_bytesmap_insert/escaped` | +0.214% |
+| `ordered_bytesmap_insert/clean` | +0.211% |
+| `strmap_transcode_insert/escaped` | +0.141% |
+| `strmap_oscillate/routes` | −0.138% |
+
+The `|search_main_base` block shows 50 of 50 unchanged; every non-string arm is unchanged.
+
+**G2** (thread-local accesses) is met on the letter at this head: no function that exists in both builds changed its count. But two existing bodies moved out of their callers with their accesses, which §43.4 did not anticipate: `olc_compare_exchange::{closure#2}` (4) and `compare_exchange_observed::{closure#1}::{closure#0}` (1, replacing a `str_optimistic` monomorph's 1). **G3, G4 and G5 are met** (the pull request records their negative controls).
+
+**Attribution** (§43.5's first step; AGENTS.md §6). The instrument is Callgrind under valgrind 3.24.0 with rustc 1.99, in a container on an x86_64 development host (not the CI host). It reproduced the CI deltas of this head within 0.03 percentage points on every listed arm, for example `sync_strmap_insert/routes` +2.011% against CI's +1.994%. It was read with `callgrind_annotate --inclusive=no` and `--auto=yes`, against base `9a27dd3e`.
+
+- **The counted events cost what §43.4 allowed.** On `sync_strmap_insert_short`, whose 50,001 events are nearly all of its change, CI measured +1,037,936 instructions, which is 20.8 per event against the 24 allowed.
+- **The excess is codegen in the functions that host the event sites, not the events.**
+  - `sync_strmap_churn/routes` makes no counted event, yet it gained 2,076,240 instructions, all inside `ExpanseStrMap::olc_insert`: about 19 per call over its 100,000 calls. Per line, the gain sits in the function's prologue and in instructions with no source line (register spills and reloads), plus thread-local and `OnceLock` loads that moved.
+  - `sync_strmap_insert/routes` pays the same per-call shift on 50,000 calls on top of its 18,757 events.
+- **The plain arms move for the same reason.** `ExpanseStrMap::insert` and `::remove` each hold the plain twin and an inlined shared twin in one function. Neither plain twin's source changed. The x86_64 assembly of `insert` changed in 1,291 of 1,785 lines, and the key pointer moved from a register to a stack slot at entry. This is AGENTS.md §2.1 invariant 5's hazard: concurrency-only code in a function that a plain path runs.
+- **The `rmw` falls** come from the compare-exchange path re-inlining (`Shared::str_optimistic` into `SyncExpanseStrMap::compare_exchange`), as G2 records.
+
+**Two code changes were measured against the same bounds** (the same instrument, not CI). Neither was pushed.
+
+| change | what moved | G1 verdict |
+|---|---|---|
+| A1: out-of-line `new_suffix_shared`, `dispose_suffix_shared` and `dispose_node_shared` | Plain arms improve but still pass 0.1%: `strmap_raw_insert` +0.216%, `strmap_transcode_insert/clean` +0.198%, `ordered_bytesmap_insert/clean` +0.197%, `strmap_oscillate` +0.148%, `strmap_insert` +0.123%. `sync_strmap_churn/routes` +0.500%. The bounded arms rise: `insert_short` +2.102%, `insert_sorted` +1.744%, `churn_short` +1.632%, `insert/routes` +1.345%. | FAIL. Each event now costs about 41 instructions: 17 in `NodeAlloc::account_unmanaged`, plus the wrapper's call. |
+| A2: A1 plus `#[inline(never)]` on `insert_shared`, `ins_slot_shared` and `remove_shared` | The plain functions are recompiled without the shared twin and get worse: `strmap_oscillate` +1.330%, `strmap_insert` +1.049%, `strmap_raw_insert` +0.975%. | FAIL |
+
+**Verdict: the change as built is rejected on G1.** The accounting costs what was pre-registered. Its placement inside functions shared with the plain twins, and inside `olc_insert`, moves codegen on paths that make no event. Neither re-placement tried here removes that. The bounds are not moved (AGENTS.md §8.19). Following §43.5, the pull request is left unmerged for the maintainer's decision.
+
+**Not predicted correctly in §43.6.** `sync_strmap_mem_used_estimate` costs about 6,827 instructions per read on both maps, not "a few hundred". The fold runs over 64 writer slots (`occ::MAX_WRITER_SLOTS`), not 16. That is still about 570 times fewer than `sync_strmap_mem_used/routes` (3,884,760 per read, run 39394551086).
