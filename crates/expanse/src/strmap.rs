@@ -253,6 +253,7 @@ fn charge_shell(alloc: &NodeAlloc) {
 }
 
 /// A shell was freed or retired on a shared map.
+#[cfg(feature = "std")]
 #[inline(always)]
 fn discharge_shell(alloc: &NodeAlloc) {
     alloc.account_unmanaged(-(size_of::<StrNode>() as isize));
@@ -273,6 +274,7 @@ fn charge_suffix(alloc: &NodeAlloc, len: usize) {
 /// # Safety
 ///
 /// `ptr` is a live suffix leaf (its write-once `len` is read).
+#[cfg(feature = "std")]
 #[inline(always)]
 unsafe fn discharge_suffix(alloc: &NodeAlloc, ptr: *const StrSuffix) {
     if !SUFFIX_IN_NODE_ALLOC {
