@@ -255,6 +255,9 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_strmap_scan_locked": 50_000,
     "sync_strmap_next_after_scan_locked": 50_000,
     "sync_strmap_scan_pointops": 50_000,
+    # Whole-tree memory reads through the string wrapper (#1586): each
+    # `mem_used` walks every shell and suffix leaf; MEM_USED_READS = 4.
+    "sync_strmap_mem_used": 4,
     "sync_bytesmap_insert": 50_000,
     "sync_bytesmap_remove": 50_000,
     "sync_bytesmap_churn": 50_000,
@@ -462,6 +465,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_strmap_scan_locked",
             "sync_strmap_next_after_scan_locked",
             "sync_strmap_scan_pointops",
+            "sync_strmap_mem_used",
             "strmap_transcode_cursor",
             "ordered_bytesmap_cursor",
             "ordered_bytesmap_cursor_into",
