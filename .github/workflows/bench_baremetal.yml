@@ -84,6 +84,7 @@ on:
           - ycsb_concurrent
           - reclaim_stall
           - reclaim_stall_free_gate
+          - strmap_poll_stall
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
@@ -1571,6 +1572,15 @@ jobs:
                   --base-ref "$BASE_REF" \
                   --out docs/benchmarks/concurrency/results/gate_1481_reclaim_free.json | tee reclaim_stall.txt
                 ;;
+              "strmap_poll_stall")
+                # METHODOLOGY §44 (#1586): the stall a periodic
+                # SyncExpanseStrMap::mem_used() reading puts on W writers. One
+                # process per (cell, arm, round), 5 rotated rounds, then an
+                # untimed occ-stats pass; the driver places the poller and the
+                # writers one per core within the pin and prints S1 and M1.
+                python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py \
+                  --out docs/benchmarks/concurrency/results/baseline_strmap_poll_stall.json | tee strmap_poll_stall.txt
+                ;;
               "all")
                 if [ -f base-instructions.txt ]; then
                   cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
@@ -2160,6 +2170,10 @@ jobs:
                 echo '```text'
                 cat reclaim_stall.txt
                 echo '```'
+              elif [ -f strmap_poll_stall.txt ]; then
+                echo '```text'
+                cat strmap_poll_stall.txt
+                echo '```'
               elif [ -f bench-output.txt ]; then
                 # Wall-clock output from a manifest-declared generic suite.
                 echo '```text'
@@ -2203,6 +2217,10 @@ jobs:
             elif [ -f reclaim_stall.txt ]; then
               echo '```text' >> "$GITHUB_STEP_SUMMARY"
               cat reclaim_stall.txt >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            elif [ -f strmap_poll_stall.txt ]; then
+              echo '```text' >> "$GITHUB_STEP_SUMMARY"
+              cat strmap_poll_stall.txt >> "$GITHUB_STEP_SUMMARY"
               echo '```' >> "$GITHUB_STEP_SUMMARY"
             elif [ -f bench-output.txt ]; then
               echo '```text' >> "$GITHUB_STEP_SUMMARY"
@@ -2338,6 +2356,8 @@ jobs:
             reclaim_stall.txt \
             docs/benchmarks/concurrency/results/baseline_reclaim_stall.json \
             docs/benchmarks/concurrency/results/gate_1481_reclaim_free.json \
+            strmap_poll_stall.txt \
+            docs/benchmarks/concurrency/results/baseline_strmap_poll_stall.json \
             docs/benchmarks/concurrency/results/baseline_writer_scaling.json \
             docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json \
             docs/benchmarks/concurrency/results/ablation_unsharded_alloc_writer_scaling.json \

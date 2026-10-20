@@ -70,6 +70,10 @@ DIRECT_HARNESSES = {
     "docs/benchmarks/concurrency/scripts/reclaim_stall.py":
         "the #1300 reclaim stall measurement (METHODOLOGY §29); applies the pin itself, confines each "
         "cell's process to it through bench_pin.child_affinity, and refuses a row whose CPUs differ",
+    "docs/benchmarks/concurrency/scripts/strmap_poll_stall.py":
+        "the #1586 string-map memory-reading stall (METHODOLOGY §44); applies the pin itself, confines each "
+        "cell's process to it, places the poller and writers one per core within it, and refuses a row "
+        "whose CPUs or placement differ",
     "docs/benchmarks/concurrency/scripts/ycsb_concurrent.py":
         "the concurrent YCSB scaling instrument across physical P-cores (#1006)",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py":
