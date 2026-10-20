@@ -896,6 +896,10 @@ jobs:
           # (concurrency METHODOLOGY section 39): the W = 1 instruction bound,
           # the borrowed paired-ratio spread and the round count it needs.
           python3 scripts/update_registration_bounds.py --self-test
+          # strmap_estimate_bounds.py counts the shell and suffix events each
+          # sync_strmap_* Callgrind arm makes, for the #1586 instruction bounds
+          # (concurrency METHODOLOGY section 43).
+          python3 scripts/strmap_estimate_bounds.py --self-test
           python3 scripts/set_algebra_bounds.py
           python3 scripts/set_domain_bounds.py
           python3 scripts/shrink_rss_bounds.py

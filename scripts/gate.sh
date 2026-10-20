@@ -211,6 +211,7 @@ python3 scripts/batch_cursor_bounds.py --self-test
 python3 scripts/str_cursor_bounds.py --self-test
 python3 scripts/blob_peak_bounds.py --self-test
 python3 scripts/update_registration_bounds.py --self-test
+python3 scripts/strmap_estimate_bounds.py --self-test
 python3 scripts/shrink_rss_bounds.py
 (cd scripts && python3 -m unittest patricia_d2_bounds)
 python3 scripts/allocator_overhead_bench.py --self-test
