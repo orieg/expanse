@@ -6945,3 +6945,72 @@ The `|search_main_base` block shows 50 of 50 unchanged; every non-string arm is 
 **Verdict: the change as built is rejected on G1.** The accounting costs what was pre-registered. Its placement inside functions shared with the plain twins, and inside `olc_insert`, moves codegen on paths that make no event. Neither re-placement tried here removes that. The bounds are not moved (AGENTS.md §8.19). Following §43.5, the pull request is left unmerged for the maintainer's decision.
 
 **Not predicted correctly in §43.6.** `sync_strmap_mem_used_estimate` costs about 6,827 instructions per read on both maps, not "a few hundred". The fold runs over 64 writer slots (`occ::MAX_WRITER_SLOTS`), not 16. That is still about 570 times fewer than `sync_strmap_mem_used/routes` (3,884,760 per read, run 39394551086).
+
+### 43.9 Attempt 2: no candidate passes (appended 2026-10-20, after the runs were observed; §43.1 to §43.8 are not rewritten)
+
+The maintainer approved one more design attempt, under three conditions:
+
+- charge only at sites that are already out of line, with a handle passed in;
+- make no `OnceLock` or thread-local lookup at the charge;
+- leave `olc_insert`, `olc_remove` and the shared host functions (`ExpanseStrMap::insert`/`remove`, with their inlined shared twins) with their codegen unchanged.
+
+A candidate would be pushed only after the full arm set passed the §43.4 bounds under Callgrind off CI. The instrument is the one §43.8 used: valgrind 3.24.0 and rustc 1.99 in a container on an x86_64 development host, base `9a27dd3e`. Codegen was compared per function in the normalised `--emit asm` output.
+
+**Candidate D**, tried on top of `a78e9110`, was not pushed:
+
+- Out-of-line `new_suffix_shared`, `dispose_suffix_shared` and `dispose_node_shared` take the allocator.
+- `build_split_child::<true>` and the root creation charge inside themselves.
+- `NodeAlloc::account_unmanaged` takes the block's address. It picks the `ext_bytes` shard from that address, not from the writer slot, and reads the deferred cell through `OnceLock::get().unwrap_unchecked()`.
+- The helper is 5 instructions with no thread-local access. The static count of thread-local accesses equals base's (871).
+
+**Codegen: the target is not met.**
+
+| function | base | D |
+|---|---:|---:|
+| `ExpanseStrMap::insert` | 1,615 | 1,591 |
+| `ExpanseStrMap::remove` | 2,219 | 2,214 |
+| `olc_insert` | 4,220 | 4,171 |
+
+The normalised assembly differs in 499, 93 and 2,832 lines respectively, so the spill patterns differ too.
+
+**Callgrind: G1 still fails.**
+
+- Bounded arms:
+
+  | arm | D | bound |
+  |---|---:|---:|
+  | `sync_strmap_insert_short` | +1.534% | +1.225% |
+  | `sync_strmap_churn_short` | +1.175% | +1.025% |
+  | `sync_strmap_insert_sorted` | +1.250% | +1.037% |
+  | `sync_strmap_insert/routes` | +1.120% | +0.581% |
+  | `sync_strmap_remove/routes` | +0.156% | +0.169% (within) |
+  | `sync_strmap_cas_insert` | +0.255% | +0.445% (within) |
+
+- No-change arms past ±0.1%:
+
+  | arm | D |
+  |---|---:|
+  | `sync_strmap_churn/routes` | +0.500% |
+  | `sync_strmap_update` | −0.135% |
+  | `sync_strmap_cas` | −0.642% |
+  | `sync_strmap_update_rmw` | −0.383% |
+  | `strmap_raw_insert` | +0.216% |
+  | `strmap_transcode_insert/clean` | +0.198% |
+  | `ordered_bytesmap_insert/clean` | +0.197% |
+  | `strmap_oscillate` | +0.148% |
+  | `ordered_bytesmap_insert/escaped` | +0.146% |
+  | `strmap_insert` | +0.123% |
+
+- On `insert_short` each event costs about 30 instructions; §43.8's A1 measured about 41. The plain arms are identical to A1's, because they move through the host functions' codegen, not through the events.
+
+**Why no candidate can meet the three conditions.** Each published suffix leaf has to be charged once.
+
+- On the optimistic T2 path, the leaf is allocated by `new_suffix(bytes, value, arena)`. Without `packed-suffix`, `arena` is a zero-sized marker, so the call passes no handle.
+- The leaf is then published either by `olc_insert_map` or by the leaf-state closure around `MapCore::insert_leaf_state_at`. Both also carry terminal values, whose words can have bit 0 set, so neither callee can tell a suffix publication from a terminal one.
+- Charging the leaf therefore needs one of two things:
+  - a handle at the T2 site, which changes `olc_insert`'s and `olc_compare_exchange`'s bodies (D, A1 and §43.8's first head all show the change);
+  - a lookup in the callee: the allocator cell through its `OnceLock`, or the writer slot through a thread-local, which the conditions exclude.
+- The shared twins' sites sit inside `ExpanseStrMap::insert`/`remove`, so any added code there moves the plain twins' codegen. Outlining the twins moves it more (§43.8, A2).
+- The discharges can be made callee-only (the `Some(collector)` arms of `dispose_suffix` and `dispose_node`). The charges cannot.
+
+**Outcome.** No candidate passes the §43.4 bounds on the off-CI instrument, so per the approval nothing further is pushed for CI. The change stays rejected on G1 as §43.8 records, and the bounds are unchanged. The only way left is a representation change: allocating node shells and suffix leaves through `NodeAlloc` (with `packed-suffix` the leaves already are), so that `bytes_in_use` covers them and no separate counter exists. That changes plain-path allocation and the memory figures, and would need its own pre-registration.
