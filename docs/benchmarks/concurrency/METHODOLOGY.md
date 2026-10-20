@@ -6721,3 +6721,168 @@ One dispatch of suite `reclaim_stall_free_gate`, run [39284534803](https://githu
 | G3 | 3,600,000 | 1,683,245,043 B (degenerate) | 1,683,233,411 B (degenerate) | — | reported |
 
 The `heap_peak` interval is degenerate because every round of a build reached the same peak; the head's is 11,632 B above the base's at both cells. With G1, G4 and G5 met (§42.7), every gate of §42.3 is met; G5's free-bookkeeping sub-claim stays falsified as §42.7 records. The head's largest non-compaction insert, about 2.05 ms, sits near §42.2's projected 1.905 ms per budgeted call; the projection was not a gate.
+
+## 43. Pre-registration for #1586 — `SyncExpanseStrMap::mem_used_estimate`, a memory reading that does not wait for writers (appended 2026-10-20, locked before any engine code of the change below; next free section after #1481's §42, may be renumbered at merge)
+
+`SyncExpanseStrMap::mem_used` reads under the writer lock (`Shared::read_locked`). `ExpanseStrMap::mem_used` (`crates/expanse/src/strmap.rs:2036`) is the allocator's `bytes_in_use` plus `StrNode::shell_bytes`, a walk over every node shell and suffix leaf (`strmap.rs:1320`), so every insert waits for the walk. #1586 asks for the form `SyncExpanseBlobMap::mem_used_estimate` (#1521, `crates/expanse/src/sync.rs:13021`) gives the blob map. Code references are to `origin/main` at `9a27dd3e`. Refs #1586.
+
+### 43.1 The change
+
+- **Where the walked bytes come from.** Node shells are `Box<StrNode>` allocations and, without the `packed-suffix` feature, suffix leaves are global allocations (`new_suffix`, `strmap.rs:231`). Neither goes through `NodeAlloc`, which is why `mem_used` walks for them. With `packed-suffix`, suffix leaves are `NodeAlloc` blocks already in `bytes_in_use` (`SUFFIX_IN_NODE_ALLOC`), and only shells are counted.
+- **The counter.** `AllocShard` (`crates/expanse/src/alloc.rs:391`), the per-writer-slot accounting shard a deferred allocator publishes in `defer_to`, gains one signed counter, `ext_bytes`: bytes the tree's owner allocates outside the allocator. The shard is `#[repr(align(64))]` with 24 B of fields, so it stays one 64-byte line and the cell's layout does not change. A plain tree has no shards and carries nothing.
+- **Who counts.** One out-of-line, non-generic `NodeAlloc` method adds a signed byte delta to the calling writer's shard. It is called only from code that runs on a deferred (shared) tree:
+  - the shared twins (`insert_shared`, `ins_slot_shared`, `remove_shared`, `StrNode::remove_shared`, `prune_child_shared`, `root_or_create_shared`, `split_suffix_shared`, `clear_shared`, `prune_empty_path`);
+  - the optimistic module `strmap::olc` (T2, T4, T8, the prune, `free_unpublished_suffix`, and the unpublished split child it frees with `dispose_tree(.., None)`);
+  - `build_split_child` in its `SHARED = true` form only.
+
+  The plain twins (`insert_impl`, `ins_slot_impl`, `remove_impl`, `split_suffix`, `clear_entries`) and the `None` arms of `dispose_node` and `dispose_suffix` are not changed. A shell or suffix is charged when it is allocated and discharged when it is freed or retired, including one that was never published.
+- **The writer slot.** The counted sites do not hold the writer slot. The strmap engine functions receive the allocator and the collector handle, not the slot: `olc_insert` and the shared twins take `alloc: &NodeAlloc` and `defer: DeferHandle`, and threading the slot through them would change every signature on the path. The helper therefore reads the slot with `occ::writer_slot()`, one thread-local load per event, as `Deferred::charge` already does for each index-node allocation on these paths (`alloc.rs:451`). Because the helper is out of line, no caller gains a thread-local access; the helper itself has one.
+- **The estimate.** `SyncExpanseStrMap` takes the allocator's `AcctCell` once, in `from_map`, after `defer_to` and before the first insert, as the blob map does. `mem_used_estimate()` returns the cell's `bytes_in_use` shard sum plus its `ext_bytes` shard sum, each clamped at zero. It takes no lock, closes no gate and pins no epoch. `ExpanseStrMap::mem_used` is unchanged. In debug builds, `SyncExpanseStrMap::mem_used`, which reads with every writer excluded, asserts that the two are equal, so every test that reads `mem_used` on a shared string map also checks the accounting.
+- **`ablation-unsharded-alloc`.** There are no shards. The helper compiles to nothing and the estimate is `mem_used`, wait included, as the blob map's is.
+- **Surfaces.**
+  - The C twin `expanse_sync_strmap_mem_used_estimate` in `include/expanse.h`, beside `expanse_sync_strmap_mem_used`, with the man page, `docs/COMPAT.md` and `scripts/check_abi_parity.py`.
+  - The bindings the blob version reaches: Python, Node, Go (cgo and purego), Java and .NET.
+  - The public-API snapshot.
+
+**Not changed.** `ExpanseStrMap` on a plain tree, the OCC protocol, the cover words, the collector, `mem_held`, and every other wrapper. No mutation entry point is added (AGENTS.md §2.1 invariant 5).
+
+### 43.2 What the estimate promises
+
+- With no insert, removal or clear in flight, it equals `mem_used`.
+- While writers run, each term is read shard by shard, not at one instant. A shard changes only through events of the thread that owns it, so the sum differs from the map's figure at any instant by at most the bytes allocated or freed by the operations that overlap the call.
+- A shell or suffix is counted once, at its allocation, and uncounted once, at its free, so nothing is counted twice.
+- The epoch collector's bytes are left out, as `mem_used` leaves them out.
+
+### 43.3 Event counts, and their derivation
+
+`scripts/strmap_estimate_bounds.py` (commit 1 of this change) counts the events in each arm's measured region. It runs a model of the meta-trie over the bench's own keys, in the bench's own order. Two counts are derived by hand and pinned by its self-test:
+
+- **`sync_strmap_insert/routes`: 18,757 events.** The keys are `/api/v2/tenants/{t:06}/resources/{r:04}`: 37 bytes, 16 per tenant, 3,125 tenants.
+  - The first key creates the root shell and one suffix: 2 events.
+  - The second key splits four times down `/api/v2/`, `tenants/`, `{t}/r` and `esources`. That allocates four shells and three shorter suffixes and frees four suffixes: 11 events.
+  - For every later tenant, the first key publishes one suffix under the shared `tenants/` child, and the second splits twice. That allocates two shells and one suffix and frees two suffixes: 6 events per tenant, counting the first key's suffix.
+  - Total: 13 + 3,124 × 6 = **18,757**.
+- **`sync_strmap_remove/routes`: 6,253 events.** The built tree holds the root, the `/api/v2/` and `tenants/` children and two shells per tenant, 3 + 2 × 3,125 = 6,253 shells, and no suffix. Removing every key frees all of them.
+
+The other counts are model outputs:
+
+- `short` keys are 8 to 16 bytes with distinct first chunks, so each is one suffix under the root. An 8-byte key's first chunk is not terminal (`chunk_at`), so it becomes a zero-length suffix.
+- UUID keys behave the same way at 36 bytes.
+- The churn arms remove and reinsert one key at a time. On `routes` no child empties; on `short` each probe frees one suffix and allocates another.
+
+### 43.4 Gates
+
+Deterministic, on the pull request:
+
+**G1, instructions.** The `instructions`, `rmw_instructions` and `search_instructions` arms, PR versus `main` (the `|main_base`, `|rmw_main_base` and `|search_main_base` blocks).
+
+The cost of one counted event is fixed at **24 instructions**, and a construction inside the measured region at **64**. Both are DERIVED in `strmap_estimate_bounds.py`, not measured:
+
+- `C_EVENT_IR`: call site 3, the deferred cell's `OnceLock` test and load 4, the slot's thread-local load and range check 3, the shard address 2, one `lock xadd` 1, return 1, a suffix's byte count 1. Nominal 15, plus 9 for register moves around the call.
+- `C_CONSTRUCT_IR`: the `acct_cell` handle and one more counter per shard.
+
+Each arm below may rise by at most its bound. These arms **may exceed the 0.1% review threshold**:
+
+| arm | events | constructions | base (`main`) | bound |
+|---|---:|---:|---:|---:|
+| `sync_strmap_insert_short/short` | 50,001 | 1 | 97,934,923 | +1.225% |
+| `sync_strmap_insert_sorted/uuid` | 20,001 | 1 | 46,291,751 | +1.037% |
+| `sync_strmap_churn_short/short` | 100,000 | 0 | 234,191,347 | +1.025% |
+| `sync_strmap_insert/routes` | 18,757 | 1 | 77,553,128 | +0.581% |
+| `sync_strmap_cas_insert/routes` | 18,750 | 0 | 101,026,457 | +0.445% |
+| `sync_strmap_remove/routes` | 6,253 | 0 | 89,033,733 | +0.169% |
+
+Base counts are from run [39394551086](https://github.com/orieg/expanse/actions/runs/39394551086) (measured: GitHub-hosted x86_64 runner, 5b7ae9bf), whose engine code is `main` at `9a27dd3e`. The new arm `sync_strmap_mem_used_estimate` has no baseline and is reported only.
+
+**Every other arm shows No change at the 0.1% threshold:**
+
+- the `sync_strmap_*` arms with no event: `churn/routes`, `update`, `compare_exchange`, `get_short`, the scans and `mem_used`, and in `rmw_instructions`, `cas` and `update_rmw`;
+- every plain `strmap_*` and `judysl_*` arm;
+- every non-string arm.
+
+A wrapper constructed inside a measured region initialises one more counter per shard, about 16 instructions per construction, which is far under the threshold on every arm.
+
+Every arm whose count moves at all, below the threshold included, is listed in the pull request with its change. If an arm rises above its bound, or a No-change arm moves past 0.1%:
+
+1. it is attributed first, from a base-versus-head `callgrind_annotate` diff and the disassembly (AGENTS.md §6);
+2. then either the code is changed and re-measured against the same bound, or the rejection is recorded here.
+
+A bound is never moved after a result.
+
+**G2, thread-local accesses (§2.1 invariant 5).** The instrument is `cargo rustc -p expanse-trie --lib --release --target x86_64-unknown-linux-gnu -- --emit asm` (rustc 1.98.1). It counts, per function, the instructions that carry a thread-local relocation (`@TLSGD`, `@GOTTPOFF`, `@TPOFF`) or a `%fs:` operand.
+
+On `9a27dd3e` there are 871 such instructions in 107 functions. Per function:
+
+| function | count |
+|---|---:|
+| `ExpanseStrMap::insert` | 0 |
+| `ExpanseStrMap::remove` | 0 |
+| `ExpanseStrMap::clear` | 0 |
+| `ExpanseStrMap::clear_entries` | 0 |
+| `ExpanseStrMap::ins_slot` | 4 |
+| `ExpanseStrMap::olc_insert` | 1 |
+| `dispose_node` | 2 |
+| `dispose_tree` | 1 |
+| `dispose_suffix` | 0 |
+| `SyncExpanseStrMap::insert` | 3 |
+| `SyncExpanseStrMap::remove` | 2 |
+| `SyncExpanseStrMap::clear` | 0 |
+
+**Every function's count stays unchanged, except the new helper (one) and functions that did not exist before.** The counts are recorded in the pull request.
+
+**G3, quiet equality.** A test: with nothing in flight, the estimate equals `mem_used` after each of:
+
+- inserts on the `routes` and `short` shapes, including splits;
+- overwrites;
+- removals to empty;
+- a clear;
+- a map built from a populated plain map;
+- `with_exclusive` mutations;
+- four concurrent writers, after they join.
+
+It runs in the default build and under `ablation-str-serial-writers`.
+
+**G4, no wait.** A test:
+
+1. One thread holds `with_exclusive` (the writer lock and the gate) after inserting inside it.
+2. Another thread's estimate returns while the section is held, and equals the exact figure the holder reads from inside the section.
+3. A third thread's `mem_used` has not returned by then, and returns after the section ends.
+
+**G5, error bound under concurrent writers.** The shell-and-suffix term can be bounded exactly and the index term cannot (see below), so the gate is on the shell-and-suffix term.
+
+A test-only accessor reads the `ext_bytes` sum alone. The exact figure is `mem_used − bytes_in_use`, read with writers excluded. Four writers each insert, then remove, keys whose first 8-byte chunk is unique and whose remainder is `L` bytes, under a root that kept keys hold alive. Every operation therefore allocates or frees exactly one suffix leaf of `s = 16 + L` bytes (none with `packed-suffix`) and no shell. A fifth thread polls.
+
+- (a) Insert phase: every reading lies in `[S_before, S_after + W · s]`, with `W = 4`. Each writer's shard only rises, except that an optimistic insert that loses its publication frees its unpublished suffix, so a shard is at most one suffix above its final value.
+- (b) Remove phase: every reading lies in `[S_end, S_peak]`, because each shard only falls.
+- (c) Afterwards, quiet equality (G3).
+- Each clause is shown to fail on its own (AGENTS.md §5). For (a) and (b), the interval is narrowed by one byte at the end the clause tests, and a reading outside it is shown to be reachable. Where no reading lands on that edge, the PR records that the clause was not shown to fail.
+
+**What is not bounded exactly.** The index term's error is the bytes of the index nodes that the overlapping operations allocate and free. A node promotion frees a block that another writer allocated, on that writer's shard, and the node sizes depend on the interleaving. For the whole estimate, the test asserts only a sanity range (between half of `mem_used` before and twice `mem_used` after), and that range is not a gate.
+
+**Wall-clock: not registered.** A demonstration that inserts no longer stall while a thread polls memory would need the reference host and its own pre-registration. It waits for the maintainer's go-ahead and is not part of this pull request.
+
+### 43.5 Falsifiers, and what follows
+
+| Outcome | What follows |
+|---|---|
+| G1: an arm above its bound, or a No-change arm past 0.1% | attributed first (§43.4); a cost that cannot be removed is disclosed and the change waits for the maintainer's decision, not for an override |
+| G2: a caller gains a thread-local access | the helper was inlined or a slot read moved into a shared path; fixed before review |
+| G3, G4 or G5 fails | the accounting misses or double-counts a site, or the estimate waits; the change does not merge |
+
+### 43.6 Expected outcomes, and what is not predicted
+
+Every reason is a hypothesis.
+
+| Quantity | Expected | Reason |
+|---|---|---|
+| G1 bounded arms | about two thirds of each bound | the nominal event cost is 15 of the 24 allowed |
+| G1 other arms | No change | no counted event in the measured region |
+| `sync_strmap_mem_used_estimate` | a few hundred instructions per read, against about 3.9 million for `sync_strmap_mem_used/routes` | two folds over 16 shards |
+
+**Not predicted:** any wall-clock effect, the estimate's error under contention beyond G5, and codegen changes in the optimistic insert from the added calls (G1 attributes them if they appear).
+
+**Silent constants,** fixed here: `C_EVENT_IR` = 24, `C_CONSTRUCT_IR` = 64, G5's `W` = 4 and its key shape, and G3's operation mix. Changing any of them after a measurement relabels that result `INTERMEDIATE` (AGENTS.md §8.19).
+
+### 43.7 Expiry
+
+A change to a shared-twin or optimistic write path of the string map, to `AllocShard`, or to `new_suffix` or `dispose_*` expires G1, G2 and G5, which are then re-run.
