@@ -16,6 +16,12 @@ those run out, on SMT siblings (§44.3). The list is derived from the pin
 `bench_pin.apply` returns and the kernel's core topology, and the artifact
 records it.
 
+Before every process, timed or counted, the driver checks the hourly blackout
+(minutes :15-:20 UTC, when the reference host runs an rsync, METHODOLOGY §44.8):
+if the process, its prefill included, could reach :15, or would start inside the
+blackout, it waits until :20. Each pause is recorded under
+`provenance.hour_guard.pauses`.
+
 After the timed rounds, one untimed pass of the `occ-stats` build runs each
 `mem_used` cell once and records the gate counters (`GateBlockedEntries`,
 `GateWaitCycles`, `QuiesceDrainCycles`) with `cycles_hz()`; no reported
@@ -54,6 +60,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +96,15 @@ M1_STALLED_FRACTION = 0.01
 M1_P999_FACTOR = 10.0
 # §8.17: a non-target process above about one core, or a load average above cores/2.
 FOREIGN_BUSY_VOID = 1.0
+
+# The reference host runs an hourly rsync at minutes :15-:20 UTC (METHODOLOGY §44.8): no
+# process, prefill or window, may overlap it. A process's length is estimated from its
+# (shape, N)'s largest prefill seen so far, times PREFILL_MARGIN, or PREFILL_S_PER_KEY per key
+# before the first one, plus the window and POST_S for the closing readings and teardown.
+HOUR_BLACKOUT_S = (15 * 60, 20 * 60)
+PREFILL_S_PER_KEY = 5e-6
+PREFILL_MARGIN = 1.5
+POST_S = 30.0
 
 # `--quick`: a smoke run of the same code on a reduced grid, not a measurement.
 QUICK = {
@@ -186,6 +202,58 @@ def host_cpus(applied: str) -> list[int] | None:
     if applied not in ("none", "off"):
         return bench_pin.expand(applied)
     return sorted(os.sched_getaffinity(0))
+
+
+# --- The hourly pause --------------------------------------------------------
+
+def hour_guard_wait(now_s: float, est_s: float, blackout: tuple[int, int] = HOUR_BLACKOUT_S) -> float:
+    """Seconds to wait so that `[start, start + est_s]` overlaps no hour's blackout.
+
+    `now_s` is a UTC epoch time. A process that would reach a blackout's start, or
+    that would start inside one, waits until that blackout ends (:20), and the
+    check repeats from there. Inclusive at :15: a process due to end exactly at
+    :15:00 waits.
+    """
+    if est_s < 0:
+        raise DriverError(f"a process estimate must be >= 0, got {est_s}")
+    if est_s + (blackout[1] - blackout[0]) >= 3600:
+        raise DriverError(f"a {est_s:.0f} s process cannot fit between two blackouts")
+    start = now_s
+    while True:
+        h = int(start // 3600)
+        hit = None
+        for hh in (h - 1, h, h + 1, h + 2):
+            b0, b1 = hh * 3600 + blackout[0], hh * 3600 + blackout[1]
+            if start < b1 and start + est_s >= b0:
+                hit = b1
+                break
+        if hit is None:
+            return start - now_s
+        start = float(hit)
+
+
+def process_estimate_s(c: dict[str, Any], seconds: int, prefills: dict[tuple[str, int], float]) -> float:
+    """One process's length for the hourly guard: prefill, window and POST_S."""
+    seen = prefills.get((c["shape"], c["keys"]))
+    prefill = seen * PREFILL_MARGIN if seen is not None else c["keys"] * PREFILL_S_PER_KEY
+    return prefill + seconds + POST_S
+
+
+def guard_pause(pauses: list[dict[str, Any]], label: str, est_s: float,
+                clock=time.time, sleep=time.sleep) -> float:
+    """Waits out the hourly blackout before process `label`, and records any pause."""
+    now = clock()
+    wait = hour_guard_wait(now, est_s)
+    if wait > 0:
+        pauses.append({"before": label, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+                       "wait_s": round(wait, 1), "process_estimate_s": round(est_s, 1)})
+        sleep(wait)
+    return wait
+
+
+def note_prefill(prefills: dict[tuple[str, int], float], c: dict[str, Any], row: dict[str, Any]) -> None:
+    k = (c["shape"], c["keys"])
+    prefills[k] = max(prefills.get(k, 0.0), float(row["prefill_s"]))
 
 
 # --- Build and run ----------------------------------------------------------
@@ -472,13 +540,20 @@ def measure(out_path: Path, quick: bool = False) -> dict[str, Any]:
     pin = child_pin(applied)
     cells = cells_for(g)
     by: dict[str, dict[str, Any]] = {}
+    pauses: list[dict[str, Any]] = []
+    prefills: dict[tuple[str, int], float] = {}
+    prov["hour_guard"] = {"blackout_utc_minutes": [HOUR_BLACKOUT_S[0] // 60, HOUR_BLACKOUT_S[1] // 60],
+                          "prefill_s_per_key_default": PREFILL_S_PER_KEY, "prefill_margin": PREFILL_MARGIN,
+                          "post_s": POST_S, "pauses": pauses}
     for r in range(rounds):
         for c, arm in round_order(cells, r, rounds):
             cid = cell_id(c, arm)
             place = placement(cpus, siblings, c["writers"]) if siblings else None
             seed = 0x1586_0000 + 97 * r + cells.index(c)
+            guard_pause(pauses, f"cell:{cid}:r{r}", process_estimate_s(c, g["seconds"], prefills))
             start = begin_cell(prov, f"cell:{cid}:r{r}")
             row = run_one(exe, c, arm, r, g["seconds"], seed, pin, place)
+            note_prefill(prefills, c, row)
             row["load"] = end_cell(start)
             row["load_start"] = {"label": start.get("label"), "load1": start.get("load1")}
             cell = by.setdefault(cid, {"cell": cid, **c, "arm": arm, "rounds_raw": []})
@@ -505,6 +580,7 @@ def measure(out_path: Path, quick: bool = False) -> dict[str, Any]:
     for c in cells:
         cid = cell_id(c, "mem_used")
         place = placement(cpus, siblings, c["writers"]) if siblings else None
+        guard_pause(pauses, f"counters:{cid}", process_estimate_s(c, g["seconds"], prefills))
         start = begin_cell(prov, f"counters:{cid}")
         row = run_one(cexe, c, "mem_used", 0, g["seconds"], 0x1586_C000 + cells.index(c), pin, place)
         windows.append({"cell": cid, **counters_report(row), "load": end_cell(start)})
@@ -760,8 +836,57 @@ def self_test_harness_source() -> None:
     assert "| `workload_id` | `strmap_poll_stall` |" in src
 
 
+def self_test_hour_guard() -> None:
+    hour = 1_800_000_000 - 1_800_000_000 % 3600  # an hour boundary, UTC
+
+    def at(m: int, sec: int = 0) -> float:
+        return float(hour + 60 * m + sec)
+    assert hour_guard_wait(at(10), 200) == 0                    # ends at :13:20
+    assert hour_guard_wait(at(10), 300) == at(20) - at(10)      # ends at :15:00 exactly: waits
+    assert hour_guard_wait(at(10), 400) == at(20) - at(10)      # would reach :16:40
+    assert hour_guard_wait(at(17), 10) == at(20) - at(17)       # starts inside the blackout
+    assert hour_guard_wait(at(15), 0) == at(20) - at(15)
+    assert hour_guard_wait(at(20), 3000) == 0                   # :20 to :70 = :10 of the next hour
+    assert hour_guard_wait(at(25), 3200) == at(80) - at(25)     # reaches :18 of the next hour
+    assert hour_guard_wait(at(59), 1000) == at(80) - at(59)     # crosses the hour into :15:40
+    assert hour_guard_wait(at(14, 59), 0.5) == 0                # ends at :14:59.5
+    assert hour_guard_wait(at(14, 59), 1.0) == at(20) - at(14, 59)  # ends at :15:00
+    for start, est in ((at(m, s), e) for m in range(0, 60, 7) for s in (0, 31) for e in (5, 130, 900)):
+        w = hour_guard_wait(start, est)
+        b, e_ = start + w, start + w + est
+        for hh in range(-1, 3):
+            b0, b1 = hour + hh * 3600 + 900, hour + hh * 3600 + 1200
+            assert not (b < b1 and e_ >= b0), (start, est, w)
+    assert "cannot fit" in _refused(hour_guard_wait, at(0), 3600 - 300)
+    assert "must be >= 0" in _refused(hour_guard_wait, at(0), -1)
+    # The estimate: the default per key until a prefill is seen, then the largest seen x the margin.
+    c = {"shape": "short", "keys": 20_000_000}
+    assert process_estimate_s(c, 30, {}) == 20_000_000 * PREFILL_S_PER_KEY + 30 + POST_S
+    pre: dict = {}
+    note_prefill(pre, c, {"prefill_s": 40.0})
+    note_prefill(pre, c, {"prefill_s": 30.0})
+    assert process_estimate_s(c, 30, pre) == 40.0 * PREFILL_MARGIN + 30 + POST_S
+    # guard_pause records a pause and sleeps it; no pause, no record.
+    pauses: list = []
+    slept: list = []
+    assert guard_pause(pauses, "cell:x", 400, clock=lambda: at(10), sleep=slept.append) == 600
+    assert slept == [600] and pauses[0]["before"] == "cell:x" and pauses[0]["wait_s"] == 600
+    assert guard_pause(pauses, "cell:y", 100, clock=lambda: at(30), sleep=slept.append) == 0
+    assert len(pauses) == 1 and slept == [600]
+    # The call sites: every process measure() starts is guarded first, and its prefill noted.
+    src = (Path(__file__).resolve()).read_text()
+    body = src[src.index("def measure("):src.index("def check_provenance(")]
+    code = "\n".join(ln.split("#", 1)[0] for ln in body.splitlines())  # measure() has no '#' in strings
+    runs = [i for i in range(len(code)) if code.startswith("run_one(", i)]
+    guards = [i for i in range(len(code)) if code.startswith("guard_pause(", i)]
+    assert len(runs) == len(guards) == 2, (runs, guards)
+    assert all(g < r for g, r in zip(guards, runs)) and guards[1] > runs[0]
+    assert code.count("note_prefill(prefills") == 1 and code.index("note_prefill(") > runs[0]
+
+
 def self_test() -> int:
     bounds.self_test()
+    self_test_hour_guard()
     assert CI_METHOD_BCA
     self_test_grid_and_placement()
     self_test_verdicts()
