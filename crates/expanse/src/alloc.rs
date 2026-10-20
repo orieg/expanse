@@ -394,6 +394,11 @@ pub(crate) struct AllocShard {
     pub(crate) bytes_in_use: core::sync::atomic::AtomicIsize,
     pub(crate) live_allocs: core::sync::atomic::AtomicIsize,
     pub(crate) total_allocs: AtomicUsize,
+    /// Bytes the tree's owner allocates outside this allocator and accounts
+    /// here through [`NodeAlloc::account_unmanaged`]: the string map's node
+    /// shells and global-allocator suffix leaves (#1586). Signed for the
+    /// reason `bytes_in_use` is: a free can land on another shard.
+    pub(crate) ext_bytes: core::sync::atomic::AtomicIsize,
 }
 
 #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
@@ -403,6 +408,7 @@ impl AllocShard {
             bytes_in_use: core::sync::atomic::AtomicIsize::new(0),
             live_allocs: core::sync::atomic::AtomicIsize::new(0),
             total_allocs: AtomicUsize::new(0),
+            ext_bytes: core::sync::atomic::AtomicIsize::new(0),
         }
     }
 }
@@ -568,6 +574,24 @@ impl AcctCell {
         let shards = unsafe { &(*self.0.as_ptr()).shards };
         let total = shards.iter().fold(0isize, |acc, s| {
             acc.saturating_add(s.bytes_in_use.load(Ordering::Relaxed))
+        });
+        if total < 0 { 0 } else { total as usize }
+    }
+
+    /// The shards' net `ext_bytes`, clamped at zero: the bytes the tree's
+    /// owner accounted through [`NodeAlloc::account_unmanaged`]. One relaxed
+    /// load per shard, no lock, and the same bound as [`Self::bytes_in_use`]
+    /// while accounting calls are in flight.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::bytes_in_use`].
+    #[must_use]
+    pub(crate) unsafe fn ext_bytes(self) -> usize {
+        // SAFETY: as in `bytes_in_use`.
+        let shards = unsafe { &(*self.0.as_ptr()).shards };
+        let total = shards.iter().fold(0isize, |acc, s| {
+            acc.saturating_add(s.ext_bytes.load(Ordering::Relaxed))
         });
         if total < 0 { 0 } else { total as usize }
     }
@@ -757,6 +781,41 @@ impl NodeAlloc {
         let mut a = Self::new();
         a.exact_size = false;
         a
+    }
+
+    /// Adds `delta` bytes to the calling writer's `ext_bytes` shard: memory
+    /// the tree's owner allocated (`delta > 0`) or freed (`delta < 0`)
+    /// outside this allocator, which a wrapper reads back through
+    /// [`AcctCell::ext_bytes`] without walking the tree (#1586). A no-op on a
+    /// tree that is not deferred, which has no shards.
+    ///
+    /// Out of line and non-generic on purpose (AGENTS.md §2.1 invariant 5):
+    /// its callers are deferred-tree paths, and the writer-slot read stays in
+    /// this one function rather than in each of them.
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-unsharded-alloc")
+    ))]
+    #[inline(never)]
+    pub(crate) fn account_unmanaged(&self, delta: isize) {
+        if let Some(d) = self.deferred.get() {
+            d.shards[crate::occ::writer_slot()]
+                .ext_bytes
+                .fetch_add(delta, Ordering::Relaxed);
+        }
+    }
+
+    /// Without per-writer shards there is no counter to keep: the
+    /// estimate that reads it is `mem_used` in these builds.
+    #[cfg(not(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-unsharded-alloc")
+    )))]
+    #[inline(always)]
+    pub(crate) fn account_unmanaged(&self, delta: isize) {
+        let _ = delta;
     }
 
     /// Bytes currently allocated through this handle.

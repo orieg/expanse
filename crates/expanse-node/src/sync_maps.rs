@@ -82,10 +82,19 @@ impl SyncExpanseStrMap {
     }
 
     // abi-parity: expanse_sync_strmap_mem_used
-    /// Heap bytes used by the map's nodes and leaves, read with writers excluded.
+    /// Heap bytes used by the map's nodes and leaves, read with writers excluded; walks the
+    /// map, so writers wait for it. Poll with `memUsedEstimate()` instead.
     #[napi]
     pub fn mem_used(&self) -> BigInt {
         BigInt::from(self.inner.mem_used() as u64)
+    }
+
+    // abi-parity: expanse_sync_strmap_mem_used_estimate
+    /// An estimate of `memUsed()` that takes no lock and does not walk the map: equal to it
+    /// with no writer running, and beside writers within the bytes they allocate or free.
+    #[napi]
+    pub fn mem_used_estimate(&self) -> BigInt {
+        BigInt::from(self.inner.mem_used_estimate() as u64)
     }
 
     // abi-parity: expanse_sync_strmap_mem_held

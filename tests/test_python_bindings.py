@@ -1311,6 +1311,8 @@ def test_shared_strmap_keys_and_ordered_reads():
         walked.append(cur[0])
         cur = m.next(cur[0])
     assert walked == ["apple", "apricot", "banana", "cherry", b"\xff\xfe"]
+    # With no writer running the non-blocking reading is the exact one (#1586).
+    assert m.mem_used_estimate() == m.mem_used() > 0
 
 
 def test_shared_strmap_ordered_walk_under_concurrent_writer():

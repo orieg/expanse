@@ -2889,6 +2889,7 @@ pub fn expanse_trie::sync::SyncExpanseStrMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseStrMap::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseStrMap::mem_held(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseStrMap::mem_used(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseStrMap::mem_used_estimate(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseStrMap::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseStrMap::owned_reader(&alloc::sync::Arc<Self>) -> expanse_trie::sync::OwnedStrReader
 pub fn expanse_trie::sync::SyncExpanseStrMap::reader(&self) -> expanse_trie::sync::StrReader<'_>

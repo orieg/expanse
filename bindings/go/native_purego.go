@@ -182,6 +182,7 @@ var (
 	expanse_sync_strmap_remove                   func(mapPtr uintptr, key unsafe.Pointer, oldOut *uint64) bool
 	expanse_sync_strmap_len                      func(mapPtr uintptr) uint64
 	expanse_sync_strmap_mem_used                 func(mapPtr uintptr) uintptr
+	expanse_sync_strmap_mem_used_estimate        func(mapPtr uintptr) uintptr
 	expanse_sync_strmap_mem_held                 func(mapPtr uintptr) uintptr
 	expanse_sync_strmap_shrink_to_fit            func(mapPtr uintptr) uintptr
 	expanse_sync_strmap_compare_exchange         func(mapPtr uintptr, key unsafe.Pointer, expectedPresent bool, expectedValue uint64, newPresent bool, newValue uint64, observedPresentOut *bool, observedOut *uint64) bool
@@ -505,6 +506,7 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_sync_strmap_remove, "expanse_sync_strmap_remove"},
 		{&expanse_sync_strmap_len, "expanse_sync_strmap_len"},
 		{&expanse_sync_strmap_mem_used, "expanse_sync_strmap_mem_used"},
+		{&expanse_sync_strmap_mem_used_estimate, "expanse_sync_strmap_mem_used_estimate"},
 		{&expanse_sync_strmap_mem_held, "expanse_sync_strmap_mem_held"},
 		{&expanse_sync_strmap_shrink_to_fit, "expanse_sync_strmap_shrink_to_fit"},
 		{&expanse_sync_strmap_compare_exchange, "expanse_sync_strmap_compare_exchange"},

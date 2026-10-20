@@ -174,6 +174,7 @@ public final class ExpanseNative {
     public static final MethodHandle MH_expanse_sync_strmap_remove;
     public static final MethodHandle MH_expanse_sync_strmap_len;
     public static final MethodHandle MH_expanse_sync_strmap_mem_used;
+    public static final MethodHandle MH_expanse_sync_strmap_mem_used_estimate;
     public static final MethodHandle MH_expanse_sync_strmap_mem_held;
     public static final MethodHandle MH_expanse_sync_strmap_shrink_to_fit;
     public static final MethodHandle MH_expanse_sync_strmap_compare_exchange;
@@ -447,6 +448,7 @@ public final class ExpanseNative {
         MH_expanse_sync_strmap_remove = downcall("expanse_sync_strmap_remove", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         MH_expanse_sync_strmap_len = downcall("expanse_sync_strmap_len", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_strmap_mem_used = downcall("expanse_sync_strmap_mem_used", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_sync_strmap_mem_used_estimate = downcall("expanse_sync_strmap_mem_used_estimate", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_strmap_mem_held = downcall("expanse_sync_strmap_mem_held", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_strmap_shrink_to_fit = downcall("expanse_sync_strmap_shrink_to_fit", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_strmap_compare_exchange = downcall("expanse_sync_strmap_compare_exchange", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_BOOLEAN, ValueLayout.JAVA_LONG, ValueLayout.JAVA_BOOLEAN, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));

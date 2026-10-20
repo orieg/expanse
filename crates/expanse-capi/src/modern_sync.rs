@@ -761,6 +761,21 @@ pub unsafe extern "C" fn expanse_sync_strmap_mem_used(map: *const SyncExpanseStr
     unsafe { map.as_ref() }.map_or(0, SyncExpanseStrMap::mem_used)
 }
 
+/// [`expanse_sync_strmap_mem_used`] without the wait: an estimate that takes
+/// none of the map's locks and does not walk the tree
+/// (`SyncExpanseStrMap::mem_used_estimate`). 0 for a null handle.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_mem_used_estimate(
+    map: *const SyncExpanseStrMap,
+) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseStrMap::mem_used_estimate)
+}
+
 /// Heap bytes the map holds from the global allocator: its tree's own share
 /// plus the blocks its epoch collector holds for reuse or is waiting to
 /// reclaim ([`SyncExpanseStrMap::mem_held`]); 0 for a null handle. Writers

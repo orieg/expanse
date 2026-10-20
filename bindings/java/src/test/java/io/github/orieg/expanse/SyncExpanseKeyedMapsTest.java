@@ -95,6 +95,9 @@ class SyncExpanseKeyedMapsTest {
             assertThrows(IllegalArgumentException.class, () -> r.ceilingEntry("x\u0000y"));
             assertThrows(NullPointerException.class, () -> m.insert((String) null, 1));
             assertEquals(0, m.len(), "a rejected key stores nothing");
+            m.insert("a-key-longer-than-one-chunk", 1);
+            assertEquals(m.memUsed(), m.memUsedEstimate(), "equal with no writer running");
+            assertTrue(m.memUsedEstimate() > 0);
         }
     }
 

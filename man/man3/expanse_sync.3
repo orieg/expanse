@@ -20,6 +20,7 @@ expanse_sync_strmap_new, expanse_sync_strmap_free, \
 expanse_sync_strmap_insert, expanse_sync_strmap_get, \
 expanse_sync_strmap_contains, expanse_sync_strmap_remove, \
 expanse_sync_strmap_len, expanse_sync_strmap_mem_used, \
+expanse_sync_strmap_mem_used_estimate, \
 expanse_sync_strmap_mem_held, expanse_sync_strmap_shrink_to_fit, \
 expanse_sync_strmap_reader_new, expanse_sync_strmap_reader_free, \
 expanse_sync_strmap_reader_get, expanse_sync_strmap_reader_contains, \
@@ -225,6 +226,9 @@ expanse_sync_blob_map_get_or_insert \
 .BI "uint64_t expanse_sync_strmap_len(const expanse_sync_strmap_t *" map ");"
 .br
 .BI "size_t expanse_sync_strmap_mem_used("
+.BI "    const expanse_sync_strmap_t *" map ");"
+.br
+.BI "size_t expanse_sync_strmap_mem_used_estimate("
 .BI "    const expanse_sync_strmap_t *" map ");"
 .br
 .BI "size_t expanse_sync_strmap_mem_held("
@@ -740,7 +744,14 @@ and
 .B expanse_sync_strmap_shrink_to_fit
 behave as the
 .B expanse_sync_map_*
-calls of the same name.
+calls of the same name;
+.B expanse_sync_strmap_mem_used
+excludes writers and walks the tree, so inserts wait for it.
+.B expanse_sync_strmap_mem_used_estimate
+takes no lock and does not walk: it equals
+.B expanse_sync_strmap_mem_used
+with no writer running, and beside writers is within the bytes their
+overlapping operations allocate or free.
 .PP
 .BR expanse_sync_strmap_reader_first ,
 .BR expanse_sync_strmap_reader_last ,

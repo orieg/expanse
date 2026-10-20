@@ -754,8 +754,10 @@ export class SyncExpanseStrMap {
 
   size(): bigint;
   isEmpty(): boolean;
-  /** Heap bytes used by the map, read with writers excluded. */
+  /** Heap bytes used by the map, read with writers excluded. Walks the map, so writers wait for it; poll with `memUsedEstimate()` instead. */
   memUsed(): bigint;
+  /** An estimate of `memUsed()` that takes no lock and does not walk the map: equal to it with no writer running, and beside writers within the bytes they allocate or free. */
+  memUsedEstimate(): bigint;
   /** Heap bytes held from the global allocator, including blocks the epoch collector keeps for reuse. */
   memHeld(): bigint;
   /** Returns the collector's freed blocks to the global allocator; returns the bytes released. */

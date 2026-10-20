@@ -17,7 +17,8 @@ use expanse::modern::{
 use expanse::modern::{
     SyncStrMapReader, expanse_sync_strmap_contains, expanse_sync_strmap_free,
     expanse_sync_strmap_get, expanse_sync_strmap_insert, expanse_sync_strmap_len,
-    expanse_sync_strmap_mem_held, expanse_sync_strmap_mem_used, expanse_sync_strmap_new,
+    expanse_sync_strmap_mem_held, expanse_sync_strmap_mem_used,
+    expanse_sync_strmap_mem_used_estimate, expanse_sync_strmap_new,
     expanse_sync_strmap_reader_contains, expanse_sync_strmap_reader_free,
     expanse_sync_strmap_reader_get, expanse_sync_strmap_reader_new, expanse_sync_strmap_remove,
     expanse_sync_strmap_shrink_to_fit,
@@ -107,6 +108,11 @@ fn point_operations_and_return_conventions() {
     unsafe {
         assert!(expanse_sync_strmap_mem_used(m) > 0);
         assert!(expanse_sync_strmap_mem_held(m) >= expanse_sync_strmap_mem_used(m));
+        assert_eq!(
+            expanse_sync_strmap_mem_used_estimate(m),
+            expanse_sync_strmap_mem_used(m),
+            "equal with nothing in flight (SyncExpanseStrMap::mem_used_estimate)"
+        );
 
         let mut v = 0xDEAD_u64;
         assert!(!expanse_sync_strmap_remove(m, app.as_ptr(), &raw mut v));
@@ -149,6 +155,7 @@ fn null_handles_and_null_keys_write_nothing() {
         ));
         assert_eq!(expanse_sync_strmap_len(null_map), 0);
         assert_eq!(expanse_sync_strmap_mem_used(null_map), 0);
+        assert_eq!(expanse_sync_strmap_mem_used_estimate(null_map), 0);
         assert_eq!(expanse_sync_strmap_mem_held(null_map), 0);
         assert_eq!(expanse_sync_strmap_shrink_to_fit(null_map), 0);
         assert!(expanse_sync_strmap_reader_new(null_map).is_null());

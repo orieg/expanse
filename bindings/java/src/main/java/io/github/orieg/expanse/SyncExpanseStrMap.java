@@ -133,6 +133,21 @@ public final class SyncExpanseStrMap extends SyncKeyedMap<String> {
                 MH_expanse_sync_strmap_new, "expanse_sync_strmap_t", true);
     }
 
+    /**
+     * An estimate of {@link #memUsed()} that takes no lock and does not walk the map: equal to
+     * it with no writer running, and beside writers within the bytes their overlapping
+     * operations allocate or free.
+     *
+     * @return bytes
+     */
+    public long memUsedEstimate() {
+        try {
+            return (long) MH_expanse_sync_strmap_mem_used_estimate.invokeExact(nativeHandle());
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
     @Override
     byte[] keyBytes(String key) {
         Objects.requireNonNull(key, "key must not be null");

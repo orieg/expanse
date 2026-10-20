@@ -73,6 +73,14 @@ impl SyncExpanseStrMap {
         py.detach(|| self.inner.mem_used())
     }
 
+    // abi-parity: expanse_sync_strmap_mem_used_estimate
+    /// As `mem_used`, but takes no lock and does not walk the map: an estimate equal to
+    /// `mem_used` with no writer running, and beside writers within the bytes their
+    /// overlapping operations allocate or free (releases the GIL).
+    pub fn mem_used_estimate(&self, py: Python<'_>) -> usize {
+        py.detach(|| self.inner.mem_used_estimate())
+    }
+
     // abi-parity: expanse_sync_strmap_mem_held
     /// Heap bytes the map holds from the global allocator: its tree's own share plus the blocks
     /// its epoch collector keeps for reuse or is waiting to reclaim. Read with writers excluded

@@ -919,7 +919,10 @@ bool                   expanse_sync_strmap_contains(const expanse_sync_strmap_t 
 bool                   expanse_sync_strmap_remove(expanse_sync_strmap_t *map, const char *key,
                                                   uint64_t *old_out);
 uint64_t               expanse_sync_strmap_len(const expanse_sync_strmap_t *map);
+/* Waits for writers and makes them wait while it walks the tree; poll with _mem_used_estimate. */
 size_t                 expanse_sync_strmap_mem_used(const expanse_sync_strmap_t *map);
+/* No lock, no walk, no wait; within the bytes of overlapping writes (see expanse_sync(3)). */
+size_t                 expanse_sync_strmap_mem_used_estimate(const expanse_sync_strmap_t *map);
 size_t                 expanse_sync_strmap_mem_held(const expanse_sync_strmap_t *map);
 size_t                 expanse_sync_strmap_shrink_to_fit(const expanse_sync_strmap_t *map);
 /*

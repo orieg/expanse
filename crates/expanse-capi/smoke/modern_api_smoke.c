@@ -100,6 +100,7 @@ static void sync_strmap_smoke(void) {
     assert(expanse_sync_strmap_len(m) == 2);
     assert(expanse_sync_strmap_mem_used(m) > 0);
     assert(expanse_sync_strmap_mem_held(m) >= expanse_sync_strmap_mem_used(m));
+    assert(expanse_sync_strmap_mem_used_estimate(m) == expanse_sync_strmap_mem_used(m));
     expanse_sync_strmap_reader_t *r = expanse_sync_strmap_reader_new(m);
     assert(expanse_sync_strmap_reader_get(r, "apple", &v) && v == 2);
     assert(expanse_sync_strmap_reader_contains(r, ""));

@@ -11231,6 +11231,8 @@ impl ReclaimLatch {
     not(feature = "ablation-blob-serial-writers")
 ))]
 mod blob_mem_estimate_tests;
+#[cfg(all(test, feature = "std", not(feature = "ablation-unsharded-alloc")))]
+mod str_mem_estimate_tests;
 
 impl Default for SyncExpanseBlobMap {
     fn default() -> Self {
@@ -13912,6 +13914,12 @@ impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
 /// what stays outside ([#1086](https://github.com/orieg/expanse/issues/1086)).
 pub struct SyncExpanseStrMap {
     shared: SharedBox<ExpanseStrMap>,
+    /// The map's allocator accounting cell, read by
+    /// [`Self::mem_used_estimate`] without reaching into the engine (#1586).
+    /// Valid for the life of `shared`: the cell is boxed in the map's one
+    /// allocator, which nothing replaces after `from_map`.
+    #[cfg(not(feature = "ablation-unsharded-alloc"))]
+    acct: crate::alloc::AcctCell,
 }
 
 impl Default for SyncExpanseStrMap {
@@ -13950,8 +13958,19 @@ impl SyncExpanseStrMap {
             map.insert(k, v);
             cursor = src.next_after(k);
         }
+        let shared = Shared::with_collector(map, collector);
+        // Taken at the engine's final address, before any other thread can
+        // see the map. The map was deferred before its first insert, so every
+        // byte it accounts is on the cell's shards.
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
+        let acct = shared
+            .inner_ref()
+            .acct_cell()
+            .expect("the map was deferred above");
         Self {
-            shared: Shared::with_collector(map, collector),
+            shared,
+            #[cfg(not(feature = "ablation-unsharded-alloc"))]
+            acct,
         }
     }
 
@@ -14366,9 +14385,78 @@ impl SyncExpanseStrMap {
     }
 
     /// Heap bytes used (consistent read under the writer lock).
+    ///
+    /// **It waits.** The read excludes every writer and walks every node
+    /// shell and suffix leaf, so inserts and removals wait for the walk, and
+    /// the call waits for a writer in a serialised section. A thread that
+    /// polls memory should call [`Self::mem_used_estimate`], which does
+    /// neither.
     #[must_use]
     pub fn mem_used(&self) -> usize {
-        self.shared.read_locked(ExpanseStrMap::mem_used)
+        self.shared.read_locked(|m| {
+            let exact = m.mem_used();
+            // With every writer excluded the shard sums are exact (#1586):
+            // a site that missed or doubled its accounting fails here, in
+            // every debug test that reads `mem_used` on a shared map.
+            #[cfg(not(feature = "ablation-unsharded-alloc"))]
+            debug_assert_eq!(m.acct_cell(), Some(self.acct));
+            #[cfg(not(feature = "ablation-unsharded-alloc"))]
+            debug_assert_eq!(
+                self.mem_used_estimate(),
+                exact,
+                "the string map's shard accounting disagrees with its walk"
+            );
+            exact
+        })
+    }
+
+    /// [`Self::mem_used`] without the wait: an estimate that returns at once,
+    /// whatever else is running on the map.
+    ///
+    /// It takes none of the map's locks, does not close the writer gate and
+    /// pins no epoch, so it neither waits for a writer nor makes one wait.
+    /// Its cost is two loads per writer slot.
+    ///
+    /// **What it sums.** The index's bytes from the per-writer accounting
+    /// counters the map's allocator keeps, and the node shells' and suffix
+    /// leaves' bytes from per-writer counters the shared map's insert and
+    /// removal paths keep beside them, charged when a shell or leaf is
+    /// allocated and discharged when it is freed or retired.
+    ///
+    /// **How far it can be from [`Self::mem_used`].**
+    /// - With no insert, removal or clear in flight the two are equal.
+    /// - While writers run, the counters are read one by one, not at one
+    ///   instant, so the sum can differ from the map's size at any one
+    ///   instant by at most the bytes of the index nodes, shells and suffix
+    ///   leaves that the operations overlapping the call allocate or free.
+    ///
+    /// It counts nothing twice. Like `mem_used`, it leaves out what the epoch
+    /// collector holds; [`Self::mem_held`] counts that, and waits as
+    /// `mem_used` does. With the diagnostic `ablation-unsharded-alloc`
+    /// feature there are no per-writer counters to read and this is
+    /// [`Self::mem_used`], wait included.
+    #[must_use]
+    pub fn mem_used_estimate(&self) -> usize {
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
+        {
+            // SAFETY: the cell belongs to the allocator of the engine
+            // `self.shared` owns, which lives until `self` drops; the
+            // allocator is never replaced after construction (`mem_used`
+            // asserts it in debug builds).
+            unsafe { self.acct.bytes_in_use() + self.acct.ext_bytes() }
+        }
+        #[cfg(feature = "ablation-unsharded-alloc")]
+        {
+            self.mem_used()
+        }
+    }
+
+    /// The shell-and-suffix term of [`Self::mem_used_estimate`] alone, for
+    /// the error-bound tests (#1586, METHODOLOGY §43.4 G5).
+    #[cfg(all(test, not(feature = "ablation-unsharded-alloc")))]
+    pub(crate) fn ext_estimate(&self) -> usize {
+        // SAFETY: as in `mem_used_estimate`.
+        unsafe { self.acct.ext_bytes() }
     }
 
     /// Gathers structural statistics of the string map (runs under the writer lock).

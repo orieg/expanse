@@ -264,7 +264,8 @@ public sealed class ExpanseSyncStrMap : IDisposable
     }
 
     /// <summary>
-    /// Gets the off-heap bytes the map's nodes use. Read with writers excluded, so writers wait for it.
+    /// Gets the off-heap bytes the map's nodes use. Read with writers excluded and walks the map, so
+    /// writers wait for it; poll <see cref="MemoryUsedEstimate"/> instead.
     /// </summary>
     public nuint MemoryUsed
     {
@@ -272,6 +273,20 @@ public sealed class ExpanseSyncStrMap : IDisposable
         {
             ThrowIfDisposed();
             return NativeMethods.expanse_sync_strmap_mem_used(_handle);
+        }
+    }
+
+    /// <summary>
+    /// Gets an estimate of <see cref="MemoryUsed"/> that takes no lock and does not walk the map: equal to
+    /// it with no writer running, and beside writers within the bytes their overlapping operations
+    /// allocate or free.
+    /// </summary>
+    public nuint MemoryUsedEstimate
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return NativeMethods.expanse_sync_strmap_mem_used_estimate(_handle);
         }
     }
 

@@ -74,6 +74,9 @@ func TestSyncStrMapPointOps(t *testing.T) {
 	if m.MemoryUsed() == 0 || m.MemoryHeld() < m.MemoryUsed() {
 		t.Fatalf("memory accounting: used %d held %d", m.MemoryUsed(), m.MemoryHeld())
 	}
+	if est, used := m.MemoryUsedEstimate(), m.MemoryUsed(); est != used {
+		t.Fatalf("estimate %d != used %d with no writer running", est, used)
+	}
 	m.ShrinkToFit()
 
 	r := m.Reader()

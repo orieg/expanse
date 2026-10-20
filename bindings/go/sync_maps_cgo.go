@@ -92,6 +92,9 @@ func (m *SyncStrMap) nGetOrInsert(key []byte, value uint64) (existing uint64, in
 
 func (m *SyncStrMap) nLen() uint64     { return uint64(C.expanse_sync_strmap_len(m.ptr)) }
 func (m *SyncStrMap) nMemUsed() uint64 { return uint64(C.expanse_sync_strmap_mem_used(m.ptr)) }
+func (m *SyncStrMap) nMemUsedEstimate() uint64 {
+	return uint64(C.expanse_sync_strmap_mem_used_estimate(m.ptr))
+}
 func (m *SyncStrMap) nMemHeld() uint64 { return uint64(C.expanse_sync_strmap_mem_held(m.ptr)) }
 func (m *SyncStrMap) nShrink() uint64  { return uint64(C.expanse_sync_strmap_shrink_to_fit(m.ptr)) }
 

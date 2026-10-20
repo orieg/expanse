@@ -64,6 +64,7 @@ public class ExpanseSyncSharedMapsTests
         Assert.True(map.Remove("banana"));
         Assert.Equal(2UL, map.Count);
         Assert.True(map.MemoryUsed > 0);
+        Assert.Equal(map.MemoryUsed, map.MemoryUsedEstimate);
         Assert.True(map.MemoryHeld > 0);
         Assert.Equal(map.MemoryHeld - map.ShrinkToFit(), map.MemoryHeld);
     }

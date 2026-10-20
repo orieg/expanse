@@ -979,6 +979,11 @@ test('SyncExpanseStrMap rejects an embedded NUL on every key-taking method', () 
   assert.throws(() => m.next(bad), /NUL/);
   assert.throws(() => m.prev(bad), /NUL/);
   assert.strictEqual(m.size(), 0n);
+  // With no writer running the non-blocking reading is the exact one (#1586).
+  m.set('apple', 1n);
+  m.set('a-much-longer-key-with-a-suffix', 2n);
+  assert.strictEqual(m.memUsedEstimate(), m.memUsed());
+  assert(m.memUsedEstimate() > 0n);
 });
 
 test('SyncExpanseStrMap ordered reads', () => {

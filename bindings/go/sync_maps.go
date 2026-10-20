@@ -118,10 +118,19 @@ func (m *SyncStrMap) Size() uint64 {
 }
 
 // MemoryUsed returns the native heap bytes used by the live structure. Read
-// with writers excluded.
+// with writers excluded, walking the map, so writers wait for it;
+// MemoryUsedEstimate does neither.
 func (m *SyncStrMap) MemoryUsed() uint64 {
 	defer runtime.KeepAlive(m)
 	return m.nMemUsed()
+}
+
+// MemoryUsedEstimate is MemoryUsed without the lock or the walk: equal to it
+// with no writer running, and beside writers within the bytes their
+// overlapping operations allocate or free.
+func (m *SyncStrMap) MemoryUsedEstimate() uint64 {
+	defer runtime.KeepAlive(m)
+	return m.nMemUsedEstimate()
 }
 
 // MemoryHeld returns the heap bytes the map holds from the system allocator:

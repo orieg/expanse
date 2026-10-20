@@ -227,6 +227,62 @@ fn packed_suffix_bytes(layout: Layout) -> usize {
 /// Whether suffix bytes are already inside `NodeAlloc::bytes_in_use`.
 const SUFFIX_IN_NODE_ALLOC: bool = cfg!(feature = "packed-suffix");
 
+// Accounting of the bytes `shell_bytes` walks for, on a shared map (#1586).
+// Node shells and (without `packed-suffix`) suffix leaves are allocated
+// outside the `NodeAlloc`, so a shared map charges them to its allocator's
+// per-writer `ext_bytes` shards as they are allocated and freed, and
+// `SyncExpanseStrMap::mem_used_estimate` reads the shards instead of walking.
+// Called only from the shared twins and the optimistic module, never from a
+// plain path; the call is out of line (`NodeAlloc::account_unmanaged`).
+
+/// What one suffix leaf holding `len` bytes adds to the accounted
+/// shell-and-suffix bytes, for the estimate's tests (#1586).
+#[cfg(all(test, feature = "std", not(feature = "ablation-unsharded-alloc")))]
+pub(crate) fn test_suffix_ext_bytes(len: usize) -> usize {
+    if SUFFIX_IN_NODE_ALLOC {
+        0
+    } else {
+        suffix_layout(len).size()
+    }
+}
+
+/// A shell was allocated on a shared map.
+#[inline(always)]
+fn charge_shell(alloc: &NodeAlloc) {
+    alloc.account_unmanaged(size_of::<StrNode>() as isize);
+}
+
+/// A shell was freed or retired on a shared map.
+#[inline(always)]
+fn discharge_shell(alloc: &NodeAlloc) {
+    alloc.account_unmanaged(-(size_of::<StrNode>() as isize));
+}
+
+/// A suffix leaf holding `len` bytes was allocated on a shared map.
+#[inline(always)]
+fn charge_suffix(alloc: &NodeAlloc, len: usize) {
+    if !SUFFIX_IN_NODE_ALLOC {
+        // `suffix_layout(len).size()`, without its overflow check: `len` is
+        // the length of a leaf that was just allocated with that layout.
+        alloc.account_unmanaged((SUFFIX_BYTES + len) as isize);
+    }
+}
+
+/// The suffix leaf at `ptr` is about to be freed or retired on a shared map.
+///
+/// # Safety
+///
+/// `ptr` is a live suffix leaf (its write-once `len` is read).
+#[inline(always)]
+unsafe fn discharge_suffix(alloc: &NodeAlloc, ptr: *const StrSuffix) {
+    if !SUFFIX_IN_NODE_ALLOC {
+        // SAFETY: caller contract.
+        let len = unsafe { (*ptr).len };
+        // As in `charge_suffix`.
+        alloc.account_unmanaged(-((SUFFIX_BYTES + len) as isize));
+    }
+}
+
 /// Allocates a suffix leaf holding `bytes` and `value` in one allocation.
 fn new_suffix(bytes: &[u8], value: u64, arena: SuffixArena<'_>) -> *mut StrSuffix {
     let layout = suffix_layout(bytes.len());
@@ -1963,6 +2019,24 @@ impl ExpanseStrMap {
         );
     }
 
+    /// The bytes `mem_used` walks for (shells and global-allocator suffix
+    /// leaves), for the estimate's tests (#1586).
+    #[cfg(all(test, feature = "std", not(feature = "ablation-unsharded-alloc")))]
+    pub(crate) fn test_unmanaged_bytes(&self) -> usize {
+        self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
+    }
+
+    /// The allocator's accounting cell, for a wrapper to read the map's
+    /// bytes without walking it (#1586); `None` before [`Self::defer_to`].
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-unsharded-alloc")
+    ))]
+    pub(crate) fn acct_cell(&self) -> Option<crate::alloc::AcctCell> {
+        self.alloc.acct_cell()
+    }
+
     /// Binds the wrapper's tree-level version word to the one allocator
     /// behind every sub-trie (#568 PR 3; see `NodeAlloc::bind_tree_word`).
     ///
@@ -2178,6 +2252,9 @@ impl ExpanseStrMap {
         alloc: &NodeAlloc,
     ) -> *mut StrNode {
         let mut child = Box::new(StrNode::new());
+        if SHARED {
+            charge_shell(alloc);
+        }
         // SAFETY: `old` is the live suffix being split, reached as a raw
         // pointer so the projection covers the inline bytes; both borrows
         // end before the caller disposes of it.
@@ -2192,6 +2269,10 @@ impl ExpanseStrMap {
             // SAFETY: as above.
             let s1 =
                 unsafe { new_suffix(&suffix_bytes(old)[CHUNK..], value, SuffixArena::of(alloc)) };
+            if SHARED {
+                // SAFETY: `s1` was just allocated and is live.
+                charge_suffix(alloc, unsafe { (*s1).len });
+            }
             child
                 .map
                 .insert_pathless_dispatch::<SHARED, SHARED>(alloc, c1, pack_suffix(s1));
@@ -3400,7 +3481,11 @@ mod olc {
 
     /// Frees a suffix leaf that was allocated and never published: no reader
     /// can hold it, so it needs no retirement.
-    fn free_unpublished_suffix(ptr: *mut StrSuffix, arena: SuffixArena<'_>) {
+    fn free_unpublished_suffix(ptr: *mut StrSuffix, alloc: &NodeAlloc) {
+        let arena = SuffixArena::of(alloc);
+        // SAFETY: allocated by `new_suffix` on this thread, live until the
+        // free below.
+        unsafe { discharge_suffix(alloc, ptr) };
         // SAFETY: allocated by `new_suffix` on this thread and never stored
         // anywhere; `len` describes the allocation.
         let layout = suffix_layout(unsafe { (*ptr).len });
@@ -3423,6 +3508,17 @@ mod olc {
             // allocated with.
             unsafe { core_alloc::alloc::dealloc(ptr.cast::<u8>(), layout) };
         }
+    }
+
+    /// Discharges the shell and suffix bytes of a split child that was
+    /// built (and charged) but never published, before it is freed. Cold:
+    /// taken only when the publication loses to another writer.
+    #[cold]
+    #[inline(never)]
+    fn discharge_unpublished_child(child: *mut StrNode, alloc: &NodeAlloc) {
+        // SAFETY: the child is live, private to this writer, and only read.
+        let bytes = unsafe { (*child).shell_bytes() };
+        alloc.account_unmanaged(-(bytes as isize));
     }
 
     /// The chunk-chain frames of an optimistic remove, for the prune that may
@@ -3571,6 +3667,7 @@ mod olc {
                     None => {
                         // T2: publish a suffix leaf holding the key's remainder.
                         let sfx = new_suffix(&key[off + CHUNK..], val, SuffixArena::of(alloc));
+                        charge_suffix(alloc, key.len() - off - CHUNK);
                         let w = pack_suffix(sfx);
                         if is_tree {
                             match olc_insert_map::<_, true>(&host, chunk, w) {
@@ -3578,11 +3675,11 @@ mod olc {
                                 OlcOutcome::Done(Some(existing)) => {
                                     // Another writer published this chunk first:
                                     // ours was never reachable.
-                                    free_unpublished_suffix(sfx, SuffixArena::of(alloc));
+                                    free_unpublished_suffix(sfx, alloc);
                                     existing
                                 }
                                 other => {
-                                    free_unpublished_suffix(sfx, SuffixArena::of(alloc));
+                                    free_unpublished_suffix(sfx, alloc);
                                     return other;
                                 }
                             }
@@ -3590,7 +3687,7 @@ mod olc {
                             // SAFETY: live node (above).
                             let Some(lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
                             else {
-                                free_unpublished_suffix(sfx, SuffixArena::of(alloc));
+                                free_unpublished_suffix(sfx, alloc);
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: as for T1 in leaf state.
@@ -3668,6 +3765,7 @@ mod olc {
                             }
                             other => {
                                 // Never published: nothing can hold it.
+                                discharge_unpublished_child(child_raw, alloc);
                                 dispose_tree(child_raw, alloc, None);
                                 lock.abort_unmodified();
                                 drop(lock);
@@ -3689,6 +3787,8 @@ mod olc {
                         debug_assert_eq!(old_w, Some(v), "the entry moved under the cover lock");
                     }
                     // Unlinked above; retired, since a reader may still hold it.
+                    // SAFETY: live until the retire below.
+                    unsafe { discharge_suffix(alloc, sfx) };
                     dispose_suffix(sfx, defer, SuffixArena::of(alloc));
                     drop(lock);
                     node = child_raw;
@@ -3841,6 +3941,8 @@ mod olc {
                     // SAFETY: unlinked but still live; last owner. Read out
                     // before disposal.
                     let val = unsafe { (*sfx).value };
+                    // SAFETY: as above.
+                    unsafe { discharge_suffix(alloc, sfx) };
                     dispose_suffix(sfx, defer, SuffixArena::of(alloc));
                     // SAFETY: as for T7.
                     let deferred = unsafe { self.prune_locked(node, lock, &mut path, defer) };
@@ -3996,16 +4098,17 @@ mod olc {
                         }
                         let val = new.expect("checked at entry");
                         let sfx = new_suffix(&key[off + CHUNK..], val, SuffixArena::of(alloc));
+                        charge_suffix(alloc, key.len() - off - CHUNK);
                         let w = pack_suffix(sfx);
                         if is_tree {
                             match olc_insert_map::<_, true>(&host, chunk, w) {
                                 OlcOutcome::Done(None) => return (OlcOutcome::Done(None), None),
                                 OlcOutcome::Done(Some(existing)) => {
-                                    free_unpublished_suffix(sfx, SuffixArena::of(alloc));
+                                    free_unpublished_suffix(sfx, alloc);
                                     existing
                                 }
                                 other => {
-                                    free_unpublished_suffix(sfx, SuffixArena::of(alloc));
+                                    free_unpublished_suffix(sfx, alloc);
                                     return (other, None);
                                 }
                             }
@@ -4013,7 +4116,7 @@ mod olc {
                             // SAFETY: live node (above).
                             let Some(lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
                             else {
-                                free_unpublished_suffix(sfx, SuffixArena::of(alloc));
+                                free_unpublished_suffix(sfx, alloc);
                                 return (OlcOutcome::Retry, None);
                             };
                             // SAFETY: cover lock held.
@@ -4066,6 +4169,7 @@ mod olc {
                                     debug_assert_eq!(old_w, Some(v));
                                 }
                                 other => {
+                                    discharge_unpublished_child(child_raw, alloc);
                                     dispose_tree(child_raw, alloc, None);
                                     lock.abort_unmodified();
                                     drop(lock);
@@ -4086,6 +4190,8 @@ mod olc {
                             };
                             debug_assert_eq!(old_w, Some(v));
                         }
+                        // SAFETY: live until the retire below.
+                        unsafe { discharge_suffix(alloc, sfx) };
                         dispose_suffix(sfx, defer, SuffixArena::of(alloc));
                         drop(lock);
                         node = child_raw;
@@ -4152,6 +4258,8 @@ mod olc {
                             }
                             // SAFETY: `sfx` is EBR-live.
                             let val = unsafe { (*sfx).value };
+                            // SAFETY: `sfx` is EBR-live.
+                            unsafe { discharge_suffix(alloc, sfx) };
                             dispose_suffix(sfx, defer, SuffixArena::of(alloc));
                             // SAFETY: cover lock held and path tracked.
                             let deferred =
@@ -4255,6 +4363,7 @@ mod olc {
                 // Odd since the lock, so no reader validates through it; now
                 // permanently odd (S3), then retired.
                 lock.mark_obsolete();
+                discharge_shell(alloc);
                 // SAFETY: live (retired below, not freed), and its interior is
                 // the exclusive property of this writer since the lock.
                 unsafe { under_lock(node, alloc, || dispose_node(node, alloc, defer)) };
@@ -4433,6 +4542,7 @@ impl ExpanseStrMap {
             }
             if is_empty_exact_at(root) {
                 let root = self.take_root_shared().expect("root present");
+                discharge_shell(&self.alloc);
                 dispose_node(root, &self.alloc, defer.as_ref());
             }
         }
@@ -4572,6 +4682,7 @@ impl StrNode {
                     // Unlinked above; the last owner reads it before
                     // retiring it.
                     let removed_val = (*sfx).value;
+                    discharge_suffix(alloc, sfx);
                     dispose_suffix(sfx, defer, SuffixArena::of(alloc));
                     break removed_val;
                 }
@@ -4620,6 +4731,7 @@ impl StrNode {
             covered_at(parent, alloc, |m| {
                 MapCore::remove_covered_at(m, alloc, chunk)
             });
+            discharge_shell(alloc);
             dispose_node(child, alloc, defer);
             true
         }
@@ -4638,6 +4750,7 @@ impl ExpanseStrMap {
             return p;
         }
         let p = Box::into_raw(Box::new(StrNode::new()));
+        charge_shell(&self.alloc);
         // SAFETY: `Option<Box<T>>` has the layout of a nullable pointer, and
         // the slot held `None`, so nothing is overwritten.
         unsafe { (&raw mut self.root).cast::<*mut StrNode>().write(p) };
@@ -4676,6 +4789,7 @@ impl ExpanseStrMap {
             covered_at(node, alloc, |m| {
                 MapCore::insert_covered_at(m, alloc, chunk, pack_child(child_raw))
             });
+            discharge_suffix(alloc, old);
         }
         dispose_suffix(old, defer, SuffixArena::of(alloc));
         child_raw
@@ -4714,6 +4828,7 @@ impl ExpanseStrMap {
                 match (*node).map.get(chunk) {
                     None => {
                         let suffix = new_suffix(&key[off + CHUNK..], val, SuffixArena::of(alloc));
+                        charge_suffix(alloc, key.len() - off - CHUNK);
                         covered_at(node, alloc, |m| {
                             MapCore::insert_covered_at(m, alloc, chunk, pack_suffix(suffix))
                         });
@@ -4770,6 +4885,7 @@ impl ExpanseStrMap {
                 match (*node).map.get(chunk) {
                     None => {
                         let suffix = new_suffix(&key[off + CHUNK..], 0, SuffixArena::of(alloc));
+                        charge_suffix(alloc, key.len() - off - CHUNK);
                         covered_at(node, alloc, |m| {
                             MapCore::insert_covered_at(m, alloc, chunk, pack_suffix(suffix))
                         });
@@ -4804,6 +4920,8 @@ impl ExpanseStrMap {
                 // the walk only reads.
                 let shells = unsafe { (*root).shell_bytes() };
                 let bytes = self.alloc.bytes_in_use() as u64 + shells;
+                // The walk counts exactly what the shared paths charged.
+                self.alloc.account_unmanaged(-(shells as isize));
                 dispose_tree(root, &self.alloc, defer);
                 debug_assert_eq!(self.alloc.bytes_in_use(), 0);
                 bytes
@@ -4825,6 +4943,7 @@ impl ExpanseStrMap {
         if unsafe { (*root).map.is_empty() } {
             let root = self.take_root_shared().expect("root present");
             // Unlinked (the root slot is cleared); retired.
+            discharge_shell(&self.alloc);
             dispose_node(root, &self.alloc, defer);
         }
         Some(removed)

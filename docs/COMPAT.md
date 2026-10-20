@@ -360,9 +360,9 @@ The cross-thread free rests on the handle types being `Send`. That bound is auto
 `expanse_sync_strmap_reader_t` the C handle of its borrowed `StrReader`, with
 the `u64` shared map's conventions throughout
 (`crates/expanse-capi/src/modern_sync.rs`, `include/expanse.h`,
-`expanse_sync(3)`, #1538). Twenty-two entry points: `_new`, `_free`,
-`_insert`, `_get`, `_contains`, `_remove`, `_len`, `_mem_used`, `_mem_held`,
-`_shrink_to_fit`, `_reader_new`, `_reader_free`, `_reader_get`,
+`expanse_sync(3)`, #1538). Twenty-three entry points: `_new`, `_free`,
+`_insert`, `_get`, `_contains`, `_remove`, `_len`, `_mem_used`,
+`_mem_used_estimate`, `_mem_held`, `_shrink_to_fit`, `_reader_new`, `_reader_free`, `_reader_get`,
 `_reader_contains`, the reader's ordered reads `_reader_first`,
 `_reader_last`, `_reader_next_at_or_after`, `_reader_next_after`,
 `_reader_prev_at_or_before`, `_reader_prev_before`, and the
@@ -384,7 +384,11 @@ the `u64` shared map's conventions throughout
   `uint64_t` out-pointers, each nullable and written only on `true`, except
   `_insert`, which returns `true` for a new key and otherwise writes the
   replaced value through `old_out`. `_mem_used` and `_mem_held` read with
-  writers excluded; `_shrink_to_fit` excludes neither.
+  writers excluded, and `_mem_used` walks the tree, so inserts wait for it;
+  `_mem_used_estimate` takes no lock and does not walk (#1586): equal to
+  `_mem_used` with no writer running, and beside writers within the bytes
+  their overlapping operations allocate or free. `_shrink_to_fit` excludes
+  neither.
 - **Ordered reads** are stateless calls on the reader, each one optimistic
   read of `StrReader` with the retry budget and writer-excluding fallback of
   `_reader_get`; no cursor object crosses the boundary. The key goes to a
