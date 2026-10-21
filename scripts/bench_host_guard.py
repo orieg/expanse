@@ -4,7 +4,7 @@
     bench_host_guard.py check     --own-root PID [--pin-cpus LIST] [--wait S] [--json F] [--md F]
                                   [--suite NAME --manifest bench-suites.json]
     bench_host_guard.py watch     --own-root PID --out F.jsonl [--pin-cpus LIST]
-    bench_host_guard.py summarize --in F.jsonl [--md F] [--json F]
+    bench_host_guard.py summarize --in F.jsonl [--md F] [--json F] [--pauses ARTIFACT.json]
     bench_host_guard.py attach    --check F.json --summary F.json --watcher-ok {0,1} ARTIFACT...
     bench_host_guard.py --self-test
 
@@ -73,7 +73,15 @@ Thresholds are `bench_provenance.START_*` (the start gate) and `RUN_*_VOID`
   CPU is recorded and excluded. It exits when `--own-root` exits.
 - `summarize`: at the end. Any sample over a void boundary makes it exit 1: a
   contaminated run is discarded, not reinterpreted (section 8.17). `--json`
-  writes the judgement as a record (`run_record`).
+  writes the judgement as a record (`run_record`). `--pauses` names a
+  driver's artifact whose `provenance.hour_guard` records the intervals in
+  which the driver deliberately ran nothing (`pause_record`); a sample whose
+  whole window lies inside one is reported, labelled as taken during a pause,
+  and is not judged. The intervals come only from the driver's record, never
+  from a clock window here. A record that is absent, unreadable or
+  inconsistent (a pause overlapping a measured process) excludes nothing:
+  every sample is judged, and a `::notice::` names the reason. Without
+  `--pauses` the command behaves exactly as it did before the option existed.
 - `attach`: writes the start gate's verdict and that record into each named
   artifact's `provenance.host_guard`, so whether the host admitted the run is
   decidable from the committed artifact and not only from the run log.
@@ -116,6 +124,7 @@ host is never the reference host.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
@@ -1070,6 +1079,79 @@ def cmd_watch(args, proc: Path) -> int:
 # The longest stretch a record may go without a sample, in watch intervals.
 WATCH_GAP_FACTOR = 3.0
 
+# A sample's window is `[t - window_s, t]`, with `t` rounded to 0.1 s and taken
+# after the window's readings are assessed. A sample counts as taken during a
+# pause only when that window, widened by this margin on both sides, lies
+# inside one recorded pause.
+PAUSE_MARGIN_S = 1.0
+
+
+def _finite(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf")
+
+
+def pause_problems(hour_guard) -> list[str]:
+    """Why a driver's `hour_guard` record cannot exclude any sample; empty when it can.
+
+    The record is `{"pauses": [{"start_t", "end_t", ...}], "processes":
+    [{"label", "start_t", "end_t"}]}`, UTC epoch seconds on the host clock the
+    watcher reads. A pause is an interval in which the driver ran no measured
+    process, so every pause must be a non-empty interval, every process a
+    well-formed one, and no pause may overlap any process (touching ends are
+    allowed: a pause starts once the previous process has exited and ends
+    before the next starts). Pauses with no process record cannot be checked
+    and are refused.
+    """
+    if not isinstance(hour_guard, dict):
+        return ["no provenance.hour_guard object"]
+    pauses, procs = hour_guard.get("pauses"), hour_guard.get("processes")
+    if not isinstance(pauses, list):
+        return ["provenance.hour_guard.pauses is not a list"]
+    if not isinstance(procs, list):
+        return ["provenance.hour_guard.processes is not a list"]
+    why = []
+    for i, x in enumerate(pauses):
+        if not (isinstance(x, dict) and _finite(x.get("start_t")) and _finite(x.get("end_t"))
+                and x["start_t"] < x["end_t"]):
+            why.append(f"pause {i} has no numeric start_t < end_t")
+    for i, x in enumerate(procs):
+        if not (isinstance(x, dict) and _finite(x.get("start_t")) and _finite(x.get("end_t"))
+                and x["start_t"] <= x["end_t"]):
+            why.append(f"process {i} has no numeric start_t <= end_t")
+    if why:
+        return why
+    if pauses and not procs:
+        return ["pauses are recorded but no measured process is, so no overlap can be ruled out"]
+    for i, pa in enumerate(pauses):
+        for q in procs:
+            if pa["start_t"] < q["end_t"] and q["start_t"] < pa["end_t"]:
+                why.append(f"pause {i} overlaps measured process {q.get('label', '?')!s}")
+    return why
+
+
+def pause_record(path: str) -> tuple[list[tuple[float, float]], str | None]:
+    """The pause intervals in a driver's artifact, or why none can be used (fail closed)."""
+    try:
+        obj = json.loads(Path(path).read_text())
+    except (OSError, ValueError) as exc:
+        return [], f"cannot be read ({type(exc).__name__})"
+    prov = obj.get("provenance") if isinstance(obj, dict) else None
+    hg = prov.get("hour_guard") if isinstance(prov, dict) else None
+    why = pause_problems(hg)
+    if why:
+        return [], "; ".join(why[:3])
+    return [(float(x["start_t"]), float(x["end_t"])) for x in hg["pauses"]], None
+
+
+def in_pause(s: dict, pauses: list[tuple[float, float]]) -> bool:
+    """Whether sample `s`'s whole window, widened by PAUSE_MARGIN_S, lies inside one pause."""
+    t, w = s.get("t"), s.get("window_s")
+    if not (_finite(t) and _finite(w)):
+        return False
+    lo, hi = t - w - PAUSE_MARGIN_S, t + PAUSE_MARGIN_S
+    return any(a <= lo and hi <= b for a, b in pauses)
+
+
 
 def run_record(samples: list[dict], bad: list, worst: float, worst_on: float, governors: set) -> dict:
     """`summarize`'s judgement as data: what an artifact carries of the in-run record.
@@ -1136,22 +1218,46 @@ def cmd_summarize(args) -> int:
     except OSError:
         print(f"::error::no host-activity record at {args.inp}: the run cannot be shown undisturbed")
         return 1
+    pause_path = getattr(args, "pauses", None)
+    pauses: list[tuple[float, float]] = []
+    pause_error = None
+    if pause_path:
+        pauses, pause_error = pause_record(pause_path)
+        if pause_error:
+            print(f"::notice::pause record {pause_path} {pause_error}: no sample is excluded as taken during "
+                  "a pause, and every sample is judged")
     bad = []
+    paused_bad = []
+    measured = []
     governors = set()
     for s in samples:
+        paused = in_pause(s, pauses)
+        if not paused:
+            measured.append(s)
         why = verdict(s, bp.RUN_FOREIGN_VOID, bp.RUN_ON_PIN_VOID, bp.RUN_PROCESS_VOID_PCT)
         if why:
-            bad.append((s, why))
+            (paused_bad if paused else bad).append((s, why))
         governors.update(s.get("governor") or [])
-    worst_on = max((s["on_pin_foreign_busy_cpus"] for s in samples), default=0.0)
-    worst = max((s["foreign_busy_cpus"] for s in samples), default=0.0)
+    worst_on = max((s["on_pin_foreign_busy_cpus"] for s in measured), default=0.0)
+    worst = max((s["foreign_busy_cpus"] for s in measured), default=0.0)
     lines = [
         f"host activity during the run: {len(samples)} sample(s); worst foreign {worst:.2f}, "
         f"worst on the pinned CPUs {worst_on:.2f} core-equivalents; governor on the pinned CPUs: "
         f"{', '.join(sorted(governors)) or 'unknown'}",
     ]
+    if pause_path:
+        lines.append(f"pause record {pause_path}: "
+                     + (f"unusable ({pause_error}), every sample judged" if pause_error else
+                        f"{len(pauses)} pause(s); {len(samples) - len(measured)} sample(s) taken during a pause, "
+                        f"{len(paused_bad)} of them over a void boundary; samples taken during a pause are "
+                        "reported and not judged"))
     for s, why in bad[:5]:
         lines.append(f"  at {time.strftime('%H:%M:%S', time.gmtime(s['t']))}Z: " + "; ".join(why))
+        lines += attribution_lines(s)
+        lines += offender_table(s["offenders"][:3])
+    for s, why in paused_bad[:5]:
+        lines.append(f"  at {time.strftime('%H:%M:%S', time.gmtime(s['t']))}Z, taken during a pause "
+                     "(no measured process running; not judged): " + "; ".join(why))
         lines += attribution_lines(s)
         lines += offender_table(s["offenders"][:3])
     # A record with a hole in it does not show the run undisturbed: a watcher
@@ -1177,7 +1283,15 @@ def cmd_summarize(args) -> int:
         )
     print("\n".join(lines))
     if getattr(args, "json", None):
-        Path(args.json).write_text(json.dumps(run_record(samples, bad, worst, worst_on, governors), indent=2) + "\n")
+        rec = run_record(samples, bad, worst, worst_on, governors)
+        if pause_path:
+            rec["pauses"] = {
+                "record": pause_path, "usable": pause_error is None, "problem": pause_error,
+                "intervals": len(pauses), "samples_during_pause": len(samples) - len(measured),
+                "disturbed_during_pause": len(paused_bad),
+                "reasons_during_pause": [w for _s, why in paused_bad[:5] for w in why],
+            }
+        Path(args.json).write_text(json.dumps(rec, indent=2) + "\n")
     if bad:
         print(f"::error::the host was disturbed during the run ({len(bad)} sample(s) over the void boundary); "
               "the run is discarded, not reinterpreted (AGENTS.md section 8.17)")
@@ -1667,6 +1781,67 @@ def self_test() -> int:
             finally:
                 sys.stdout = old
 
+        # 22. --pauses: a sample whose window lies inside a pause the driver recorded is
+        # reported and not judged; anything else about the record leaves every sample judged.
+        pz = Path(td, "pauses.json")
+        good_hg = {"pauses": [{"before": "cell:b", "start_t": 1000.0, "end_t": 1300.0}],
+                   "processes": [{"label": "cell:a", "start_t": 900.0, "end_t": 1000.0},
+                                 {"label": "cell:b", "start_t": 1300.0, "end_t": 1400.0}]}
+
+        def summ(hot_t: float, hg, pauses_arg: str | None = str(pz)) -> tuple[int, str, dict]:
+            if hg is None:
+                pz.unlink(missing_ok=True)
+            else:
+                pz.write_text(json.dumps({"provenance": {"hour_guard": hg}}))
+            # The 04:17:34Z episode of run 39532347063: a 0.33 core-equivalent foreign process.
+            spike = dict(calm, t=hot_t, window_s=2.0, foreign_busy_cpus=0.33, on_pin_foreign_busy_cpus=0.33,
+                         offenders=[{"comm": "rsync", "pid": 7, "etime_s": 3, "cpu_pct": 33.0}])
+            jl.write_text("".join(json.dumps(x) + "\n" for x in
+                                  (dict(calm, t=hot_t - 2.0, window_s=2.0), spike, dict(calm, t=hot_t + 2.0, window_s=2.0))))
+            buf = io.StringIO()
+            old, sys.stdout = sys.stdout, buf
+            try:
+                rc = cmd_summarize(argparse.Namespace(inp=str(jl), md=None, json=str(run_json), pauses=pauses_arg))
+            finally:
+                sys.stdout = old
+            return rc, buf.getvalue(), json.loads(run_json.read_text())
+
+        # 22a. Inside a recorded pause: reported, labelled, not judged.
+        rc, out, rec = summ(1100.0, good_hg)
+        assert rc == 0, out
+        assert "taken during a pause" in out and "on the pinned CPUs 0.330 > 0.25" in out and "::notice::" not in out, out
+        assert rec["voids"] == 0 and rec["pauses"]["disturbed_during_pause"] == 1, rec
+        assert rec["pauses"]["usable"] is True and rec["pauses"]["samples_during_pause"] == 3, rec
+        assert rec["worst_on_pin_foreign_busy_cpus"] == 0.0, rec
+        # 22b. The same disturbance outside the pause, while a measured process runs: void.
+        rc, out, rec = summ(1350.0, good_hg)
+        assert rc == 1 and rec["voids"] == 1 and rec["pauses"]["disturbed_during_pause"] == 0, (out, rec)
+        # A window that only starts inside the pause, or only ends there, is judged.
+        for edge in (1000.5, 1301.0, 1299.5):
+            rc, out, rec = summ(edge, good_hg)
+            assert rc == 1 and rec["voids"] == 1, (edge, out, rec)
+        # 22c. A missing, unreadable or empty record excludes nothing, and a missing or
+        # unreadable one says so by name; without --pauses nothing changes and no notice prints.
+        for hg, notice in ((None, "cannot be read"), ({"pauses": "x", "processes": []}, "is not a list"),
+                           ({"pauses": [{"start_t": 1000.0}], "processes": []}, "no numeric start_t"),
+                           ({"pauses": good_hg["pauses"]}, "processes is not a list"),
+                           ({"pauses": good_hg["pauses"], "processes": []}, "no measured process")):
+            rc, out, rec = summ(1100.0, hg)
+            assert rc == 1 and rec["voids"] == 1 and rec["pauses"]["usable"] is False, (hg, out, rec)
+            assert f"::notice::pause record {pz}" in out and notice in out, (hg, out)
+        rc, out, rec = summ(1100.0, {"pauses": [], "processes": good_hg["processes"]})
+        assert rc == 1 and rec["voids"] == 1 and rec["pauses"]["usable"] is True and "::notice::" not in out, (out, rec)
+        rc, out, rec = summ(1100.0, good_hg, pauses_arg=None)
+        assert rc == 1 and rec["voids"] == 1 and "pauses" not in rec and "pause" not in out, (out, rec)
+        # 22d. A pause that overlaps a measured process is refused, and so excludes nothing.
+        overlap = {"pauses": good_hg["pauses"], "processes": [{"label": "cell:a", "start_t": 900.0, "end_t": 1100.5}]}
+        assert pause_problems(overlap) == ["pause 0 overlaps measured process cell:a"], pause_problems(overlap)
+        rc, out, rec = summ(1200.0, overlap)
+        assert rc == 1 and "overlaps measured process cell:a" in out and "::notice::" in out, out
+        late = {"pauses": good_hg["pauses"], "processes": [{"label": "cell:b", "start_t": 1299.0, "end_t": 1400.0}]}
+        assert pause_problems(late) == ["pause 0 overlaps measured process cell:b"], pause_problems(late)
+        assert pause_problems(good_hg) == [] and pause_problems(None) == ["no provenance.hour_guard object"]
+
         # 8. The pin set follows bench_pin.sh: an explicit list, else cpu_core.
         sysfs = Path(td, "sys")
         (sysfs / "cpu_core").mkdir(parents=True)
@@ -1943,6 +2118,7 @@ def main() -> int:
     s.add_argument("--in", dest="inp", required=True)
     s.add_argument("--md")
     s.add_argument("--json", help="also write the judgement as a record (see `run_record`)")
+    s.add_argument("--pauses", help="a driver artifact whose provenance.hour_guard records its pauses (see `pause_record`)")
     at = sub.add_parser("attach")
     at.add_argument("--check", required=True, help="the JSON `check --json` wrote")
     at.add_argument("--summary", required=True, help="the JSON `summarize --json` wrote")
