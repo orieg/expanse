@@ -518,7 +518,13 @@ jobs:
     # the window in which a wedged run can hold the shared host, versus
     # GitHub's 6-hour default. Raise it if a real `extended` run ever trips
     # it: the failure is now visible rather than silent.
-    timeout-minutes: 180
+    #
+    # `strmap_poll_stall` alone takes 640: concurrency METHODOLOGY §44's grid
+    # is 384 processes of 30 s windows plus their prefills, two builds and the
+    # driver's hourly :15-:20 pauses (§44.8). The bound,
+    # `run_seconds_bound(**DISPATCH)` in scripts/strmap_stall_bounds.py, is
+    # 31,934 s (532 min); 640 is 1.2x that. Every other suite stays at 180.
+    timeout-minutes: ${{ needs.resolve.outputs.suite == 'strmap_poll_stall' && 640 || 180 }}
     steps:
       # Comment identity: one sticky comment per suite, addressed by the
       # stable marker `<!-- expanse-bench:<suite> -->` - the same pattern

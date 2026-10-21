@@ -136,6 +136,41 @@ def ir_per_key(shape: str) -> float:
     return arm_ir_per_key(ARM_TOTAL_IR[shape], ARM_READS, ARM_KEYS)
 
 
+def run_seconds_bound(processes_by_keys: dict[int, int], window_s: float, prefill_s_per_key: float,
+                      post_s: float, build_s: float, blackout_s: float, longest_process_s: float) -> float:
+    """An upper bound on one dispatch's length, to size the job timeout (not a prediction).
+
+    Sum of: every process's window, every process's prefill at `prefill_s_per_key`
+    (`processes_by_keys` maps N to the number of processes that prefill N keys),
+    `post_s` per process for the closing readings and teardown, and `build_s`.
+    Then the hourly guard (METHODOLOGY §44.8): each hour boundary the run spans
+    costs at most the blackout plus the lead time of one process that could not
+    start before it, `blackout_s + longest_process_s`, and the pauses themselves
+    can push the run across one more boundary, so the hour count is taken after
+    adding them, iterated to a fixed point.
+    """
+    vals = (window_s, prefill_s_per_key, post_s, build_s, blackout_s, longest_process_s)
+    if any(_finite("bound input", v) < 0 for v in vals):
+        raise ValueError(f"inputs must be finite and >= 0, got {vals}")
+    if not processes_by_keys or any(
+            isinstance(k, bool) or not isinstance(k, int) or k <= 0
+            or isinstance(n, bool) or not isinstance(n, int) or n < 0
+            for k, n in processes_by_keys.items()):
+        raise ValueError(f"processes_by_keys must map positive N to process counts, got {processes_by_keys!r}")
+    procs = sum(processes_by_keys.values())
+    work = (procs * (window_s + post_s) + build_s
+            + sum(k * n for k, n in processes_by_keys.items()) * prefill_s_per_key)
+    per_hour = blackout_s + longest_process_s
+    total = work
+    for _ in range(100):
+        hours = math.ceil(total / 3600)
+        nxt = work + hours * per_hour
+        if nxt == total:
+            return total
+        total = nxt
+    raise ValueError("the hourly pauses do not converge: per-hour loss is not below one hour")
+
+
 def _read_const(name: str) -> int:
     m = re.search(rf"^const {name}: usize = ([0-9_]+);", INSTRUCTIONS_RS.read_text(), re.M)
     if not m:
@@ -191,6 +226,14 @@ def self_test() -> int:
         _raises(walk_projection, *bad)
     for bad in ((0, 4, 50_000), (100, 0, 50_000), (100, 4, -1), (100.0, 4, 50_000)):
         _raises(arm_ir_per_key, *bad)
+    # run_seconds_bound: one process of 10 keys, no hour crossed.
+    assert run_seconds_bound({10: 1}, 30, 1.0, 10, 100, 300, 60) == 30 + 10 + 100 + 10 + 360
+    # Iteration: 3,500 s of work crosses one boundary; the 400 s of pauses push it across a second.
+    assert run_seconds_bound({1: 1}, 3499, 0, 0, 0, 300, 100) == 3499 + 2 * 400
+    for bad in (({}, 30, 1, 0, 0, 0, 0), ({0: 1}, 30, 1, 0, 0, 0, 0), ({10: -1}, 30, 1, 0, 0, 0, 0),
+                ({10: 1}, -1, 1, 0, 0, 0, 0), ({10: 1}, 30, float("nan"), 0, 0, 0, 0)):
+        _raises(run_seconds_bound, *bad)
+    _raises(run_seconds_bound, {1: 1}, 10, 0, 0, 0, 3000, 600)
     print("strmap_stall_bounds.py self-test PASSED")
     return 0
 
@@ -206,6 +249,17 @@ def report() -> None:
             lo = walk_projection(ir_per_key(shape), keys, 4e9)
             hi = walk_projection(ir_per_key(shape), keys, 1e9)
             print(f"  {shape} N={keys:,}: {lo:.3f} s at 4e9 Ir/s .. {hi:.3f} s at 1e9 Ir/s")
+    b = run_seconds_bound(**DISPATCH)
+    print(f"Dispatch bound (sizing the job timeout): {b:,.0f} s from {DISPATCH}")
+
+
+# §44's dispatch: 24 cells x 3 arms x 5 rounds timed, plus 24 counter processes, half at
+# each N; laptop prefill (loaded, sizing only) was at most 1.34e-06 s/key, so 2.7e-06 (2x)
+# per key; 10 s per process after the window; 600 s per build, two builds; the longest
+# process the driver's guard estimates is 2.7e-06 x 2e7 x 1.5 + 30 + 30 = 141 s.
+DISPATCH = {"processes_by_keys": {2_000_000: 192, 20_000_000: 192}, "window_s": 30,
+            "prefill_s_per_key": 2.7e-06, "post_s": 10, "build_s": 1200, "blackout_s": 300,
+            "longest_process_s": 141}
 
 
 def main() -> int:
