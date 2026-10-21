@@ -6809,3 +6809,29 @@ N, W, T, D, the shapes, 5 rounds, the pin, the 0.5 factor in S1, M1's thresholds
 ### 44.7 Expiry
 
 The result describes the walk on `9a27dd3e`. An engine change to `shell_bytes`, `read_locked`, `quiesce_writers` or `enter_writer_blocking` voids it.
+
+### 44.8 Clarifications fixed before the first run (appended 2026-10-20)
+
+These settle points §44.1–§44.7 leave open. They precede every run, so no result exists that they could have been fitted to. They carry no `INTERMEDIATE` label, and §44.1–§44.7 are not edited.
+
+- **The process unit is (cell, arm, round).** A cell is (shape, N, W, T). Each of its three arms runs in a process of its own, which prefills its own map, so no arm starts from keys another arm's writers inserted. Each round runs every (cell, arm) once. The cell order is rotated by a fifth of the list per round, and the arm order within a cell by one place per round. The three arms of a cell share one seed per round. This is what §44.3's "one process per (cell, round)" means for a cell with three arms.
+- **S1 needs both shapes.** It is `PASS` iff the rule holds on `routes` and on `short`, and `FAIL` otherwise.
+- **M1 is read per shape, then aggregated.** §44.4 names no shape for M1. Each shape gets its own `MATERIAL` / `NOT_MATERIAL` / `INTERMEDIATE` by §44.4's clauses. The run is `MATERIAL` if either shape is, `NOT_MATERIAL` if both are, and `INTERMEDIATE` otherwise.
+- **`VOID`.** A verdict is `VOID` when any of the cells it reads meets one of these conditions, quoted from `docs/benchmarks/concurrency/scripts/strmap_poll_stall.py`:
+  - `rounds [...] are not 0..4`;
+  - `no insert completed`, in any round;
+  - `no poll completed`, in a `len` or `mem_used` round;
+  - `threads were not placed one per core (§44.3's pin)`;
+  - `foreign busy CPU <x> above 1.0 (§8.17)`;
+  - `no numeric load.foreign_busy_cpus; the window cannot be shown quiet (§8.17)`;
+  - `load average <x> above <cpus/2> at the window's start (§8.17)`.
+
+  So does a run whose `round count <n> is not the registered 5`, an M1 shape whose `M1's cells lack the rounds or polls an interval needs`, and any `--quick` run (`quick run: a reduced grid, not §44's registered cells`).
+- **Population growth is recorded, not controlled.** N is the population at the window's start. The writers keep inserting for D, so the map grows during the window, and at N = 2·10⁶ with W = 8 the inserts may exceed N itself. Each reading then walks a larger tree than the one before it. Every row records `len_before`, `len_after`, `mem_used_after` and each reading's returned value, so the growth is visible per window. No verdict corrects for it.
+- **`stalled_fraction` is capped at 1.** It is `walk_s / max(walk_s, period_s)`. A walk longer than T leaves the next reading due on its return, so the readings run back to back and the gate is closed for the whole window. This changes nothing below the cap, and so nothing about M1's 0.01 threshold.
+- **The hourly pause.** The reference host runs an rsync at minutes :15–:20 UTC every hour. Before each process, timed or counted, the driver estimates the process's length:
+  - the largest prefill seen so far for its (shape, N), times 1.5, or 5·10⁻⁶ s per key before the first prefill of that pair;
+  - plus D;
+  - plus 30 s.
+
+  If the process could reach :15, or would start inside the blackout, the driver waits until :20 and checks again. No prefill or measured window therefore overlaps the blackout. Every pause is recorded under `provenance.hour_guard.pauses`. The job timeout for this suite alone is 640 minutes: 1.2 × the 31,934 s bound computed by `run_seconds_bound` in `scripts/strmap_stall_bounds.py`, which counts these pauses.
