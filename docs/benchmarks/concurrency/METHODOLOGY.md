@@ -6856,3 +6856,18 @@ This records an outcome and a tooling change. §44.1–§44.8 are not edited, an
 
   The change does not apply retroactively. Run 39532347063 stays discarded: its 06:59Z episode lies outside that blackout, and its driver at `b4846424` recorded no pause intervals, so the new guard would exclude nothing from it either.
 - **`apt-daily-upgrade` is held on the reference host during runs.** The maintainer holds that unit for the duration of each run of this suite. It is host administration, not code, and nothing in this repository enforces it. The guard still voids a run that the unit, or anything else, disturbs outside a recorded pause.
+
+### 44.10 The second reference-host run was discarded (appended 2026-10-21; §44.1 to §44.9 are not rewritten)
+
+Run [39633666220](https://github.com/orieg/expanse/actions/runs/39633666220) at `67c2a7b9`, which carries §44.9's pause-aware guard, was discarded by the workflow's host-activity guard: "the host was disturbed during the run (9 sample(s) over the void boundary)". Per §8.17 it is discarded, not reinterpreted. None of its figures is quoted, it decides nothing, and S1 and M1 remain unevaluated.
+
+- **The pause record worked.** The guard read 4 recorded pauses and 688 samples taken inside them, one of them over a void boundary at 19:17:55Z (0.45 core-equivalents on the pinned CPUs, during the hourly rsync). That sample was reported and not judged.
+- **The 9 judged samples came from two sources outside every pause** (`host-activity.jsonl` in the run's artifacts):
+  - **17:21:07Z and 18:24:01Z** (0.30 and 0.41 core-equivalents on the pinned CPUs, no single offender named): interactive ssh logins to the reference host that checked the run's progress while it was in flight.
+  - **17:39:03Z to 17:39:23Z, 7 samples** (up to 1.015 core-equivalents host-wide and 0.905 on the pinned CPUs; offenders `hw-probe`, `systemd`, `hdparm`): a daily root cron job, `hw-probe -all -check -upload -monitoring`, which the host's journal shows starting at 17:39:01 UTC every day.
+- **What changes for the next run.** Nothing in the instrument. The run is scheduled around the host instead:
+  - it is dispatched in a :19 window from 18:19 UTC on, so that it finishes before the next 17:39 job;
+  - nobody logs into the host while it runs; status is read from the workflow run only;
+  - the `apt-daily` and `apt-daily-upgrade` timers stay stopped, as in §44.9.
+
+  These are operating rules, and nothing in this repository enforces them. The guard still voids a run that any of them, or anything else, disturbs outside a recorded pause.
