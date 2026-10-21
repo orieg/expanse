@@ -20,7 +20,14 @@ Before every process, timed or counted, the driver checks the hourly blackout
 (minutes :15-:20 UTC, when the reference host runs an rsync, METHODOLOGY §44.8):
 if the process, its prefill included, could reach :15, or would start inside the
 blackout, it waits until :20. Each pause is recorded under
-`provenance.hour_guard.pauses`.
+`provenance.hour_guard.pauses` with its `start_t` and `end_t` (UTC epoch
+seconds), and every measured process under `provenance.hour_guard.processes`
+with its own. A pause starts only after the previous process has exited (each
+process runs through a blocking `subprocess.run`) and ends before the next one
+starts, and the driver refuses to write an artifact in which any pause
+overlaps a process (`bench_host_guard.pause_problems`). The workflow's host
+guard reads these intervals (`bench_host_guard.py summarize --pauses`) and
+does not judge a sample taken wholly inside one (METHODOLOGY §44.9).
 
 After the timed rounds, one untimed pass of the `occ-stats` build runs each
 `mem_used` cell once and records the gate counters (`GateBlockedEntries`,
@@ -67,6 +74,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+import bench_host_guard  # noqa: E402
 import bench_pin  # noqa: E402
 import check_bench_provenance  # noqa: E402
 import strmap_stall_bounds as bounds  # noqa: E402
@@ -241,14 +249,36 @@ def process_estimate_s(c: dict[str, Any], seconds: int, prefills: dict[tuple[str
 
 def guard_pause(pauses: list[dict[str, Any]], label: str, est_s: float,
                 clock=time.time, sleep=time.sleep) -> float:
-    """Waits out the hourly blackout before process `label`, and records any pause."""
+    """Waits out the hourly blackout before process `label`, and records any pause.
+
+    Called only between processes: the previous one has exited, and the next
+    has not started. The recorded interval is `[start_t, end_t]` as read from
+    `clock` before and after the sleep, so it holds only time in which the
+    driver ran nothing.
+    """
     now = clock()
     wait = hour_guard_wait(now, est_s)
     if wait > 0:
-        pauses.append({"before": label, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
-                       "wait_s": round(wait, 1), "process_estimate_s": round(est_s, 1)})
         sleep(wait)
+        pauses.append({"before": label, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+                       "wait_s": round(wait, 1), "process_estimate_s": round(est_s, 1),
+                       "start_t": now, "end_t": clock()})
     return wait
+
+
+def run_recorded(processes: list[dict[str, Any]], label: str, fn, clock=time.time) -> dict[str, Any]:
+    """Runs one measured process through `fn` and records its `[start_t, end_t]`."""
+    t0 = clock()
+    row = fn()
+    processes.append({"label": label, "start_t": t0, "end_t": clock()})
+    return row
+
+
+def check_pauses(hour_guard: dict[str, Any]) -> None:
+    """Refuses a record in which a pause overlaps a measured process (§8.1)."""
+    why = bench_host_guard.pause_problems(hour_guard)
+    if why:
+        raise DriverError("the pause record is inconsistent: " + "; ".join(why[:3]))
 
 
 def note_prefill(prefills: dict[tuple[str, int], float], c: dict[str, Any], row: dict[str, Any]) -> None:
@@ -541,10 +571,11 @@ def measure(out_path: Path, quick: bool = False) -> dict[str, Any]:
     cells = cells_for(g)
     by: dict[str, dict[str, Any]] = {}
     pauses: list[dict[str, Any]] = []
+    processes: list[dict[str, Any]] = []
     prefills: dict[tuple[str, int], float] = {}
     prov["hour_guard"] = {"blackout_utc_minutes": [HOUR_BLACKOUT_S[0] // 60, HOUR_BLACKOUT_S[1] // 60],
                           "prefill_s_per_key_default": PREFILL_S_PER_KEY, "prefill_margin": PREFILL_MARGIN,
-                          "post_s": POST_S, "pauses": pauses}
+                          "post_s": POST_S, "pauses": pauses, "processes": processes}
     for r in range(rounds):
         for c, arm in round_order(cells, r, rounds):
             cid = cell_id(c, arm)
@@ -552,7 +583,8 @@ def measure(out_path: Path, quick: bool = False) -> dict[str, Any]:
             seed = 0x1586_0000 + 97 * r + cells.index(c)
             guard_pause(pauses, f"cell:{cid}:r{r}", process_estimate_s(c, g["seconds"], prefills))
             start = begin_cell(prov, f"cell:{cid}:r{r}")
-            row = run_one(exe, c, arm, r, g["seconds"], seed, pin, place)
+            row = run_recorded(processes, f"cell:{cid}:r{r}",
+                               lambda: run_one(exe, c, arm, r, g["seconds"], seed, pin, place))
             note_prefill(prefills, c, row)
             row["load"] = end_cell(start)
             row["load_start"] = {"label": start.get("label"), "load1": start.get("load1")}
@@ -582,11 +614,14 @@ def measure(out_path: Path, quick: bool = False) -> dict[str, Any]:
         place = placement(cpus, siblings, c["writers"]) if siblings else None
         guard_pause(pauses, f"counters:{cid}", process_estimate_s(c, g["seconds"], prefills))
         start = begin_cell(prov, f"counters:{cid}")
-        row = run_one(cexe, c, "mem_used", 0, g["seconds"], 0x1586_C000 + cells.index(c), pin, place)
+        row = run_recorded(processes, f"counters:{cid}",
+                           lambda: run_one(cexe, c, "mem_used", 0, g["seconds"], 0x1586_C000 + cells.index(c),
+                                           pin, place))
         windows.append({"cell": cid, **counters_report(row), "load": end_cell(start)})
     art["counters"] = windows
     if quick:
         art["note"] = "quick smoke run on a reduced grid: not a measurement, decides nothing"
+    check_pauses(prov["hour_guard"])
     check_provenance(art, quick)
     out_path.write_text(json.dumps(art, indent=2) + "\n")
     return art
@@ -866,13 +901,43 @@ def self_test_hour_guard() -> None:
     note_prefill(pre, c, {"prefill_s": 40.0})
     note_prefill(pre, c, {"prefill_s": 30.0})
     assert process_estimate_s(c, 30, pre) == 40.0 * PREFILL_MARGIN + 30 + POST_S
-    # guard_pause records a pause and sleeps it; no pause, no record.
-    pauses: list = []
+    # guard_pause records a pause and sleeps it; no pause, no record. A fake clock, advanced
+    # by the fake sleep and the fake processes, stands in for the host's.
+    now = [at(10)]
     slept: list = []
-    assert guard_pause(pauses, "cell:x", 400, clock=lambda: at(10), sleep=slept.append) == 600
-    assert slept == [600] and pauses[0]["before"] == "cell:x" and pauses[0]["wait_s"] == 600
-    assert guard_pause(pauses, "cell:y", 100, clock=lambda: at(30), sleep=slept.append) == 0
-    assert len(pauses) == 1 and slept == [600]
+
+    def nap(sec: float) -> None:
+        slept.append(sec)
+        now[0] += sec
+
+    def clock() -> float:
+        return now[0]
+
+    def proc(sec: float):
+        def fn():
+            now[0] += sec
+            return {"ran": sec}
+        return fn
+    pauses: list = []
+    processes: list = []
+    assert run_recorded(processes, "cell:w", proc(100), clock=clock) == {"ran": 100}   # :10:00-:11:40
+    assert guard_pause(pauses, "cell:x", 400, clock=clock, sleep=nap) == at(20) - at(11, 40)
+    assert slept == [at(20) - at(11, 40)] and pauses[0]["before"] == "cell:x"
+    assert pauses[0]["wait_s"] == round(at(20) - at(11, 40), 1)
+    run_recorded(processes, "cell:x", proc(400), clock=clock)                       # :20:00-:26:40
+    assert guard_pause(pauses, "cell:y", 100, clock=clock, sleep=nap) == 0
+    assert len(pauses) == 1 and len(slept) == 1
+    run_recorded(processes, "cell:y", proc(100), clock=clock)
+    # The pause is exactly the time between the previous process's exit and the next one's start.
+    assert pauses[0]["start_t"] == processes[0]["end_t"] == at(11, 40), (pauses, processes)
+    assert pauses[0]["end_t"] == processes[1]["start_t"] == at(20), (pauses, processes)
+    check_pauses({"pauses": pauses, "processes": processes})
+    # A pause overlapping a measured process is refused, by the driver and the guard alike: one the
+    # previous process outlives, one inside which the next process starts, and one inside the pause.
+    for bad in (dict(processes[0], end_t=at(12)), dict(processes[1], start_t=at(19)),
+                {"label": "bg", "start_t": at(15), "end_t": at(16)}):
+        got = _refused(check_pauses, {"pauses": pauses, "processes": [bad]})
+        assert "overlaps measured process" in got, (bad, got)
     # The call sites: every process measure() starts is guarded first, and its prefill noted.
     src = (Path(__file__).resolve()).read_text()
     body = src[src.index("def measure("):src.index("def check_provenance(")]
@@ -882,6 +947,19 @@ def self_test_hour_guard() -> None:
     assert len(runs) == len(guards) == 2, (runs, guards)
     assert all(g < r for g, r in zip(guards, runs)) and guards[1] > runs[0]
     assert code.count("note_prefill(prefills") == 1 and code.index("note_prefill(") > runs[0]
+    # Every measured process is recorded: each run_one( is the body of a run_recorded(processes, ...)
+    # lambda, the record reaches the artifact, and it is checked before the artifact is written.
+    recs = [i for i in range(len(code)) if code.startswith("run_recorded(processes,", i)]
+    assert len(recs) == 2 and all(rec < r and code[rec:r].rstrip().endswith("lambda:") and "run_one(" not in code[rec:r]
+                                  for rec, r in zip(recs, runs)), (recs, runs)
+    assert '"processes": processes}' in code and code.count('check_pauses(prov["hour_guard"])') == 1
+    assert code.index("check_pauses(") < code.index("out_path.write_text(")
+    # A pause begins only after the previous process has exited: every process runs through a
+    # blocking subprocess.run, and nothing in this file starts a process it does not wait for.
+    for word in ("Popen", "os.fork", "os.spawn", "asyncio", "threading", "multiprocessing"):
+        assert word not in src.replace(f'"{word}"', ""), word
+    one = src[src.index("def run_one("):src.index("# --- Per-round statistics")]
+    assert one.count("subprocess.run(") == 1, one
 
 
 def self_test() -> int:
