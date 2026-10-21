@@ -5581,11 +5581,24 @@ artifact `results/baseline_reclaim_stall.json`, predictions evaluated by
 completed exactly two compactions with no refused insert. Every full-map round
 refused every insert.
 
+† **Withheld pending re-measurement (#1320's §31 runs these cells).** In every
+`SyncExpanseBlobMap` overwrite cell with more than one writer, writers 2k and
+2k + 1 drew identical key streams: `reclaim_stall.rs` seeded writer w with
+`seed ^ (0x5A5A + w)`, and `XorShift64::new`'s `| 1` erased the one bit that
+differed. The W = 4 and W = 12 overwrite figures therefore describe W / 2
+pairs of writers overwriting the same keys in the same order, not W
+independent writers. They stay as recorded and are not read. The harness now
+seeds each thread through SplitMix64's finaliser and checks the streams are
+distinct before a run starts. Unaffected: the W = 1 and `ExpanseBlobMap`
+cells (one writer, no partner), the full-map cells (a writer's keys come from
+its index, not from its stream), and the readers (both of every cell's two
+readers had distinct streams).
+
 | id | prediction | outcome | verdict |
 |---|---|---|---|
-| P1 | stall 10.61–11.76 ms at 200,000; 191.1–211.7 ms at 3,600,000 | above the range in every cell (table below) | outside the range |
-| P2 | per-record ratio in [0.8, 1.25] (`LINEAR`) or above 1.25 (`SUPERLINEAR`) | 0.38–0.54, below both bands | `INCONCLUSIVE` in all four (map, W) |
-| P3 | largest read ÷ stall ≥ 0.5 | 0.91–1.0 at 3,600,000; 0.35–1.0 at 200,000 | `HOLDS` in 4 cells, `MIXED` in 2 |
+| P1 | stall 10.61–11.76 ms at 200,000; 191.1–211.7 ms at 3,600,000 | above the range in every cell (table below); the W = 4 and 12 cells † | outside the range |
+| P2 | per-record ratio in [0.8, 1.25] (`LINEAR`) or above 1.25 (`SUPERLINEAR`) | 0.38–0.54, below both bands; the W = 4 and 12 ratios † | `INCONCLUSIVE` in all four (map, W) |
+| P3 | largest read ÷ stall ≥ 0.5 | 0.91–1.0 at 3,600,000; 0.35–1.0 at 200,000; the W = 4 and 12 cells † | `HOLDS` in 4 cells, `MIXED` in 2 |
 | P4 | `ExpanseBlobMap` peak heap ÷ (index + `compaction_peak_bytes`) in [0.9, 1.1] | 1.0002 and 1.0003 | `HOLDS` |
 | P5 | refused-insert p99 ≤ 100 µs | 0.65–0.69 µs at W = 4; 7.4–7.8 µs at W = 12 | `HOLDS` |
 
@@ -5595,8 +5608,8 @@ The stall, median over rounds with the BCa interval (workload: `reclaim_stall`):
 |---|--:|--:|
 | `ExpanseBlobMap` W = 1 | 46.3 ms [45.6, 46.7] | 315.4 ms [314.7, 317.0] |
 | `SyncExpanseBlobMap` W = 1 | 31.9 ms [31.0, 32.8] | 309.9 ms [306.3, 312.0] |
-| `SyncExpanseBlobMap` W = 4 | 32.4 ms [32.2, 44.6] | 309.1 ms [304.1, 311.0] |
-| `SyncExpanseBlobMap` W = 12 | 33.5 ms [31.4, 34.1] | 311.7 ms [310.6, 312.6] |
+| `SyncExpanseBlobMap` W = 4 † | 32.4 ms [32.2, 44.6] | 309.1 ms [304.1, 311.0] |
+| `SyncExpanseBlobMap` W = 12 † | 33.5 ms [31.4, 34.1] | 311.7 ms [310.6, 312.6] |
 
 **§29.4's decision rule fires.** Every 3,600,000 cell's median stall is
 above 100 ms. The reader-bracket split and incremental compaction move ahead
@@ -5625,7 +5638,9 @@ of #1300's other items.
   is 30.3–33.7 ms. At 3,600,000 the largest read equals the stall in every
   round. That part of the first compaction's excess runs outside the tree
   bracket is a hypothesis, not a measurement.
-- **At W ≥ 4 several writers pay each compaction.**
+- **At W ≥ 4 several writers pay each compaction.** † These shapes are
+  withheld pending re-measurement (#1320): writer pairs on identical key
+  streams, §29's † note.
   - At W = 12, a round's eight largest inserts lie within 1.13× of one
     another.
   - At W = 4, its three largest lie within 1.09× in 9 of 10 rounds.
@@ -5633,13 +5648,17 @@ of #1300's other items.
     this shape, not traced.
 - **Not predicted.**
   - W = 12 overwrite cells carry an insert p99 of 22.9–24.8 µs, against
-    1.15–1.29 µs at W = 4 (workload: `reclaim_stall`).
+    1.15–1.29 µs at W = 4 (workload: `reclaim_stall`). † Both are
+    withheld pending re-measurement (#1320): writer pairs on identical
+    key streams, §29's † note.
   - The full-map W = 12 cells' largest refused insert is 3.0–3.2 ms against
     a p99 of 7.4–7.8 µs.
   - The cause of either is unmeasured.
 - **P4's `SyncExpanseBlobMap` cells**, reported per §29.3, read
   1.0006–1.0229 of the same prediction. Retired chunks wait for the epoch
-  collector.
+  collector. The W = 4 and 12 cells, which reach 1.0229, are withheld
+  pending re-measurement (#1320): writer pairs on identical key streams,
+  §29's † note.
 - **P1 is outside its range, and the range came from §27.** §27 measured
   smaller arenas than the cap. Whether the per-record difference is the
   arena's size, the cap's waste guard, or the live set leaving the cache is
@@ -5722,6 +5741,11 @@ because the head changed on the measured path (§8.7): the staged section got
 its own body, so the shared serialised write is restored to the merge base's
 code. Its artifacts are not committed. It also read G1 `PASS`.
 
+† The W = 4 and W = 12 overwrite figures below are withheld
+pending re-measurement (#1320): writer pairs on identical key streams, §29's
+† note.
+The W = 1, `ExpanseBlobMap` and full-map figures are unaffected.
+
 **G1 — the largest read latency at 3,600,000 live, `SyncExpanseBlobMap`
 overwrite cells.** Medians over rounds, with BCa 95 % intervals:
 
@@ -5729,12 +5753,13 @@ overwrite cells.** Medians over rounds, with BCa 95 % intervals:
 |---|---|--:|--:|--:|---|
 | 1 | B run 1, H run 1 | 296.22 ms [294.60, 296.90] | 23.07 ms [23.02, 23.09] | 0.078 | holds |
 | 1 | B run 2, H run 2 | 294.91 ms [293.97, 295.59] | 22.97 ms [22.93, 23.04] | 0.078 | holds |
-| 4 | B run 1, H run 1 | 276.56 ms [276.09, 278.03] | 23.41 ms [23.36, 30.76] | 0.085 | holds |
-| 4 | B run 2, H run 2 | 276.56 ms [276.19, 276.77] | 23.40 ms [23.29, 23.40] | 0.085 | holds |
-| 12 | B run 1, H run 1 | 273.94 ms [271.48, 274.15] | 23.45 ms [23.38, 23.58] | 0.086 | holds |
-| 12 | B run 2, H run 2 | 274.46 ms [273.26, 274.94] | 23.41 ms [23.28, 23.43] | 0.085 | holds |
+| 4 † | B run 1, H run 1 | 276.56 ms [276.09, 278.03] | 23.41 ms [23.36, 30.76] | 0.085 | holds |
+| 4 † | B run 2, H run 2 | 276.56 ms [276.19, 276.77] | 23.40 ms [23.29, 23.40] | 0.085 | holds |
+| 12 † | B run 1, H run 1 | 273.94 ms [271.48, 274.15] | 23.45 ms [23.38, 23.58] | 0.086 | holds |
+| 12 † | B run 2, H run 2 | 274.46 ms [273.26, 274.94] | 23.41 ms [23.28, 23.43] | 0.085 | holds |
 
-**G1 reads `PASS`.** It holds in all three cells in both run pairs. The ratios
+**G1 reads `PASS`.** It holds in all three cells in both run pairs. The
+W = 4 and 12 rows are withheld (†); the W = 1 rows hold on their own. The ratios
 (0.078–0.086) are below `reader_wait_ratio_bound`'s 0.0900–0.0914 for a single
 writer. The bound divides by the exclusive section alone, while B's largest
 read is not limited to the section; which of the two explains the gap is not
@@ -5742,8 +5767,8 @@ separated.
 
 | id | outcome | verdict |
 |---|---|---|
-| P2 | at 200,000 live: W = 1 holds in both pairs (H ÷ B medians 0.090, 0.091); W = 12 holds (0.092, 0.092); at W = 4, H's interval reaches 30.67 and 16.87 ms because of one round in each H run (38.0 ms and 20.7 ms) | reported: fails at W = 4 |
-| P3 | the stall at 3,600,000, H ÷ B medians: 1.022 and 1.028 at W = 1, 0.996 and 0.998 at W = 4, 1.020 and 1.005 at W = 12; `ExpanseBlobMap` 1.007 and 1.024 at 200,000, 1.020 and 1.013 at 3,600,000 | within [0.9, 1.1] |
+| P2 | at 200,000 live: W = 1 holds in both pairs (H ÷ B medians 0.090, 0.091); W = 12 holds (0.092, 0.092); at W = 4, H's interval reaches 30.67 and 16.87 ms because of one round in each H run (38.0 ms and 20.7 ms); the W = 4 and 12 figures † | reported: fails at W = 4 |
+| P3 | the stall at 3,600,000, H ÷ B medians: 1.022 and 1.028 at W = 1, 0.996 and 0.998 at W = 4 †, 1.020 and 1.005 at W = 12 †; `ExpanseBlobMap` 1.007 and 1.024 at 200,000, 1.020 and 1.013 at 3,600,000 | within [0.9, 1.1] |
 | P4 | `blobmap_compact` and `sync_blobmap_compact` −0.26 % instructions against the merge base, every other arm unchanged *(measured: CI run [36887889806](https://github.com/orieg/expanse/actions/runs/36887889806), the `instruction-counts` job at `0d414380`, whose engine code is `cdfbb0bc`'s)* | holds |
 | P5 | the refused-insert p99 in H's full-map cells, at most 0.667 µs (W = 4) and 7.879 µs (W = 12) | holds |
 
@@ -5759,7 +5784,9 @@ separated.
   - The change shortens optimistic reads only. A fallback read that lands in a
     compaction still waits for all of it; changing that is outside §30's
     scope.
-- **Writers' wait is unchanged.** P3's ratios are 0.996–1.028.
+- **Writers' wait is unchanged.** P3's ratios are 0.996–1.028; the W = 4 and
+  12 ratios are withheld pending re-measurement (#1320): writer pairs on
+  identical key streams, §29's † note.
 
 ## 31. The cost of a concurrent count under a writer — METHODOLOGY §23 evaluation (Refs #1144)
 

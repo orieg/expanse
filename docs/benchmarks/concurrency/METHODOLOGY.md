@@ -4497,6 +4497,8 @@ No tree mutation entry point is added. Phase 2 stores slots through the existing
 
 Compaction at the arena cap is currently $O(\text{live records})$ executed synchronously inside a single triggering insert. On `SyncExpanseBlobMap` (W = 1, 4, 12) and `ExpanseBlobMap`, the largest insert latency measured at 3,600,000 live 128 B records is 302.5–320.1 ms (README §29–§30, `results/gate_1300_split_h_run{1,2}.json`).
 
+*Appended 2026-10-20; the text of §31 is not rewritten.* The W = 4 and 12 part of this range, here and in §31.2 and §31.5, is withheld pending re-measurement (#1320): writer pairs on identical key streams, README §29's † note; the W = 1 and `ExpanseBlobMap` part is unaffected.
+
 Where the time goes (README §29.1, `results/step0_1300_phases/probe.log`):
 - payload copy (phase 1): 217.0–231.3 ms (57.3–64.2 ns per live record);
 - index collect: 34.2–36.4 ms;
@@ -5969,7 +5971,7 @@ Cargo features, by the conventions of AGENTS.md §2.7. The default stays what sh
 
 ### 37.4 Instrument and cells
 
-**Primary instrument: `reclaim_stall`** (§29.2), the `SyncExpanseBlobMap` overwrite cells. It is the instrument #1479 names, and it has a holder of known length: an insert the cap refuses compacts the arena inside `write_quiesced_staged` (`sync.rs:11118`), with the gate closed, and that insert's latency is the window's stall. At 200,000 live records the stall read 31.9 to 33.5 ms across W at `d71e65bd` (measured: `results/baseline_reclaim_stall.json`, §29 of the README; workload: `reclaim_stall`). Every other writer of the cell waits in `enter_writer_blocking` for that long, twice per window.
+**Primary instrument: `reclaim_stall`** (§29.2), the `SyncExpanseBlobMap` overwrite cells. It is the instrument #1479 names, and it has a holder of known length: an insert the cap refuses compacts the arena inside `write_quiesced_staged` (`sync.rs:11118`), with the gate closed, and that insert's latency is the window's stall. At 200,000 live records the stall read 31.9 to 33.5 ms across W at `d71e65bd` (measured: `results/baseline_reclaim_stall.json`, §29 of the README; workload: `reclaim_stall`). *(Appended 2026-10-20: the W = 4 and 12 part of that range is withheld pending re-measurement (#1320): writer pairs on identical key streams, README §29's † note; the W = 1 figure, 31.9 ms, is unaffected.)* Every other writer of the cell waits in `enter_writer_blocking` for that long, twice per window.
 
 **How oversubscription is produced: by the pin and the thread count, with no load generator.** The driver's pin is set to the eight physical P-cores, `0,2,4,6,8,10,12,14`, one logical CPU each. A cell's threads are its W writers and R readers. A cell with more threads than 8 is oversubscribed by its own threads; one with at most 8 is not. Nothing outside the harness's process tree is started.
 
