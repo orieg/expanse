@@ -375,6 +375,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "strmap_poll_stall",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "The stall a periodic SyncExpanseStrMap::mem_used() reading puts on W inserting writers (METHODOLOGY.md \u00a744, Refs #1586): arms none / len / mem_used interleaved per round at N = 2e6 and 2e7, W in {1, 4, 8}, T in {1 s, 100 ms}, 5 rounds, insert latency percentiles and per-poll durations, plus an untimed occ-stats counter pass; outputs baseline_strmap_poll_stall.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",

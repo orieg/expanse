@@ -6721,3 +6721,117 @@ One dispatch of suite `reclaim_stall_free_gate`, run [39284534803](https://githu
 | G3 | 3,600,000 | 1,683,245,043 B (degenerate) | 1,683,233,411 B (degenerate) | — | reported |
 
 The `heap_peak` interval is degenerate because every round of a build reached the same peak; the head's is 11,632 B above the base's at both cells. With G1, G4 and G5 met (§42.7), every gate of §42.3 is met; G5's free-bookkeeping sub-claim stays falsified as §42.7 records. The head's largest non-compaction insert, about 2.05 ms, sits near §42.2's projected 1.905 ms per budgeted call; the projection was not a gate.
+
+## 44. Pre-registration for #1586 — how long a string-map memory reading stalls writers, on current `main` (appended 2026-10-20, locked before any run; next free section)
+
+The number is §44, not §43: §43 is cited by the closed #1588's record (its branch's §43.8 and §43.9), and reusing the number on `main` would make those citations ambiguous.
+
+This is a measurement spike. It ships no engine change, and its outcome decides whether #1586 gets an engine change at all (candidates A, B, C in the issue). It holds no data. Code references are to `origin/main` at `9a27dd3e`.
+
+### 44.1 The question
+
+When a thread calls `SyncExpanseStrMap::mem_used()` periodically while W threads insert, how long do the inserts wait, and what share of writer time is lost? It is measured at the populations the issue names (2·10⁶ and 2·10⁷ keys) on the reference host. The issue's 13–16 ms is the call's own duration on a laptop, and §44 replaces it.
+
+Mechanism (`verified`): `SyncExpanseStrMap::mem_used` (`sync.rs:14370`) calls `Shared::read_locked` (`sync.rs:3070`), which takes the fallback mutex, then `quiesce_writers()`, then the writer mutex, and walks `shell_bytes()` (`strmap.rs:1320`). New inserts spin in `enter_writer_blocking`; an optimistic attempt that sees the gate closed falls back to the writer mutex.
+
+### 44.2 Commit 1: bounds (AGENTS.md §8.8)
+
+`scripts/strmap_stall_bounds.py`, with tests pinning reference values:
+- `stalled_fraction(walk_s, period_s)` = `walk_s / period_s`: the share of wall time during which no insert completes. Every writer waits, so W does not divide it. It reaches 1 when the walk outlasts the period, since the one poller's readings then run back to back.
+- `spin_core_seconds(walk_s, writers)` = `walk_s × writers`: CPU burned spinning per reading.
+- `walk_projection(ir_per_key, keys, ir_per_s)`: instructions per key from the #1587 arm (`routes` 3,884,760 / 50,000 = 77.70; `short` 4,172,139 / 50,000 = 83.44) times keys, over an instruction rate. It is used only to size the run (§44.4). It is labelled a projection and is never compared with a result as a prediction, because the walk misses cache once the tree outgrows LLC and Callgrind cannot see that.
+
+### 44.3 Instrument
+
+- **Harness.** A new bench binary `crates/expanse/benches/strmap_poll_stall.rs`, modelled on `reclaim_stall.rs`. It records an HdrHistogram (3 significant figures) of insert latencies (`Instant::now()` around each insert, uncalibrated), the 8 largest insert latencies, each poll's own duration and the returned value, inserts completed, and wall time.
+  - The prefill is outside every measured window.
+  - One process per (cell, round), 5 rounds, order rotated per round.
+- **Population.** A `SyncExpanseStrMap` prefilled to N keys, then W writers inserting fresh keys from the same generator, rejected on membership (§8.6), for a fixed duration D.
+  - Shapes: `routes` (the `str_keys` 37-byte generator) and `short` (8–16 random bytes), the two shapes the #1587 arms build.
+  - `insertion_order`: `generator`.
+- **Arms per cell, interleaved within each round:**
+  - `none`: no poller.
+  - `len`: a poller calling `len()` every T. This is the control: a lock-free reading at the same cadence, so any difference from `none` is the poller's own presence (thread, wakeups, cache), not the walk.
+  - `mem_used`: a poller calling `mem_used()` every T.
+- **Grid.**
+  - N ∈ {2·10⁶, 2·10⁷}.
+  - W ∈ {1, 4, 8}.
+  - T ∈ {1 s, 100 ms}.
+  - D = 30 s.
+  - Shapes `routes` and `short`.
+  - Pin: the `bench_pin.sh` P-core pin, one thread per physical core (§8.20.5.0), with the poller on its own core. W = 8 plus the poller exceeds 8 P-cores, so W = 8 uses the SMT siblings for writers. This is stated in the artifact.
+- **Counters.** A second, untimed `occ-stats` pass of each `mem_used` cell records `GateBlockedEntries`, `GateWaitCycles` and `QuiesceDrainCycles` (`occ_stats.rs:168–174`), converted with `cycles_hz()` (§8.20.1). Timed figures never come from the `occ-stats` build.
+- **Host.** Reference host only, one dispatch, §8.17 load snapshots before, between and during cells, discarded and disclosed if contaminated. Built from the commit at lock. The harness, driver and bench suite (`strmap_poll_stall`, wired in `.github/bench-suites.json` and `bench_baremetal.yml`) land in commit 3 and are run once with `--quick` to scratch first.
+
+### 44.4 What is reported, and the decision rule
+
+**Reported per cell**, with BCa 95% intervals over rounds (≥ 1,000 resamples; `ci_method` recorded):
+- the median poll duration;
+- insert p50, p99, p999 and max;
+- insert throughput;
+- `stalled_fraction` computed from the measured poll duration;
+- the `len`-control deltas.
+
+Everything is reported, and nothing is folded into an aggregate.
+
+**Stall exists (S1, a mechanism check):** in the `mem_used` arm, the median over rounds of the largest insert latency is ≥ 0.5 × the median poll duration, at N = 2·10⁶, W = 4, T = 1 s, both shapes. A `FAIL` means a reading does not hold writers for the walk on current `main`, and #1586's premise is wrong.
+
+**Material (M1), the gate that decides whether #1586 gets an engine change:** at N = 2·10⁷, W = 4, T = 1 s:
+- the lower bound of `stalled_fraction` ≥ 0.01 (1% of wall time with no insert completing), **or**
+- the lower bound of the `mem_used` arm's insert p999 ≥ 10× the upper bound of the `len` arm's insert p999.
+
+The outcomes:
+- `MATERIAL`: either clause holds.
+- `NOT_MATERIAL`: both upper bounds lie below their thresholds.
+- `INTERMEDIATE`: otherwise.
+
+| Outcome | What follows |
+|---|---|
+| S1 `FAIL` | #1586 is re-examined; no engine change |
+| M1 `NOT_MATERIAL` | #1586 closes on candidate A (documented caller-side estimator); no engine change |
+| M1 `INTERMEDIATE` | reported to the maintainer; no engine change without a new decision |
+| M1 `MATERIAL` | an engine design is pre-registered in a new section, with this stall as its named gain axis next to its instruction bounds (AGENTS.md §6 trade-off clause) |
+
+Every other cell is reported and decides nothing.
+
+### 44.5 Expected outcomes, and what is not predicted
+
+- **Expected (hypothesis):** S1 passes, since the gate closes for the whole walk, and the poll duration grows faster than linearly from 2·10⁶ to 2·10⁷ on `short`, through cache and TLB misses on the suffix headers.
+- **Not predicted:**
+  - the poll duration's magnitude;
+  - whether W changes the poll duration through spinner interference on SMT siblings;
+  - the `len` control's own effect.
+
+### 44.6 Silent constants, fixed here
+
+N, W, T, D, the shapes, 5 rounds, the pin, the 0.5 factor in S1, M1's thresholds (0.01 of wall time; 10×), and the BCa resample count. Changing any of them after a run relabels that result `INTERMEDIATE` (AGENTS.md §8.19).
+
+### 44.7 Expiry
+
+The result describes the walk on `9a27dd3e`. An engine change to `shell_bytes`, `read_locked`, `quiesce_writers` or `enter_writer_blocking` voids it.
+
+### 44.8 Clarifications fixed before the first run (appended 2026-10-20)
+
+These settle points §44.1–§44.7 leave open. They precede every run, so no result exists that they could have been fitted to. They carry no `INTERMEDIATE` label, and §44.1–§44.7 are not edited.
+
+- **The process unit is (cell, arm, round).** A cell is (shape, N, W, T). Each of its three arms runs in a process of its own, which prefills its own map, so no arm starts from keys another arm's writers inserted. Each round runs every (cell, arm) once. The cell order is rotated by a fifth of the list per round, and the arm order within a cell by one place per round. The three arms of a cell share one seed per round. This is what §44.3's "one process per (cell, round)" means for a cell with three arms.
+- **S1 needs both shapes.** It is `PASS` iff the rule holds on `routes` and on `short`, and `FAIL` otherwise.
+- **M1 is read per shape, then aggregated.** §44.4 names no shape for M1. Each shape gets its own `MATERIAL` / `NOT_MATERIAL` / `INTERMEDIATE` by §44.4's clauses. The run is `MATERIAL` if either shape is, `NOT_MATERIAL` if both are, and `INTERMEDIATE` otherwise.
+- **`VOID`.** A verdict is `VOID` when any of the cells it reads meets one of these conditions, quoted from `docs/benchmarks/concurrency/scripts/strmap_poll_stall.py`:
+  - `rounds [...] are not 0..4`;
+  - `no insert completed`, in any round;
+  - `no poll completed`, in a `len` or `mem_used` round;
+  - `threads were not placed one per core (§44.3's pin)`;
+  - `foreign busy CPU <x> above 1.0 (§8.17)`;
+  - `no numeric load.foreign_busy_cpus; the window cannot be shown quiet (§8.17)`;
+  - `load average <x> above <cpus/2> at the window's start (§8.17)`.
+
+  So does a run whose `round count <n> is not the registered 5`, an M1 shape whose `M1's cells lack the rounds or polls an interval needs`, and any `--quick` run (`quick run: a reduced grid, not §44's registered cells`).
+- **Population growth is recorded, not controlled.** N is the population at the window's start. The writers keep inserting for D, so the map grows during the window, and at N = 2·10⁶ with W = 8 the inserts may exceed N itself. Each reading then walks a larger tree than the one before it. Every row records `len_before`, `len_after`, `mem_used_after` and each reading's returned value, so the growth is visible per window. No verdict corrects for it.
+- **`stalled_fraction` is capped at 1.** It is `walk_s / max(walk_s, period_s)`. A walk longer than T leaves the next reading due on its return, so the readings run back to back and the gate is closed for the whole window. This changes nothing below the cap, and so nothing about M1's 0.01 threshold.
+- **The hourly pause.** The reference host runs an rsync at minutes :15–:20 UTC every hour. Before each process, timed or counted, the driver estimates the process's length:
+  - the largest prefill seen so far for its (shape, N), times 1.5, or 5·10⁻⁶ s per key before the first prefill of that pair;
+  - plus D;
+  - plus 30 s.
+
+  If the process could reach :15, or would start inside the blackout, the driver waits until :20 and checks again. No prefill or measured window therefore overlaps the blackout. Every pause is recorded under `provenance.hour_guard.pauses`. The job timeout for this suite alone is 640 minutes: 1.2 × the 31,934 s bound computed by `run_seconds_bound` in `scripts/strmap_stall_bounds.py`, which counts these pauses.

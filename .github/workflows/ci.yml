@@ -852,6 +852,7 @@ jobs:
           python3 docs/benchmarks/concurrency/scripts/blob_compaction_gate.py --self-test
           python3 docs/benchmarks/concurrency/scripts/blob_reclaim_gate.py --self-test
           python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --self-test
+          python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --self-test
           python3 docs/benchmarks/concurrency/scripts/multi_writer_olc_gate.py --self-test
           python3 docs/benchmarks/concurrency/scripts/fine_grained_brackets_gate.py --self-test
           python3 docs/benchmarks/hot_comparison/scripts/run_all.py --self-test
@@ -884,6 +885,11 @@ jobs:
           # what it copies, cross-checked against a record-level allocator model
           # (AGENTS.md section 8.8 commit 1).
           python3 scripts/blob_reclaim_bounds.py --self-test
+          # strmap_stall_bounds.py holds the #1586 bounds (concurrency METHODOLOGY
+          # section 44.2): the stalled share of wall time, the writers' spin per
+          # reading, and the walk projection that sizes the run, with the #1587
+          # arm's constants read from instructions.rs (AGENTS.md section 8.8 commit 1).
+          python3 scripts/strmap_stall_bounds.py --self-test
           # Bounds modules and driver tests that only `gate.sh` ran, or that
           # nothing ran: each pins the values a pre-registration cites
           # (concurrency METHODOLOGY sections 32 to 35, patricia Amendment

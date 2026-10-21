@@ -207,6 +207,7 @@ python3 scripts/ycsb_concurrent_bounds.py --self-test
 python3 scripts/branchu_band_bounds.py --self-test
 python3 scripts/blob_mixed_bounds.py --self-test
 python3 scripts/blob_reclaim_bounds.py --self-test
+python3 scripts/strmap_stall_bounds.py --self-test
 python3 scripts/batch_cursor_bounds.py --self-test
 python3 scripts/str_cursor_bounds.py --self-test
 python3 scripts/blob_peak_bounds.py --self-test

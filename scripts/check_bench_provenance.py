@@ -158,6 +158,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/concurrency/scripts/ablations.py",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py",
     "docs/benchmarks/concurrency/scripts/reclaim_stall.py",
+    # METHODOLOGY.md §44 (#1586): per-cell intervals over rounds, the S1/M1
+    # intervals and the paired len-control deltas, each with its `ci_method`.
+    "docs/benchmarks/concurrency/scripts/strmap_poll_stall.py",
     # METHODOLOGY.md §25 (#1270): the injected/control ratio per cell and level.
     "docs/benchmarks/concurrency/scripts/host_guard_sensitivity.py",
     # The #1191 AArch64 default-vs-+rcpc A/B: per-cell paired ratios.
