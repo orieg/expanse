@@ -6837,3 +6837,22 @@ These settle points §44.1–§44.7 leave open. They precede every run, so no re
   - plus 30 s.
 
   If the process could reach :15, or would start inside the blackout, the driver waits until :20 and checks again. No prefill or measured window therefore overlaps the blackout. Every pause is recorded under `provenance.hour_guard.pauses`. The job timeout for this suite alone is 640 minutes: 1.2 × the 31,934 s bound computed by `run_seconds_bound` in `scripts/strmap_stall_bounds.py`, which counts these pauses.
+
+### 44.9 The first reference-host run was discarded, and the guard change made before the next (appended 2026-10-21)
+
+This records an outcome and a tooling change. §44.1–§44.8 are not edited, and no threshold, cell, constant or decision rule of §44 changes.
+
+- **Run [39532347063](https://github.com/orieg/expanse/actions/runs/39532347063), at `b4846424`, was discarded by the workflow's host-activity guard** (`scripts/bench_host_guard.py summarize`), which reported 20 samples over the void boundary and failed the job with `host_contaminated`. The run log prints the first five of them, in three episodes:
+  - 04:17:34Z and 05:17:35Z, about 0.33 core-equivalents of foreign load on the pinned CPUs, 0.30 of it from children that foreign tasks reaped; the guard names no single process at or above 1% of a CPU. The times match the reference host's hourly rsync, which runs while the driver pauses (§44.8) and starts no measured process.
+  - 06:59:22Z to 06:59:26Z, up to 0.98 core-equivalents, with `unattended-upgr` (the `apt-daily-upgrade` unit) named as the offender. It lies outside the :15–:20 blackout the driver pauses for.
+
+  The other fifteen samples are in the run's uploaded `host-activity.jsonl` and are not restated here.
+- **None of the run's figures is quoted, and it decides nothing** (AGENTS.md §8.17: a contaminated run is discarded, not reinterpreted). S1 and M1 remain unevaluated. No figure from this run appears in this document, in an artifact, or in the change below.
+- **The guard change, made before any further run.** The guard judged every sample, including those taken while the driver deliberately ran nothing. It now reads the driver's own record of when it paused:
+  - the driver records each pause with its `start_t` and `end_t`, and each measured process with its own interval, under `provenance.hour_guard` in the artifact (`docs/benchmarks/concurrency/scripts/strmap_poll_stall.py`, `guard_pause` and `run_recorded`);
+  - a pause is taken only between processes, each of which runs through a blocking `subprocess.run`, and the driver refuses to write an artifact in which a pause overlaps a process (`check_pauses`);
+  - `bench_host_guard.py summarize --pauses <artifact>` reports a sample whose whole window, widened by one second on each side, lies inside a recorded pause, labelled as taken during a pause, and does not judge it. A sample outside every recorded pause is judged as before, whatever the clock reads. A missing, unreadable or inconsistent record excludes nothing and prints a named `::notice::`;
+  - the workflow passes `--pauses` for this suite only; every other suite is judged exactly as before.
+
+  The change does not apply retroactively. Run 39532347063 stays discarded: its 06:59Z episode lies outside that blackout, and its driver at `b4846424` recorded no pause intervals, so the new guard would exclude nothing from it either.
+- **`apt-daily-upgrade` is held on the reference host during runs.** The maintainer holds that unit for the duration of each run of this suite. It is host administration, not code, and nothing in this repository enforces it. The guard still voids a run that the unit, or anything else, disturbs outside a recorded pause.

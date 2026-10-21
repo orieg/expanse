@@ -1960,9 +1960,20 @@ jobs:
             HOST_WATCH_OK=0
           fi
           rm -f host-activity.json
+          # A driver that pauses on purpose records each pause and each
+          # measured process in its artifact (provenance.hour_guard), and the
+          # guard does not judge a sample taken wholly inside a recorded pause
+          # (concurrency METHODOLOGY §44.9). A missing or inconsistent record
+          # excludes nothing and prints a notice. Every other suite passes no
+          # record and is judged exactly as before.
+          HOST_PAUSES=""
+          if [ "$SUITE" = "strmap_poll_stall" ]; then
+            HOST_PAUSES=docs/benchmarks/concurrency/results/baseline_strmap_poll_stall.json
+          fi
           set +e
           python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" summarize \
-            --in host-activity.jsonl --md host-activity.md --json host-activity.json
+            --in host-activity.jsonl --md host-activity.md --json host-activity.json \
+            ${HOST_PAUSES:+--pauses "$HOST_PAUSES"}
           HOST_STATUS=$?
           set -e
           if [ "$HOST_WATCH_OK" -ne 1 ]; then
