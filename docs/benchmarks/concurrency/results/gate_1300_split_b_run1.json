@@ -3965,5 +3965,15 @@
       }
     ],
     "stall_material": true
+  },
+  "withheld_cells": {
+    "appended": "2026-10-20",
+    "cells": [
+      "sync:overwrite:L200000:W4:R2",
+      "sync:overwrite:L3600000:W4:R2",
+      "sync:overwrite:L200000:W12:R2",
+      "sync:overwrite:L3600000:W12:R2"
+    ],
+    "reason": "withheld pending re-measurement (#1320): in these cells writers 2k and 2k + 1 drew identical key streams, because reclaim_stall.rs seeded writer w with seed ^ (0x5A5A + w) and XorShift64::new's | 1 erased the one bit that differed; the rows are kept as recorded and are not read. The W = 1, ExpanseBlobMap and full-map cells and every cell's readers are unaffected. See docs/benchmarks/concurrency/README.md section 29, the dagger note."
   }
 }

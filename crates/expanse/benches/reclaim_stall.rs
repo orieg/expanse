@@ -18,6 +18,12 @@
 //!   `occ-stats` is compiled in) and the CPUs the process may run on. The
 //!   driver probes the binary with it before any cell, and every measured row
 //!   carries the same two fields.
+//! - `--mode seed-check --seed S`: no measurement; asserts that 8 writer
+//!   streams seeded from `S` draw pairwise distinct values over their first
+//!   1,024 draws, and that the `seed ^ (0x5A5A + w)` seeding they replaced
+//!   does not (it gave writers 2k and 2k + 1 one stream). Every `--map sync`
+//!   run makes the first check on the seeds its threads take, before any
+//!   thread starts.
 //!
 //! `--noncompact-top 1` (sync `overwrite` at `--writers 1` only; METHODOLOGY
 //! §42.3, #1481) adds `insert_top_noncompact_ns`: the 8 largest latencies
@@ -47,7 +53,7 @@
 //! | `workload_id` | `reclaim_stall` |
 //! | `group` | 4 |
 //! | `population` | 200,000 or 3,600,000 live keys (`--live`); in `full` mode, as many distinct keys as the 1 GiB arena admits |
-//! | `insertion_order` | generator — the prefill inserts keys `0..L` in order; overwrites and reads draw keys uniformly from them with a per-thread XorShift64 |
+//! | `insertion_order` | generator — the prefill inserts keys `0..L` in order; overwrites and reads draw keys uniformly from them with a per-thread XorShift64, each thread seeded through SplitMix64's finaliser so no two threads share a stream (checked at startup) |
 //! | `probes_and_reuse` | `overwrite`: 2.2 append cycles of overwrites split across the writers; `full`: fresh keys for `--seconds`; readers read live keys throughout |
 //! | `hit_rate` | reads 100 % (every read key is live) |
 //! | `miss_gen_method` | N/A |
@@ -143,6 +149,72 @@ impl XorShift64 {
         self.0 = x;
         x
     }
+}
+
+/// Thread `t`'s stream seed: `seed` and `t` through SplitMix64's finaliser
+/// (Steele, Lea & Flood, "Fast Splittable Pseudorandom Number Generators",
+/// OOPSLA 2014), the function `writer_seed` in `strmap_poll_stall.rs`. The
+/// golden-ratio step is odd and the finaliser is a bijection, so distinct `t`
+/// give distinct seeds for every `seed`. Writer `w` is stream `w`; reader `r`
+/// is stream `READER_STREAM_BASE + r`.
+fn thread_seed(seed: u64, t: u64) -> u64 {
+    let mut z = seed.wrapping_add((t + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// The first reader's stream index, above any writer count the harness runs.
+const READER_STREAM_BASE: u64 = 1 << 32;
+/// Draws per stream that [`streams_overlap`] compares.
+const SEED_CHECK_DRAWS: usize = 1024;
+/// The writer count the seed check always covers, whatever `--writers` is.
+const SEED_CHECK_WRITERS: u64 = 8;
+
+/// The first pair of streams, by index into `seeds`, whose first `draws`
+/// `XorShift64` outputs share a value, or `None` when every value is distinct.
+/// Two streams started from one state share all of them.
+fn streams_overlap(seeds: &[u64], draws: usize) -> Option<(usize, usize)> {
+    let mut first: HashMap<u64, usize> = HashMap::with_capacity(seeds.len() * draws);
+    for (i, &s) in seeds.iter().enumerate() {
+        let mut rng = XorShift64::new(s);
+        for _ in 0..draws {
+            let v = rng.next();
+            match first.get(&v) {
+                Some(&j) if j != i => return Some((j, i)),
+                Some(_) => {}
+                None => {
+                    first.insert(v, i);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The seeds of `writers` writer and `readers` reader streams.
+fn stream_seeds(seed: u64, writers: u64, readers: u64) -> Vec<u64> {
+    (0..writers)
+        .map(|w| thread_seed(seed, w))
+        .chain((0..readers).map(|r| thread_seed(seed, READER_STREAM_BASE + r)))
+        .collect()
+}
+
+/// The run's stream seeds, writers first and then readers, which the threads
+/// take by index. Panics unless these, and the streams of
+/// [`SEED_CHECK_WRITERS`] writers, draw pairwise distinct values over their
+/// first [`SEED_CHECK_DRAWS`] draws.
+fn checked_stream_seeds(seed: u64, writers: u64, readers: u64) -> Vec<u64> {
+    let seeds = stream_seeds(seed, writers, readers);
+    let wide = stream_seeds(seed, writers.max(SEED_CHECK_WRITERS), readers);
+    for set in [&seeds, &wide] {
+        if let Some((a, b)) = streams_overlap(set, SEED_CHECK_DRAWS) {
+            panic!(
+                "seed {seed:#x}: streams {a} and {b} share a draw in their first {SEED_CHECK_DRAWS}"
+            );
+        }
+    }
+    seeds
 }
 
 fn payload(key: u64, round: u64) -> [u8; PAYLOAD_LEN] {
@@ -367,6 +439,30 @@ fn main() {
         println!("{row}");
         return;
     }
+    if mode == "seed-check" {
+        // The seeding's fail-then-pass control: the seeds the run uses must
+        // pass, and the per-writer `seed ^ (0x5A5A + w)` seeding this replaced
+        // must fail, since `XorShift64::new`'s `| 1` gives writers 2k and
+        // 2k + 1 one stream.
+        let seed = a.num("seed");
+        let new = streams_overlap(&stream_seeds(seed, SEED_CHECK_WRITERS, 0), SEED_CHECK_DRAWS);
+        let old: Vec<u64> = (0..SEED_CHECK_WRITERS)
+            .map(|w| seed ^ (0x5A5A + w))
+            .collect();
+        let old = streams_overlap(&old, SEED_CHECK_DRAWS);
+        assert_eq!(new, None, "the writer seeding gives two writers one stream");
+        assert!(
+            old.is_some(),
+            "the replaced seeding no longer collides: the control is void"
+        );
+        let row = serde_json::json!({
+            "workload_id": "reclaim_stall", "mode": "seed-check", "seed": seed,
+            "writers": SEED_CHECK_WRITERS, "draws": SEED_CHECK_DRAWS,
+            "overlap": new, "replaced_seeding_overlap": old,
+        });
+        println!("{row}");
+        return;
+    }
     let writers = a.num("writers").max(1);
     let readers = a.num("readers");
     let round = a.num("round");
@@ -476,15 +572,17 @@ fn main() {
                 (arena_records - live) * 22 / 10
             };
             let seconds = if full { a.num("seconds") } else { 0 };
+            let seeds = checked_stream_seeds(seed, writers, readers);
             let stop = Arc::new(AtomicBool::new(false));
             let barrier = Arc::new(Barrier::new((writers + readers + 1) as usize));
             let rhs: Vec<_> = (0..readers)
                 .map(|r| {
                     let (m, stop, b) = (Arc::clone(&m), Arc::clone(&stop), Arc::clone(&barrier));
+                    let rseed = seeds[(writers + r) as usize];
                     std::thread::spawn(move || {
                         b.wait();
                         let c0 = thread_cpu_ns();
-                        let h = reader_loop(&m, live, seed ^ (0xA5A5 + r), &stop);
+                        let h = reader_loop(&m, live, rseed, &stop);
                         (h, cpu_since(c0))
                     })
                 })
@@ -493,9 +591,10 @@ fn main() {
                 .map(|w| {
                     let (m, stop, b) = (Arc::clone(&m), Arc::clone(&stop), Arc::clone(&barrier));
                     let share = appends / writers + u64::from(w < appends % writers);
+                    let wseed = seeds[w as usize];
                     std::thread::spawn(move || {
                         let mut ops = Ops::new();
-                        let mut rng = XorShift64::new(seed ^ (0x5A5A + w));
+                        let mut rng = XorShift64::new(wseed);
                         b.wait();
                         let c0 = thread_cpu_ns();
                         if full {
