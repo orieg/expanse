@@ -13947,7 +13947,7 @@ impl SyncExpanseStrMap {
             // navigation happens between here and the next hop.
             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             let v = unsafe { *slot.as_ptr() };
-            map.insert(k, v);
+            map.insert_deferred(k, v);
             cursor = src.next_after(k);
         }
         Self {
@@ -13983,7 +13983,7 @@ impl SyncExpanseStrMap {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         #[cfg(feature = "ablation-str-serial-writers")]
         {
-            self.shared.write(|m| m.insert(key, val))
+            self.shared.write(|m| m.insert_deferred(key, val))
         }
         #[cfg(not(feature = "ablation-str-serial-writers"))]
         {
@@ -14007,7 +14007,9 @@ impl SyncExpanseStrMap {
             drop(guard);
             match res {
                 Ok(prev) => prev,
-                Err(_) => self.shared.write_root_covered_exact(|m| m.insert(key, val)),
+                Err(_) => self
+                    .shared
+                    .write_root_covered_exact(|m| m.insert_deferred(key, val)),
             }
         }
     }
@@ -14029,7 +14031,7 @@ impl SyncExpanseStrMap {
     pub fn remove(&self, key: &NulFreeStr) -> Option<u64> {
         #[cfg(feature = "ablation-str-serial-writers")]
         {
-            self.shared.write(|m| m.remove(key))
+            self.shared.write(|m| m.remove_deferred(key))
         }
         #[cfg(not(feature = "ablation-str-serial-writers"))]
         {
@@ -14071,7 +14073,9 @@ impl SyncExpanseStrMap {
                         .write_root_covered_exact(|m| m.prune_empty_path(key));
                     prev
                 }
-                Err(_) => self.shared.write_root_covered_exact(|m| m.remove(key)),
+                Err(_) => self
+                    .shared
+                    .write_root_covered_exact(|m| m.remove_deferred(key)),
             }
         }
     }
@@ -14208,10 +14212,10 @@ impl SyncExpanseStrMap {
             if seen == expected {
                 match new {
                     Some(v) => {
-                        m.insert(key, v);
+                        m.insert_deferred(key, v);
                     }
                     None => {
-                        m.remove(key);
+                        m.remove_deferred(key);
                     }
                 }
             }
@@ -14516,10 +14520,12 @@ impl SyncExpanseStrMap {
 
     /// The serialised section behind [`Self::with_exclusive`]: the writer
     /// lock and the tree word, with the optimistic writers quiesced. A
-    /// mutation through the plain API inside `f` runs the map's shared
-    /// twin, which brackets each node's cover as the optimistic writers do.
+    /// mutation inside `f` goes through the map's shared twins
+    /// (`insert_deferred`, `remove_deferred`), which bracket each node's
+    /// cover as the optimistic writers do; the plain `insert` and `remove`
+    /// carry no shared path and debug-assert against this map (Refs #1586).
     /// Crate-private: `f` holds `&mut` to a map readers are walking, so only
-    /// code that mutates through that API may run here.
+    /// code that mutates through the shared twins may run here.
     pub(crate) fn exclusive<R>(&self, f: impl FnOnce(&mut ExpanseStrMap) -> R) -> R {
         #[cfg(feature = "ablation-str-serial-writers")]
         {
@@ -14557,12 +14563,12 @@ impl StrExclusive<'_> {
 
     /// Stores `val` for `key`, returning the value it replaced.
     pub fn insert(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
-        self.map.insert(key, val)
+        self.map.insert_deferred(key, val)
     }
 
     /// Removes `key`, returning its value.
     pub fn remove(&mut self, key: &NulFreeStr) -> Option<u64> {
-        self.map.remove(key)
+        self.map.remove_deferred(key)
     }
 
     /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
@@ -14694,6 +14700,9 @@ impl From<ExpanseStrMap> for SyncExpanseStrMap {
         Self::from_map(map)
     }
 }
+
+#[cfg(test)]
+mod str_deferred_dispatch_tests;
 
 /// The validated string lookup shared by [`StrReader`], [`OwnedStrReader`] and
 /// [`DetachedStrReader`] (#1194).
