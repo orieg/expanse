@@ -54,8 +54,11 @@ fn code_of(line: &str) -> String {
 }
 
 /// The code lines from `impl SyncExpanseStrMap {` to the string reader walk
-/// that follows the wrapper, `StrExclusive` and `From` included.
+/// that follows the wrapper, `StrExclusive` and `From` included. Line endings
+/// are normalised first: a CRLF checkout (Windows) would otherwise match
+/// neither marker.
 fn region_code(src: &str) -> Vec<String> {
+    let src = src.replace("\r\n", "\n");
     let start = src
         .find("\nimpl SyncExpanseStrMap {\n")
         .expect("the wrapper is in sync.rs");
@@ -157,4 +160,30 @@ fn deferred_dispatch_scan_fails_on_each_clause() {
     assert_eq!(scan(&in_comment), Ok(()));
     let in_literal = SRC.replacen(site, &std::format!("{site} let _ = \"m.remove(key)\";"), 1);
     assert_eq!(scan(&in_literal), Ok(()));
+}
+
+/// The scan on a CRLF copy of the source, as a Windows checkout gives it:
+/// the same region and lines as the LF copy, a clean scan, and each clause
+/// still red on a mutated CRLF copy, so the normalisation cannot make the
+/// controls above pass vacuously.
+#[test]
+fn deferred_dispatch_scan_reads_a_crlf_checkout() {
+    let lf = SRC.replace("\r\n", "\n");
+    let crlf = lf.replace('\n', "\r\n");
+    assert!(crlf.contains("\r\nimpl SyncExpanseStrMap {\r\n"));
+    let region = region_code(&crlf);
+    assert!(!region.is_empty());
+    assert_eq!(region, region_code(&lf));
+    assert_eq!(scan(&crlf), Ok(()));
+
+    let site = ".write_root_covered_exact(|m| m.insert_deferred(key, val)),";
+    let reverted = crlf.replacen(
+        site,
+        ".write_root_covered_exact(|m| m.insert(key, val)),",
+        1,
+    );
+    assert!(scan(&reverted).unwrap_err().starts_with("plain:"));
+    let exclusive = "self.map.remove_deferred(key)";
+    let commented = crlf.replacen(exclusive, &std::format!("0 // {exclusive}"), 1);
+    assert!(scan(&commented).unwrap_err().starts_with("count:"));
 }
