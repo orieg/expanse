@@ -6899,3 +6899,161 @@ Run [39685648391](https://github.com/orieg/expanse/actions/runs/39685648391) at 
 - The cells that decide nothing (N, W, T and shape beyond the two above) and the `occ-stats` counter pass are in the artifact, reported in full and not summarised here.
 
 **What follows (§44.4).** #1586's premise holds on current `main`: a `mem_used` reading on a `SyncExpanseStrMap` holds every writer for the length of the walk, and at 2·10⁷ keys with a reading every second no insert completes for over a third of wall time (`routes`) or nearly all of it (`short`). An engine design is pre-registered in a new section. This stall is its named gain axis, beside its instruction bounds (AGENTS.md §6 trade-off clause). Candidates A, B and C are as #1586 lists them.
+
+## 45. B0: measurements before the #1586 engine change (appended 2026-10-22; measurements only, no gate, no pre-registration)
+
+§44.11 found the stall `MATERIAL`, and a review chose candidate B of #1586: allocate `StrNode` shells and suffix leaves through `NodeAlloc`, so that `mem_used` and `mem_held` need no O(keys) `shell_bytes` walk. Suffixes already go through `NodeAlloc` under the `packed-suffix` cargo feature. B0 measures what that half of B costs and saves today, before any engine code or pre-registration. It is the first step of AGENTS.md §8.8 for B. It sets no threshold, and the engine pre-registration comes later in its own section.
+
+Everything below was measured at `5f8c8e64`: `origin/main` at `968e2390` plus one new Callgrind arm and no engine change. Artifacts:
+- `results/b0_packed_suffix_callgrind_5f8c8e64.json`: per-arm counts for both builds, the disassembly counts, the per-function attribution, the commands and the toolchain;
+- `results/allocator_overhead_5f8c8e64.txt`: the byte census for both builds.
+
+### 45.1 Instrument
+
+- **Host.** An x86_64 heavy-jobs host (Intel Xeon E5-2697 v4, 72 threads), not the reference host. Each build ran in its own `rust:1.99.1` container (Debian 13.7, glibc 2.41, valgrind 3.24.0 from apt, `iai-callgrind-runner` 0.16.1), and the two containers ran at the same time. CI's `instruction-counts` job uses the same rustc 1.99.1 but Ubuntu 24.04 and valgrind 3.27.1, so absolute counts differ from CI's: `strmap_insert/routes` is 43,326,154 here against 43,740,558 in run [39520758834](https://github.com/orieg/expanse/actions/runs/39520758834) (`instruction-counts` job). Only the change from the default build to `packed-suffix` on one host is used below. Callgrind counts are exact and deterministic, so they carry no interval (AGENTS.md §8.4).
+- **Builds.** `cargo bench --locked -p expanse-trie --bench <b>` with and without `--features packed-suffix`, for `instructions`, `smoke_instructions`, `rmw_instructions`, `search_instructions` and `leaf_cap_cascaded`. `expanse-capi`'s `smoke_instructions` was built with and without `--features expanse-trie/packed-suffix`. That is 374 arms. `expanse-capi`'s `vs_stock` was not run: it needs the stock `libjudy` oracle.
+- **New arm.** `strmap_insert_plain/routes` is `strmap_insert`'s workload through `ExpanseStrMap::insert_plain`, which calls the plain insert body directly. `ExpanseStrMap::insert` tests for a deferred map and has the plain body and the shared twin inlined into it, so the difference between the two arms prices that test and the shared twin's effect on `insert`'s codegen.
+- **Byte census.** `cargo run --release -p expanse-trie [--features packed-suffix] --example allocator_overhead -- N` at N = 10⁶ and 10⁷, every shape the census has. The census has two string shapes, `prefix` and `uuid`; `sequential`, `timestamp` and `random` build `ExpanseMap` and act as controls. The byte columns are exact accounting, except `+headers`, which adds 8 B per live chunk from glibc's documented chunk layout (derived, not measured). RSS is one reading per shape on this host, with no interval, and is quoted below as a diagnostic only.
+- **Disassembly.** `objdump -d -C --no-show-raw-insn` of each build's `instructions` bench binary, counting instructions and `%fs:` operands per function symbol.
+
+### 45.2 Callgrind: the default build against `packed-suffix` (workload: `core_instructions`, `core_smoke_instructions`, `core_rmw_instructions`, `capi_smoke_instructions`)
+
+**Arms that build no string map** (313 arms, all six harnesses): 294 are identical between the builds. 19 differ by exactly 7 instructions each way (largest |Δ| 0.001%: `smoke_instructions` `set_insert/sequential`, 706,947 → 706,940). On the two annotated (`set_insert/sequential`, `map_clone/random`), the whole difference is in glibc's `__memset_avx2_unaligned_erms`, outside the engine; the other 17 were not annotated. The feature changes no engine instruction on these arms.
+
+**String arms** (61; `strmap_*`, `sync_strmap_*`, `ordered_bytesmap_*`, `domain_dict_*`, `judysl_*`):
+
+| harness | arm | default | `packed-suffix` | Δ |
+|---|---|---:|---:|---:|
+| `instructions` | `domain_dict_get/routes` | 51,816,562 | 51,816,474 | -0.0002% |
+| `instructions` | `domain_dict_insert/routes` | 89,241,106 | 89,472,319 | +0.2591% |
+| `instructions` | `ordered_bytesmap_cursor/clean` | 26,741,903 | 26,742,127 | +0.0008% |
+| `instructions` | `ordered_bytesmap_cursor/escaped` | 40,021,959 | 40,022,610 | +0.0016% |
+| `instructions` | `ordered_bytesmap_cursor_into/clean` | 18,841,688 | 18,842,105 | +0.0022% |
+| `instructions` | `ordered_bytesmap_cursor_into/escaped` | 29,818,423 | 29,819,430 | +0.0034% |
+| `instructions` | `ordered_bytesmap_get/clean` | 21,948,057 | 21,957,081 | +0.0411% |
+| `instructions` | `ordered_bytesmap_get/escaped` | 33,347,235 | 33,347,155 | -0.0002% |
+| `instructions` | `ordered_bytesmap_insert/clean` | 50,875,503 | 46,672,453 | -8.2614% |
+| `instructions` | `ordered_bytesmap_insert/escaped` | 68,267,123 | 64,207,513 | -5.9467% |
+| `instructions` | `strmap_churn/routes` | 119,575,644 | 120,025,600 | +0.3763% |
+| `instructions` | `strmap_clear_refill/routes` | 56,566,742 | 56,799,086 | +0.4107% |
+| `instructions` | `strmap_cursor_scan/paths` | 9,205,128 | 9,204,562 | -0.0061% |
+| `instructions` | `strmap_cursor_scan/paths_dense` | 13,693,945 | 13,693,945 | +0.0000% |
+| `instructions` | `strmap_get/routes` | 35,163,713 | 35,163,669 | -0.0001% |
+| `instructions` | `strmap_get_short/short` | 20,487,291 | 20,487,589 | +0.0015% |
+| `instructions` | `strmap_insert/routes` | 43,326,154 | 43,557,971 | +0.5351% |
+| `instructions` | `strmap_insert_plain/routes` | 42,608,952 | 42,597,423 | -0.0271% |
+| `instructions` | `strmap_oscillate/routes` | 33,824,645 | 33,348,603 | -1.4074% |
+| `instructions` | `strmap_prefix_bounded/paths` | 2,636,575 | 2,622,215 | -0.5446% |
+| `instructions` | `strmap_prefix_bounded/paths_dense` | 3,762,462 | 3,762,462 | +0.0000% |
+| `instructions` | `strmap_prefix_scan/paths` | 2,821,486 | 2,807,170 | -0.5074% |
+| `instructions` | `strmap_prefix_scan/paths_dense` | 3,952,485 | 3,952,485 | +0.0000% |
+| `instructions` | `strmap_prefix_seek/paths` | 160,473 | 146,157 | -8.9211% |
+| `instructions` | `strmap_prefix_seek/paths_dense` | 160,751 | 160,751 | +0.0000% |
+| `instructions` | `strmap_raw_cursor/clean` | 14,533,670 | 14,534,087 | +0.0029% |
+| `instructions` | `strmap_raw_get/clean` | 17,398,057 | 17,407,081 | +0.0519% |
+| `instructions` | `strmap_raw_insert/clean` | 46,275,394 | 42,071,376 | -9.0848% |
+| `instructions` | `strmap_refill/routes` | 103,341,165 | 103,596,807 | +0.2474% |
+| `instructions` | `strmap_refill_small/routes` | 87,010,106 | 87,105,373 | +0.1095% |
+| `instructions` | `strmap_transcode_cursor/clean` | 25,733,864 | 25,734,088 | +0.0009% |
+| `instructions` | `strmap_transcode_cursor/escaped` | 39,159,117 | 39,120,684 | -0.0981% |
+| `instructions` | `strmap_transcode_get/clean` | 21,648,059 | 21,657,083 | +0.0417% |
+| `instructions` | `strmap_transcode_get/escaped` | 65,745,662 | 62,657,059 | -4.6978% |
+| `instructions` | `strmap_transcode_insert/clean` | 50,575,506 | 46,372,456 | -8.3104% |
+| `instructions` | `strmap_transcode_insert/escaped` | 100,122,145 | 93,516,672 | -6.5974% |
+| `instructions` | `sync_strmap_churn/routes` | 188,497,523 | 189,093,017 | +0.3159% |
+| `instructions` | `sync_strmap_churn_short/short` | 229,771,289 | 229,652,955 | -0.0515% |
+| `instructions` | `sync_strmap_compare_exchange/routes` | 123,149,234 | 122,998,838 | -0.1221% |
+| `instructions` | `sync_strmap_get_short/short` | 29,882,831 | 29,883,073 | +0.0008% |
+| `instructions` | `sync_strmap_insert/routes` | 76,896,619 | 77,650,076 | +0.9798% |
+| `instructions` | `sync_strmap_insert_short/short` | 96,859,528 | 103,028,599 | +6.3691% |
+| `instructions` | `sync_strmap_insert_sorted/uuid` | 45,544,839 | 48,409,694 | +6.2902% |
+| `instructions` | `sync_strmap_mem_used/routes` | 15,663,913 | 15,497,002 | -1.0656% |
+| `instructions` | `sync_strmap_mem_used/short` | 16,838,489 | 13,807,837 | -17.9984% |
+| `instructions` | `sync_strmap_next_after_scan_locked/paths` | 118,332,303 | 118,330,967 | -0.0011% |
+| `instructions` | `sync_strmap_next_after_scan_locked/paths_dense` | 134,216,567 | 134,216,535 | -0.0000% |
+| `instructions` | `sync_strmap_remove/routes` | 88,267,360 | 88,200,991 | -0.0752% |
+| `instructions` | `sync_strmap_scan_locked/paths` | 9,155,814 | 9,155,814 | +0.0000% |
+| `instructions` | `sync_strmap_scan_locked/paths_dense` | 13,644,631 | 13,644,631 | +0.0000% |
+| `instructions` | `sync_strmap_scan_pointops/paths` | 182,729,750 | 182,729,334 | -0.0002% |
+| `instructions` | `sync_strmap_scan_pointops/paths_dense` | 171,955,482 | 171,954,614 | -0.0005% |
+| `instructions` | `sync_strmap_update/routes` | 73,966,529 | 73,816,055 | -0.2034% |
+| `smoke_instructions` | `strmap_churn/routes` | 22,929,344 | 22,929,300 | -0.0002% |
+| `smoke_instructions` | `strmap_get/routes` | 6,724,116 | 6,724,072 | -0.0007% |
+| `smoke_instructions` | `strmap_insert/routes` | 8,440,973 | 8,432,490 | -0.1005% |
+| `rmw_instructions` | `sync_strmap_cas/routes` | 72,628,900 | 73,554,134 | +1.2739% |
+| `rmw_instructions` | `sync_strmap_cas_insert/routes` | 99,144,838 | 100,737,742 | +1.6066% |
+| `rmw_instructions` | `sync_strmap_update_rmw/routes` | 121,739,255 | 122,664,489 | +0.7600% |
+| `capi smoke_instructions` | `judysl_get/routes` | 6,984,016 | 6,984,016 | +0.0000% |
+| `capi smoke_instructions` | `judysl_insert/routes` | 9,001,259 | 8,946,406 | -0.6094% |
+
+`search_instructions` and `leaf_cap_cascaded` build no string map; all 54 of their arms are identical.
+
+**Where the plain-arm cost sits** (`callgrind_annotate --inclusive=no`, `packed-suffix` minus default, per function):
+
+| function | `strmap_insert/routes` | `strmap_insert_plain/routes` |
+|---|---:|---:|
+| `new_suffix` | +385,648 | +385,648 |
+| `dispose_suffix` | +250,080 | +250,080 |
+| glibc `free` | −387,621 | −387,621 |
+| glibc `malloc` | −256,332 | −256,332 |
+| glibc `memset` | +70,767 | +70,767 |
+| `split_suffix` | −24,948 | −24,948 |
+| `ExpanseStrMap::insert` | +215,102 | — |
+| `strmap_insert_plain` (the plain body, inlined into the arm) | — | −28,242 |
+| **total** | **+231,817** | **−11,529** |
+
+- The suffix allocation itself, the first six rows, nets +62,542 on both arms: the class allocator's `new_suffix` and `dispose_suffix` replace glibc's `malloc` and `free` almost one for one.
+- The rest of `strmap_insert`'s cost is +215,102 in `ExpanseStrMap::insert`'s own body, 4.30 per call over 50,000 calls. The plain body alone, in `strmap_insert_plain`, gets 28,242 instructions cheaper.
+- `insert` minus `insert_plain`, the deferred-map test plus the shared twin's effect on codegen, is 717,202 instructions (14.34 per call) in the default build and 960,548 (19.21 per call) under `packed-suffix` (derived from the table above, 50,000 calls).
+- `strmap_churn/routes` (+449,956) is `ExpanseStrMap::insert` +550,000 and `ExpanseStrMap::remove` −100,000: +5.5 per insert over its 100,000 inserts and −2 per remove over its 50,000 removes (two inserts and one remove per key, `crates/expanse/benches/instructions.rs`).
+- `sync_strmap_insert_short/short` (+6,169,071) is `new_suffix` +3,499,752, glibc `calloc` +2,911,940 and `Collector::pop_freelist` +2,400,040, against glibc `malloc` −2,050,000 and `olc_insert` −1,005,493. On a shared tree a class-allocated block comes from the epoch collector's freelist and, on a miss, from `alloc_zeroed` (`crates/expanse/src/alloc.rs:1191`–`1203`); the default build's suffix is one `alloc` (`crates/expanse/src/strmap.rs:242`).
+
+**The suffix half alone, against §6's 0.1% review threshold, on plain arms.** It exceeds it on six plain (single-threaded) string arms: `strmap_insert/routes` +0.5351% (0.4351 percentage points over), `strmap_clear_refill/routes` +0.4107%, `strmap_churn/routes` +0.3763%, `domain_dict_insert/routes` +0.2591%, `strmap_refill/routes` +0.2474% and `strmap_refill_small/routes` +0.1095%. It does not exceed it on `strmap_insert_plain/routes` (−0.0271%), and the 10⁴-key `smoke_instructions` `strmap_insert/routes` moves −0.1005%. On the shared arms it reaches +6.3691% (`sync_strmap_insert_short/short`) and +6.2902% (`sync_strmap_insert_sorted/uuid`).
+
+**What this means for B.**
+- On the plain write arms the suffix half's cost is mostly in `insert`'s and `remove`'s own bodies, not in the allocation it adds: the plain body measured alone is flat. On these counts, a B that keeps the plain and shared codegen apart, as #1586 already requires, starts from a suffix-half cost near zero on plain inserts (`strmap_insert_plain` −0.0271%). A B that does not starts from +0.5351% on `strmap_insert`, before the shell half. Plain removes were not measured apart from inserts; `strmap_churn` puts −2 instructions per call in `remove`.
+- On shared trees the suffix half costs up to +6.37% on inserts, almost all of it in the collector-freelist and `calloc` path. B's pre-registration has to bound that path, or change it, before the stall gain can pay for it.
+- The `mem_used` walk itself shrinks under `packed-suffix`: `sync_strmap_mem_used` reads −17.9984% on `short` and −1.0656% on `routes`. That is the suffix share of the walk on these shapes; the shell walk that remains is B's other half and is not measured here.
+
+### 45.3 Byte census (workload: `example_allocator_overhead`)
+
+Bytes per key, `packed-suffix` minus default, string shapes. The three `ExpanseMap` shapes are identical in every exact column at both N, as expected of a feature that touches only string suffixes.
+
+| N | shape | `mem_used` | `mem_held` | `+headers` (allocator-inclusive) | allocations per key |
+|---|---|---:|---:|---:|---:|
+| 10⁶ | `prefix` | 34.34 → 46.85 (+12.51) | 35.73 → 48.72 (+12.99) | 49.06 → 49.34 (+0.28) | 0.9517 → 0.0633 |
+| 10⁶ | `uuid` | 60.02 → 64.02 (+4.00) | 68.80 → 73.57 (+4.77) | 89.25 → 74.21 (−15.04) | 1.0281 → 0.0400 |
+| 10⁷ | `prefix` | 38.76 → 43.08 (+4.32) | 40.40 → 46.72 (+6.32) | 47.21 → 49.24 (+2.03) | 0.6193 → 0.2930 |
+| 10⁷ | `uuid` | 60.86 → 64.88 (+4.02) | 66.81 → 69.71 (+2.90) | 86.93 → 69.96 (−16.97) | 1.0536 → 0.0650 |
+
+- The default build's exact columns at 10⁶ reproduce `results/allocator_overhead_7685ab6b.txt` (`prefix` 34.34 / 35.73, `uuid` 60.02 / 68.80), so the string-map accounting has not moved since that census.
+- `mem_used` and `mem_held` rise under the feature on both shapes, because a class-allocated suffix is counted at its class size, while the default build counts a suffix's header and bytes exactly and leaves glibc's rounding and chunk header uncounted. The two builds' `mem_used` therefore measure different things, and the allocator-inclusive `+headers` column is the one that compares them. The gap between `mem_used` and `+headers` falls from 14.72 to 2.49 B/key on `prefix` and from 29.23 to 10.19 on `uuid` at 10⁶, and from 8.45 to 6.16 and from 26.07 to 5.08 at 10⁷ (derived from the table). Under B, `mem_used` is closer to what the process pays for the tree.
+- Allocator-inclusive bytes fall on `uuid` (−15.04 and −16.97 B/key) and rise on `prefix` (+0.28 and +2.03 B/key). That is the density trade-off `docs/BENCHMARKING.md` records for the feature, and B inherits it unless its pre-registration changes the class sizes.
+- RSS, one diagnostic reading on this host with no interval and not a result, moved in the same direction as `+headers` on every string cell. No RSS figure is quoted.
+
+### 45.4 Disassembly of the plain and shared write paths (`instructions` bench binary)
+
+| function | default: instructions, `%fs:` | `packed-suffix`: instructions, `%fs:` |
+|---|---:|---:|
+| `ExpanseStrMap::insert` | 1,612, 0 | 1,558, 0 |
+| `ExpanseStrMap::remove` | 2,645, 0 | 2,609, 0 |
+| plain insert body (`strmap_insert_plain` arm, where it is inlined) | 1,419, 0 | 1,370, 0 |
+| `ExpanseStrMap::olc_insert` | 4,361, 12 | 4,329, 12 |
+| `SyncExpanseStrMap::insert` | 743, 33 | 743, 33 |
+| `SyncExpanseStrMap::remove` | 4,338, 34 | 4,341, 34 |
+| `dispose_suffix` | 35, 0 | 89, 1 |
+| `new_suffix` | no symbol | 173, 1 |
+
+- `insert_impl`, `remove_impl`, `insert_shared` and `remove_shared` have no out-of-line symbol in either build: each is inlined into `insert` or `remove`.
+- No function on the plain paths gains a `%fs:` read. The feature adds one in `new_suffix` and one in `dispose_suffix`, both out of line (AGENTS.md §2.1 invariant 5).
+- Statically, `insert` and `remove` get shorter under the feature (−54 and −36 instructions), yet `insert` retires 4.30 more instructions per call (§45.2). The cost is in the path the inserts take through `insert`, not in its size; which instructions those are is not established here.
+
+### 45.5 What B0 does not establish
+
+- **The wall-clock stall under `packed-suffix`.** `sync_strmap_mem_used`'s Callgrind count fell; whether the stall §44.11 measured falls with it needs a reference-host `strmap_poll_stall` cell under `packed-suffix`. Running it is a separate decision for the maintainer.
+- **The shell half of B.** Routing `StrNode` shells through `NodeAlloc` is not built. Its cost, and the size of the walk that remains without it, are not measured.
+- **Wall-clock cost on the write paths.** Instruction counts do not price the collector-freelist path in time. No timing was taken.
+- **Code layout under B.** B0 measures today's `packed-suffix`. A B that separates the plain and shared codegen changes the code this section measured, and its counts have to be taken again.
+- **The 17 unannotated non-string arms that moved by 7 instructions.** They are taken to have the cause found on the two annotated ones; that is not verified.
+- **`vs_stock`.** Not run, so the `expanse-capi` arms behind it are not covered.
+- **Any gate.** No threshold is set here. The engine pre-registration names its gain axis (the §44.11 stall) and its instruction bounds in its own section.
