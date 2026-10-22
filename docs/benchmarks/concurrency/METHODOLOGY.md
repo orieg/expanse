@@ -7018,3 +7018,78 @@ No bound in this section moves after the first measurement of the change build.
 - How much of the 14.34-per-call gap beyond the three instructions the change recovers. That is the codegen effect of removing the inlined shared twin, and only the measurement says.
 - Whether LLVM now inlines the smaller `insert` or `remove` into a caller in the crate (`domain`, `ordered_bytesmap`) or across it under thin LTO. A newly inlined call removes the call overhead and can move an arm by more than predicted; it is named in the results if it happens.
 - Wall-clock effect. Nothing is timed.
+
+### 46.8 Outcome (appended 2026-10-22, after the runs; §46.1–46.7 are unchanged)
+
+Three builds were measured against the §46.2 baseline, one change each, on the instrument of §46.2. All three, the baseline and the per-function attribution are in `results/strmap_dispatch_split_callgrind_fd6f39fc.json` (372 arms per build). The third build is the one that ships.
+
+| build | commit | change |
+|---|---|---|
+| head1 | `18cc3e96` | the split as §46.1 states it: `insert` and `remove` out of line, without the deferred test |
+| head2 | `f0cf28b6` | head1 plus `#[inline(always)]` on `insert` and `remove`, as `insert_plain` has |
+| head3 | `fd6f39fc` | head2 plus `ExpanseOrderedBytesMap::insert` computing the encoded key in its own body |
+
+head2 and head3 depart from §46.1's "the change keeps `insert` out of line". They were made through §46.6's first row, after head1 tripped G1 and P and was attributed; no bound moved.
+
+**head1 tripped G1 and P, and was attributed before anything changed.** `strmap_insert/routes` rose 254,313 (+0.5870%, against G1's ≤ −0.34%), and all 14 plain arms that call `insert` or `remove` rose, by +0.1969% to +0.6511% (`strmap_raw_insert/clean`). `callgrind_annotate --inclusive=no` puts the whole rise in `ExpanseStrMap::insert`'s own body: +304,347, offset by −50,034 in `__rust_alloc_zeroed`. Per instruction (`--dump-instr=yes`, self Ir per address joined with `objdump`), `insert` executed 370,017 more `mov`s and about 100,000 fewer `test`/`jne` (the deferred test, gone as predicted). The chunk loop, executed 193,748 times, gained one register copy. The terminal-chunk block, executed 49,503 times, gained two register copies and a reload of a static's address from the GOT that base kept in a register. Data reads in `insert` fell by 422,337 while instructions rose. So the plain body compiled out of line on its own allocates registers worse than it did beside the shared twin. The same body inlined into its caller, which the `strmap_insert_plain` arm measures, is 717,209 instructions under base `insert`. The shared arms and the non-string arms were identical to base.
+
+**head2 met G1 and tripped P on `ordered_bytesmap_insert`.** `strmap_insert/routes` reached 42,608,730, the `strmap_insert_plain` count to the instruction (−1.6554%). `ordered_bytesmap_insert/clean` rose 551,289 (+1.0836%) and `/escaped` 549,917 (+0.8055%). Attribution: `ExpanseOrderedBytesMap::insert` reaches the map through `with_encoded_key`'s closure, which has one call site per encoding branch. With `insert` inlined into it, the closure was compiled out of line (a new 1,298-instruction symbol), so it cost +250,000 in `ExpanseOrderedBytesMap::insert` for the call and +301,323 in the closure's copy of the plain body against base `insert`'s self cost.
+
+**head3: every bound met.**
+
+| gate | bound | head3 | verdict |
+|---|---|---|---|
+| G1 | `strmap_insert/routes` Δ ≤ −0.34% | 43,325,939 → 42,608,730, **−1.6554%** | met |
+| G2 | `remove`'s inclusive Ir on `strmap_oscillate/routes` −150,000; read on the arm total (Δ ≤ −0.88%) if `remove` leaves no call record | `remove` is inlined and leaves no call record; arm 33,843,428 → 32,143,398, **−5.0232%** | met, read the weaker way |
+| P | no plain string arm up by more than 0.1% | 14 arms fall (table below), 27 unchanged; none rises | met |
+| S | every `sync_strmap_*` arm within ±0.1% | all 20 identical to base | met |
+| N | every non-string arm within ±0.01% | all 311 identical to base | met |
+| C | no plain function gains `%fs:`; `SyncExpanseStrMap::insert`/`remove` keep 33/34 | 0 in every plain function and arm wrapper read; 33/34 | met |
+| Guard | the guard tests pass, and fail with the assertion deleted | both pass; with the assertion deleted both fail with "panic did not contain expected string" (the plain path then trips `alloc_raw`'s debug assertion, `alloc.rs:1180`) | met |
+
+Plain arms that moved, base against each build (every other plain arm, `strmap_insert_plain/routes` included, is unchanged in all three):
+
+| arm | base | head1 | head2 | head3 | head3 Δ |
+|---|---:|---:|---:|---:|---:|
+| `strmap_insert/routes` | 43,325,939 | +0.5870% | −1.6554% | 42,608,730 | −1.6554% |
+| `strmap_oscillate/routes` | 33,843,428 | +0.4431% | −5.0232% | 32,143,398 | −5.0232% |
+| `strmap_churn/routes` | 119,575,793 | +0.4181% | −3.2093% | 115,738,295 | −3.2093% |
+| `strmap_refill/routes` | 103,338,884 | +0.1969% | −2.2997% | 100,962,425 | −2.2997% |
+| `strmap_refill_small/routes` | 87,019,217 | +0.2313% | −2.5900% | 84,765,452 | −2.5900% |
+| `strmap_clear_refill/routes` | 56,562,168 | +0.4537% | −1.2117% | 55,876,779 | −1.2117% |
+| `strmap_raw_insert/clean` | 46,275,777 | +0.6511% | −1.4237% | 45,616,965 | −1.4237% |
+| `strmap_transcode_insert/clean` | 50,575,381 | +0.5957% | −1.1999% | 49,968,515 | −1.1999% |
+| `strmap_transcode_insert/escaped` | 100,121,039 | +0.3495% | −0.5991% | 99,521,198 | −0.5991% |
+| `ordered_bytesmap_insert/clean` | 50,875,378 | +0.5922% | +1.0836% | 50,680,795 | −0.3825% |
+| `ordered_bytesmap_insert/escaped` | 68,267,044 | +0.5126% | +0.8055% | 67,867,003 | −0.5860% |
+| `domain_dict_insert/routes` | 89,240,581 | +0.2850% | −1.1815% | 88,186,207 | −1.1815% |
+| `smoke_instructions` `strmap_insert/routes` | 8,440,946 | +0.2923% | −2.0059% | 8,271,632 | −2.0059% |
+| `smoke_instructions` `strmap_churn/routes` | 22,929,493 | +0.3925% | −3.6525% | 22,091,995 | −3.6525% |
+
+Each fall is larger than §46.3 predicted, because the prediction priced only the deferred test and the shipped change also inlines the call. Attribution, head3 against base: on `strmap_insert/routes`, `ExpanseStrMap::insert` (−14,770,709) moves into the arm's wrapper (+14,103,787), and `__rust_alloc_zeroed` falls 50,252; on `strmap_oscillate/routes`, `insert` (−5,601,264) and `remove` (−6,900,000) move into the wrapper (+10,801,275); on `domain_dict_insert/routes`, `insert` (−14,770,701) moves into `ExpanseDomainDict::intern`'s closure (+13,716,327); on `ordered_bytesmap_insert/clean`, `insert` (−5,362,925) moves into `ExpanseOrderedBytesMap::insert` (+5,168,376). The split of `strmap_oscillate`'s fall between its inserts and its removes is not established: both are inlined into one wrapper.
+
+**Codegen** (`objdump -d -C --no-show-raw-insn`, instructions and `%fs:` per symbol):
+
+| symbol | base | head1 | head2 | head3 |
+|---|---:|---:|---:|---:|
+| `ExpanseStrMap::insert` | 1,612, 0 | 1,298, 0 | inlined | inlined |
+| `ExpanseStrMap::remove` | 2,645, 0 | 2,295, 0 | inlined | inlined |
+| `ExpanseStrMap::insert_deferred` | — | 1,612, 0 | 1,612, 0 | 1,612, 0 |
+| `ExpanseStrMap::remove_deferred` | — | 2,645, 0 | 2,645, 0 | 2,645, 0 |
+| `ExpanseStrMap::olc_insert` | 4,361, 12 | 4,361, 12 | 4,361, 12 | 4,361, 12 |
+| `SyncExpanseStrMap::insert` | 743, 33 | 743, 33 | 743, 33 | 743, 33 |
+| `SyncExpanseStrMap::remove` | 4,338, 34 | 4,338, 34 | 4,338, 34 | 4,338, 34 |
+| `ExpanseOrderedBytesMap::insert` | 139, 0 | 139, 0 | 136, 0 | 2,659, 0 |
+| its closure | inlined | inlined | 1,298, 0 | inlined |
+| `strmap_insert` arm wrapper | 85, 0 | 85, 0 | 1,419, 0 | 1,419, 0 |
+| `strmap_oscillate` arm wrapper | 115, 0 | 115, 0 | 3,643, 0 | 3,643, 0 |
+
+- The shared entries compile to base `insert` and `remove` exactly in static size, which is the §46.3 S derivation, and the shared arms bear it out to the instruction.
+- In head2 and head3 the binary has no `strmap_insert_plain` wrapper symbol, and the two arms measure the same 42,608,730. The two wrappers are taken to have been folded into one; that is inferred from the absent symbol and the equal counts and not verified further.
+- The shipped change grows every plain caller by the body it now inlines: `ExpanseOrderedBytesMap::insert` from 139 to 2,659 instructions, the `strmap_churn` wrapper from 119 to 4,867, and so on for each caller of `insert` or `remove`, in this crate, in `expanse-capi` and in the bindings. Callgrind counts executed instructions and does not price that size. Its wall-clock effect, if any, is unmeasured.
+
+**What this does not establish.**
+- Wall clock. Nothing was timed.
+- `ExpanseOrderedBytesMap::remove`, `ExpanseStrMap::update` and every caller outside the measured arms (`expanse-capi`'s `expanse_strmap_insert`/`remove`, the bindings) now inline the plain body too. No arm measures them, so their counts are unmeasured. `ExpanseOrderedBytesMap::remove` still goes through `with_encoded_key`'s closure, the shape that cost `insert` +1.08% in head2.
+- `ins_slot` and `clear` keep their deferred dispatch. They are outside this change.
+- The CI `instruction-counts` job reruns the gate on its own host and toolchain build, against `main`; its table is the confirmation, and the PR body carries it.
