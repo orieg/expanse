@@ -2218,6 +2218,11 @@ impl ExpanseStrMap {
     }
 
     /// Inserts `key → val`; returns the replaced value if present.
+    // Inlined into its callers, as `insert_plain` is: out of line, the plain
+    // body alone retired 6 more instructions per call than with the shared
+    // twin beside it, from register allocation in the chunk loop
+    // (METHODOLOGY §46.8).
+    #[inline(always)]
     pub fn insert(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
         // The plain path only. A map switched to deferred reclamation lives
         // inside `SyncExpanseStrMap`, which hands out no `&mut` to it outside
@@ -3032,8 +3037,9 @@ impl ExpanseStrMap {
     /// after the last key is removed; call [`Self::shrink_to_fit`] (or
     /// [`Self::clear`]) to return them to the system allocator after a
     /// drain.
+    #[inline(always)]
     pub fn remove(&mut self, key: &NulFreeStr) -> Option<u64> {
-        // As `insert`: the plain path only; a shared map's is
+        // As `insert`: the plain path only, inlined; a shared map's is
         // `remove_deferred` (Refs #1586).
         self.debug_assert_unshared();
         self.remove_impl(key)
