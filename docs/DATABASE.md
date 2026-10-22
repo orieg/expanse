@@ -554,6 +554,12 @@ impl ExpanseMemTable {
 }
 ```
 
+Reading `mem_used()` on every `put` is affordable here only because the map is `ExpanseMap`: its `mem_used` is the allocator's byte count, with no walk. Do not carry the pattern to a string-keyed memtable. `ExpanseStrMap::mem_used` and `mem_held` walk every node, O(keys), and on `SyncExpanseStrMap` and `SyncExpanseOrderedBytesMap` the walk runs with every writer excluded, optimistic writers included. With one reading per second, 4 writers and 2·10⁷ keys, no insert completed for a fraction of wall time of [0.3619, 0.3743] on `routes` keys and [0.9994, 1.0000] on `short` keys *(measured: reference host, run [39685648391](https://github.com/orieg/expanse/actions/runs/39685648391) at `ac7c1237`, BCa 95% over 5 rounds; [`METHODOLOGY.md` §44.11](benchmarks/concurrency/METHODOLOGY.md), artifact [`baseline_strmap_poll_stall.json`](benchmarks/concurrency/results/baseline_strmap_poll_stall.json))*. A string memtable budgets instead as follows:
+
+- read `mem_used()` or `mem_held()` on the map that writers no longer use: the one frozen or rotated out at a flush, where the walk stalls nobody;
+- between exact readings, budget on `len()`, which takes no lock, times the bytes per key of the last exact reading;
+- take that ratio from `mem_held()` when the budget protects resident memory, since `mem_used()` counts live bytes only. The ratio is exact at its reading and drifts with key shape and length until the next one.
+
 ### 5.3 RocksDB Pluggable MemTable (`ExpanseMemTableRep` / `rocksdb-expanse`)
 
 Expanse provides an official pluggable MemTable implementation for RocksDB (`integrations/rocksdb/`):

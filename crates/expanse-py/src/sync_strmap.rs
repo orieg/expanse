@@ -68,7 +68,9 @@ impl SyncExpanseStrMap {
 
     // abi-parity: expanse_sync_strmap_mem_used
     /// Heap bytes used by the map's nodes and leaves, read with writers excluded
-    /// (releases the GIL; makes concurrent writers wait for it).
+    /// (releases the GIL). An O(keys) walk that every concurrent writer waits for; read it
+    /// on a map writers no longer use, and between readings budget on `len(map)` times the
+    /// bytes per key of the last exact reading.
     pub fn mem_used(&self, py: Python<'_>) -> usize {
         py.detach(|| self.inner.mem_used())
     }
@@ -76,7 +78,8 @@ impl SyncExpanseStrMap {
     // abi-parity: expanse_sync_strmap_mem_held
     /// Heap bytes the map holds from the global allocator: its tree's own share plus the blocks
     /// its epoch collector keeps for reuse or is waiting to reclaim. Read with writers excluded
-    /// (releases the GIL).
+    /// (releases the GIL): the same O(keys) walk as `mem_used`, which every concurrent writer
+    /// waits for. Take a resident-memory bytes-per-key ratio from here.
     pub fn mem_held(&self, py: Python<'_>) -> usize {
         py.detach(|| self.inner.mem_held())
     }
