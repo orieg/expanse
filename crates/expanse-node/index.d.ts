@@ -754,9 +754,9 @@ export class SyncExpanseStrMap {
 
   size(): bigint;
   isEmpty(): boolean;
-  /** Heap bytes used by the map, read with writers excluded. */
+  /** Heap bytes used by the map, read with writers excluded. An O(keys) walk that every writer waits for; read it on a map writers no longer use, and between readings budget on `size()` times the bytes per key of the last exact reading. */
   memUsed(): bigint;
-  /** Heap bytes held from the global allocator, including blocks the epoch collector keeps for reuse. */
+  /** Heap bytes held from the global allocator, including blocks the epoch collector keeps for reuse. The same O(keys) walk as `memUsed()`, which every writer waits for. */
   memHeld(): bigint;
   /** Returns the collector's freed blocks to the global allocator; returns the bytes released. */
   shrinkToFit(): bigint;
@@ -838,9 +838,9 @@ export class SyncExpanseOrderedBytesMap {
 
   size(): bigint;
   isEmpty(): boolean;
-  /** Heap bytes used by the map, read with writers excluded. */
+  /** Heap bytes used by the map, read with writers excluded. An O(keys) walk that every writer waits for; read it on a map writers no longer use, and between readings budget on `size()` times the bytes per key of the last exact reading. */
   memUsed(): bigint;
-  /** Heap bytes held from the global allocator, including blocks the epoch collector keeps for reuse. */
+  /** Heap bytes held from the global allocator, including blocks the epoch collector keeps for reuse. The same O(keys) walk as `memUsed()`, which every writer waits for. */
   memHeld(): bigint;
   /** Returns the collector's freed blocks to the global allocator; returns the bytes released. */
   shrinkToFit(): bigint;

@@ -82,7 +82,9 @@ impl SyncExpanseStrMap {
     }
 
     // abi-parity: expanse_sync_strmap_mem_used
-    /// Heap bytes used by the map's nodes and leaves, read with writers excluded.
+    /// Heap bytes used by the map's nodes and leaves, read with writers excluded. An O(keys)
+    /// walk that every writer waits for; read it on a map writers no longer use, and between
+    /// readings budget on `size()` times the bytes per key of the last exact reading.
     #[napi]
     pub fn mem_used(&self) -> BigInt {
         BigInt::from(self.inner.mem_used() as u64)
@@ -90,7 +92,8 @@ impl SyncExpanseStrMap {
 
     // abi-parity: expanse_sync_strmap_mem_held
     /// Heap bytes the map holds from the global allocator, including the blocks its
-    /// epoch collector keeps for reuse or is waiting to reclaim.
+    /// epoch collector keeps for reuse or is waiting to reclaim. The same O(keys) walk as
+    /// `memUsed()`, which every writer waits for.
     #[napi]
     pub fn mem_held(&self) -> BigInt {
         BigInt::from(self.inner.mem_held() as u64)
@@ -447,7 +450,9 @@ impl SyncExpanseOrderedBytesMap {
     }
 
     // abi-parity: expanse_sync_ordered_bytesmap_mem_used
-    /// Heap bytes used by the map, read with writers excluded.
+    /// Heap bytes used by the map, read with writers excluded. An O(keys) walk that every
+    /// writer waits for; read it on a map writers no longer use, and between readings
+    /// budget on `size()` times the bytes per key of the last exact reading.
     #[napi]
     pub fn mem_used(&self) -> BigInt {
         BigInt::from(self.inner.mem_used() as u64)
@@ -455,7 +460,8 @@ impl SyncExpanseOrderedBytesMap {
 
     // abi-parity: expanse_sync_ordered_bytesmap_mem_held
     /// Heap bytes the map holds from the global allocator, including the blocks its
-    /// epoch collector keeps for reuse or is waiting to reclaim.
+    /// epoch collector keeps for reuse or is waiting to reclaim. The same O(keys) walk as
+    /// `memUsed()`, which every writer waits for.
     #[napi]
     pub fn mem_held(&self) -> BigInt {
         BigInt::from(self.inner.mem_held() as u64)
