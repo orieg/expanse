@@ -191,7 +191,34 @@ impl ExpanseOrderedBytesMap {
 
     /// Inserts `key → val`; returns the previous value if `key` was present.
     pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
-        with_encoded_key(key, |nul_free| self.inner.insert(nul_free, val))
+        // `with_encoded_key`'s three encodings, written out so that the
+        // string map's `insert`, which is inlined, has one call site here
+        // rather than one per branch: through the closure, it was compiled
+        // out of line and cost 11 more instructions per insert
+        // (METHODOLOGY §46.8).
+        let mut buf: [u8; 64];
+        let enc: Vec<u8>;
+        let nul_free = if !key.iter().any(|&b| b <= 1) {
+            debug_assert!(!key.contains(&0));
+            // SAFETY: no byte of `key` is <= 1, so none is 0x00 (NUL), and
+            // `key` is NUL-free as `NulFreeStr` requires.
+            unsafe { NulFreeStr::new_unchecked(key) }
+        } else if key.len() <= 32 {
+            buf = [0u8; 64];
+            let len = encode_into_slice(key, &mut buf);
+            debug_assert!(!buf[..len].contains(&0));
+            // SAFETY: `encode_into_slice` maps 0x00 to [0x01, 0x01] and 0x01
+            // to [0x01, 0x02] and keeps 0x02..=0xFF, so every byte it writes
+            // is >= 1; `len` <= 2 * key.len() <= 64 fits `buf`.
+            unsafe { NulFreeStr::new_unchecked(&buf[..len]) }
+        } else {
+            enc = escape_encode(key);
+            debug_assert!(!enc.contains(&0));
+            // SAFETY: `escape_encode` applies the same mapping into a
+            // `Vec<u8>`, so the result contains no 0x00 byte.
+            unsafe { NulFreeStr::new_unchecked(&enc) }
+        };
+        self.inner.insert(nul_free, val)
     }
 
     /// Returns the value stored for `key`, or `None` if absent.
