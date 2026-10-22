@@ -201,6 +201,7 @@ BENCH_N_MAP: Dict[str, int] = {
     # String maps: one pass over `str_keys` (POP = 50,000); churn counts one
     # per key, as `map_churn` does.
     "strmap_insert": 50_000,
+    "strmap_insert_plain": 50_000,
     "strmap_get": 50_000,
     "strmap_churn": 50_000,
     "strmap_oscillate": 50_000,
@@ -538,6 +539,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "judysl_insert",
             "map32_insert",
             "strmap_insert",
+            "strmap_insert_plain",
             "strmap_transcode_insert",
             "ordered_bytesmap_insert",
             "strmap_raw_insert",
