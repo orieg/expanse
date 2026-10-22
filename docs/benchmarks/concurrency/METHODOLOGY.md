@@ -6871,3 +6871,31 @@ Run [39633666220](https://github.com/orieg/expanse/actions/runs/39633666220) at 
   - the `apt-daily` and `apt-daily-upgrade` timers stay stopped, as in §44.9.
 
   These are operating rules, and nothing in this repository enforces them. The guard still voids a run that any of them, or anything else, disturbs outside a recorded pause.
+
+### 44.11 Outcome (appended 2026-10-22; §44.1 to §44.10 are not rewritten)
+
+Run [39685648391](https://github.com/orieg/expanse/actions/runs/39685648391) at `ac7c1237` (the harness and driver as of `b4846424`, plus §44.9's guard and §44.10's text) was admitted by the host-activity guard.
+- Worst foreign load on the pinned CPUs outside a recorded pause: 0.24 core-equivalents, below the 0.25 void boundary.
+- Of 677 samples taken during 4 recorded pauses, 3 were over the boundary. They were the hourly rsync at 00:17:33Z, 01:17:33Z and 02:17:32Z, reported and not judged.
+- Dispatched at 22:19 UTC with the `apt-daily` timers stopped and no login to the host during the run (§44.10).
+- Artifact: `results/baseline_strmap_poll_stall.json`. Intervals are BCa 95% over 5 rounds unless marked.
+
+**S1, stall exists** (N = 2·10⁶, W = 4, T = 1 s): **PASS**.
+
+| shape | median of the largest insert latency | bound (0.5 × median poll) | median poll |
+|---|---:|---:|---:|
+| `routes` | 449,839,103 ns | 137,075,716 ns | 274,151,433 ns |
+| `short` | 990,380,031 ns | 455,301,212 ns | 910,602,425 ns |
+
+**M1, material** (N = 2·10⁷, W = 4, T = 1 s): **MATERIAL** on both shapes.
+
+| shape | `stalled_fraction` | clause 1 (lower bound ≥ 0.01) | `mem_used` arm insert p999 | 10 × `len` arm p999 upper bound | clause 2 |
+|---|---|---|---|---:|---|
+| `routes` | [0.3619, 0.3743] | met | [4,019, 4,189] ns | 40,990 ns | not met |
+| `short` | [0.9994, 1.0000] | met | [3,357, 3,521] ns | 34,014 ns | not met |
+
+- M1 is met through clause 1 alone. On `short` at 2·10⁷ keys the walk takes about as long as the 1 s period, so `stalled_fraction` reaches §44.8's cap.
+- Clause 2 shows no tail effect at p999: one walk per second stalls too few inserts to move the 99.9th percentile. The stall shows in the largest latencies and in `stalled_fraction`, not in the percentiles. That result is recorded, and it changes nothing in §44.4.
+- The cells that decide nothing (N, W, T and shape beyond the two above) and the `occ-stats` counter pass are in the artifact, reported in full and not summarised here.
+
+**What follows (§44.4).** #1586's premise holds on current `main`: a `mem_used` reading on a `SyncExpanseStrMap` holds every writer for the length of the walk, and at 2·10⁷ keys with a reading every second no insert completes for over a third of wall time (`routes`) or nearly all of it (`short`). An engine design is pre-registered in a new section. This stall is its named gain axis, beside its instruction bounds (AGENTS.md §6 trade-off clause). Candidates A, B and C are as #1586 lists them.
