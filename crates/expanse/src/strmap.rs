@@ -2265,7 +2265,7 @@ impl ExpanseStrMap {
     /// map: `defer_to` is `pub(crate)`, and its one non-test caller,
     /// `SyncExpanseStrMap::from_map`, moves the map into the wrapper. The
     /// source census `deferred_str_mutations_call_the_shared_twin` in
-    /// `sync.rs` pins the crate's own sites.
+    /// `sync/str_deferred_dispatch_tests.rs` pins the crate's own sites.
     #[inline(always)]
     fn debug_assert_unshared(&self) {
         #[cfg(feature = "std")]
