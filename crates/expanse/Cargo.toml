@@ -134,13 +134,17 @@ ablation-blob-writer-arenas = []
 # an ablation arm first so both forms can be measured on the same commit;
 # the default keeps the scan and compiles the count's maintenance to nothing.
 ablation-branchu-header-count = []
-# Allocates `ExpanseStrMap` / `SyncExpanseStrMap` suffix leaves from the tree's
-# `NodeAlloc` size classes instead of one global allocation each (Refs #1095).
-# A suffix then costs its size rounded to 16 bytes with no system-allocator
-# chunk header, and `mem_used()` counts it through the allocator. Off by
-# default: the default build's allocation path, accounting and codegen are
-# unchanged. `results/allocator_overhead_*.txt` carries the census.
+# Retired (Refs #1586, AGENTS.md §2.7): string suffix leaves are `NodeAlloc`
+# blocks by default since design B (concurrency METHODOLOGY §47). Kept declared
+# so Cargo does not reject an old `--features packed-suffix` invocation;
+# `lib.rs` turns it into a compiler error naming the inverse.
 packed-suffix = []
+# Diagnostic inverse of the packed suffix leaves (Refs #1586, AGENTS.md §2.7):
+# `ExpanseStrMap` / `SyncExpanseStrMap` suffix leaves become one global
+# allocation each again, as before design B, and `mem_used()` / `mem_held()`
+# walk every entry to count them, so `SyncExpanseStrMap::mem_used` reads with
+# writers excluded again. For re-measuring the promotion, never for production.
+ablation-unpacked-suffix = []
 # Diagnostic-only (Refs #1257, #1256, #1255): `layout_census()` on
 # `ExpanseMap`, `ExpanseSet` and `ExpanseStrMap` — a walk that decomposes
 # `mem_used()` into allocation shapes (linear leaves by level, key bytes and

@@ -1029,10 +1029,11 @@ jobs:
             || { echo "::error::the ablation_ filter ran zero unit tests"; exit 1; }
           cargo test -p expanse-trie --features "$F" --test test_concurrency_ablations
 
-      # `packed-suffix` (Refs #1095) moves string suffix leaves into the tree's
-      # `NodeAlloc`; the default build above never compiles that path.
-      - name: Test with packed string suffixes
-        run: cargo test -p expanse-trie --features packed-suffix
+      # `ablation-unpacked-suffix` (Refs #1586) restores one global allocation
+      # per string suffix leaf, the path the default replaced (concurrency
+      # METHODOLOGY §47); the default build above never compiles it.
+      - name: Test with unpacked string suffixes
+        run: cargo test -p expanse-trie --features ablation-unpacked-suffix
 
       # `ablation-branchu-header-count` (Refs #1202) keeps a child count in
       # every BranchU header; the default build compiles its maintenance to
@@ -1852,19 +1853,21 @@ jobs:
           cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib "${args[@]}" 2>&1 | tee asan-core.log
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' asan-core.log \
             || { echo "::error::the ASan core step ran zero tests"; exit 1; }
-      # `packed-suffix` frees suffix leaves through `NodeAlloc` on the plain,
-      # shared and unpublished paths; a free through the wrong allocator is
-      # what ASan sees and an assertion may not. Separate invocations, since
-      # a positional filter applies to every selected binary (AGENTS.md
+      # The default build frees suffix leaves and node shells through
+      # `NodeAlloc` (Refs #1586); `ablation-unpacked-suffix` frees suffix
+      # leaves through the global allocator instead, on the plain, shared and
+      # unpublished paths. A free through the wrong allocator is what ASan
+      # sees and an assertion may not. Separate invocations, since a
+      # positional filter applies to every selected binary (AGENTS.md
       # §8.11.8).
-      - name: Run packed-suffix string maps under AddressSanitizer
+      - name: Run unpacked-suffix string maps under AddressSanitizer
         shell: bash
         run: |
           set -o pipefail
-          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features packed-suffix --lib -- strmap:: sync::tests::concurrent_str sync::tests::sync_str sync::miri_ub_sites::str_ 2>&1 | tee packed-suffix-asan.log
-          grep -Eq 'test result: ok\. [1-9][0-9]* passed' packed-suffix-asan.log \
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features ablation-unpacked-suffix --lib -- strmap:: sync::tests::concurrent_str sync::tests::sync_str sync::miri_ub_sites::str_ 2>&1 | tee unpacked-suffix-asan.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' unpacked-suffix-asan.log \
             || { echo "::error::the string-map filters ran zero tests"; exit 1; }
-          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features packed-suffix --test no_heap_churn --test test_mem_held --test test_strmap_drain_release --test test_intmap_drain_release --test linearizability --test test_boundary_invariants --test test_serialised_section_unwind --test test_mem_used_order_invariant
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features ablation-unpacked-suffix --test no_heap_churn --test test_mem_held --test test_strmap_drain_release --test test_intmap_drain_release --test linearizability --test test_boundary_invariants --test test_serialised_section_unwind --test test_mem_used_order_invariant
         env:
           RUSTFLAGS: "-Zsanitizer=address"
       - name: Run concurrency ablations under AddressSanitizer

@@ -301,7 +301,6 @@ pub(crate) const RAW_CLASS_TABLE: [u8; 376] = build_raw_class_table();
 /// For each request size, the smallest raw size class that holds it at the
 /// same accounted size; a size with no such class, or above the table, maps
 /// to itself.
-#[cfg(any(feature = "packed-suffix", test))]
 const fn build_raw_fit_table() -> [u16; 376] {
     let mut table = [0u16; 376];
     let mut bytes = 0;
@@ -324,7 +323,6 @@ const fn build_raw_fit_table() -> [u16; 376] {
     table
 }
 
-#[cfg(any(feature = "packed-suffix", test))]
 const RAW_FIT_TABLE: [u16; 376] = build_raw_fit_table();
 
 /// The request size [`NodeAlloc::alloc_bytes`] should be given for a block of
@@ -335,7 +333,6 @@ const RAW_FIT_TABLE: [u16; 376] = build_raw_fit_table();
 /// lies between the 250- and 275-byte classes). Otherwise `bytes`. For callers whose sizes
 /// vary freely, such as string suffix leaves; the engine's own node sizes are
 /// class sizes already.
-#[cfg(any(feature = "packed-suffix", test))]
 #[inline]
 pub(crate) fn raw_class_fit(bytes: usize) -> usize {
     if bytes < RAW_FIT_TABLE.len() {

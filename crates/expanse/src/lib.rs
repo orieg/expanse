@@ -63,6 +63,13 @@ compile_error!(
      scaling on the default build, use the writer_scaling suite."
 );
 
+#[cfg(feature = "packed-suffix")]
+compile_error!(
+    "packed-suffix has been promoted to the default (Refs #1586, concurrency METHODOLOGY §47): \
+     string suffix leaves are NodeAlloc blocks in every build. Use ablation-unpacked-suffix to \
+     restore one global allocation per suffix."
+);
+
 #[cfg(feature = "ablation-blob-writer-arenas")]
 compile_error!(
     "ablation-blob-writer-arenas has been promoted to the default architecture (Refs #929); \

@@ -183,27 +183,27 @@ fn suffix_layout(len: usize) -> Layout {
         .expect("suffix layout: size is header + key remainder, align is 8")
 }
 
-/// Where suffix leaves are allocated. With `packed-suffix` they come from the
-/// tree's `NodeAlloc` size classes (slab-carved up to 256 bytes), so a
-/// suffix costs its size rounded to 16 bytes and no system-allocator chunk
-/// header; without it this is a zero-sized marker and suffixes are separate
-/// global allocations, as before the feature existed.
+/// Where suffix leaves are allocated: the tree's `NodeAlloc` size classes
+/// (slab-carved up to 256 bytes), so a suffix costs its size rounded to 16
+/// bytes and no system-allocator chunk header (Refs #1586: the default since
+/// design B). Under the diagnostic `ablation-unpacked-suffix` this is a
+/// zero-sized marker and suffixes are separate global allocations, as before.
 #[derive(Clone, Copy)]
 struct SuffixArena<'a> {
-    #[cfg(feature = "packed-suffix")]
+    #[cfg(not(feature = "ablation-unpacked-suffix"))]
     alloc: &'a NodeAlloc,
-    #[cfg(not(feature = "packed-suffix"))]
+    #[cfg(feature = "ablation-unpacked-suffix")]
     _alloc: core::marker::PhantomData<&'a NodeAlloc>,
 }
 
 impl<'a> SuffixArena<'a> {
     #[inline(always)]
     fn of(alloc: &'a NodeAlloc) -> Self {
-        #[cfg(feature = "packed-suffix")]
+        #[cfg(not(feature = "ablation-unpacked-suffix"))]
         {
             Self { alloc }
         }
-        #[cfg(not(feature = "packed-suffix"))]
+        #[cfg(feature = "ablation-unpacked-suffix")]
         {
             let _ = alloc;
             Self {
@@ -217,24 +217,24 @@ impl<'a> SuffixArena<'a> {
 /// header plus bytes, fitted to a size class so it never becomes its own
 /// system allocation. Every alloc and free of a packed suffix goes through
 /// this, so the two always agree.
-#[cfg(feature = "packed-suffix")]
+#[cfg(not(feature = "ablation-unpacked-suffix"))]
 #[inline]
 fn packed_suffix_bytes(layout: Layout) -> usize {
     crate::alloc::raw_class_fit(layout.size())
 }
 
 /// Whether suffix bytes are already inside `NodeAlloc::bytes_in_use`.
-const SUFFIX_IN_NODE_ALLOC: bool = cfg!(feature = "packed-suffix");
+const SUFFIX_IN_NODE_ALLOC: bool = !cfg!(feature = "ablation-unpacked-suffix");
 
 /// Allocates a suffix leaf holding `bytes` and `value` in one allocation.
 fn new_suffix(bytes: &[u8], value: u64, arena: SuffixArena<'_>) -> *mut StrSuffix {
     let layout = suffix_layout(bytes.len());
-    #[cfg(feature = "packed-suffix")]
+    #[cfg(not(feature = "ablation-unpacked-suffix"))]
     let raw = arena
         .alloc
         .alloc_bytes(packed_suffix_bytes(layout))
         .as_ptr();
-    #[cfg(not(feature = "packed-suffix"))]
+    #[cfg(feature = "ablation-unpacked-suffix")]
     let raw = {
         let _ = arena;
         // SAFETY: `layout` has non-zero size — the header alone is 16 bytes.
@@ -530,7 +530,7 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>, arena: SuffixAren
     // The tree's allocator decides between freeing and retiring by itself:
     // a shared tree's allocator is deferred, so this retires through the
     // same collector `defer` names.
-    #[cfg(feature = "packed-suffix")]
+    #[cfg(not(feature = "ablation-unpacked-suffix"))]
     {
         let _ = defer;
         // SAFETY: `ptr` came from `alloc_bytes(packed_suffix_bytes(layout))` on this
@@ -543,9 +543,9 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>, arena: SuffixAren
         }
     }
     // Every arm below is the global-allocator path, compiled out above.
-    #[cfg(not(feature = "packed-suffix"))]
+    #[cfg(feature = "ablation-unpacked-suffix")]
     let _ = arena;
-    #[cfg(all(feature = "std", not(feature = "packed-suffix")))]
+    #[cfg(all(feature = "std", feature = "ablation-unpacked-suffix"))]
     match defer {
         // SAFETY: unlinked, last owner, and `layout` is by construction the
         // one this block was allocated with.
@@ -561,7 +561,7 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>, arena: SuffixAren
             )
         },
     }
-    #[cfg(all(not(feature = "std"), not(feature = "packed-suffix")))]
+    #[cfg(all(not(feature = "std"), feature = "ablation-unpacked-suffix"))]
     {
         // Without `std` there is no epoch collector to defer to, so the
         // deferred arm degenerates to the immediate one.
@@ -1461,12 +1461,12 @@ impl StrNode {
                         // SAFETY: tagged pointer encodes a live suffix leaf.
                         let len = unsafe { (*unpack_suffix(v)).len };
                         *c.suffix_leaves.entry(len).or_insert(0) += 1;
-                        #[cfg(feature = "packed-suffix")]
+                        #[cfg(not(feature = "ablation-unpacked-suffix"))]
                         let b = crate::alloc::accounted_size(
                             packed_suffix_bytes(suffix_layout(len)),
                             crate::types::RAW_ALIGN,
                         );
-                        #[cfg(not(feature = "packed-suffix"))]
+                        #[cfg(feature = "ablation-unpacked-suffix")]
                         let b = suffix_layout(len).size();
                         c.suffix_bytes += b;
                         c.bytes += b;
@@ -2174,12 +2174,12 @@ impl ExpanseStrMap {
                         stats.suffix_leaves += 1;
                         // SAFETY: tagged pointer encodes a live suffix leaf.
                         let len = unsafe { (*unpack_suffix(v)).len };
-                        #[cfg(feature = "packed-suffix")]
+                        #[cfg(not(feature = "ablation-unpacked-suffix"))]
                         let b = crate::alloc::accounted_size(
                             packed_suffix_bytes(suffix_layout(len)),
                             crate::types::RAW_ALIGN,
                         );
-                        #[cfg(not(feature = "packed-suffix"))]
+                        #[cfg(feature = "ablation-unpacked-suffix")]
                         let b = suffix_layout(len).size();
                         stats.node_bytes.suffixes += b;
                     } else {
@@ -3346,11 +3346,7 @@ impl ExpanseStrMap {
                 // suffixes — then dispose of the subtree (retired through
                 // the collector when shared).
                 let bytes = self.alloc.bytes_in_use() as u64 + root.shell_bytes();
-                dispose_tree(
-                    root.into_raw(),
-                    &self.alloc,
-                    self.defer_handle().as_ref(),
-                );
+                dispose_tree(root.into_raw(), &self.alloc, self.defer_handle().as_ref());
                 debug_assert_eq!(self.alloc.bytes_in_use(), 0);
                 bytes
             }
@@ -3549,10 +3545,10 @@ mod olc {
         // SAFETY: allocated by `new_suffix` on this thread and never stored
         // anywhere; `len` describes the allocation.
         let layout = suffix_layout(unsafe { (*ptr).len });
-        // With `packed-suffix` the block is the allocator's: it goes back
+        // The block is the allocator's (unless `ablation-unpacked-suffix`): it goes back
         // through the unpublished path, which recycles it at once without a
         // grace period — no reader ever saw it.
-        #[cfg(feature = "packed-suffix")]
+        #[cfg(not(feature = "ablation-unpacked-suffix"))]
         // SAFETY: `ptr` came from `alloc_bytes(packed_suffix_bytes(layout))` on this
         // allocator in `new_suffix` and was never published.
         unsafe {
@@ -3561,7 +3557,7 @@ mod olc {
                 packed_suffix_bytes(layout),
             );
         }
-        #[cfg(not(feature = "packed-suffix"))]
+        #[cfg(feature = "ablation-unpacked-suffix")]
         {
             let _ = arena;
             // SAFETY: as above, and `layout` is the one the block was
@@ -5876,7 +5872,10 @@ mod tests {
         assert!(crate::alloc::class_for_raw(SHELL_BYTES).is_some());
         assert_eq!(crate::alloc::raw_class_fit(SHELL_BYTES), SHELL_BYTES);
         assert!(SHELL_BYTES <= 256, "slab-carved classes stop at 256 bytes");
-        assert_eq!(SHELL_ACCOUNTED, SHELL_BYTES.next_multiple_of(crate::types::RAW_ALIGN));
+        assert_eq!(
+            SHELL_ACCOUNTED,
+            SHELL_BYTES.next_multiple_of(crate::types::RAW_ALIGN)
+        );
     }
 
     /// #929 groundwork: the cover word heads the node, so the OCC protocol

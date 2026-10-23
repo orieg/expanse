@@ -507,11 +507,12 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         drop(b);
 
         let per_leaf = with - without;
-        // With `packed-suffix` a leaf is a block of the tree's own allocator:
+        // A leaf is a block of the tree's own allocator (the default since
+        // #1586; `ablation-unpacked-suffix` restores the global allocation):
         // a 4-byte suffix is a 20-byte request, served from the 32-byte slab
         // class, (4096 - 64) / 32 = 126 blocks per 4 KiB page, so the leaves
         // cost one global allocation per page they fill.
-        if cfg!(feature = "packed-suffix") {
+        if !cfg!(feature = "ablation-unpacked-suffix") {
             assert_eq!(
                 per_leaf,
                 (n as usize).div_ceil(126),
