@@ -6905,7 +6905,9 @@ mod tests {
     /// The production half of this file, for the source census below: every
     /// line before the test module, with `//` comment lines dropped.
     fn production_source() -> String {
-        let src = include_str!("strmap.rs");
+        // A Windows checkout has CRLF line endings; normalise them so the
+        // markers below match on every platform.
+        let src = include_str!("strmap.rs").replace("\r\n", "\n");
         let end = src
             .find("\n#[cfg(test)]\nmod tests {")
             .expect("the test module marker");
