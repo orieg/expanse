@@ -7117,7 +7117,18 @@ mod tests {
     /// between phases. Every reading taken while a phase runs lies within 10%
     /// of the two exact readings that bracket it, and consecutive readings
     /// step by at most the phase's change plus 2% of the map.
-    #[cfg(feature = "std")]
+    ///
+    /// The clause is about the lock-free reading, so the test exists only in
+    /// the builds that have it. Under `ablation-unpacked-suffix` or
+    /// `ablation-unsharded-alloc` `mem_used` takes `read_locked`, and a
+    /// poller calling it continuously holds the writer gate often enough to
+    /// starve the writers.
+    #[cfg(all(
+        feature = "std",
+        target_pointer_width = "64",
+        not(feature = "ablation-unsharded-alloc"),
+        not(feature = "ablation-unpacked-suffix")
+    ))]
     #[cfg_attr(miri, ignore)]
     #[test]
     fn mem_used_band_and_step_while_writers_run() {
