@@ -7136,9 +7136,16 @@ mod tests {
             let poller = {
                 let (s, stop) = (std::sync::Arc::clone(&sync), std::sync::Arc::clone(&stop));
                 std::thread::spawn(move || {
-                    let mut out = Vec::new();
+                    // Yield between readings so the poller does not starve
+                    // the writers on a small or sanitizer-instrumented runner,
+                    // and keep a bounded sample.
+                    const MAX_POLLS: usize = 20_000;
+                    let mut out = Vec::with_capacity(1_024);
                     while !stop.load(Ordering::Acquire) {
-                        out.push(s.mem_used());
+                        if out.len() < MAX_POLLS {
+                            out.push(s.mem_used());
+                        }
+                        std::thread::yield_now();
                     }
                     out.push(s.mem_used());
                     out
