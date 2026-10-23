@@ -1992,6 +1992,23 @@ fn strmap_insert(ks: Vec<Vec<u8>>) -> u64 {
     black_box(n)
 }
 
+// `strmap_insert`'s workload through the plain body alone. `insert` tests
+// for a deferred map and otherwise runs the plain body, which is inlined into
+// it beside the shared twin; `insert_plain` calls the plain body directly, so
+// the difference between the two arms prices that test and whatever the
+// shared twin does to `insert`'s codegen (Refs #1586).
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = str_keys)]
+fn strmap_insert_plain(ks: Vec<Vec<u8>>) -> u64 {
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert_plain(black_box(tk(k)), black_box(i as u64));
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
 #[library_benchmark]
 #[bench::routes(args = ("routes",), setup = built_strmap)]
 fn strmap_get(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
@@ -4634,6 +4651,7 @@ library_benchmark_group!(
         sync32_map_get,
         blobmap32_scan,
         strmap_insert,
+        strmap_insert_plain,
         strmap_get,
         strmap_churn,
         strmap_oscillate,

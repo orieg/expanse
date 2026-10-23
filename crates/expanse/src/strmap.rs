@@ -2218,15 +2218,63 @@ impl ExpanseStrMap {
     }
 
     /// Inserts `key → val`; returns the replaced value if present.
+    // Inlined into its callers, as `insert_plain` is: out of line, the plain
+    // body alone retired 6 more instructions per call than with the shared
+    // twin beside it, from register allocation in the chunk loop
+    // (METHODOLOGY §46.8).
+    #[inline(always)]
     pub fn insert(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
-        // The one branch the two twins share, on the state this path already
-        // loaded: a map switched to deferred reclamation runs the shared
-        // twin (Refs #929), every other map the plain one.
-        #[cfg(feature = "std")]
+        // The plain path only. A map switched to deferred reclamation lives
+        // inside `SyncExpanseStrMap`, which hands out no `&mut` to it outside
+        // this crate, and every crate site that mutates one calls
+        // `insert_deferred` itself (Refs #1586). So this body carries no
+        // test for a shared map and none of the shared twin's code.
+        self.debug_assert_unshared();
+        self.insert_impl(key, val)
+    }
+
+    /// [`Self::insert`] on a map switched to deferred reclamation: the
+    /// shared twin, for the `sync` wrapper's serialised writers and its
+    /// exclusive handle (Refs #1586).
+    ///
+    /// The body is the dispatch `insert` carried before the split, kept
+    /// whole: every caller holds a deferred map, so the shared branch is
+    /// the one taken, and a map that was never deferred still gets the
+    /// plain path rather than the shared twin's raw-pointer walk. Out of
+    /// line, as `insert` was at every one of these call sites before.
+    #[cfg(feature = "std")]
+    #[inline(never)]
+    pub(crate) fn insert_deferred(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
         if let Some(c) = self.deferred.get().cloned() {
             return self.insert_shared(key.as_bytes(), val, Some(&c));
         }
+        debug_assert!(
+            self.deferred.get().is_some(),
+            "ExpanseStrMap::insert_deferred on a map that was never deferred"
+        );
         self.insert_impl(key, val)
+    }
+
+    /// The guard on the plain mutation entry points: a map switched to
+    /// deferred reclamation must be mutated through its shared twin, which
+    /// retires what it unlinks instead of freeing it under a reader.
+    ///
+    /// Debug builds only, so the plain paths carry none of it in release
+    /// (AGENTS.md §2.1 invariant 5). A release build relies on the
+    /// invariant that nothing outside this crate holds `&mut` to a deferred
+    /// map: `defer_to` is `pub(crate)`, and its one non-test caller,
+    /// `SyncExpanseStrMap::from_map`, moves the map into the wrapper. The
+    /// source census `deferred_str_mutations_call_the_shared_twin` in
+    /// `sync/str_deferred_dispatch_tests.rs` pins the crate's own sites.
+    #[inline(always)]
+    fn debug_assert_unshared(&self) {
+        #[cfg(feature = "std")]
+        debug_assert!(
+            self.deferred.get().is_none(),
+            "plain ExpanseStrMap mutation on a map switched to deferred \
+             reclamation: call its shared twin (insert_deferred / \
+             remove_deferred)"
+        );
     }
 
     /// Single-threaded insert, bypassing deferred/OCC checks.
@@ -2989,13 +3037,26 @@ impl ExpanseStrMap {
     /// after the last key is removed; call [`Self::shrink_to_fit`] (or
     /// [`Self::clear`]) to return them to the system allocator after a
     /// drain.
+    #[inline(always)]
     pub fn remove(&mut self, key: &NulFreeStr) -> Option<u64> {
-        // As `insert`: the deferred twin for a shared map, the plain path
-        // otherwise (Refs #929).
-        #[cfg(feature = "std")]
+        // As `insert`: the plain path only, inlined; a shared map's is
+        // `remove_deferred` (Refs #1586).
+        self.debug_assert_unshared();
+        self.remove_impl(key)
+    }
+
+    /// [`Self::remove`] on a map switched to deferred reclamation; see
+    /// [`Self::insert_deferred`].
+    #[cfg(feature = "std")]
+    #[inline(never)]
+    pub(crate) fn remove_deferred(&mut self, key: &NulFreeStr) -> Option<u64> {
         if let Some(c) = self.deferred.get().cloned() {
             return self.remove_shared(key.as_bytes(), Some(&c));
         }
+        debug_assert!(
+            self.deferred.get().is_some(),
+            "ExpanseStrMap::remove_deferred on a map that was never deferred"
+        );
         self.remove_impl(key)
     }
 
@@ -5579,14 +5640,17 @@ mod tests {
         // Deferral must precede every allocation (`defer_to` requires an
         // empty map — slab-carved memory must never reach the collector).
         m.defer_to(Arc::clone(&collector));
-        m.insert(tk(b"pre-existing:alpha"), 1);
-        m.insert(tk(b"pre-existing:beta"), 2);
+        m.insert_deferred(tk(b"pre-existing:alpha"), 1);
+        m.insert_deferred(tk(b"pre-existing:beta"), 2);
 
         // Suffix creation, then a split (disposes the old suffix).
-        m.insert(tk(b"shared-prefix-01:aaaa"), 10);
-        m.insert(tk(b"shared-prefix-01:bbbb"), 11);
+        m.insert_deferred(tk(b"shared-prefix-01:aaaa"), 10);
+        m.insert_deferred(tk(b"shared-prefix-01:bbbb"), 11);
         // In-place value update on a suffix leaf (no disposal).
-        assert_eq!(m.insert(tk(b"shared-prefix-01:aaaa"), 12), Some(10));
+        assert_eq!(
+            m.insert_deferred(tk(b"shared-prefix-01:aaaa"), 12),
+            Some(10)
+        );
         assert_eq!(m.get(tk(b"shared-prefix-01:aaaa")), Some(12));
         // ins_slot split path.
         let slot = m.ins_slot(tk(b"shared-prefix-01:aaXX"));
@@ -5595,17 +5659,17 @@ mod tests {
         assert_eq!(m.get(tk(b"shared-prefix-01:aaXX")), Some(13));
 
         // Suffix removal + emptied-node pruning back up the chain.
-        assert_eq!(m.remove(tk(b"shared-prefix-01:aaXX")), Some(13));
-        assert_eq!(m.remove(tk(b"shared-prefix-01:bbbb")), Some(11));
-        assert_eq!(m.remove(tk(b"shared-prefix-01:aaaa")), Some(12));
+        assert_eq!(m.remove_deferred(tk(b"shared-prefix-01:aaXX")), Some(13));
+        assert_eq!(m.remove_deferred(tk(b"shared-prefix-01:bbbb")), Some(11));
+        assert_eq!(m.remove_deferred(tk(b"shared-prefix-01:aaaa")), Some(12));
         assert_eq!(m.get(tk(b"pre-existing:alpha")), Some(1));
 
         // Whole-tree disposal (dispose_tree), then root removal via the
         // last-key path.
         assert_eq!(m.len(), 2);
         assert!(m.clear() > 0);
-        m.insert(tk(b"solo"), 42);
-        assert_eq!(m.remove(tk(b"solo")), Some(42));
+        m.insert_deferred(tk(b"solo"), 42);
+        assert_eq!(m.remove_deferred(tk(b"solo")), Some(42));
         assert!(m.is_empty());
 
         // Grace-period advances free the retired chain; drop drains the rest.
@@ -5614,6 +5678,75 @@ mod tests {
         collector.try_advance();
         drop(m);
         drop(collector);
+    }
+
+    /// A map switched to deferred reclamation, holding keys on both a
+    /// terminal chunk and a suffix, for the plain-entry guard tests below.
+    #[cfg(all(feature = "std", debug_assertions))]
+    fn deferred_map_with_keys() -> ExpanseStrMap {
+        use crate::occ::Collector;
+        use core_alloc::sync::Arc;
+        let m = ExpanseStrMap::new();
+        m.defer_to(Arc::new(Collector::new()));
+        let mut m = m;
+        m.insert_deferred(tk(b"guard"), 1);
+        m.insert_deferred(tk(b"guard-with-a-suffix:aaaa"), 2);
+        m
+    }
+
+    /// The plain `insert` carries no shared path (Refs #1586), so a call on
+    /// a deferred map is caught by its debug guard before it mutates
+    /// anything. Red when the assertion in `debug_assert_unshared` is
+    /// deleted: the plain body then runs, and either returns (no panic) or
+    /// fails somewhere else with a different message.
+    #[test]
+    #[cfg(all(feature = "std", debug_assertions))]
+    #[should_panic(expected = "plain ExpanseStrMap mutation on a map switched to deferred")]
+    fn plain_insert_on_a_deferred_map_is_caught() {
+        let mut m = deferred_map_with_keys();
+        m.insert(tk(b"guard-with-a-suffix:bbbb"), 3);
+    }
+
+    /// As `plain_insert_on_a_deferred_map_is_caught`, for `remove`, on a
+    /// present key, whose plain removal would free a suffix a reader may
+    /// still hold.
+    #[test]
+    #[cfg(all(feature = "std", debug_assertions))]
+    #[should_panic(expected = "plain ExpanseStrMap mutation on a map switched to deferred")]
+    fn plain_remove_on_a_deferred_map_is_caught() {
+        let mut m = deferred_map_with_keys();
+        m.remove(tk(b"guard-with-a-suffix:aaaa"));
+    }
+
+    /// The guard is silent on a plain map, and the shared twins agree with
+    /// the plain entry points on what they return.
+    #[test]
+    #[cfg(feature = "std")]
+    fn plain_and_shared_entries_agree() {
+        let mut plain = ExpanseStrMap::new();
+        assert_eq!(plain.insert(tk(b"guard-with-a-suffix:aaaa"), 2), None);
+        assert_eq!(plain.insert(tk(b"guard-with-a-suffix:aaaa"), 5), Some(2));
+        assert_eq!(plain.remove(tk(b"guard-with-a-suffix:aaaa")), Some(5));
+        assert_eq!(plain.remove(tk(b"guard-with-a-suffix:aaaa")), None);
+        let shared = ExpanseStrMap::new();
+        shared.defer_to(core_alloc::sync::Arc::new(crate::occ::Collector::new()));
+        let mut shared = shared;
+        assert_eq!(
+            shared.insert_deferred(tk(b"guard-with-a-suffix:aaaa"), 2),
+            None
+        );
+        assert_eq!(
+            shared.insert_deferred(tk(b"guard-with-a-suffix:aaaa"), 5),
+            Some(2)
+        );
+        assert_eq!(
+            shared.remove_deferred(tk(b"guard-with-a-suffix:aaaa")),
+            Some(5)
+        );
+        assert_eq!(
+            shared.remove_deferred(tk(b"guard-with-a-suffix:aaaa")),
+            None
+        );
     }
 
     /// #363 Step A regression guard, re-argued for #929's cover word: a
@@ -6165,7 +6298,7 @@ mod tests {
         let keep = ROOT_LEAF_CAP - 5;
         m.exclusive(|inner| {
             for k in keys.iter().skip(keep) {
-                assert!(inner.remove(tk(k)).is_some());
+                assert!(inner.remove_deferred(tk(k)).is_some());
             }
         });
         m.with_locked(|inner| {
@@ -6225,8 +6358,8 @@ mod tests {
                 "precondition: the optimistic inserts left the root dirty"
             );
             for i in 0..extra / 2 {
-                assert_eq!(inner.insert(tk(&term[i]), 100 + i as u64), None);
-                assert_eq!(inner.insert(tk(&sfx[i]), 200 + i as u64), None);
+                assert_eq!(inner.insert_deferred(tk(&term[i]), 100 + i as u64), None);
+                assert_eq!(inner.insert_deferred(tk(&sfx[i]), 200 + i as u64), None);
             }
             for i in extra / 2..extra {
                 // SAFETY: a fresh slot, valid until the next mutation; written
@@ -6261,7 +6394,7 @@ mod tests {
         let mut all: Vec<&Vec<u8>> = base.iter().chain(&term).chain(&sfx).collect();
         m.exclusive(|inner| {
             for k in all.drain(keep..) {
-                assert!(inner.remove(tk(k)).is_some());
+                assert!(inner.remove_deferred(tk(k)).is_some());
             }
         });
         assert!(
