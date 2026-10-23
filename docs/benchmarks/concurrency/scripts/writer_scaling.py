@@ -267,6 +267,21 @@ GATE_929_BYTES_CELLS_PER_RUN = 10
 GATE_929_BYTES_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "gate_929_bytes_writer_scaling.json"
 )
+# METHODOLOGY.md §47 G-scale (#1586 design B): the str arm, the merge base's build
+# against the head's, interleaved (build x W) rounds, W in {1, 2, 4, 8}. The
+# floor is fixed by §47 and does not move after the first run (AGENTS.md §8.19).
+G47_SCALE_PREREGISTRATION = "docs/benchmarks/concurrency/METHODOLOGY.md §47"
+G47_SCALE_FLOOR = 0.90
+G47_SCALE_ROUNDS = 8
+G47_SCALE_WRITERS = (1, 2, 4, 8)
+G47_SCALE_HEAD = "head"
+G47_SCALE_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "gate_1586_str_writer_scaling.json"
+)
+# The harness both builds run: the head's, copied into the base tree, so the
+# instrument is the same and only the engine under it differs.
+WRITER_SCALING_HARNESS_REL = "crates/expanse/examples/writer_scaling.rs"
+
 # The workload id each writer-mode arm's rows carry.
 WRITER_WORKLOAD_IDS = {
     "map": "concurrency_writer_map_64bit",
@@ -354,6 +369,152 @@ def _print_binary_info(label: str, path: Path) -> None:
         )
     else:
         print(f"  {label} binary: {rel_path} (does not exist)")
+
+
+def build_base_binaries(base_ref: str, tree: Path, target_root: Path) -> tuple[Path, Path, str]:
+    """The base build of a `--compare-base-ref` run: a detached worktree of `base_ref`.
+
+    The head's harness is copied over the base's, so both builds run one
+    instrument and differ only in the engine (METHODOLOGY.md §47 G-scale).
+    Both binaries are built as `build_binaries` builds them (throughput, then
+    occ-stats counters), in target dirs of their own. Returns the two binaries
+    and the base commit. Refuses a base that is the head (§8.1).
+    """
+    sha = subprocess.run(["git", "rev-parse", "--verify", f"{base_ref}^{{commit}}"], cwd=REPO_ROOT,
+                         check=True, stdout=subprocess.PIPE, text=True).stdout.strip()
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, check=True,
+                          stdout=subprocess.PIPE, text=True).stdout.strip()
+    if sha == head:
+        raise ValueError(f"the base {base_ref} is the head commit {head}: nothing to compare")
+    subprocess.run(["git", "worktree", "add", "--detach", str(tree), sha], cwd=REPO_ROOT, check=True,
+                   stdout=subprocess.DEVNULL)
+    shutil.copy2(REPO_ROOT / WRITER_SCALING_HARNESS_REL, tree / WRITER_SCALING_HARNESS_REL)
+    out: list[Path] = []
+    for role, features in (("throughput", None), ("counters", "occ-stats")):
+        env = dict(os.environ)
+        env["CARGO_TARGET_DIR"] = str(target_root / role)
+        cmd = ["cargo", "build", "--release", "-p", "expanse-trie"]
+        if features:
+            cmd += ["--features", features]
+        cmd += ["--example", "writer_scaling"]
+        print(f"building base {role} binary at {sha[:8]} ...")
+        subprocess.run(cmd, cwd=str(tree), env=env, check=True)
+        out.append(target_root / role / "release" / "examples" / "writer_scaling")
+        _print_binary_info(f"base {role}", out[-1])
+    return out[0], out[1], sha
+
+
+def g47_scale_report(comparison: dict[str, Any], rounds: int, quick: bool) -> dict[str, Any]:
+    """§47 G-scale for one run: per W >= 2, the paired C_head(W) / C_base(W) interval against the floor.
+
+    `MEETS_FLOOR` iff the BCa lower bound is at least `G47_SCALE_FLOOR`,
+    `BELOW_FLOOR` iff the upper bound is below it, `INTERMEDIATE` otherwise.
+    The run is `MEETS_FLOOR` iff every W is, `BELOW_FLOOR` iff any W is, and
+    `VOID` for a quick run or one at another round count. §47 needs two runs;
+    combining them is the reader's, not this run's.
+    """
+    per_w: dict[str, Any] = {}
+    for w, e in sorted(comparison["per_writer"].items(), key=lambda kv: int(kv[0])):
+        lo, hi = e["ratio_ci_lower"], e["ratio_ci_upper"]
+        status = ("MEETS_FLOOR" if lo >= G47_SCALE_FLOOR
+                  else "BELOW_FLOOR" if hi < G47_SCALE_FLOOR else "INTERMEDIATE")
+        per_w[w] = {"ratio_ci_lower": lo, "ratio_ci_upper": hi, "ratio_ci_method": e["ratio_ci_method"],
+                    "ratio_mean": e["ratio_c_variant_over_c_default_mean"], "status": status}
+    voids = []
+    if quick:
+        voids.append("quick run: not §47's registered cells")
+    if rounds != G47_SCALE_ROUNDS:
+        voids.append(f"round count {rounds} is not the registered {G47_SCALE_ROUNDS}")
+    if sorted(int(w) for w in per_w) != [w for w in G47_SCALE_WRITERS if w >= 2]:
+        voids.append(f"writer counts {sorted(per_w)} are not the registered {list(G47_SCALE_WRITERS)}")
+    statuses = [v["status"] for v in per_w.values()]
+    verdict = ("VOID" if voids else "MEETS_FLOOR" if all(x == "MEETS_FLOOR" for x in statuses)
+               else "BELOW_FLOOR" if "BELOW_FLOOR" in statuses else "INTERMEDIATE")
+    return {"preregistration": G47_SCALE_PREREGISTRATION, "floor": G47_SCALE_FLOOR,
+            "statistic": "BCa 95% interval of the per-round C_head(W) / C_base(W), W >= 2",
+            "per_writer": per_w, "verdict": verdict, "voids": voids,
+            "note": "one run; §47 reads G-scale over two independent runs"}
+
+
+def _self_test_g47_scale_report() -> None:
+    def comp(lows: dict[int, tuple[float, float]]) -> dict[str, Any]:
+        return {"per_writer": {str(w): {"ratio_ci_lower": lo, "ratio_ci_upper": hi, "ratio_ci_method": "bca",
+                                        "ratio_c_variant_over_c_default_mean": (lo + hi) / 2}
+                               for w, (lo, hi) in lows.items()}}
+    ok = {2: (0.95, 1.05), 4: (0.91, 1.0), 8: (0.90, 0.99)}
+    assert g47_scale_report(comp(ok), 8, False)["verdict"] == "MEETS_FLOOR"
+    # One W per clause: below the floor outright, and straddling it.
+    assert g47_scale_report(comp({**ok, 4: (0.80, 0.89)}), 8, False)["verdict"] == "BELOW_FLOOR"
+    r = g47_scale_report(comp({**ok, 8: (0.85, 0.95)}), 8, False)
+    assert r["verdict"] == "INTERMEDIATE" and r["per_writer"]["8"]["status"] == "INTERMEDIATE", r
+    # The floor is the lower bound's: 0.8999 does not meet 0.90.
+    assert g47_scale_report(comp({**ok, 2: (0.8999, 1.2)}), 8, False)["verdict"] == "INTERMEDIATE"
+    # Voids: quick, another round count, a missing W.
+    assert g47_scale_report(comp(ok), 8, True)["verdict"] == "VOID"
+    assert g47_scale_report(comp(ok), 16, False)["verdict"] == "VOID"
+    assert g47_scale_report(comp({2: ok[2], 8: ok[8]}), 8, False)["verdict"] == "VOID"
+    assert (G47_SCALE_FLOOR, G47_SCALE_ROUNDS, G47_SCALE_WRITERS) == (0.90, 8, (1, 2, 4, 8))
+    # The suite's dispatch spelling parses.
+    args = build_parser().parse_args(["--compare-base-ref", "abc", "--arm", "str"])
+    assert args.compare_base_ref == "abc" and args.arm == "str"
+
+
+def run_compare_base_ref(args: argparse.Namespace) -> int:
+    """§47 G-scale: the str arm, the base's build against the head's, interleaved (build x W)."""
+    if args.arm not in ("all", "str"):
+        sys.stderr.write("error: --compare-base-ref is the str arm only (METHODOLOGY.md §47)\n")
+        return 1
+    if args.rounds < 3:
+        sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
+        return 1
+    writers_list = [int(w.strip()) for w in args.writers.split(",") if w.strip()]
+    if 1 not in writers_list:
+        sys.stderr.write("error: --writers must include 1 to compute single-writer baseline C(N)\n")
+        return 1
+    if not args.out:
+        args.out = str(G47_SCALE_RESULTS_PATH)
+    if args.quick and Path(args.out).resolve() in committed_result_paths() and not args.force_quick_out:
+        sys.stderr.write(f"error: --quick output cannot overwrite committed results path {args.out}\n")
+        return 1
+    core_pin = bench_pin.apply("writer_scaling.py --compare-base-ref")
+    tmp = Path(tempfile.mkdtemp(prefix="writer-scaling-base-"))
+    tree = tmp / "tree"
+    try:
+        bin_base, cnt_base, base_sha = build_base_binaries(args.compare_base_ref, tree, tmp / "target")
+        bin_head, cnt_head = build_binaries(features=None, verbose=True)
+        prov = new_provenance(
+            suite="concurrency", issue=1586,
+            ratio="C_head(W) / C_base(W): the head build over the merge base's, str arm (METHODOLOGY.md §47)",
+            repo_root=REPO_ROOT, core_pin=core_pin, cell_isolation=CELL_ISOLATION,
+            cell_schedule=CELL_SCHEDULE_COMPARISON,
+        )
+        prov["base_commit"] = base_sha
+        prov["preregistration"] = G47_SCALE_PREREGISTRATION
+        cells_b, cells_h, comp, schedule = run_comparison(
+            bin_base, bin_head, G47_SCALE_HEAD, cnt_base, cnt_head, "str", writers_list, args.rounds, prov,
+            quick=args.quick,
+        )
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=REPO_ROOT,
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        shutil.rmtree(tmp, ignore_errors=True)
+    # The schedule labels the base build `default`, as every comparison labels its baseline.
+    prov["build_labels"] = {DEFAULT_BUILD: f"base {base_sha}", G47_SCALE_HEAD: "the head (this checkout)"}
+    artifact: dict[str, Any] = {
+        "provenance": prov, "throughput": cells_b, "throughput_variant": cells_h, "comparison": [comp],
+        "g47_scale": g47_scale_report(comp, args.rounds, args.quick),
+    }
+    check_artifact_against_schedule(artifact, expected_cells("str", schedule))
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(artifact, indent=2) + "\n")
+    g = artifact["g47_scale"]
+    print(f"G-scale (floor {G47_SCALE_FLOOR}): {g['verdict']}")
+    for w, e in g["per_writer"].items():
+        print(f"  W={w}: C_head/C_base [{e['ratio_ci_lower']:.4f}, {e['ratio_ci_upper']:.4f}] "
+              f"({e['ratio_ci_method']}) {e['status']}")
+    print(f"\nWrote artifact to {args.out}")
+    return 0
 
 
 def build_binaries(features: str | None = None, verbose: bool = True) -> tuple[Path, Path]:
@@ -2474,6 +2635,7 @@ def committed_result_paths() -> tuple[Path, ...]:
         GATE_929_BYTES_RESULTS_PATH.resolve(),
         SCAN_CELLS_RESULTS_PATH.resolve(),
         SCAN_CELLS_RUN2_RESULTS_PATH.resolve(),
+        G47_SCALE_RESULTS_PATH.resolve(),
     )
 
 
@@ -8971,6 +9133,7 @@ def self_test() -> int:
     #    every writer arm. Run first: they need no build, so a regression here
     #    fails before minutes of cargo.
     _self_test_ablation_dispatch_flags()
+    _self_test_g47_scale_report()
     _self_test_set_ordered_readers_no_build()
     _self_test_c2c_window()
     _self_test_c2c_line_table_complete()
@@ -9765,6 +9928,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Allow --quick to write to committed results path (normally forbidden)",
     )
     parser.add_argument(
+        "--compare-base-ref",
+        default="",
+        metavar="REF",
+        help="METHODOLOGY.md §47 G-scale (#1586): the str arm, REF's build (a detached worktree carrying "
+             "the head's harness) against the head's, interleaved (build x W) rounds, one process per cell; "
+             "writes gate_1586_str_writer_scaling.json with the run's G-scale block",
+    )
+    parser.add_argument(
         "--scan-cells-verdict",
         nargs=2,
         metavar=("RUN1_JSON", "RUN2_JSON"),
@@ -9819,6 +9990,9 @@ def main() -> int:
 
     if args.self_test:
         return self_test()
+
+    if args.compare_base_ref:
+        return run_compare_base_ref(args)
 
     if args.readers_only:
         # A sweep of its own, as --ordered-readers is.
