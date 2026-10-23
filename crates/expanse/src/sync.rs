@@ -3203,7 +3203,7 @@ impl<T: SharedTree> Shared<T> {
     /// copies the root snapshot by value through `root_of`, and runs `walk`
     /// against that root, version and sample; the first attempt whose walk
     /// validates answers. When every attempt fails, it counts the fallback and
-    /// answers with `locked` under [`Shared::read_locked`].
+    /// answers with `locked` under `Shared::read_locked`.
     ///
     /// `walk` is called only in that state -- pinned, with a version sampled
     /// after the pin and a root copied under it -- which is the contract
@@ -13947,7 +13947,7 @@ impl SyncExpanseStrMap {
             // navigation happens between here and the next hop.
             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             let v = unsafe { *slot.as_ptr() };
-            map.insert(k, v);
+            map.insert_deferred(k, v);
             cursor = src.next_after(k);
         }
         Self {
@@ -13983,7 +13983,7 @@ impl SyncExpanseStrMap {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         #[cfg(feature = "ablation-str-serial-writers")]
         {
-            self.shared.write(|m| m.insert(key, val))
+            self.shared.write(|m| m.insert_deferred(key, val))
         }
         #[cfg(not(feature = "ablation-str-serial-writers"))]
         {
@@ -14007,7 +14007,9 @@ impl SyncExpanseStrMap {
             drop(guard);
             match res {
                 Ok(prev) => prev,
-                Err(_) => self.shared.write_root_covered_exact(|m| m.insert(key, val)),
+                Err(_) => self
+                    .shared
+                    .write_root_covered_exact(|m| m.insert_deferred(key, val)),
             }
         }
     }
@@ -14029,7 +14031,7 @@ impl SyncExpanseStrMap {
     pub fn remove(&self, key: &NulFreeStr) -> Option<u64> {
         #[cfg(feature = "ablation-str-serial-writers")]
         {
-            self.shared.write(|m| m.remove(key))
+            self.shared.write(|m| m.remove_deferred(key))
         }
         #[cfg(not(feature = "ablation-str-serial-writers"))]
         {
@@ -14071,7 +14073,9 @@ impl SyncExpanseStrMap {
                         .write_root_covered_exact(|m| m.prune_empty_path(key));
                     prev
                 }
-                Err(_) => self.shared.write_root_covered_exact(|m| m.remove(key)),
+                Err(_) => self
+                    .shared
+                    .write_root_covered_exact(|m| m.remove_deferred(key)),
             }
         }
     }
@@ -14208,10 +14212,10 @@ impl SyncExpanseStrMap {
             if seen == expected {
                 match new {
                     Some(v) => {
-                        m.insert(key, v);
+                        m.insert_deferred(key, v);
                     }
                     None => {
-                        m.remove(key);
+                        m.remove_deferred(key);
                     }
                 }
             }
@@ -14365,7 +14369,42 @@ impl SyncExpanseStrMap {
         self.len() == 0
     }
 
-    /// Heap bytes used (consistent read under the writer lock).
+    /// Heap bytes used: [`ExpanseStrMap::mem_used`], read with every writer
+    /// excluded.
+    ///
+    /// # Cost: every writer waits for an O(keys) walk
+    ///
+    /// The tree's node shells and, without the `packed-suffix` feature, its
+    /// suffix leaves are allocated outside the tree's node allocator, so the
+    /// figure is the allocator's byte count plus a walk over every entry of
+    /// every node. The walk runs under `Shared::read_locked`: it takes the
+    /// fallback mutex, closes the writer gate and waits for writers in flight
+    /// to drain, then takes the writer mutex. Every writer waits for the whole
+    /// walk, optimistic ones included: a new insert spins at the closed gate,
+    /// and an optimistic attempt that sees it closed falls back to the writer
+    /// mutex. A reader that falls back to the lock waits too; optimistic
+    /// reads run on.
+    ///
+    /// Measured on the reference host with one reading per second, 4 writers
+    /// and 2·10⁷ keys at the window's start, no insert completed for a
+    /// fraction of wall time of [0.3619, 0.3743] on 37-byte `routes` keys and
+    /// [0.9994, 1.0000] on 8–16-byte `short` keys (BCa 95% over 5 rounds;
+    /// `docs/benchmarks/concurrency/METHODOLOGY.md` §44.11, artifact
+    /// `docs/benchmarks/concurrency/results/baseline_strmap_poll_stall.json`,
+    /// run 39685648391 at `ac7c1237`).
+    ///
+    /// # Budgeting without stalling writers
+    ///
+    /// - Read `mem_used` or [`Self::mem_held`] on a map that writers no
+    ///   longer use, such as one frozen or rotated out at a flush. A reading
+    ///   there stalls nobody.
+    /// - Between exact readings, budget on [`Self::len`], which takes no lock
+    ///   and stalls nothing, times a bytes-per-key ratio taken from the last
+    ///   exact reading. Take the ratio from `mem_held` rather than `mem_used`
+    ///   when the budget protects resident memory: `mem_used` counts live
+    ///   bytes only.
+    /// - The ratio is exact at the reading it came from and drifts with key
+    ///   shape and length until the next one.
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.shared.read_locked(ExpanseStrMap::mem_used)
@@ -14381,8 +14420,18 @@ impl SyncExpanseStrMap {
     /// `with_locked` reads) plus what its epoch collector holds for it —
     /// freed blocks past their grace period, kept on the collector's
     /// freelists for reuse, and retired blocks still in their grace period.
-    /// Compare this, not `mem_used`, with resident memory. Writers wait for
-    /// it, so it does not belong in a hot loop.
+    /// Compare this, not `mem_used`, with resident memory.
+    ///
+    /// # Cost
+    ///
+    /// The tree's share is the same O(keys) walk as [`Self::mem_used`], under
+    /// the same `Shared::read_locked` exclusion, so every writer waits for
+    /// it, optimistic ones included, and it does not belong in a hot loop or
+    /// on a write path (`docs/benchmarks/concurrency/METHODOLOGY.md` §44.11
+    /// measures the stall of `mem_used`). Read it on a map that writers no
+    /// longer use, and between readings budget on [`Self::len`] times the
+    /// bytes-per-key ratio of the last `mem_held` reading, as
+    /// [`Self::mem_used`] describes.
     #[must_use]
     pub fn mem_held(&self) -> usize {
         self.shared.read_locked(ExpanseStrMap::mem_held) + self.shared.collector_held()
@@ -14471,10 +14520,12 @@ impl SyncExpanseStrMap {
 
     /// The serialised section behind [`Self::with_exclusive`]: the writer
     /// lock and the tree word, with the optimistic writers quiesced. A
-    /// mutation through the plain API inside `f` runs the map's shared
-    /// twin, which brackets each node's cover as the optimistic writers do.
+    /// mutation inside `f` goes through the map's shared twins
+    /// (`insert_deferred`, `remove_deferred`), which bracket each node's
+    /// cover as the optimistic writers do; the plain `insert` and `remove`
+    /// carry no shared path and debug-assert against this map (Refs #1586).
     /// Crate-private: `f` holds `&mut` to a map readers are walking, so only
-    /// code that mutates through that API may run here.
+    /// code that mutates through the shared twins may run here.
     pub(crate) fn exclusive<R>(&self, f: impl FnOnce(&mut ExpanseStrMap) -> R) -> R {
         #[cfg(feature = "ablation-str-serial-writers")]
         {
@@ -14512,12 +14563,12 @@ impl StrExclusive<'_> {
 
     /// Stores `val` for `key`, returning the value it replaced.
     pub fn insert(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
-        self.map.insert(key, val)
+        self.map.insert_deferred(key, val)
     }
 
     /// Removes `key`, returning its value.
     pub fn remove(&mut self, key: &NulFreeStr) -> Option<u64> {
-        self.map.remove(key)
+        self.map.remove_deferred(key)
     }
 
     /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
@@ -14649,6 +14700,9 @@ impl From<ExpanseStrMap> for SyncExpanseStrMap {
         Self::from_map(map)
     }
 }
+
+#[cfg(test)]
+mod str_deferred_dispatch_tests;
 
 /// The validated string lookup shared by [`StrReader`], [`OwnedStrReader`] and
 /// [`DetachedStrReader`] (#1194).
@@ -16785,7 +16839,15 @@ impl SyncExpanseOrderedBytesMap {
         self.inner.is_empty()
     }
 
-    /// Heap bytes used (consistent read under the writer lock).
+    /// Heap bytes used: [`SyncExpanseStrMap::mem_used`] of the underlying
+    /// string map, read with every writer excluded.
+    ///
+    /// It is an O(keys) walk that every writer waits for, optimistic ones
+    /// included (`docs/benchmarks/concurrency/METHODOLOGY.md` §44.11 measures
+    /// the stall). Read it on a map that writers no longer use, and between
+    /// readings budget on [`Self::len`] times the bytes-per-key ratio of the
+    /// last exact reading; [`SyncExpanseStrMap::mem_used`] states the cost
+    /// and the guidance in full.
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.inner.mem_used()
@@ -16797,7 +16859,11 @@ impl SyncExpanseOrderedBytesMap {
         self.inner.stats()
     }
 
-    /// Heap bytes held from the global allocator, including freelists and slab slack.
+    /// Heap bytes held from the global allocator, including freelists and slab slack:
+    /// [`SyncExpanseStrMap::mem_held`] of the underlying string map.
+    ///
+    /// The same O(keys) walk as [`Self::mem_used`], which every writer waits for;
+    /// [`SyncExpanseStrMap::mem_used`] gives the budgeting guidance.
     #[must_use]
     pub fn mem_held(&self) -> usize {
         self.inner.mem_held()
