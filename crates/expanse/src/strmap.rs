@@ -223,9 +223,6 @@ fn packed_suffix_bytes(layout: Layout) -> usize {
     crate::alloc::raw_class_fit(layout.size())
 }
 
-/// Whether suffix bytes are already inside `NodeAlloc::bytes_in_use`.
-const SUFFIX_IN_NODE_ALLOC: bool = !cfg!(feature = "ablation-unpacked-suffix");
-
 /// Allocates a suffix leaf holding `bytes` and `value` in one allocation.
 fn new_suffix(bytes: &[u8], value: u64, arena: SuffixArena<'_>) -> *mut StrSuffix {
     let layout = suffix_layout(bytes.len());
@@ -1391,15 +1388,16 @@ impl StrNode {
         Some(removed)
     }
 
-    /// Heap bytes of this subtree's suffix leaves allocated **outside** the
-    /// shared `NodeAlloc` (whose `bytes_in_use` covers every sub-map's
-    /// interior and every node shell byte-exactly, all sub-tries at once).
-    /// `ExpanseStrMap::mem_used` is the sum of both.
+    /// Heap bytes of this subtree's suffix leaves under the diagnostic
+    /// `ablation-unpacked-suffix`, where each is a global allocation outside
+    /// the shared `NodeAlloc`. In every other build every byte of the map is
+    /// a `NodeAlloc` block and no walk exists (Refs #1586, design B).
     ///
     /// Iterative: `clear()` calls this, so recursing would overflow the
     /// stack on exactly the deep chains the iterative teardown exists to
     /// survive.
-    fn shell_bytes(&self) -> u64 {
+    #[cfg(feature = "ablation-unpacked-suffix")]
+    fn unpacked_suffix_bytes(&self) -> u64 {
         let mut bytes = 0u64;
         let mut stack: Vec<*const StrNode> = vec![core::ptr::from_ref(self)];
         while let Some(p) = stack.pop() {
@@ -1411,12 +1409,8 @@ impl StrNode {
                         // SAFETY: tagged pointer encodes a live suffix leaf.
                         let len = unsafe { (*unpack_suffix(v)).len };
                         // One block: header plus the inline bytes, which is
-                        // exactly what `dispose_suffix` will hand back —
-                        // unless it came from `NodeAlloc`, whose
-                        // `bytes_in_use` already counts it.
-                        if !SUFFIX_IN_NODE_ALLOC {
-                            bytes += suffix_layout(len).size() as u64;
-                        }
+                        // exactly what `dispose_suffix` will hand back.
+                        bytes += suffix_layout(len).size() as u64;
                     } else {
                         debug_assert_ne!(v, 0);
                         stack.push(unpack_child(v));
@@ -1428,8 +1422,8 @@ impl StrNode {
     }
 
     /// Adds every node's sub-map, shell and suffix leaves under `self` to
-    /// `c` (feature `layout-census`). Iterative for the reason
-    /// [`Self::shell_bytes`] is.
+    /// `c` (feature `layout-census`). Iterative: one frame per 8 key bytes
+    /// would overflow the stack on the deep chains this module survives.
     ///
     /// Returns the number of strings under `self`, counted from the walk (one
     /// terminal chunk entry or one suffix leaf per string) rather than read
@@ -2111,11 +2105,43 @@ impl ExpanseStrMap {
     }
 
     /// Heap bytes used by the map: the shared allocator's byte-exact
-    /// `bytes_in_use` (every sub-map interior) plus a read-only walk over
-    /// the node shells and suffix leaves.
+    /// `bytes_in_use`. Every sub-map node, node shell and suffix leaf is a
+    /// block of that one allocator (Refs #1586, design B), so this reads a
+    /// counter and walks nothing, and each block counts at its accounted size
+    /// (its request rounded to its alignment).
     #[must_use]
     pub fn mem_used(&self) -> usize {
-        self.alloc.bytes_in_use() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
+        self.alloc.bytes_in_use() + self.unpacked_bytes()
+    }
+
+    /// The suffix bytes outside the allocator: 0, except under the
+    /// diagnostic `ablation-unpacked-suffix`, which walks every entry.
+    #[inline(always)]
+    fn unpacked_bytes(&self) -> usize {
+        #[cfg(feature = "ablation-unpacked-suffix")]
+        {
+            self.root
+                .as_deref()
+                .map_or(0, |r| r.unpacked_suffix_bytes() as usize)
+        }
+        #[cfg(not(feature = "ablation-unpacked-suffix"))]
+        {
+            0
+        }
+    }
+
+    /// The accounting cell of the map's allocator, published when the map
+    /// was switched to deferred reclamation, for the concurrent wrapper's
+    /// lock-free [`crate::sync::SyncExpanseStrMap::mem_used`] (Refs #1586).
+    /// `None` on a map that was never deferred.
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-unsharded-alloc"),
+        not(feature = "ablation-unpacked-suffix")
+    ))]
+    pub(crate) fn acct_cell(&self) -> Option<crate::alloc::AcctCell> {
+        self.alloc.acct_cell()
     }
 
     /// Gathers structural statistics of the string map.
@@ -2225,11 +2251,11 @@ impl ExpanseStrMap {
     /// example measures it.
     ///
     /// Computed on demand by walking the allocator's slab pages and
-    /// freelists (O(pages + free blocks)); no counter is kept on the
-    /// allocation path.
+    /// freelists (O(pages + free blocks), never the entries); no counter is
+    /// kept on the allocation path.
     #[must_use]
     pub fn mem_held(&self) -> usize {
-        self.alloc.bytes_held() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
+        self.alloc.bytes_held() + self.unpacked_bytes()
     }
 
     /// Returns memory the map holds but does not use to the system
@@ -3341,11 +3367,14 @@ impl ExpanseStrMap {
         let bytes = match self.root.take() {
             Some(root) => {
                 // Count first — the shared allocator's byte-exact
-                // `bytes_in_use` (all sub-map interiors, all of which are
-                // about to be freed) plus a read-only walk over shells and
-                // suffixes — then dispose of the subtree (retired through
-                // the collector when shared).
-                let bytes = self.alloc.bytes_in_use() as u64 + root.shell_bytes();
+                // `bytes_in_use`, every block of which is about to be freed —
+                // then dispose of the subtree (retired through the collector
+                // when shared).
+                #[cfg(feature = "ablation-unpacked-suffix")]
+                let unpacked = root.unpacked_suffix_bytes();
+                #[cfg(not(feature = "ablation-unpacked-suffix"))]
+                let unpacked = 0u64;
+                let bytes = self.alloc.bytes_in_use() as u64 + unpacked;
                 dispose_tree(root.into_raw(), &self.alloc, self.defer_handle().as_ref());
                 debug_assert_eq!(self.alloc.bytes_in_use(), 0);
                 bytes
@@ -4945,8 +4974,14 @@ impl ExpanseStrMap {
             Some(root) => {
                 // SAFETY: the unlinked root, live until disposed of below;
                 // the walk only reads.
-                let shells = unsafe { (*root).shell_bytes() };
-                let bytes = self.alloc.bytes_in_use() as u64 + shells;
+                #[cfg(feature = "ablation-unpacked-suffix")]
+                let unpacked = unsafe { (*root).unpacked_suffix_bytes() };
+                #[cfg(not(feature = "ablation-unpacked-suffix"))]
+                let unpacked = {
+                    let _ = root;
+                    0u64
+                };
+                let bytes = self.alloc.bytes_in_use() as u64 + unpacked;
                 dispose_tree(root, &self.alloc, defer);
                 debug_assert_eq!(self.alloc.bytes_in_use(), 0);
                 bytes
@@ -6860,6 +6895,305 @@ mod tests {
             let s_sync = sync.stats();
             assert_eq!(s_sync.node_bytes.total(), sync.mem_used());
             assert_eq!(s_sync, sync.with_locked(|inner| inner.stats()));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Design B (Refs #1586, concurrency METHODOLOGY §47)
+    // ------------------------------------------------------------------
+
+    /// The production half of this file, for the source census below: every
+    /// line before the test module, with `//` comment lines dropped.
+    fn production_source() -> String {
+        let src = include_str!("strmap.rs");
+        let end = src
+            .find("\n#[cfg(test)]\nmod tests {")
+            .expect("the test module marker");
+        src[..end]
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// §47.3 G-safety 2, as a function so each clause can be shown failing on
+    /// its own: no `Box` of a `StrNode` in production code, and exactly one
+    /// call site per allocation form (plain root, shared root, the split that
+    /// both paths instantiate).
+    fn shell_census(src: &str) -> Result<(), String> {
+        for banned in [
+            "Box::new(StrNode",
+            "Box::<StrNode",
+            "Box<StrNode>",
+            "Box::into_raw(",
+            "Box::from_raw(",
+        ] {
+            if src.contains(banned) {
+                return Err(format!("`{banned}` in production code"));
+            }
+        }
+        for (site, want) in [
+            ("new_shell::<false>(", 1),
+            ("new_shell::<true>(", 1),
+            ("new_shell::<SHARED>(", 1),
+        ] {
+            let got = src.matches(site).count();
+            if got != want {
+                return Err(format!("`{site}` appears {got} times, expected {want}"));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn str_node_shells_are_node_alloc_blocks() {
+        let src = production_source();
+        shell_census(&src).unwrap();
+        // One negative control per clause, each on its own.
+        let boxed = src.replacen(
+            "let child_raw = new_shell::<SHARED>(alloc);",
+            "let child_raw = new_shell::<SHARED>(alloc); let _b = Box::new(StrNode::new());",
+            1,
+        );
+        assert!(
+            shell_census(&boxed)
+                .unwrap_err()
+                .contains("Box::new(StrNode")
+        );
+        let from_raw =
+            format!("{src}\nfn x(p: *mut StrNode) {{ drop(unsafe {{ Box::from_raw(p) }}); }}");
+        assert!(
+            shell_census(&from_raw)
+                .unwrap_err()
+                .contains("Box::from_raw(")
+        );
+        let extra_plain = format!("{src}\nfn y(a: &NodeAlloc) {{ new_shell::<false>(a); }}");
+        assert!(
+            shell_census(&extra_plain)
+                .unwrap_err()
+                .contains("new_shell::<false>(")
+        );
+        let no_shared = src.replacen("new_shell::<true>(", "new_shell::<false>(", 1);
+        let e = shell_census(&no_shared).unwrap_err();
+        assert!(
+            e.contains("new_shell::<false>(") || e.contains("new_shell::<true>("),
+            "{e}"
+        );
+        let no_split = src.replacen("new_shell::<SHARED>(", "new_shell::<true>(", 1);
+        assert!(
+            shell_census(&no_split)
+                .unwrap_err()
+                .contains("new_shell::<")
+        );
+    }
+
+    /// The exact figure on a shared map, read under the writer exclusion.
+    #[cfg(feature = "std")]
+    fn exact_shared(sync: &crate::sync::SyncExpanseStrMap) -> usize {
+        sync.with_locked(ExpanseStrMap::mem_used)
+    }
+
+    #[cfg(feature = "std")]
+    fn design_b_key(w: usize, i: usize) -> Vec<u8> {
+        let mut k = format!("/t/{w:02}/{:06}/r", i / 7).into_bytes();
+        // A suffix of varying length on most keys, a terminal chunk on some.
+        k.extend(core::iter::repeat_n(b'a' + (i % 23) as u8, i % 29));
+        k
+    }
+
+    /// §47.3 G-accuracy 1: once every writer is joined, the lock-free reading
+    /// is exact and equals the shards' signed sum, so that sum is not
+    /// negative. Inserts, removals and a clear, at W = 4.
+    #[cfg(feature = "std")]
+    #[test]
+    fn deferred_mem_used_exact_after_join() {
+        let n = if cfg!(miri) { 40 } else { 4_000 };
+        let sync = std::sync::Arc::new(crate::sync::SyncExpanseStrMap::new());
+        let check = |sync: &crate::sync::SyncExpanseStrMap| {
+            let exact = exact_shared(sync);
+            assert_eq!(sync.mem_used(), exact, "the quiet reading is exact");
+            // `stats()` is not compared here: on a map optimistic writers have
+            // written it undercounts on `main` too, a defect outside design B
+            // (concurrency METHODOLOGY §47.9). `layout_census` is pinned equal
+            // to `mem_used` after multi-threaded inserts in `census::tests`.
+            #[cfg(all(
+                target_pointer_width = "64",
+                not(feature = "ablation-unsharded-alloc"),
+                not(feature = "ablation-unpacked-suffix")
+            ))]
+            {
+                let cell = sync
+                    .with_locked(|m| m.acct_cell())
+                    .expect("a deferred map has a cell");
+                // SAFETY: the map that owns the cell is alive for the call.
+                let signed = unsafe { cell.signed_bytes_in_use() };
+                assert_eq!(signed, exact as isize, "the signed sum is the exact figure");
+            }
+            exact
+        };
+        let run = |remove: bool| {
+            let hs: Vec<_> = (0..4)
+                .map(|w| {
+                    let s = std::sync::Arc::clone(&sync);
+                    std::thread::spawn(move || {
+                        for i in 0..n {
+                            let k = design_b_key(w, i);
+                            let k = NulFreeStr::new(&k).expect("no NUL");
+                            if remove {
+                                if i % 3 != 0 {
+                                    s.remove(k);
+                                }
+                            } else {
+                                s.insert(k, i as u64);
+                            }
+                        }
+                    })
+                })
+                .collect();
+            for h in hs {
+                h.join().expect("writer");
+            }
+        };
+        assert_eq!(check(&sync), 0);
+        run(false);
+        assert!(check(&sync) > 0);
+        run(true);
+        assert!(check(&sync) > 0);
+        sync.clear();
+        assert_eq!(check(&sync), 0, "a cleared map uses nothing");
+    }
+
+    /// §47.3 G-safety 1: a reader thread reads `mem_used` while two writers
+    /// insert and remove, so Miri sees the lock-free reading beside the
+    /// optimistic writers (it is in the Tier-1 `strmap::tests::deferred`
+    /// filter). Every reading is a value some quiet reading could bound, and
+    /// the last one, after the join, is exact.
+    #[cfg(feature = "std")]
+    #[test]
+    fn deferred_mem_used_reads_beside_writers() {
+        let n = if cfg!(miri) { 24 } else { 2_000 };
+        let sync = std::sync::Arc::new(crate::sync::SyncExpanseStrMap::new());
+        let stop = std::sync::Arc::new(core::sync::atomic::AtomicBool::new(false));
+        let reader = {
+            let (s, stop) = (std::sync::Arc::clone(&sync), std::sync::Arc::clone(&stop));
+            std::thread::spawn(move || {
+                let mut reads = 0u64;
+                let mut seen = 0usize;
+                while !stop.load(Ordering::Acquire) || reads == 0 {
+                    seen = seen.max(s.mem_used());
+                    reads += 1;
+                }
+                (reads, seen)
+            })
+        };
+        let hs: Vec<_> = (0..2)
+            .map(|w| {
+                let s = std::sync::Arc::clone(&sync);
+                std::thread::spawn(move || {
+                    for i in 0..n {
+                        let k = design_b_key(w, i);
+                        let k = NulFreeStr::new(&k).expect("no NUL");
+                        s.insert(k, i as u64);
+                        if i % 2 == 1 {
+                            s.remove(k);
+                        }
+                    }
+                })
+            })
+            .collect();
+        for h in hs {
+            h.join().expect("writer");
+        }
+        stop.store(true, Ordering::Release);
+        let (reads, _seen) = reader.join().expect("reader");
+        assert!(reads > 0);
+        assert_eq!(sync.mem_used(), exact_shared(&sync));
+    }
+
+    /// §47.3 G-accuracy 3 and 4: phases of W = 4 writers, each growing the map
+    /// by at most a quarter (and one churn phase), with an exact quiet reading
+    /// between phases. Every reading taken while a phase runs lies within 10%
+    /// of the two exact readings that bracket it, and consecutive readings
+    /// step by at most the phase's change plus 2% of the map.
+    #[cfg(feature = "std")]
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn mem_used_band_and_step_while_writers_run() {
+        let sync = std::sync::Arc::new(crate::sync::SyncExpanseStrMap::new());
+        // A base the phases grow from.
+        for i in 0..40_000 {
+            let k = design_b_key(9, i);
+            sync.insert(NulFreeStr::new(&k).expect("no NUL"), 1);
+        }
+        let mut before = exact_shared(&sync);
+        let mut next = 0usize;
+        for phase in 0..6 {
+            let churn = phase == 3;
+            let per_writer = 2_000;
+            let stop = std::sync::Arc::new(core::sync::atomic::AtomicBool::new(false));
+            let poller = {
+                let (s, stop) = (std::sync::Arc::clone(&sync), std::sync::Arc::clone(&stop));
+                std::thread::spawn(move || {
+                    let mut out = Vec::new();
+                    while !stop.load(Ordering::Acquire) {
+                        out.push(s.mem_used());
+                    }
+                    out.push(s.mem_used());
+                    out
+                })
+            };
+            let start = next;
+            let hs: Vec<_> = (0..4)
+                .map(|w| {
+                    let s = std::sync::Arc::clone(&sync);
+                    std::thread::spawn(move || {
+                        for i in 0..per_writer {
+                            let idx = start + w * per_writer + i;
+                            let k = design_b_key(w, idx);
+                            let k = NulFreeStr::new(&k).expect("no NUL");
+                            s.insert(k, 1);
+                            if churn {
+                                s.remove(k);
+                            }
+                        }
+                    })
+                })
+                .collect();
+            for h in hs {
+                h.join().expect("writer");
+            }
+            stop.store(true, Ordering::Release);
+            let polls = poller.join().expect("poller");
+            next += 4 * per_writer;
+            let after = exact_shared(&sync);
+            assert!(
+                after <= before + before / 4,
+                "a phase grows the map by at most a quarter"
+            );
+            let (lo, hi) = (
+                before.min(after) as f64 * 0.9,
+                before.max(after) as f64 * 1.1,
+            );
+            let step = before.abs_diff(after) as f64 + 0.02 * before.max(after) as f64;
+            for (i, &p) in polls.iter().enumerate() {
+                assert!(
+                    (lo..=hi).contains(&(p as f64)),
+                    "phase {phase} reading {i}: {p} outside [{lo}, {hi}]"
+                );
+                if i > 0 {
+                    assert!(
+                        (p.abs_diff(polls[i - 1]) as f64) <= step,
+                        "phase {phase} reading {i}: stepped {} > {step}",
+                        p.abs_diff(polls[i - 1])
+                    );
+                }
+            }
+            assert_eq!(
+                *polls.last().expect("a reading"),
+                after,
+                "the reading after the join is exact"
+            );
+            before = after;
         }
     }
 }

@@ -558,15 +558,33 @@ impl AcctCell {
     /// The allocator this handle was taken from must still be alive.
     #[must_use]
     pub(crate) unsafe fn bytes_in_use(self) -> usize {
+        // SAFETY: forwarded contract: the allocator is alive.
+        let total = unsafe { self.signed_bytes_in_use() };
+        // No assertion on the sign here, unlike `NodeAlloc::bytes_in_use`:
+        // this runs beside writers, and a load can see a free on a later
+        // shard while missing its allocation on an earlier one, so a tree
+        // whose live bytes are below the bytes in flight sums negative with
+        // no defect present (concurrency METHODOLOGY §47.4). The tests read
+        // the signed sum once writers are joined, where a negative value is
+        // an over-free.
+        if total < 0 { 0 } else { total as usize }
+    }
+
+    /// The shards' net `bytes_in_use`, unclamped: one relaxed load per shard.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::bytes_in_use`].
+    #[must_use]
+    pub(crate) unsafe fn signed_bytes_in_use(self) -> isize {
         // SAFETY: the cell lives as long as its allocator (a `OnceLock` that
         // is never reset), which the caller keeps alive. Only the atomic
         // shard counters are read, through a pointer derived from a shared
         // reference to the cell.
         let shards = unsafe { &(*self.0.as_ptr()).shards };
-        let total = shards.iter().fold(0isize, |acc, s| {
+        shards.iter().fold(0isize, |acc, s| {
             acc.saturating_add(s.bytes_in_use.load(Ordering::Relaxed))
-        });
-        if total < 0 { 0 } else { total as usize }
+        })
     }
 }
 
@@ -767,6 +785,16 @@ impl NodeAlloc {
             let total = d.shards.iter().fold(inline as isize, |acc, s| {
                 acc.saturating_add(s.bytes_in_use.load(Ordering::Relaxed))
             });
+            // Every caller of this exact reading excludes writers (a quiesced
+            // section, or a tree one thread owns), so every free it sees has
+            // its allocation counted: a negative sum here is an over-free,
+            // not a race, and the clamp below would report it as an empty
+            // tree (AGENTS.md §8.22.3). `AcctCell::bytes_in_use`, which runs
+            // beside writers, cannot assert this.
+            debug_assert!(
+                total >= 0,
+                "NodeAlloc accounting sums to {total} bytes: more freed than allocated"
+            );
             return if total < 0 { 0 } else { total as usize };
         }
         inline

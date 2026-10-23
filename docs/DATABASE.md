@@ -554,11 +554,14 @@ impl ExpanseMemTable {
 }
 ```
 
-Reading `mem_used()` on every `put` is affordable here only because the map is `ExpanseMap`: its `mem_used` is the allocator's byte count, with no walk. Do not carry the pattern to a string-keyed memtable. `ExpanseStrMap::mem_used` and `mem_held` walk every node, O(keys), and on `SyncExpanseStrMap` and `SyncExpanseOrderedBytesMap` the walk runs with every writer excluded, optimistic writers included. With one reading per second, 4 writers and 2·10⁷ keys, no insert completed for a fraction of wall time of [0.3619, 0.3743] on `routes` keys and [0.9994, 1.0000] on `short` keys *(measured: reference host, run [39685648391](https://github.com/orieg/expanse/actions/runs/39685648391) at `ac7c1237`, BCa 95% over 5 rounds; [`METHODOLOGY.md` §44.11](benchmarks/concurrency/METHODOLOGY.md), artifact [`baseline_strmap_poll_stall.json`](benchmarks/concurrency/results/baseline_strmap_poll_stall.json))*. A string memtable budgets instead as follows:
+Reading `mem_used()` on every `put` is affordable here because `mem_used` is the allocator's byte count, with no walk. Since design B (#1586, [`METHODOLOGY.md` §47](benchmarks/concurrency/METHODOLOGY.md)) that holds for the string maps too. Every node shell and suffix leaf of an `ExpanseStrMap` is a block of the map's one allocator, so `ExpanseStrMap::mem_used` reads a counter. `SyncExpanseStrMap::mem_used` and `SyncExpanseOrderedBytesMap::mem_used` sum the allocator's per-writer counters without excluding writers:
+- the result is exact once every write has finished;
+- while writers run, it can differ by the bytes of the operations in flight;
+- no writer waits for it.
 
-- read `mem_used()` or `mem_held()` on the map that writers no longer use: the one frozen or rotated out at a flush, where the walk stalls nobody;
-- between exact readings, budget on `len()`, which takes no lock, times the bytes per key of the last exact reading;
-- take that ratio from `mem_held()` when the budget protects resident memory, since `mem_used()` counts live bytes only. The ratio is exact at its reading and drifts with key shape and length until the next one.
+Before design B the reading walked every entry with every writer excluded. With one reading per second, 4 writers and 2·10⁷ keys, no insert then completed for a fraction of wall time of [0.3619, 0.3743] on `routes` keys and [0.9994, 1.0000] on `short` keys *(measured on the code before design B: reference host, run [39685648391](https://github.com/orieg/expanse/actions/runs/39685648391) at `ac7c1237`, BCa 95% over 5 rounds; [`METHODOLOGY.md` §44.11](benchmarks/concurrency/METHODOLOGY.md), artifact [`baseline_strmap_poll_stall.json`](benchmarks/concurrency/results/baseline_strmap_poll_stall.json))*. The stall with design B is pending re-measurement (§47's G-stall).
+
+`mem_held()` still runs with writers excluded on the concurrent string maps. Read it on a map that writers no longer use, such as one frozen or rotated out at a flush, or take a resident-memory bytes-per-key ratio from one reading and budget on `len()` between readings.
 
 ### 5.3 RocksDB Pluggable MemTable (`ExpanseMemTableRep` / `rocksdb-expanse`)
 

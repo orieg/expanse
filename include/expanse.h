@@ -919,11 +919,12 @@ bool                   expanse_sync_strmap_contains(const expanse_sync_strmap_t 
 bool                   expanse_sync_strmap_remove(expanse_sync_strmap_t *map, const char *key,
                                                   uint64_t *old_out);
 uint64_t               expanse_sync_strmap_len(const expanse_sync_strmap_t *map);
-/* An O(keys) walk that every writer waits for, optimistic writers included
- * (METHODOLOGY section 44.11). Read it on a map writers no longer use; between
- * readings, budget on _len times the bytes per key of the last exact reading. */
+/* A sum of the allocator's per-writer counters, taken without excluding writers:
+ * no writer waits for it. Exact once every write has finished; while writers
+ * run it can differ by the bytes of the operations in flight. */
 size_t                 expanse_sync_strmap_mem_used(const expanse_sync_strmap_t *map);
-/* The same walk and wait as _mem_used; take a resident-memory ratio from here. */
+/* Read with writers excluded, so writers wait for it; take a resident-memory
+ * ratio from here. */
 size_t                 expanse_sync_strmap_mem_held(const expanse_sync_strmap_t *map);
 size_t                 expanse_sync_strmap_shrink_to_fit(const expanse_sync_strmap_t *map);
 /*
@@ -1055,7 +1056,8 @@ bool     expanse_sync_ordered_bytesmap_contains(const expanse_sync_ordered_bytes
 bool     expanse_sync_ordered_bytesmap_remove(expanse_sync_ordered_bytesmap_t *map, const void *key,
                                               size_t len, uint64_t *old_out);
 uint64_t expanse_sync_ordered_bytesmap_len(const expanse_sync_ordered_bytesmap_t *map);
-/* As expanse_sync_strmap_mem_used / _mem_held: an O(keys) walk every writer waits for. */
+/* As expanse_sync_strmap_mem_used / _mem_held: _mem_used waits for nothing,
+ * _mem_held excludes writers. */
 size_t   expanse_sync_ordered_bytesmap_mem_used(const expanse_sync_ordered_bytesmap_t *map);
 size_t   expanse_sync_ordered_bytesmap_mem_held(const expanse_sync_ordered_bytesmap_t *map);
 size_t   expanse_sync_ordered_bytesmap_shrink_to_fit(const expanse_sync_ordered_bytesmap_t *map);
