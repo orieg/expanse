@@ -355,6 +355,19 @@ def get_binaries(features: str | None = None) -> tuple[Path, Path]:
     return throughput_bin, counters_bin
 
 
+def _repo_rel(path: Path) -> str:
+    """A build path for provenance: relative to the repository when it is
+    inside it, else the part from its `target` directory on, labelled as the
+    base-ref worktree (`--compare-base-ref` builds the base in a temporary
+    worktree outside the repository)."""
+    if path.is_relative_to(REPO_ROOT):
+        return str(path.relative_to(REPO_ROOT))
+    parts = path.parts
+    if "target" in parts:
+        return "<base-ref worktree>/" + "/".join(parts[parts.index("target"):])
+    return "<base-ref worktree>/" + path.name
+
+
 def _print_binary_info(label: str, path: Path) -> None:
     rel_path = (
         path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path.name
@@ -1167,8 +1180,8 @@ def summarize_arm(
             total_allocs_per_insert = None
         tsc_hz = int(first_t.get("tsc_hz", 0))
 
-        tp_rel = throughput_target.relative_to(REPO_ROOT)
-        cnt_rel = COUNTERS_TARGET.relative_to(REPO_ROOT)
+        tp_rel = _repo_rel(throughput_target)
+        cnt_rel = _repo_rel(COUNTERS_TARGET)
 
         cell: dict[str, Any] = {
             "workload_id": first_t["workload_id"],
@@ -2935,8 +2948,8 @@ def summarize_ordered_readers(
                 "attempts_per_op": round(totals["read_attempts"] / read_ops, 6) if read_ops else None,
                 "fallback_rate": (totals["read_fallbacks"] / read_ops) if read_ops else None,
                 "build_provenance": {
-                    "throughput": f"{throughput_target.relative_to(REPO_ROOT)}/release/examples/writer_scaling",
-                    "counters": f"{COUNTERS_TARGET.relative_to(REPO_ROOT)}/release/examples/writer_scaling (--features occ-stats)",
+                    "throughput": f"{_repo_rel(throughput_target)}/release/examples/writer_scaling",
+                    "counters": f"{_repo_rel(COUNTERS_TARGET)}/release/examples/writer_scaling (--features occ-stats)",
                 },
                 "rounds_raw": [
                     {k: x.get(k) for k in (
@@ -4034,8 +4047,8 @@ def summarize_scan_cells(
                 "attempts_per_op": round(totals["read_attempts"] / read_ops, 6) if read_ops else None,
                 "fallback_rate": (totals["read_fallbacks"] / read_ops) if read_ops else None,
                 "build_provenance": {
-                    "throughput": f"{throughput_target.relative_to(REPO_ROOT)}/release/examples/writer_scaling",
-                    "counters": f"{COUNTERS_TARGET.relative_to(REPO_ROOT)}/release/examples/writer_scaling (--features occ-stats)",
+                    "throughput": f"{_repo_rel(throughput_target)}/release/examples/writer_scaling",
+                    "counters": f"{_repo_rel(COUNTERS_TARGET)}/release/examples/writer_scaling (--features occ-stats)",
                 },
                 "rounds_raw": [
                     {k: x.get(k) for k in (
@@ -4517,8 +4530,8 @@ def summarize_count_cells(
             cell.update({
                 "counters_total": totals,
                 "build_provenance": {
-                    "throughput": f"{throughput_target.relative_to(REPO_ROOT)}/release/examples/writer_scaling",
-                    "counters": f"{COUNTERS_TARGET.relative_to(REPO_ROOT)}/release/examples/writer_scaling (--features occ-stats)",
+                    "throughput": f"{_repo_rel(throughput_target)}/release/examples/writer_scaling",
+                    "counters": f"{_repo_rel(COUNTERS_TARGET)}/release/examples/writer_scaling (--features occ-stats)",
                 },
                 "rounds_raw": [
                     {k: x.get(k) for k in (
@@ -4972,9 +4985,9 @@ def summarize_band_cells(
                 round((totals["branch_split_demote_u"] + totals["branch_split_upgrade"]) / crossings, 6)
                 if crossings else None),
             "build_provenance": {
-                "throughput": f"{get_throughput_target(None if build == DEFAULT_BUILD else build).relative_to(REPO_ROOT)}"
+                "throughput": f"{_repo_rel(get_throughput_target(None if build == DEFAULT_BUILD else build))}"
                               f"/release/examples/writer_scaling",
-                "counters": f"{get_counters_target(None if build == DEFAULT_BUILD else build).relative_to(REPO_ROOT)}"
+                "counters": f"{_repo_rel(get_counters_target(None if build == DEFAULT_BUILD else build))}"
                             f"/release/examples/writer_scaling (--features occ-stats)",
             },
             "rounds_raw": [
@@ -5369,8 +5382,8 @@ def summarize_readers_only(
                 "attempts_per_op": round(totals["read_attempts"] / read_ops, 6) if read_ops else None,
                 "fallback_rate": (totals["read_fallbacks"] / read_ops) if read_ops else None,
                 "build_provenance": {
-                    "throughput": f"{throughput_target.relative_to(REPO_ROOT)}/release/examples/writer_scaling",
-                    "counters": f"{COUNTERS_TARGET.relative_to(REPO_ROOT)}/release/examples/writer_scaling (--features occ-stats)",
+                    "throughput": f"{_repo_rel(throughput_target)}/release/examples/writer_scaling",
+                    "counters": f"{_repo_rel(COUNTERS_TARGET)}/release/examples/writer_scaling (--features occ-stats)",
                 },
                 "rounds_raw": [
                     {k: x.get(k) for k in (
@@ -5822,7 +5835,7 @@ def run_c2c_pass(
     print("\n========================================================================")
     print(f" Hardware perf c2c Cache Contention Recording ({arm} W={writers}, {rounds} rounds)")
     print(f" Window: {C2C_WINDOW}")
-    print(f" Output: {c2c_data.relative_to(REPO_ROOT)}")
+    print(f" Output: {_repo_rel(c2c_data)}")
     print("========================================================================")
 
     # Record only the harness's barrier-to-join windows: perf starts with its
@@ -5879,7 +5892,7 @@ def run_c2c_pass(
         )
     report_file = out_dir / f"c2c_report_{arm}_w{writers}.txt"
     report_file.write_text(report_text)
-    print(f"  [c2c Pass] Wrote c2c report to {report_file.relative_to(REPO_ROOT)}")
+    print(f"  [c2c Pass] Wrote c2c report to {_repo_rel(report_file)}")
 
     summary_lines = report_text.splitlines()[:C2C_SUMMARY_ROWS]
     hot_lines, capture = c2c_hot_cache_lines(report_text)
@@ -5930,8 +5943,8 @@ def run_c2c_pass(
         "cell_isolation": C2C_CELL_ISOLATION,
         "rounds": rounds,
         "total_records": total_records,
-        "report_path": str(report_file.relative_to(REPO_ROOT)),
-        "data_path": str(c2c_data.relative_to(REPO_ROOT)),
+        "report_path": str(_repo_rel(report_file)),
+        "data_path": str(_repo_rel(c2c_data)),
         "summary": "\n".join(summary_lines),
         "symbol_profile": sym_rows,
         # The first 20 lines are the trace-event totals: how much HITM traffic
@@ -9125,6 +9138,24 @@ def _self_test_set_ordered_readers_built(throughput_bin: Path, counters_bin: Pat
     sys.stderr.write("Set ordered-reader instrument (built harness) PASSED\n")
 
 
+
+def _self_test_repo_rel() -> None:
+    """`--compare-base-ref` builds the base in a temporary worktree outside the
+    repository; provenance must label that path rather than raise (the
+    `relative_to(REPO_ROOT)` crash that lost run 40018270928's summary)."""
+    inside = REPO_ROOT / "target" / "throughput" / "release"
+    assert _repo_rel(inside) == "target/throughput/release", _repo_rel(inside)
+    outside = Path("/tmp/writer-scaling-base-abc123/target/throughput/release")
+    assert _repo_rel(outside) == "<base-ref worktree>/target/throughput/release", _repo_rel(outside)
+    assert _repo_rel(Path("/tmp/x/writer_scaling")) == "<base-ref worktree>/writer_scaling"
+    try:
+        outside.relative_to(REPO_ROOT)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("the negative control expects relative_to to raise outside the repository")
+
+
 def self_test() -> int:
     eprintln = sys.stderr.write
     eprintln("Running writer_scaling.py self-test...\n")
@@ -9132,6 +9163,7 @@ def self_test() -> int:
     # 0. The c2c pass records the measured window only, and `--pmu-arm` offers
     #    every writer arm. Run first: they need no build, so a regression here
     #    fails before minutes of cargo.
+    _self_test_repo_rel()
     _self_test_ablation_dispatch_flags()
     _self_test_g47_scale_report()
     _self_test_set_ordered_readers_no_build()
