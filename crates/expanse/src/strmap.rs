@@ -83,7 +83,6 @@ use core::alloc::Layout;
 use core::ptr::NonNull;
 #[cfg(feature = "std")]
 use core::sync::atomic::{AtomicU32, Ordering};
-use core_alloc::boxed::Box;
 #[cfg(feature = "std")]
 use core_alloc::sync::Arc;
 use core_alloc::vec;
@@ -404,7 +403,114 @@ const _: () = {
         core::mem::offset_of!(StrNode, dirty) == 4,
         "the dirty flag lives in the cover word's alignment padding"
     );
+    assert!(
+        align_of::<StrNode>() <= crate::types::RAW_ALIGN,
+        "a shell is a raw `NodeAlloc` block, which is RAW_ALIGN-aligned"
+    );
+    // A shell is held by a nullable owning pointer (`RootNode`, the
+    // continuation entries), and `root_raw` reads the root slot as a bare
+    // `*mut StrNode`.
+    assert!(size_of::<Option<RootNode>>() == size_of::<*mut StrNode>());
 };
+
+/// The `NodeAlloc` request for one `StrNode` shell (Refs #1586, design B).
+/// Shells are raw blocks of the tree's allocator, like every sub-map node and
+/// suffix leaf, so `NodeAlloc::bytes_in_use` counts them and no walk is
+/// needed to know the map's size. `str_node_shell_is_a_raw_class` pins that
+/// the size is a class size, so a shell is slab-carved rather than a system
+/// allocation of its own.
+const SHELL_BYTES: usize = size_of::<StrNode>();
+
+/// The bytes a shell adds to `bytes_in_use`: [`SHELL_BYTES`] rounded to the
+/// raw alignment, by the one rule every block is accounted by.
+const SHELL_ACCOUNTED: usize = crate::alloc::accounted_size(SHELL_BYTES, crate::types::RAW_ALIGN);
+
+/// Allocates and initialises one shell from the tree's allocator.
+///
+/// `SHARED` selects the allocator path at compile time, as the engine's own
+/// `_dispatch::<OCC>` entry points do: `false` on the plain paths, which then
+/// carry no deferred-tree branch, `true` on a shared map's paths. Out of line
+/// on purpose: `alloc_raw` is `#[inline(always)]`, and a shell allocation
+/// inlined into the insert walks would move their codegen (AGENTS.md §2.1
+/// invariant 5).
+#[inline(never)]
+fn new_shell<const SHARED: bool>(alloc: &NodeAlloc) -> *mut StrNode {
+    let raw = alloc
+        .alloc_bytes_dispatch::<SHARED>(SHELL_BYTES)
+        .cast::<StrNode>()
+        .as_ptr();
+    // SAFETY: `raw` is a fresh block of `SHELL_BYTES` = `size_of::<StrNode>()`
+    // bytes at `RAW_ALIGN`, which is at least `StrNode`'s alignment (asserted
+    // above), so the write is in bounds and aligned; nothing else holds it.
+    unsafe { raw.write(StrNode::new()) };
+    raw
+}
+
+/// Frees or retires one unlinked shell through the tree's allocator, which
+/// decides by itself: a shared tree's allocator is deferred and retires the
+/// block through its collector, a plain tree's frees it. Runtime-dispatched
+/// rather than `SHARED`-selected because a never-published shell of a shared
+/// tree is disposed of through the plain arm of [`dispose_node`] (the
+/// optimistic split's abort). Out of line, as [`new_shell`].
+///
+/// # Safety
+///
+/// `ptr` came from [`new_shell`] on `alloc`, is unlinked, its sub-map is
+/// already cleared, and nothing uses it afterwards except readers pinned
+/// before the unlink.
+#[inline(never)]
+unsafe fn free_shell(alloc: &NodeAlloc, ptr: *mut StrNode) {
+    // SAFETY: caller contract; `new_shell` allocated it with `alloc_bytes*`
+    // at `SHELL_BYTES`, so `free_bytes` at the same size matches.
+    unsafe {
+        alloc.free_bytes(
+            NonNull::new(ptr.cast::<u8>()).expect("non-null node"),
+            SHELL_BYTES,
+        );
+    }
+}
+
+/// The owning pointer to the meta-trie's root shell (Refs #1586, design B).
+///
+/// A shell is a block of the map's `NodeAlloc`, so the root cannot be a
+/// `Box`: dropping one would hand the block to the global allocator. This
+/// handle owns the block and has no `Drop`: the map disposes of the root
+/// through [`dispose_node`] / [`dispose_tree`], as it does every other shell.
+/// `#[repr(transparent)]` over `NonNull`, so `Option<RootNode>` is a nullable
+/// pointer (the guaranteed null-pointer optimisation, asserted above) and
+/// [`ExpanseStrMap::root_raw`] may read the slot as a `*mut StrNode`.
+#[repr(transparent)]
+struct RootNode(NonNull<StrNode>);
+
+impl RootNode {
+    /// A fresh, empty root shell of `alloc`, on the plain path.
+    fn new_plain(alloc: &NodeAlloc) -> Self {
+        Self(NonNull::new(new_shell::<false>(alloc)).expect("non-null node"))
+    }
+
+    /// Gives up ownership; the caller disposes of the shell.
+    fn into_raw(self) -> *mut StrNode {
+        self.0.as_ptr()
+    }
+}
+
+impl core::ops::Deref for RootNode {
+    type Target = StrNode;
+    #[inline(always)]
+    fn deref(&self) -> &StrNode {
+        // SAFETY: the handle owns a live, initialised shell, and `&self`
+        // borrows it no longer than the handle lives.
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl core::ops::DerefMut for RootNode {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut StrNode {
+        // SAFETY: as `deref`; `&mut self` makes the borrow unique.
+        unsafe { self.0.as_mut() }
+    }
+}
 
 /// Disposes an unlinked suffix: freed immediately when not shared, retired
 /// through the epoch collector when it is — a reader that validated the
@@ -475,8 +581,8 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>, arena: SuffixAren
 /// allocator first (`StrNode` has no `Drop` since the allocator moved
 /// out of the node, #363 Step A): when shared, those frees route through
 /// the deferred `NodeAlloc` and retire to the collector, so pinned
-/// readers keep their memory; the shell then frees (or retires) exactly
-/// once with the layout it was allocated with.
+/// readers keep their memory; the shell then goes back to the same
+/// allocator exactly once ([`free_shell`]).
 fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
     // Property S3 (Refs #929): a shared node that ceases to be reachable is
     // marked obsolete before its interior changes, so a reader that
@@ -508,40 +614,17 @@ fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
     unsafe {
         (*ptr).map.clear_pathless(alloc)
     };
-    #[cfg(feature = "std")]
-    match defer {
-        None => {
-            // SAFETY: last reference; the owning `Box` (created by
-            // `Box::into_raw` at publication) frees the shell with its
-            // original provenance and layout.
-            drop(unsafe { Box::from_raw(ptr) });
-        }
-        Some(c) => {
-            // Retire the shell raw — no `Drop` to run: the map interior
-            // was cleared above, and any continuation words it held are
-            // the caller's to dispose.
-            // SAFETY: `ptr` is the shell's `Box<StrNode>` allocation
-            // (`Layout::new::<StrNode>()`, from `Box::into_raw` at
-            // publication), unlinked by the caller and owned here alone, so
-            // it is retired once; it was marked obsolete above, and only
-            // readers pinned before the unlink can still load it.
-            unsafe {
-                c.retire(
-                    NonNull::new(ptr.cast::<u8>()).expect("non-null node"),
-                    size_of::<StrNode>(),
-                    align_of::<StrNode>(),
-                );
-            }
-        }
-    }
+    // The shell goes back through the tree's allocator, which retires it
+    // through the collector on a shared tree and frees it on a plain one. No
+    // `Drop` runs: the map interior was cleared above, and any continuation
+    // words it held are the caller's to dispose.
     #[cfg(not(feature = "std"))]
-    {
-        // Without `std` there is no epoch collector to defer to, so the
-        // deferred arm degenerates to the immediate one.
-        let _ = defer;
-        // SAFETY: caller unlinked `ptr`; this is the last reference.
-        drop(unsafe { Box::from_raw(ptr) });
-    }
+    let _ = defer;
+    // SAFETY: `ptr` is a `new_shell` block of `alloc`, unlinked by the caller
+    // and owned here alone, so it is freed or retired once; on a shared tree
+    // it was marked obsolete above, and only readers pinned before the unlink
+    // can still load it.
+    unsafe { free_shell(alloc, ptr) };
 }
 
 /// Disposes a whole unlinked subtree. Iterative like every other walk in
@@ -909,9 +992,9 @@ impl StrNode {
 
     /// # Safety
     ///
-    /// `v` must be a continuation child pointer produced by `Box::into_raw`.
+    /// `v` must be a continuation child pointer to a live [`new_shell`] block.
     unsafe fn child<'a>(v: u64) -> &'a StrNode {
-        // SAFETY: per contract, `v` is a live Box<StrNode> pointer.
+        // SAFETY: per contract, `v` names a live, initialised shell.
         unsafe { &*unpack_child(v) }
     }
 
@@ -1308,11 +1391,10 @@ impl StrNode {
         Some(removed)
     }
 
-    /// Heap bytes of this subtree's node shells and suffix leaves — the
-    /// allocations **outside** the shared `NodeAlloc` (whose
-    /// `bytes_in_use` covers every sub-map's interior byte-exactly, all
-    /// sub-tries at once, since #363 Step A). `ExpanseStrMap::mem_used`
-    /// is the sum of both.
+    /// Heap bytes of this subtree's suffix leaves allocated **outside** the
+    /// shared `NodeAlloc` (whose `bytes_in_use` covers every sub-map's
+    /// interior and every node shell byte-exactly, all sub-tries at once).
+    /// `ExpanseStrMap::mem_used` is the sum of both.
     ///
     /// Iterative: `clear()` calls this, so recursing would overflow the
     /// stack on exactly the deep chains the iterative teardown exists to
@@ -1323,7 +1405,6 @@ impl StrNode {
         while let Some(p) = stack.pop() {
             // SAFETY: `self` plus continuation values, all live nodes.
             let node = unsafe { &*p };
-            bytes += size_of::<Self>() as u64;
             for (k, v) in node.map.iter() {
                 if !is_terminal(k) {
                     if is_suffix_ptr(v) {
@@ -1366,8 +1447,8 @@ impl StrNode {
             // SAFETY: `self` plus continuation values, all live nodes.
             let node = unsafe { &*p };
             c.str_nodes += 1;
-            c.str_node_shell_bytes += size_of::<Self>();
-            c.bytes += size_of::<Self>();
+            c.str_node_shell_bytes += SHELL_ACCOUNTED;
+            c.bytes += SHELL_ACCOUNTED;
             // The sub-map's entries are chunks, not keys: the walk counts
             // them, and the string map's key count is set by the caller.
             node.map.layout_census_into(c, rule);
@@ -1881,7 +1962,7 @@ impl<'a, const BOUNDED: bool> Walk<'a, BOUNDED> {
 /// A sorted map from NUL-free byte strings to `u64` values (compat:
 /// JudySL). Iteration order is byte-lexicographic.
 pub struct ExpanseStrMap {
-    root: Option<Box<StrNode>>,
+    root: Option<RootNode>,
     pop: u64,
     /// The **one** allocator behind every sub-trie's word map (issue #363
     /// Step A). Nodes store no pointer to it — every operation passes a
@@ -2052,7 +2133,7 @@ impl ExpanseStrMap {
             // SAFETY: `root` plus continuation values, all live nodes.
             let node = unsafe { &*p };
             stats.str_nodes += 1;
-            stats.node_bytes.node_shells += size_of::<StrNode>();
+            stats.node_bytes.node_shells += SHELL_ACCOUNTED;
 
             let sub_stats = node.map.stats();
             stats.node_bytes.sub_maps += &sub_stats.node_bytes;
@@ -2177,7 +2258,10 @@ impl ExpanseStrMap {
         old: *mut StrSuffix,
         alloc: &NodeAlloc,
     ) -> *mut StrNode {
-        let mut child = Box::new(StrNode::new());
+        let child_raw = new_shell::<SHARED>(alloc);
+        // SAFETY: a fresh shell nobody else can reach until the caller
+        // publishes it.
+        let child = unsafe { &mut *child_raw };
         // SAFETY: `old` is the live suffix being split, reached as a raw
         // pointer so the projection covers the inline bytes; both borrows
         // end before the caller disposes of it.
@@ -2196,7 +2280,7 @@ impl ExpanseStrMap {
                 .map
                 .insert_pathless_dispatch::<SHARED, SHARED>(alloc, c1, pack_suffix(s1));
         }
-        Box::into_raw(child)
+        child_raw
     }
 
     /// Splits a suffix entry that diverges from the key being inserted:
@@ -2294,7 +2378,7 @@ impl ExpanseStrMap {
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
         // the loop.
         if self.root.is_none() {
-            self.root = Some(Box::new(StrNode::new()));
+            self.root = Some(RootNode::new_plain(&self.alloc));
         }
         let alloc = &self.alloc;
         let mut node: &mut StrNode = self.root.as_deref_mut().expect("root just ensured");
@@ -2335,7 +2419,7 @@ impl ExpanseStrMap {
                         return Some(unsafe { core::ptr::replace(&raw mut (*sfx).value, val) });
                     }
                     let child_raw = Self::split_suffix(node, chunk, sfx, alloc);
-                    // SAFETY: freshly allocated Box<StrNode> above.
+                    // SAFETY: the shell `split_suffix` just published.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
                 }
@@ -2377,7 +2461,7 @@ impl ExpanseStrMap {
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
         // the loop.
         if self.root.is_none() {
-            self.root = Some(Box::new(StrNode::new()));
+            self.root = Some(RootNode::new_plain(&self.alloc));
         }
         let alloc = &self.alloc;
         let mut node: &mut StrNode = self.root.as_deref_mut().expect("root just ensured");
@@ -2423,7 +2507,7 @@ impl ExpanseStrMap {
                     // Divergence: publish a child over the suffix entry,
                     // then dispose of the old suffix (see `split_suffix`).
                     let child_raw = Self::split_suffix(node, chunk, sfx, alloc);
-                    // SAFETY: freshly allocated Box<StrNode> above.
+                    // SAFETY: the shell `split_suffix` just published.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
                 }
@@ -3104,9 +3188,9 @@ impl ExpanseStrMap {
         let removed = root.remove_impl(key, 0, alloc)?;
         self.pop -= 1;
         if root.map.is_empty() {
-            let root_box = self.root.take().expect("root present");
+            let root = self.root.take().expect("root present");
             // Unlinked (the root slot is cleared).
-            dispose_node(Box::into_raw(root_box), alloc, None);
+            dispose_node(root.into_raw(), alloc, None);
         }
         Some(removed)
     }
@@ -3263,7 +3347,7 @@ impl ExpanseStrMap {
                 // the collector when shared).
                 let bytes = self.alloc.bytes_in_use() as u64 + root.shell_bytes();
                 dispose_tree(
-                    Box::into_raw(root),
+                    root.into_raw(),
                     &self.alloc,
                     self.defer_handle().as_ref(),
                 );
@@ -4432,10 +4516,12 @@ impl ExpanseStrMap {
         // not — a null pointer reaching a dereference (caught on aarch64 by
         // the debug null-dereference check in `version_cell`, PR #1001).
         //
-        // SAFETY: `Option<Box<T>>` has the layout of a nullable pointer to
-        // `T` (the guaranteed null-pointer optimisation), so the slot can be
-        // read as a `*mut StrNode` without materialising a `Box` from a word
-        // another thread may be replacing. The read is a racy single-word
+        // SAFETY: `Option<RootNode>` has the layout of a nullable pointer to
+        // `StrNode` (`RootNode` is a transparent `NonNull`, and the
+        // null-pointer optimisation is guaranteed for it; asserted at compile
+        // time beside `StrNode`), so the slot can be read as a `*mut StrNode`
+        // without materialising a handle from a word another thread may be
+        // replacing. The read is a racy single-word
         // copy: whatever it returns is validated before any answer (the tree
         // word covers every store to this slot), and a node it names is
         // obsolete-marked before it retires and EBR-live under the caller's
@@ -4698,15 +4784,15 @@ impl ExpanseStrMap {
         if let Some(p) = self.root_raw() {
             return p;
         }
-        let p = Box::into_raw(Box::new(StrNode::new()));
-        // SAFETY: `Option<Box<T>>` has the layout of a nullable pointer, and
-        // the slot held `None`, so nothing is overwritten.
+        let p = new_shell::<true>(&self.alloc);
+        // SAFETY: `Option<RootNode>` has the layout of a nullable pointer,
+        // and the slot held `None`, so nothing is overwritten.
         unsafe { (&raw mut self.root).cast::<*mut StrNode>().write(p) };
         p
     }
 
-    /// Clears the root slot of a shared map without moving the box out of
-    /// it, and returns the node for disposal (see [`covered_at`]).
+    /// Clears the root slot of a shared map without moving the handle out
+    /// of it, and returns the node for disposal (see [`covered_at`]).
     fn take_root_shared(&mut self) -> Option<*mut StrNode> {
         let p = self.root_raw()?;
         // SAFETY: as in `root_or_create_shared`; ownership passes to the
@@ -5782,6 +5868,17 @@ mod tests {
         );
     }
 
+    /// A shell is a raw class size of the tree's allocator, so it is carved
+    /// from a slab page rather than becoming a system allocation of its own,
+    /// and it is accounted at that class's size (Refs #1586, design B).
+    #[test]
+    fn str_node_shell_is_a_raw_class() {
+        assert!(crate::alloc::class_for_raw(SHELL_BYTES).is_some());
+        assert_eq!(crate::alloc::raw_class_fit(SHELL_BYTES), SHELL_BYTES);
+        assert!(SHELL_BYTES <= 256, "slab-carved classes stop at 256 bytes");
+        assert_eq!(SHELL_ACCOUNTED, SHELL_BYTES.next_multiple_of(crate::types::RAW_ALIGN));
+    }
+
     /// #929 groundwork: the cover word heads the node, so the OCC protocol
     /// reaches it from a bare `*mut StrNode` with no field arithmetic.
     /// `offset_of!` is already asserted at compile time; this pins the
@@ -6737,7 +6834,7 @@ mod tests {
         assert_eq!(s.str_nodes, 1);
         assert_eq!(s.suffix_leaves, 0);
         assert_eq!(s.node_bytes.suffixes, 0);
-        assert_eq!(s.node_bytes.node_shells, size_of::<StrNode>());
+        assert_eq!(s.node_bytes.node_shells, SHELL_ACCOUNTED);
 
         m.insert(tk(b"alpha_suffix_leaf"), 4);
         m.insert(tk(b"beta_another_suffix"), 5);
