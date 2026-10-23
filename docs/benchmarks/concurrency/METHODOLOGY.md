@@ -7093,3 +7093,289 @@ Each fall is larger than §46.3 predicted, because the prediction priced only th
 - `ExpanseOrderedBytesMap::remove`, `ExpanseStrMap::update` and every caller outside the measured arms (`expanse-capi`'s `expanse_strmap_insert`/`remove`, the bindings) now inline the plain body too. No arm measures them, so their counts are unmeasured. `ExpanseOrderedBytesMap::remove` still goes through `with_encoded_key`'s closure, the shape that cost `insert` +1.08% in head2.
 - `ins_slot` and `clear` keep their deferred dispatch. They are outside this change.
 - The CI `instruction-counts` job reruns the gate on its own host and toolchain build, against `main`; its table is the confirmation, and the PR body carries it.
+
+## 47. Pre-registration for #1586 design B — shells and suffix leaves through the tree's allocator, and a `mem_used` that does not stop writers (appended 2026-10-22, locked before any measurement of a build containing design B; next free section)
+
+The number is §47: `main` holds §44 and §46, and §45 is the B0 record on the open draft #1596 (its branch's §45, cited by its artifact), so §45 stays reserved as §46 explains. This section is the engine pre-registration §44.4 calls for after `MATERIAL`, with §44.11's stall as its named gain axis (AGENTS.md §6 trade-off clause). It holds no data of the change. Code references are to `origin/main` at `f65060d8`.
+
+### 47.1 The change, and what it has to give the caller
+
+**The caller.** ExpanseDB keeps one long-lived `SyncExpanseStrMap` that keeps taking inserts and reads its memory once per checkpoint, every few seconds. It wants the logical figure (`mem_used`), tolerates about ±10% error, does not need an upper bound, needs the figure to move smoothly, and needs the reading not to stall writers. §44.11 measured the reading today: with 4 writers at 2·10⁷ keys, no insert completed for a fraction [0.3619, 0.3743] (`routes`) or [0.9994, 1.0000] (`short`) of wall time.
+
+**Design B**, chosen by review over candidates A and C of #1586, in three increments, each measured on its own (AGENTS.md §6):
+
+- **I1: shells through `NodeAlloc`.** A `StrNode` shell (40 bytes, `size_of::<StrNode>()`) becomes a raw block of the map's one `NodeAlloc`, allocated by an out-of-line `new_shell::<SHARED>` (`alloc_bytes_dispatch::<SHARED>`) and freed by an out-of-line `free_shell`. Today it is a `Box` (`strmap.rs:2180`, `:2297`, `:2380`, `:4701`), freed in `dispose_node` (`strmap.rs:480`). The root slot `root: Option<Box<StrNode>>` (`strmap.rs:1884`) becomes `Option<RootNode>`, a `#[repr(transparent)]` owning `NonNull<StrNode>` with no `Drop`. It cannot stay a `Box`, because dropping one hands the block to the global allocator. The type keeps the nullable-pointer layout that `root_raw` (`strmap.rs:4444`) and `root_or_create_shared` (`strmap.rs:4704`) read and write through a raw cast, and a compile-time assertion pins that layout. Out of line because `alloc_raw` is `#[inline(always)]` (`alloc.rs:1177`): an inlined shell allocation would move the insert walks' codegen (AGENTS.md §2.1 invariant 5).
+- **I2: `packed-suffix` becomes the default** (AGENTS.md §2.7). The inverse `ablation-unpacked-suffix` restores global suffix allocation. The name `packed-suffix` stays declared as a `compile_error!`. Every consumer `git grep packed-suffix` finds migrates in the same PR: `ci.yml` (`:1035`, `:1864`, `:1867`), the two tests that branch on it (`tests/no_heap_churn.rs:514`, `tests/test_mem_held.rs:237`), `alloc.rs:304`–`:338`, `docs/BENCHMARKING.md:2121`, `docs/CI.md:65`.
+- **I3: no walk.** `StrNode::shell_bytes` (`strmap.rs:1320`) and `SUFFIX_IN_NODE_ALLOC` (`strmap.rs:228`) are deleted. `ExpanseStrMap::mem_used` becomes `self.alloc.bytes_in_use()`, and `mem_held` becomes `self.alloc.bytes_held()`. `SyncExpanseStrMap::mem_used` (`sync.rs:14409`) no longer calls `Shared::read_locked`. It reads the allocator's accounting shards through an `AcctCell` taken at construction (§47.4), as `SyncExpanseBlobMap::mem_used_estimate` reads its index (`sync.rs:13021`). The ordered-bytes delegate (`sync.rs:16852`) follows. `mem_held` keeps `read_locked`. Under `ablation-unpacked-suffix` the suffix bytes are outside the allocator again, so a suffix-only walk (`unpacked_suffix_bytes`) and the `read_locked` reading come back with that feature alone.
+
+**The review findings and where each is answered.**
+- (a) `shell_bytes` visits every entry even under `packed-suffix`: B0's `sync_strmap_mem_used` fell only 1.07% (`routes`) and 18.00% (`short`) under the feature (§45.2). Both halves are therefore in B, and I3 deletes the walk rather than shortening it.
+- (b) A lock-free read must not form `&ExpanseStrMap` while optimistic writers mutate: §47.4.
+- (c) `AcctCell::bytes_in_use` clamps a negative sum to 0: §47.4 says where a debug assertion is sound and where it is not.
+- (d) "Exact when quiet" is stated as a happens-before contract: §47.4.
+- (e) A deferred `NodeAlloc` allocates from the collector's locked striped freelists, a per-insert cost Callgrind counts in instructions but not in waiting: G-instr bounds the instructions, and G-scale is the instrument for the waiting.
+- (f) §44 does not control population growth: in §44.11's M1 cell the map grew from 2·10⁷ to 1.2·10⁸ keys in 30 s (`len_after`, `routes`, `len` arm). G-stall adds a constant-population churn cell (§47.3).
+
+### 47.2 Baseline (measured before this lock)
+
+Measured at `f65060d8` (`origin/main`, no change), on the x86_64 heavy-jobs host in the B0 container (`rust:1.99.1@sha256:a5ab4292…`, Debian 13.7, valgrind 3.24.0 from apt, `iai-callgrind-runner` 0.16.1): every arm of `instructions`, `smoke_instructions`, `rmw_instructions`, `search_instructions`, `leaf_cap_cascaded` and the `expanse-capi` `smoke_instructions` harness, in the default build and under `--features packed-suffix`. That is 372 arms per build. Artifacts:
+- `results/strmap_design_b_baseline_callgrind_f65060d8.json`: per-arm counts for both builds, and for each of the 61 string arms the call records §47.3 reads (shell allocations, frees and retirements, the `shell_bytes` walk, the `mem_used` readings), with how each was extracted;
+- `results/allocator_overhead_f65060d8.txt`: the byte census, both builds, at 10⁶ and 10⁷ keys.
+
+What it shows:
+- **The default build reproduces §46.8's shipped head** to the instruction: `strmap_insert/routes` 42,608,730, `strmap_oscillate/routes` 32,143,398.
+- **The 311 arms that build no string map are identical between the two builds.**
+- **The suffix half on `main` after #1597.** On the plain insert arms it is now small: `strmap_insert/routes` −0.0295%, against B0's +0.5351% before #1597 removed the codegen coupling (§45.2, §46.8). On the shared insert arms it is B0's, since #1597 left the shared paths identical (§46.8 S): `sync_strmap_insert_short/short` +6.3691%, `sync_strmap_insert_sorted/uuid` +6.2901%, `sync_strmap_insert/routes` +0.9798%.
+- **Shells per arm.** In the packed build every suffix is a `NodeAlloc` block, so a `malloc` left in a string insert body is a shell. `strmap_insert/routes` allocates 6,253 shells (6,252 in `split_suffix`, 1 root) at 189.9 instructions per `malloc` call. `strmap_oscillate/routes` allocates and frees 50,000 roots, at 41.0 per `malloc` and 65.0 per `free`. `sync_strmap_insert/routes` allocates 6,253 at 215.8 per call. `sync_strmap_remove/routes` retires 6,253. The other arms are in the artifact.
+- **The walk.** `sync_strmap_mem_used` spends 9,813,786 instructions (`routes`) and 10,986,132 (`short`) in its four `mem_used` readings, of 15,663,913 and 16,838,489. The rest is the arm dropping its 50,000 probe keys, which is unchanged. `strmap_clear_refill/routes` spends 2,410,866 in the `shell_bytes` walk inside `clear` (packed build).
+- **The byte census** (exact columns, B/key; packed minus default as in §45.3, which these reproduce):
+
+| N | shape | `mem_held` default → packed | `+headers` default → packed | shells per key (packed census, live `(40, 8)` requests) |
+|---|---|---:|---:|---:|
+| 10⁶ | `prefix` | 35.73 → 48.72 | 49.06 → 49.34 | 0.0518 |
+| 10⁶ | `uuid` | 68.80 → 73.57 | 89.25 → 74.21 | 0.000114 |
+| 10⁷ | `prefix` | 40.40 → 46.72 | 47.21 → 49.24 | 0.2747 |
+| 10⁷ | `uuid` | 66.81 → 69.71 | 86.93 → 69.96 | 0.0011575 |
+
+### 47.3 Bounds
+
+Every bound is a function in `scripts/strmap_stall_bounds.py` with pinned tests (commit 1 of this PR). `python3 scripts/strmap_stall_bounds.py --design-b` prints the G-instr table below from the §47.2 artifact.
+
+#### G-stall (gain; reference host)
+
+**Cells.** §44's M1 cell, unchanged: N = 2·10⁷, W = 4, T = 1 s, D = 30 s, both shapes, arms `none`, `len` and `mem_used` interleaved per round as §44.8 orders them, 5 rounds, one process per (cell, arm, round), §44's pin and placement. Beside it, a **churn cell** at the same coordinates. Its population holds at N, because writer `w`, at its step `k`, inserts the fresh index `N + w + k·W` and then removes index `w + k·W` (`--workload churn` in `strmap_poll_stall.rs`). Each removal finds its key: it is a prefill key while `k < N/W`, and after that the key the same writer inserted `N/W` steps earlier. Keys are indexed, so the churn cell's `short` keys are a different draw from §44's prefill. Both run on the B build; no `main` cell is part of G-stall.
+
+**Statistic.** A lock-free reading leaves no window in which the gate is closed, so `stalled_fraction` measures nothing and is not read. G-stall reads the per-round largest insert latency (`insert.max_ns`), with BCa 95% intervals over the 5 rounds (2,000 resamples, `ci_method` recorded). Per (shape, workload):
+- `PASS` iff the `mem_used` arm's upper bound ≤ k × the `len` arm's upper bound;
+- `FAIL` iff the `mem_used` arm's lower bound > k × the `len` arm's upper bound;
+- `INTERMEDIATE` otherwise.
+
+The run is `PASS` iff all four are, `FAIL` iff any is, and `INTERMEDIATE` otherwise.
+
+**k = 3.** The `len` arm is a lock-free reading at the same cadence, so it already carries the poller's presence. A `mem_used` reading that waits for nothing should match it. The per-round maximum is one sample per round and moves with scheduling: §44.11's `len` arm at the M1 cell spread over its rounds by 2.27× (`routes`, 106,239 to 241,151 ns) and 1.80× (`short`). k sits above that spread. On `main` the same rule fails by more than two orders of magnitude: §44.11's `mem_used` arm on `routes` is [517,839,257, 533,305,753] ns against 3 × 210,354 ns (pinned in the bounds module's self-test).
+
+**Voids.** §44.8's void rules, plus, on a churn round, a population that moved by more than W between `len_before` and `len_after`, a removal that found no key, or no removal at all. A growth cell is not held to these.
+
+**Reported, deciding nothing:** every §44.4 statistic per cell, the removal latencies of the churn cell, and the poll durations.
+
+#### G-accuracy (deterministic tests on the B build)
+
+1. **Exact after join.** After every writer thread is joined, `SyncExpanseStrMap::mem_used()` equals `with_locked(ExpanseStrMap::mem_used)`, equals `stats().node_bytes.total()`, and the shards' signed sum is ≥ 0. This holds after inserts, after removals, and after `clear`, at W = 4.
+2. **The census still sums.** `stats().node_bytes` sums to `mem_used` on plain and shared maps (`stats_breakdown_sums_to_mem_used`), and `layout_census().bytes` equals `mem_used` (`census::tests`), with shells counted at 48 bytes, their accounted size.
+3. **Band while writers run.** W = 4 writers run phases, each growing the map by at most 25%, with an exact quiet reading E_i between phases. During phase i a poller reads `mem_used` continuously. Every reading must lie in `poll_band(E_{i−1}, E_i, 0.10)`, that is [0.9 × min, 1.1 × max]. One phase is churn (an insert and a removal per step), so the band is tested at constant population too.
+4. **Smooth.** Two consecutive readings within one phase differ by at most `poll_step_bound(E_{i−1}, E_i, 0.02)`: the phase's whole change, plus 2% of the map for the bytes of operations in flight at either reading.
+
+A reading that walks, caches or skips a shard fails at least one of 1, 3 and 4, and each is shown failing once with that defect, by hand, recorded in the PR (G-safety).
+
+#### G-instr (Callgrind; PR B head against `main`, same host and container as §47.2)
+
+**The trade-off.** B accepts instruction losses on the shared write paths for G-stall's gain (AGENTS.md §6 trade-off clause). Every arm the bounds below expect to lose is named, with its bound, before any measurement of B.
+
+**Derivation, per string arm** (`instr_bound` and `shell_term`):
+
+bound = (packed − main) − walk + shell term ± slack
+
+- **Suffix half, measured:** packed minus main, from §47.2.
+- **Walk, measured:** the `shell_bytes` walk the change deletes, the packed build's inclusive count.
+- **Shell term, derived:** each shell allocation moves from `malloc` (its measured cost in that arm) to `new_shell`; each plain free from `free` (measured) to `free_shell`; each shared retirement gains one discharge and an out-of-line call. The per-call costs of the new path are not measurable before B exists, so they are ranges:
+  - **plain allocation, [25, 85] instructions.** The upper end is the packed build's measured mean for a plain `new_suffix` (264,767 over 3,125 calls in `strmap_insert/routes`), which also copies the key bytes, as a shell does not. The lower end is the class pop, three relaxed counters, the 40-byte zeroing and the 40-byte write.
+  - **plain free, [15, 45].** The upper end is the measured `dispose_suffix` mean (250,080 over 6,252 calls); the lower end is the class push and two counters.
+  - **shared allocation, [150, 340].** This is the collector freelist pop, measured at 48.0 per call (`Collector::pop_freelist`, 2,400,700 over 50,000 calls in `sync_strmap_insert_short`), plus `calloc` on a miss, measured at 98.8 to 245 per call across the shared arms, plus a writer-slot charge and the call, estimated at ≤ 40.
+  - **shared retirement, [−65, +45] relative to today's `Collector::retire`.** A discharge and the call add up to 45. A retired shell later reclaims to a collector freelist class (40, 16) instead of the system (`free`, 65 per call), which saves up to 65 if the arm reclaims.
+- **Slack:** 0.1% of the arm (AGENTS.md §6 review threshold) with a floor of 500, for codegen and layout.
+
+**`sync_strmap_mem_used`** (`mem_used_fold_bound`): each of the 4 readings becomes one fold over 64 accounting shards, [64, 1,000] instructions, and nothing else in the arm changes. Bound: −(the readings' cost on main) + 4 × [64, 1,000] ± slack.
+
+**Non-string arms:** |Δ| ≤ 0.01% of the arm. On `main` they are identical between the two builds; B0's layout-only differences reached 0.001%.
+
+**Per increment.** I1 is read against the shell term alone (suffix half 0, walk unchanged), I2 against shell term plus suffix half, and I3 against the full bound. The full bound against `main` is the gate. A per-increment departure is attributed before the next increment (§47.5), and it decides nothing by itself.
+
+The table (`python3 scripts/strmap_stall_bounds.py --design-b`; low and high Δ against `main`):
+
+| harness | arm | main | kind | bound low | bound high |
+|---|---|---:|---|---:|---:|
+| `capi smoke_instructions` | `judysl_get/routes` | 6,984,016 | plain string | -0.1000% | +0.1000% |
+| `capi smoke_instructions` | `judysl_insert/routes` | 9,001,080 | plain string | -2.9792% | -1.9433% |
+| `instructions` | `domain_dict_get/routes` | 51,816,562 | plain string | -0.1002% | +0.0998% |
+| `instructions` | `domain_dict_insert/routes` | 88,186,207 | plain string | -1.1955% | -0.5701% |
+| `instructions` | `ordered_bytesmap_cursor_into/clean` | 18,841,688 | plain string | -0.0978% | +0.1022% |
+| `instructions` | `ordered_bytesmap_cursor_into/escaped` | 29,818,423 | plain string | -0.0966% | +0.1034% |
+| `instructions` | `ordered_bytesmap_cursor/clean` | 26,741,903 | plain string | -0.0992% | +0.1008% |
+| `instructions` | `ordered_bytesmap_cursor/escaped` | 40,021,959 | plain string | -0.0984% | +0.1016% |
+| `instructions` | `ordered_bytesmap_get/clean` | 21,948,005 | plain string | -0.0651% | +0.1349% |
+| `instructions` | `ordered_bytesmap_get/escaped` | 33,353,487 | plain string | -0.1003% | +0.0997% |
+| `instructions` | `ordered_bytesmap_insert/clean` | 50,680,795 | plain string | -9.1108% | -8.8051% |
+| `instructions` | `ordered_bytesmap_insert/escaped` | 67,867,003 | plain string | -6.5233% | -6.3231% |
+| `instructions` | `strmap_churn/routes` | 115,738,295 | plain string | -0.0136% | +0.1864% |
+| `instructions` | `strmap_clear_refill/routes` | 55,876,779 | plain string | -7.9128% | -5.8665% |
+| `instructions` | `strmap_cursor_scan/paths` | 9,205,128 | plain string | -0.1070% | +0.0930% |
+| `instructions` | `strmap_cursor_scan/paths_dense` | 13,693,945 | plain string | -0.1000% | +0.1000% |
+| `instructions` | `strmap_get_short/short` | 20,487,291 | plain string | -0.0955% | +0.1045% |
+| `instructions` | `strmap_get/routes` | 35,163,713 | plain string | -0.1001% | +0.0999% |
+| `instructions` | `strmap_insert_plain/routes` | 42,608,730 | plain string | -2.5490% | -1.4684% |
+| `instructions` | `strmap_insert/routes` | 42,608,730 | plain string | -2.5490% | -1.4684% |
+| `instructions` | `strmap_oscillate/routes` | 32,143,398 | plain string | -12.4309% | +1.7688% |
+| `instructions` | `strmap_prefix_bounded/paths` | 2,636,575 | plain string | -0.6446% | -0.4446% |
+| `instructions` | `strmap_prefix_bounded/paths_dense` | 3,762,462 | plain string | -0.1000% | +0.1000% |
+| `instructions` | `strmap_prefix_scan/paths` | 2,821,486 | plain string | -0.6074% | -0.4074% |
+| `instructions` | `strmap_prefix_scan/paths_dense` | 3,952,485 | plain string | -0.1000% | +0.1000% |
+| `instructions` | `strmap_prefix_seek/paths` | 160,473 | plain string | -9.2327% | -8.6095% |
+| `instructions` | `strmap_prefix_seek/paths_dense` | 160,751 | plain string | -0.3110% | +0.3110% |
+| `instructions` | `strmap_raw_cursor/clean` | 14,533,670 | plain string | -0.0971% | +0.1029% |
+| `instructions` | `strmap_raw_get/clean` | 17,398,005 | plain string | -0.0560% | +0.1440% |
+| `instructions` | `strmap_raw_insert/clean` | 45,616,965 | plain string | -10.0247% | -9.7072% |
+| `instructions` | `strmap_refill_small/routes` | 84,765,452 | plain string | -1.4103% | -0.5165% |
+| `instructions` | `strmap_refill/routes` | 100,962,425 | plain string | -1.5860% | -0.4571% |
+| `instructions` | `strmap_transcode_cursor/clean` | 25,733,864 | plain string | -0.0991% | +0.1009% |
+| `instructions` | `strmap_transcode_cursor/escaped` | 39,159,117 | plain string | -0.1981% | +0.0019% |
+| `instructions` | `strmap_transcode_get/clean` | 21,648,007 | plain string | -0.0646% | +0.1354% |
+| `instructions` | `strmap_transcode_get/escaped` | 65,745,614 | plain string | -4.8072% | -4.6072% |
+| `instructions` | `strmap_transcode_insert/clean` | 49,968,515 | plain string | -9.2559% | -8.9486% |
+| `instructions` | `strmap_transcode_insert/escaped` | 99,521,198 | plain string | -7.1364% | -6.9363% |
+| `instructions` | `sync_strmap_churn_short/short` | 229,771,255 | shared string | -0.1515% | +0.0485% |
+| `instructions` | `sync_strmap_churn/routes` | 188,497,523 | shared string | +0.2159% | +0.4159% |
+| `instructions` | `sync_strmap_compare_exchange/routes` | 123,149,234 | shared string | -0.2221% | -0.0221% |
+| `instructions` | `sync_strmap_get_short/short` | 29,882,814 | shared string | -0.0991% | +0.1009% |
+| `instructions` | `sync_strmap_insert_short/short` | 96,858,964 | shared string | +6.2692% | +6.4694% |
+| `instructions` | `sync_strmap_insert_sorted/uuid` | 45,544,902 | shared string | +6.1904% | +6.3908% |
+| `instructions` | `sync_strmap_insert/routes` | 76,895,787 | shared string | +0.3447% | +2.0898% |
+| `instructions` | `sync_strmap_mem_used/routes` | 15,663,913 | mem_used fold | -62.7506% | -62.5267% |
+| `instructions` | `sync_strmap_mem_used/short` | 16,838,489 | mem_used fold | -65.3564% | -65.1342% |
+| `instructions` | `sync_strmap_next_after_scan_locked/paths` | 118,327,679 | shared string | -0.1005% | +0.0995% |
+| `instructions` | `sync_strmap_next_after_scan_locked/paths_dense` | 134,221,039 | shared string | -0.1002% | +0.0998% |
+| `instructions` | `sync_strmap_remove/routes` | 88,267,360 | shared string | -0.6357% | +0.3436% |
+| `instructions` | `sync_strmap_scan_locked/paths` | 9,155,814 | shared string | -0.1000% | +0.1000% |
+| `instructions` | `sync_strmap_scan_locked/paths_dense` | 13,644,631 | shared string | -0.1000% | +0.1000% |
+| `instructions` | `sync_strmap_scan_pointops/paths` | 182,741,758 | shared string | -0.1007% | +0.0993% |
+| `instructions` | `sync_strmap_scan_pointops/paths_dense` | 171,936,738 | shared string | -0.1001% | +0.0999% |
+| `instructions` | `sync_strmap_update/routes` | 73,966,529 | shared string | -0.3034% | -0.1034% |
+| `rmw_instructions` | `sync_strmap_cas_insert/routes` | 99,147,549 | shared string | +2.1796% | +4.7754% |
+| `rmw_instructions` | `sync_strmap_cas/routes` | 72,628,900 | shared string | +1.1739% | +1.3739% |
+| `rmw_instructions` | `sync_strmap_update_rmw/routes` | 121,739,255 | shared string | +0.6600% | +0.8600% |
+| `smoke_instructions` | `strmap_churn/routes` | 22,091,995 | plain string | -0.1455% | +0.0545% |
+| `smoke_instructions` | `strmap_get/routes` | 6,724,116 | plain string | -0.1007% | +0.0993% |
+| `smoke_instructions` | `strmap_insert/routes` | 8,271,632 | plain string | -2.5100% | -1.4011% |
+
+**Arms expected to lose** (the lower bound is above zero), each with its bound:
+
+| arm | bound |
+|---|---|
+| `sync_strmap_insert_short/short` | [+6.2692%, +6.4694%] |
+| `sync_strmap_insert_sorted/uuid` | [+6.1904%, +6.3908%] |
+| `rmw_instructions` `sync_strmap_cas_insert/routes` | [+2.1796%, +4.7754%] |
+| `rmw_instructions` `sync_strmap_cas/routes` | [+1.1739%, +1.3739%] |
+| `rmw_instructions` `sync_strmap_update_rmw/routes` | [+0.6600%, +0.8600%] |
+| `sync_strmap_insert/routes` | [+0.3447%, +2.0898%] |
+| `sync_strmap_churn/routes` | [+0.2159%, +0.4159%] |
+
+Arms whose interval straddles zero and can lose up to their upper bound are named in the table too: `strmap_oscillate/routes` up to +1.7688%, `sync_strmap_remove/routes` up to +0.3436%, `strmap_churn/routes` up to +0.1864%.
+
+Two of these exceed the CI gate's 5% single-arm threshold (`scripts/perf_report.py`), so PR B carries an `allow-regression:` line. It names every arm above the noise floor and cites this section's commit and the PR's own `instruction-counts` run (AGENTS.md §6).
+
+#### G-scale (reference host)
+
+**Cells.** The `str` writer arm of `writer_scaling.py`: the merge base's build, carrying the head's harness, against the head's, in interleaved (build × W) rounds. W ∈ {1, 2, 4, 8}, 8 rounds (the Williams design over 8 cells), one process per cell, under the pin `0,2,4,6,8,10,12,14`. That is one thread per physical P-core, the pin §8.20.5.0 gives an arm where every thread works (`--compare-base-ref`, suite `writer_scaling_1586_str_vs_base`).
+
+**Statistic.** The paired per-round C_head(W) / C_base(W), with BCa 95% intervals, at W ∈ {2, 4, 8} (`g47_scale_report`).
+
+**Bound.** At every W in **both** of two independent runs:
+- `MEETS_FLOOR` iff the lower bound ≥ **0.90**;
+- `BELOW_FLOOR` iff the upper bound < 0.90 in either run;
+- `INTERMEDIATE` otherwise.
+
+The 0.90 is the 10% tolerance §19 fixed for G3, applied here to the scaling ratio. B moves shell and suffix allocation on a shared tree from glibc's per-thread caches to the collector's striped, locked freelists (finding (e)). A contention cost the instruction counts cannot see shows here as a scaling loss. A cross-run claim needs the second run (`docs/BENCHMARKING.md` rule 18).
+
+#### G-density (deterministic byte census, exact columns; `allocator_overhead` example, both N)
+
+**Ceilings** (`density_ceiling`). The packed build's figure, plus shells per key × what B adds per shell, plus 0.02 for the census's two-decimal rounding. For `mem_held` that is 9.0 B per shell: it is accounted at 48 bytes against the 40 the walk counts today, plus a 64-byte slab header per 84 blocks. For `+headers` it is 1.0 B per shell: one glibc chunk header per 4 KiB slab page instead of one per shell, and the page's 4,032 − 84 × 48 = 0 bytes of tail.
+
+| N | shape | `mem_held` ceiling (main → ceiling) | `+headers` ceiling (main → ceiling) |
+|---|---|---:|---:|
+| 10⁶ | `prefix` | 35.73 → 49.21 | 49.06 → 49.41 |
+| 10⁶ | `uuid` | 68.80 → 73.59 | 89.25 → 74.23 |
+| 10⁷ | `prefix` | 40.40 → 49.21 | 47.21 → 49.53 |
+| 10⁷ | `uuid` | 66.81 → 69.74 | 86.93 → 69.98 |
+
+- **Rounding.** The table rounds each ceiling to two decimals; the gate compares the census's two-decimal figure with the unrounded `density_ceiling`.
+- **The `ExpanseMap` shapes** (`sequential`, `timestamp`, `random`) equal `main` in every exact column at both N.
+- **Expected losses, named:** `prefix` `mem_held` rises by up to 13.48 B/key at 10⁶ and 8.81 at 10⁷, and its `+headers` by up to 0.35 and 2.32. The suffix half is most of it, as `docs/BENCHMARKING.md` records for the feature: a class-allocated suffix of 19 or 40 bytes costs what glibc already charges.
+- **`mem_used` changes meaning.** It counts every block at its accounted size, shells at 48. It is reported, not gated.
+- **RSS is diagnostic only.** It is one reading per shape with no interval, and decides nothing.
+
+#### G-safety
+
+1. **CI, green on PR B's head:**
+   - the per-PR Tier-1 Miri shards, whose string filters (`strmap::tests::deferred`, `strmap::tests::cursor_*`, `sync::miri_tests::`, and `expanse-capi`'s `test_sync_strmap_capi`) cover the shared shell paths. A new test, `strmap::tests::deferred_mem_used_reads_beside_writers`, reads `mem_used` from one thread while two write, and falls under the existing `strmap::tests::deferred` filter. Miri is never run locally;
+   - `test-asan`, plus the string ASan step migrated from `packed-suffix` to `ablation-unpacked-suffix`;
+   - `loom`, with a model of the shard fold (`loom_acct_fold_exact_after_join`): exact after join, and within the in-flight bytes while writers run.
+2. **Every new allocation site has its shared twin.** `new_shell::<false>` is called once (`RootNode::new_plain`, the plain root), `new_shell::<true>` once (`root_or_create_shared`), and `new_shell::<SHARED>` once (`build_split_child`, which the plain and shared splits instantiate). No `Box::new`, `Box::into_raw` or `Box::from_raw` of a `StrNode` remains in `strmap.rs`'s production code. A source census pins both, and each clause is shown failing on its own (one negative control per clause, AGENTS.md §5).
+3. **No `%fs:` added to plain paths** (`objdump -d -C --no-show-raw-insn` of the `instructions` bench binary, base against head):
+   - the plain insert and remove bodies, in the `strmap_insert` and `strmap_oscillate` arm wrappers, and `new_shell::<false>`, carry 0 `%fs:` operands;
+   - the out-of-line helpers reached on both paths (`free_shell`, `new_suffix`, `dispose_suffix`) may carry `%fs:` only on their deferred-tree branch, and their counts are reported;
+   - `SyncExpanseStrMap::insert` and `remove` are reported.
+4. **The local gates.** `scripts/gate.sh` in full, `scripts/test_occ_stats.sh` and `scripts/test_collector_census.sh` pass once at the end, with their counts in the PR.
+
+### 47.4 The lock-free reading: soundness and contract
+
+**What it reads.** `SyncExpanseStrMap` holds an `AcctCell`, taken from the map's allocator in `from_map` before any other thread can see the map. That is the handle `SyncExpanseBlobMap` holds for its index (`sync.rs:11176`, `:11298`). `mem_used` is `AcctCell::bytes_in_use`: one relaxed load of each of the 64 shards' `bytes_in_use`, summed. It forms no reference to `ExpanseStrMap`, to `Shared` or to the `NodeAlloc`. It dereferences only the boxed `Deferred` cell the `OnceLock` in `NodeAlloc::deferred` owns, and only its atomic counters (`alloc.rs:563`).
+
+**Why the handle cannot dangle.**
+- The cell is boxed, so it does not move with the map.
+- It is published once by `NodeAlloc::defer_to` into a `OnceLock` that is never reset, and lives until the `NodeAlloc` drops.
+- The `NodeAlloc` is a field of the one `ExpanseStrMap` that `SyncExpanseStrMap` owns through `Shared`, and nothing replaces that map: the string wrapper has no `compact()` tree swap (there is no `SyncExpanseStrMap::compact`); `clear` disposes of entries through `clear_shared` and keeps the allocator (`strmap.rs:4862`); there is no `into_inner`; and `from_map` is the only constructor (`sync.rs:13930`).
+- `&self` on the wrapper keeps the map alive for the reading.
+- A debug assertion in `SyncExpanseStrMap::mem_held`'s locked section checks that the handle still names the allocator's cell, as `SyncExpanseBlobMap::mem_used` does.
+
+**Why no write is a data race with it, and why no borrow is invalidated.** Writers touch the shards only through atomic RMWs (`Deferred::charge` / `discharge`, `alloc.rs:447`, `:467`), through a shared reference to the cell. A writer's `&mut ExpanseStrMap`, on the exclusive path, covers the map's own bytes, the `OnceLock`'s pointer among them, but not the boxed cell behind it. No code takes `&mut Deferred`. This is the access pattern `SyncExpanseBlobMap::mem_used_estimate` already ships (#1478).
+
+**Contract, stated as happens-before (finding (d)).**
+- **Exact when quiet.** If every insert, removal and `clear` on the map happens-before the call, and none is concurrent with it, the call returns exactly `ExpanseStrMap::mem_used` of the map at that point. The writers may have been joined, or have released a lock or an atomic the caller acquired. Each shard is written only by RMWs, so by write-read coherence each relaxed load returns that shard's last value in modification order once every write to it happens-before the load.
+- **Error while writers run.** The loads are not one snapshot. The result can differ from the map's bytes when the call began by at most the bytes allocated or freed by operations that overlap the call, and it can be below the true figure. It is not an upper bound.
+- **Smooth.** No walk and no cache: two readings differ by what the operations between them allocated and freed.
+
+The caller asked for ±10%, no upper bound, smooth, and no stall. G-accuracy tests the first three and G-stall the fourth.
+
+**The clamp (finding (c)).**
+- `NodeAlloc::bytes_in_use`, the exact reading every quiesced and single-threaded caller uses, gains `debug_assert!(total >= 0)`. On those paths a negative sum is an over-free (AGENTS.md §8.22.3).
+- `AcctCell::bytes_in_use` keeps the clamp without the assertion. While writers run, a load can see a free on a later shard and miss its allocation on an earlier one. On a map whose live bytes are below the bytes in flight, that sum is negative with no defect present, so an assertion there would fail without a fault.
+- The over-free signal is kept by G-accuracy 1: after join, it asserts the signed sum is ≥ 0 and equals the exact figure.
+
+### 47.5 Falsifiers, and what follows each
+
+| Falsifier | What follows |
+|---|---|
+| G-instr: an arm outside its bound, at any increment | `callgrind_annotate --inclusive=no` and `--auto=yes`, base against head, on the arm, and `objdump` of every function whose count moved without a source change (AGENTS.md §6). Then the code changes and is re-measured against the same bound, or the departure is recorded here as a dated note. A note that accepts a departure says the arm ships outside its pre-registered bound and why; the bound itself does not move. |
+| G-accuracy: any clause fails | the change does not ship; the reading is wrong, and it is fixed before anything is measured on the reference host |
+| G-density: a ceiling exceeded, or an `ExpanseMap` column moves | attributed from the census's per-request rows; a class-size change is a new design decision, not a fix |
+| G-safety: Miri, ASan or loom red; a source-census clause unpinned; a plain path gains `%fs:` | fixed before PR B is marked ready |
+| G-stall `FAIL` | the lock-free reading still stalls writers; the cause is found (`occ-stats` counters, as §44.3's pass) before any re-run, and #1586 stays open |
+| G-stall `INTERMEDIATE` | reported to the maintainer; no re-run with a changed k |
+| G-scale `BELOW_FLOOR` | the collector freelists contend; B does not merge as is, and the remedy (a freelist change, or keeping shells off the collector) is a new pre-registration |
+| G-scale `INTERMEDIATE` | reported to the maintainer |
+
+No bound in this section moves after the first measurement of a B build (AGENTS.md §8.19).
+
+### 47.6 Silent constants, fixed here
+
+G-stall: k = 3, the cells (N = 2·10⁷, W = 4, T = 1 s, D = 30 s, both shapes, growth and churn), 5 rounds, BCa with 2,000 resamples, §44's pin and placement, the churn void bound W. G-accuracy: the 10% band, the 2% step allowance, 25% growth per phase, W = 4. G-instr: the per-call ranges ([25, 85], [15, 45], [150, 340], [−65, +45], [64, 1,000]), the 0.1% slack with its 500 floor, the 0.01% non-string bound. G-scale: the 0.90 floor, two runs, 8 rounds, W ∈ {1, 2, 4, 8}, the pin `0,2,4,6,8,10,12,14`. G-density: 9.0 and 1.0 B per shell, 0.02 slack. Changing any of them after a measurement of B relabels that result `INTERMEDIATE` (AGENTS.md §8.19).
+
+### 47.7 Not predicted
+
+- Wall-clock cost on the write paths. G-scale reads scaling, not single-writer speed, and nothing here bounds T(1).
+- The largest insert latency's level in the B build, beyond its ratio to the `len` control.
+- Whether `new_shell`, out of line, changes register allocation in the insert walks beyond the call. The per-call ranges carry it, and only the measurement says.
+- RSS.
+
+### 47.8 Dispatch, for the maintainer
+
+Neither reference-host gate is dispatched by the change's author; both need the maintainer's go-ahead. With `HEAD` the PR B head (40 characters) and `BASE` its merge base with `main`:
+
+```bash
+# G-stall: 60 processes; run_seconds_bound(**DISPATCH_47) = 7,122 s, inside the default job timeout.
+# Operating rules of §44.10: dispatch at :19, apt-daily timers stopped, no login to the host.
+gh workflow run bench_baremetal.yml -f benchmark_suite=strmap_poll_stall_g47 -f ref="$HEAD"
+
+# G-scale: two independent runs, each its own dispatch.
+gh workflow run bench_baremetal.yml -f benchmark_suite=writer_scaling_1586_str_vs_base \
+  -f ref="$HEAD" -f base_ref="$BASE" -f cpu_pin=0,2,4,6,8,10,12,14
+```

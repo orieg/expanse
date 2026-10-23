@@ -383,6 +383,22 @@
       "suite": "concurrency"
     },
     {
+      "name": "strmap_poll_stall_g47",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "G-stall of #1586 design B (METHODOLOGY.md §47): the §44 M1 cell (N = 2e7, W = 4, T = 1 s, both shapes) and a constant-N churn cell, arms none / len / mem_used interleaved per round, 5 rounds; PASS iff the BCa upper bound of the mem_used arm's per-round largest insert latency is at most 3 x the len arm's upper bound in every cell; dispatch with ref set to the change's head; outputs gate_1586_strmap_poll_stall.json.",
+      "suite": "concurrency"
+    },
+    {
+      "name": "writer_scaling_1586_str_vs_base",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "G-scale of #1586 design B (METHODOLOGY.md §47): the str writer arm, the merge base's build (carrying the head's harness) against the head's, 8 interleaved (build x W) rounds, W in {1, 2, 4, 8}, one process per cell, under the applied pin; the paired C_head(W) / C_base(W) interval against the 0.90 floor; two dispatches make the gate; outputs gate_1586_str_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",

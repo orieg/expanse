@@ -51,8 +51,22 @@ without a poll or an insert, or not run under the registered placement is
 it) to scratch output only, refuses any path under `docs/`, and its verdicts
 are `VOID` by construction: it is a smoke test, not a measurement.
 
+`--plan 47` runs METHODOLOGY §47's G-stall cells instead of §44's grid, and
+nothing of §44's: at N = 2·10⁷, W = 4, T = 1 s, both shapes, two workloads,
+the three arms interleaved per round as §44.8 orders them, 5 rounds, no
+counters pass. The `growth` workload is §44's M1 cell unchanged; the `churn`
+workload (`--workload churn` in the harness) holds the population at N with
+one removal per insert. G-stall reads, per (shape, workload), the largest
+insert latency of each round: `PASS` iff the BCa upper bound of the
+`mem_used` arm's is at most `G47_K` × the `len` arm's BCa upper bound,
+`FAIL` iff the `mem_used` arm's lower bound exceeds that, `INTERMEDIATE`
+otherwise. The run is `PASS` iff all four are, `FAIL` iff any is, and
+`INTERMEDIATE` otherwise. §44's void rules apply, and a churn round whose
+population moved by more than W, or whose removals missed a key, is void too.
+
 Usage:
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --out ARTIFACT.json
+    python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --plan 47 --out GATE.json
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --quick --out SCRATCH.json
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --self-test
 """
@@ -105,6 +119,14 @@ M1_P999_FACTOR = 10.0
 # §8.17: a non-target process above about one core, or a load average above cores/2.
 FOREIGN_BUSY_VOID = 1.0
 
+# METHODOLOGY §47's G-stall cells (#1586 design B), and its constant k.
+G47_ARTIFACT_REL = "concurrency/results/gate_1586_strmap_poll_stall.json"
+G47_PREREGISTRATION = "concurrency METHODOLOGY §47"
+G47_WORKLOADS = ("growth", "churn")
+G47_AT = {"keys": 20_000_000, "writers": 4, "period_ms": 1000}
+G47_K = 3.0
+G47_QUICK = {"keys": 200_000, "writers": 4, "period_ms": 250, "seconds": 1, "rounds": 3}
+
 # The reference host runs an hourly rsync at minutes :15-:20 UTC (METHODOLOGY §44.8): no
 # process, prefill or window, may overlap it. A process's length is estimated from its
 # (shape, N)'s largest prefill seen so far, times PREFILL_MARGIN, or PREFILL_S_PER_KEY per key
@@ -137,12 +159,27 @@ def grid(quick: bool = False) -> dict[str, Any]:
 
 
 def cells_for(g: dict[str, Any]) -> list[dict[str, Any]]:
+    if g.get("plan") == "47":
+        at = g["at"]
+        return [{"shape": s, "keys": at["keys"], "writers": at["writers"], "period_ms": at["period_ms"],
+                 "workload": wl} for s, wl in itertools.product(SHAPES, G47_WORKLOADS)]
     return [{"shape": s, "keys": n, "writers": w, "period_ms": t}
             for s, n, w, t in itertools.product(SHAPES, g["keys"], g["writers"], g["periods_ms"])]
 
 
+def grid47(quick: bool = False) -> dict[str, Any]:
+    """§47's G-stall cells, at the registered coordinates or the quick ones."""
+    if not quick:
+        return {"plan": "47", "at": dict(G47_AT), "seconds": SECONDS, "rounds": ROUNDS}
+    q = G47_QUICK
+    return {"plan": "47", "at": {k: q[k] for k in ("keys", "writers", "period_ms")},
+            "seconds": q["seconds"], "rounds": q["rounds"]}
+
+
 def cell_id(c: dict[str, Any], arm: str | None = None) -> str:
     base = f"{c['shape']}:N{c['keys']}:W{c['writers']}:T{c['period_ms']}ms"
+    if c.get("workload", "growth") != "growth":
+        base += f":{c['workload']}"
     return base if arm is None else f"{base}:{arm}"
 
 
@@ -336,6 +373,8 @@ def run_one(exe: Path, c: dict[str, Any], arm: str, r: int, seconds: int, seed: 
     argv = [str(exe), "--mode", "run", "--shape", c["shape"], "--keys", str(c["keys"]),
             "--writers", str(c["writers"]), "--arm", arm, "--period-ms", str(c["period_ms"]),
             "--seconds", str(seconds), "--round", str(r), "--seed", str(seed)]
+    if c.get("workload", "growth") != "growth":
+        argv += ["--workload", c["workload"]]
     if cpus is not None:
         argv += ["--cpus", ",".join(map(str, cpus))]
     preexec = (bench_pin.child_affinity(pin)
@@ -351,6 +390,8 @@ def run_one(exe: Path, c: dict[str, Any], arm: str, r: int, seconds: int, seed: 
             raise DriverError(f"{where}: the row reports {k}={row.get(k)!r}")
     if row.get("arm") != arm:
         raise DriverError(f"{where}: the row reports arm={row.get('arm')!r}")
+    if row.get("workload", "growth") != c.get("workload", "growth"):
+        raise DriverError(f"{where}: the row reports workload={row.get('workload')!r}")
     check_affinity(row, pin, where)
     want = None if cpus is None else {"poller": cpus[0], "writers": cpus[1:c["writers"] + 1]}
     if row.get("placement") != want:
@@ -442,6 +483,29 @@ def cell_voids(cell: dict[str, Any], rounds: int, quick: bool, load_avg_void: fl
         one = (r.get("load_start") or {}).get("load1")
         if isinstance(one, (int, float)) and one > load_avg_void:
             v.append(f"{at}: load average {one} above {load_avg_void} at the window's start (§8.17)")
+        if cell.get("workload") == "churn":
+            v.extend(churn_voids(r, cell["writers"], at))
+    return v
+
+
+def churn_voids(r: dict[str, Any], writers: int, at: str) -> list[str]:
+    """Why a `churn` round did not hold its population (METHODOLOGY §47), or [].
+
+    Each writer inserts and then removes, so the window can end with at most
+    one unpaired insert per writer: the population after it is within W of the
+    population before it. A removal that finds no key means two indices drew
+    one key, and the population drifted by that much.
+    """
+    v: list[str] = []
+    before, after = r.get("len_before"), r.get("len_after")
+    if not isinstance(before, int) or not isinstance(after, int):
+        v.append(f"{at}: the churn row lacks len_before or len_after")
+    elif abs(after - before) > writers:
+        v.append(f"{at}: the churn population moved from {before} to {after}, by more than W = {writers}")
+    if r.get("remove_missed") != 0:
+        v.append(f"{at}: {r.get('remove_missed')!r} churn removals found no key")
+    if not r.get("removes"):
+        v.append(f"{at}: no churn removal completed")
     return v
 
 
@@ -522,6 +586,54 @@ def evaluate(cells: list[dict[str, Any]], g: dict[str, Any], quick: bool,
     return {"S1": s1, "M1": m1}
 
 
+def g_stall_outcome(mem_used_iv: dict[str, Any], len_iv: dict[str, Any], k: float = G47_K) -> str:
+    """§47's G-stall rule for one (shape, workload): the BCa bounds of the per-round largest insert latency."""
+    bound = k * len_iv["ci_upper"]
+    if mem_used_iv["ci_upper"] <= bound:
+        return "PASS"
+    if mem_used_iv["ci_lower"] > bound:
+        return "FAIL"
+    return "INTERMEDIATE"
+
+
+def evaluate47(cells: list[dict[str, Any]], g: dict[str, Any], quick: bool,
+               load_avg_void: float, run_voids: list[str] | None = None) -> dict[str, Any]:
+    """G-stall as METHODOLOGY §47 words it."""
+    run_voids = list(run_voids or [])
+    if quick:
+        run_voids.append("quick run: a reduced grid, not §47's registered cells")
+    rounds = g["rounds"]
+    at = g["at"]
+    out: dict[str, Any] = {"at": at, "k": G47_K, "rule": (
+        f"per (shape, workload): PASS iff ci_upper(mem_used max insert) <= {G47_K:g} x ci_upper(len max "
+        f"insert); FAIL iff ci_lower(mem_used max insert) > {G47_K:g} x ci_upper(len max insert); "
+        "INTERMEDIATE otherwise; the run is PASS iff all are, FAIL iff any is"), "cells": {}}
+    voids = list(run_voids)
+    for shape in SHAPES:
+        for wl in G47_WORKLOADS:
+            mu = find(cells, shape=shape, workload=wl, arm="mem_used", **at)
+            ln = find(cells, shape=shape, workload=wl, arm="len", **at)
+            v = cell_voids(mu, rounds, quick, load_avg_void) + cell_voids(ln, rounds, quick, load_avg_void)
+            voids += v
+            entry: dict[str, Any] = {"cells": [mu["cell"], ln["cell"]], "voids": v}
+            if len(mu["rounds_raw"]) >= 3 and len(ln["rounds_raw"]) >= 3:
+                mi = interval([float(r["insert"]["max_ns"]) for r in mu["rounds_raw"]])
+                li = interval([float(r["insert"]["max_ns"]) for r in ln["rounds_raw"]])
+                entry.update({"mem_used_max_insert_ns": mi, "len_max_insert_ns": li,
+                              "bound_ns": G47_K * li["ci_upper"], "outcome": g_stall_outcome(mi, li)})
+            else:
+                voids.append(f"{shape}/{wl}: G-stall's cells lack the rounds an interval needs")
+            out["cells"][f"{shape}:{wl}"] = entry
+    if voids:
+        out["verdict"] = "VOID"
+    else:
+        outs = [e["outcome"] for e in out["cells"].values()]
+        out["verdict"] = ("PASS" if all(o == "PASS" for o in outs)
+                          else "FAIL" if "FAIL" in outs else "INTERMEDIATE")
+    out["voids"] = voids
+    return {"G_stall": out}
+
+
 # --- Counters pass ----------------------------------------------------------
 
 COUNTER_KEYS = ("gate_blocked_entries", "gate_wait_cycles", "quiesce_calls", "quiesce_drain_cycles",
@@ -550,16 +662,20 @@ def refuse_docs_path(out_path: Path) -> None:
         raise DriverError(f"--quick writes scratch output only, never under docs/ ({out_path})")
 
 
-def measure(out_path: Path, quick: bool = False) -> dict[str, Any]:
+def measure(out_path: Path, quick: bool = False, plan: str = "44") -> dict[str, Any]:
     if quick:
         refuse_docs_path(out_path)
-    g = grid(quick)
+    if plan not in ("44", "47"):
+        raise DriverError(f"unknown plan {plan!r}; expected 44 or 47")
+    g = grid(quick) if plan == "44" else grid47(quick)
     rounds = g["rounds"]
     applied = bench_pin.apply("strmap_poll_stall.py")
-    prov = new_provenance("concurrency", 1586, "§44 string-map memory-reading stall (no ratio gate)",
+    prov = new_provenance("concurrency", 1586,
+                          "§44 string-map memory-reading stall (no ratio gate)" if plan == "44"
+                          else "§47 G-stall: mem_used arm max insert vs k x len arm (no ratio gate)",
                           REPO_ROOT, cell_isolation="process", rounds=rounds, core_pin_applied=applied,
-                          preregistration=PREREGISTRATION, quick=quick, seconds=g["seconds"],
-                          bca_resamples=BCA_RESAMPLES)
+                          preregistration=PREREGISTRATION if plan == "44" else G47_PREREGISTRATION,
+                          quick=quick, seconds=g["seconds"], bca_resamples=BCA_RESAMPLES)
     cpus = host_cpus(applied)
     siblings = read_siblings(cpus) if cpus else None
     prov["placement_rule"] = ("poller on the first CPU of the first core; writers on the first CPU of every "
@@ -603,13 +719,14 @@ def measure(out_path: Path, quick: bool = False) -> dict[str, Any]:
     ncpu = os.cpu_count() or 1
     art: dict[str, Any] = {"provenance": prov, "throughput": out_cells, "len_controls": controls}
     run_voids = [] if quick or rounds == ROUNDS else [f"round count {rounds} is not the registered {ROUNDS}"]
-    art["verdicts"] = evaluate(out_cells, g, quick, ncpu / 2, run_voids)
+    art["verdicts"] = (evaluate if plan == "44" else evaluate47)(out_cells, g, quick, ncpu / 2, run_voids)
 
-    # The untimed occ-stats pass of each mem_used cell (§44.3, Counters).
-    cexe = build(("occ-stats",))
-    probe(cexe, counters=True)
+    # The untimed occ-stats pass of each mem_used cell (§44.3, Counters); §47 has none.
+    cexe = build(("occ-stats",)) if plan == "44" else None
+    if cexe is not None:
+        probe(cexe, counters=True)
     windows = []
-    for c in cells:
+    for c in (cells if cexe is not None else []):
         cid = cell_id(c, "mem_used")
         place = placement(cpus, siblings, c["writers"]) if siblings else None
         guard_pause(pauses, f"counters:{cid}", process_estimate_s(c, g["seconds"], prefills))
@@ -618,23 +735,24 @@ def measure(out_path: Path, quick: bool = False) -> dict[str, Any]:
                            lambda: run_one(cexe, c, "mem_used", 0, g["seconds"], 0x1586_C000 + cells.index(c),
                                            pin, place))
         windows.append({"cell": cid, **counters_report(row), "load": end_cell(start)})
-    art["counters"] = windows
     if quick:
         art["note"] = "quick smoke run on a reduced grid: not a measurement, decides nothing"
+    if cexe is not None:
+        art["counters"] = windows
     check_pauses(prov["hour_guard"])
-    check_provenance(art, quick)
+    check_provenance(art, quick, ARTIFACT_REL if plan == "44" else G47_ARTIFACT_REL)
     out_path.write_text(json.dumps(art, indent=2) + "\n")
     return art
 
 
-def check_provenance(art: dict[str, Any], quick: bool) -> None:
+def check_provenance(art: dict[str, Any], quick: bool, rel: str = ARTIFACT_REL) -> None:
     """Runs `check_bench_provenance` on the artifact before it is written.
 
     A real run fails on any finding. A quick run is checked under the real
     artifact's name too, but off Linux the load snapshots cannot close a
     measured window, so its findings are printed, not raised.
     """
-    findings = check_bench_provenance.findings_for(ARTIFACT_REL, json.loads(json.dumps(art)))
+    findings = check_bench_provenance.findings_for(rel, json.loads(json.dumps(art)))
     if findings and not quick:
         raise DriverError("the artifact fails the provenance gate: " + "; ".join(findings))
     for f in findings:
@@ -642,6 +760,18 @@ def check_provenance(art: dict[str, Any], quick: bool) -> None:
 
 
 def verdict_lines(v: dict[str, Any]) -> list[str]:
+    if "G_stall" in v:
+        gs = v["G_stall"]
+        lines = [f"G-stall at {gs['at']} (k = {gs['k']:g}): {gs['verdict']}"]
+        for name, e in gs["cells"].items():
+            if "outcome" in e:
+                mi, li = e["mem_used_max_insert_ns"], e["len_max_insert_ns"]
+                lines.append(f"  {name}: {e['outcome']}; mem_used max insert [{mi['ci_lower']:,.0f}, "
+                             f"{mi['ci_upper']:,.0f}] ns ({mi['ci_method']}) vs bound {e['bound_ns']:,.0f} ns "
+                             f"(k x len upper; len [{li['ci_lower']:,.0f}, {li['ci_upper']:,.0f}] ns)")
+        for reason in gs["voids"][:10]:
+            lines.append(f"  G-stall void: {reason}")
+        return lines
     lines = [f"S1 at {v['S1']['at']}: {v['S1']['verdict']}"]
     for shape, e in v["S1"]["shapes"].items():
         if "holds" in e:
@@ -962,8 +1092,126 @@ def self_test_hour_guard() -> None:
     assert one.count("subprocess.run(") == 1, one
 
 
+def _cells47(g: dict[str, Any], *, mu_max: float = 150e3, len_max: float = 100e3,
+             short_churn_mu_max: float | None = None, rounds: int = 5, churn_after: int | None = None,
+             missed: int = 0, **kw) -> list[dict[str, Any]]:
+    out = []
+    for c in cells_for(g):
+        for arm in ARMS:
+            mx = mu_max if arm == "mem_used" else len_max
+            if arm == "mem_used" and short_churn_mu_max is not None and c["shape"] == "short" \
+                    and c["workload"] == "churn":
+                mx = short_churn_mu_max
+            rows = [_row(c, arm, r, mx, 100.0, 5e3, **kw) for r in range(rounds)]
+            for row in rows:
+                row["len_before"] = c["keys"]
+                row["len_after"] = c["keys"]
+                if c["workload"] == "churn":
+                    row["removes"] = 1000
+                    row["remove_missed"] = missed
+                    if churn_after is not None:
+                        row["len_after"] = churn_after
+            out.append({"cell": cell_id(c, arm), **c, "arm": arm, "rounds_raw": rows})
+    return out
+
+
+def self_test_plan47() -> None:
+    g = grid47()
+    cells = cells_for(g)
+    assert len(cells) == 4 and {c["workload"] for c in cells} == set(G47_WORKLOADS)
+    assert all(c["keys"] == 20_000_000 and c["writers"] == 4 and c["period_ms"] == 1000 for c in cells)
+    # The growth cell is §44's M1 cell: same id, so §44's rows and §47's rows name one cell.
+    m1 = [c for c in cells_for(grid()) if all(c[k] == v for k, v in M1_AT.items())]
+    assert {cell_id(c) for c in m1} == {cell_id(c) for c in cells if c["workload"] == "growth"}
+    assert cell_id(cells[1]).endswith(":churn")
+    assert (G47_K, G47_AT) == (3.0, {"keys": 20_000_000, "writers": 4, "period_ms": 1000})
+    # The driver's rule is the bounds module's, case for case.
+    assert G47_K == bounds.G_STALL_K
+    for lo, hi, ln in ((100, 290, 100), (100, 300, 100), (100, 301, 100), (301, 400, 100), (300, 400, 100)):
+        assert g_stall_outcome({"ci_lower": lo, "ci_upper": hi}, {"ci_upper": ln}) == \
+            bounds.g_stall_outcome(lo, hi, ln), (lo, hi, ln)
+
+    def ev(cs, **kw):
+        return evaluate47(cs, g, False, 12.0, **kw)["G_stall"]
+    # 1.5x the control's largest latency: well under k = 3. PASS.
+    v = ev(_cells47(g))
+    assert v["verdict"] == "PASS" and all(e["outcome"] == "PASS" for e in v["cells"].values()), v
+    # Negative control per clause. The bound is k x the control's UPPER bound, and the mem_used
+    # UPPER bound is compared: 3.5x the control fails; 3.0x passes.
+    assert ev(_cells47(g, mu_max=350e3))["verdict"] == "FAIL"
+    e = ev(_cells47(g, mu_max=290e3))["cells"]["routes:growth"]
+    assert e["outcome"] == "PASS" and e["mem_used_max_insert_ns"]["ci_upper"] <= e["bound_ns"], e
+    # One (shape, workload) alone decides the run: short/churn fails, the other three pass.
+    v = ev(_cells47(g, short_churn_mu_max=400e3))
+    assert v["cells"]["short:churn"]["outcome"] == "FAIL" and v["verdict"] == "FAIL"
+    assert sum(e["outcome"] == "PASS" for e in v["cells"].values()) == 3
+    # Straddling the bound is INTERMEDIATE: both arms carry the same per-round jitter, so the
+    # control's upper bound is about 102.8 us and the bound about 308 us, inside mem_used's interval.
+    v = ev(_cells47(g, mu_max=303e3))
+    e = v["cells"]["routes:growth"]
+    assert e["mem_used_max_insert_ns"]["ci_lower"] <= e["bound_ns"] < e["mem_used_max_insert_ns"]["ci_upper"], e
+    assert e["outcome"] == "INTERMEDIATE" and v["verdict"] == "INTERMEDIATE", e
+    # Voids: §44's (contamination, a missing round), and the churn population clauses, each alone.
+    assert ev(_cells47(g, foreign=1.5))["verdict"] == "VOID"
+    assert ev(_cells47(g, rounds=4))["verdict"] == "VOID"
+    v = ev(_cells47(g, churn_after=20_000_005))
+    assert v["verdict"] == "VOID" and any("moved from" in x for x in v["voids"]), v["voids"][:2]
+    assert ev(_cells47(g, churn_after=20_000_004))["verdict"] == "PASS"     # within W = 4
+    v = ev(_cells47(g, missed=1))
+    assert v["verdict"] == "VOID" and any("found no key" in x for x in v["voids"]), v["voids"][:2]
+    cs = _cells47(g)
+    del find(cs, shape="routes", workload="churn", arm="len", **g["at"])["rounds_raw"][0]["removes"]
+    assert any("no churn removal" in x for x in ev(cs)["voids"])
+    # A growth cell is not held to the churn clauses: its population grows by design.
+    cs = _cells47(g)
+    find(cs, shape="routes", workload="growth", arm="mem_used", **g["at"])["rounds_raw"][0]["len_after"] = 9 * 10**7
+    assert ev(cs)["verdict"] == "PASS"
+    # A quick run never decides.
+    gq = grid47(quick=True)
+    v = evaluate47(_cells47(gq, rounds=3), gq, True, 12.0)["G_stall"]
+    assert v["verdict"] == "VOID" and any("quick run" in x for x in v["voids"])
+    # The verdict lines name the outcome per cell.
+    lines = verdict_lines(evaluate47(_cells47(g), g, False, 12.0))
+    assert lines[0].startswith("G-stall at") and "PASS" in lines[0] and len(lines) == 5, lines
+    # run_one passes --workload churn and refuses a row of the other workload.
+    with tempfile.TemporaryDirectory() as d:
+        def fake(name: str, row: dict) -> Path:
+            q = Path(d) / name
+            q.write_text("#!/bin/sh\necho \"$@\" >> " + str(Path(d) / "argv") + "\necho '" + json.dumps(row) + "'\n")
+            q.chmod(0o755)
+            return q
+        c = cells[1]
+        good = {**c, "arm": "len", "cpu_affinity": "0", "placement": None}
+        assert run_one(fake("ok", good), c, "len", 0, 1, 1)["workload"] == "churn"
+        assert "--workload churn" in (Path(d) / "argv").read_text()
+        assert "workload=" in _refused(run_one, fake("bad", {**good, "workload": "growth"}), c, "len", 0, 1, 1)
+        g44 = {**cells_for(grid())[0], "arm": "len", "cpu_affinity": "0", "placement": None}
+        (Path(d) / "argv").unlink()
+        run_one(fake("g44", g44), cells_for(grid())[0], "len", 0, 1, 1)
+        assert "--workload" not in (Path(d) / "argv").read_text()     # §44's argv is unchanged
+    assert "unknown plan" in _refused(measure, Path(tempfile.gettempdir()) / "x.json", True, "45")
+
+
+def self_test_churn_harness_source() -> None:
+    """The churn writer times the insert and the removal apart, and inserts before it removes."""
+    src = (REPO_ROOT / HARNESS_REL).read_text()
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("//"))
+    body = code[code.index("fn churn_loop"):]
+    body = body[:body.index("\n}\n")]
+    i_ins = body.index("m.insert(key, w)")
+    i_rem = body.index("m.remove(key)")
+    assert i_ins < i_rem, (i_ins, i_rem)
+    assert body.count("Instant::now()") == 2 and body.count("t.elapsed()") == 2
+    assert body.index("indexed_key(shape, keys + w + k * writers") < i_ins
+    assert i_ins < body.index("indexed_key(shape, w + k * writers") < i_rem
+    main = code[code.index("fn main()"):]
+    assert main.index("prefill_indexed(&m, &shape, keys)") < main.index("barrier.wait();")
+
+
 def self_test() -> int:
     bounds.self_test()
+    self_test_plan47()
+    self_test_churn_harness_source()
     self_test_hour_guard()
     assert CI_METHOD_BCA
     self_test_grid_and_placement()
@@ -979,13 +1227,15 @@ def main() -> int:
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--quick", action="store_true", help="a reduced-grid smoke run; scratch output only")
+    ap.add_argument("--plan", choices=("44", "47"), default="44",
+                    help="44: METHODOLOGY §44's grid (default); 47: §47's G-stall cells")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
     if not args.out:
         ap.error("--out is required")
     try:
-        art = measure(args.out, args.quick)
+        art = measure(args.out, args.quick, args.plan)
     except DriverError as e:
         print(f"strmap_poll_stall.py: {e}", file=sys.stderr)
         return 1

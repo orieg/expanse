@@ -22,6 +22,17 @@
 //! a core of its own and writers reach a sibling only once the cores run out.
 //! Each thread sets its own affinity and the row records the list.
 //!
+//! `--workload churn` (METHODOLOGY §47) holds the population at `--keys`
+//! instead of letting it grow. Keys are indexed: key `i` is `routes` key `i`,
+//! or for `short` one draw from a stream seeded by `i`. The prefill inserts
+//! keys `0..N`; writer `w` then, at its step `k`, inserts the fresh key
+//! `N + w + k × W` (timed) and removes key `w + k × W` (timed separately).
+//! Key `w + k × W` is a prefill key while `k < N / W` and, after that, the key
+//! the same writer inserted `N / W` steps earlier, so every removal finds its
+//! key, the map holds `N` keys after each writer's pair, and the window sees
+//! a tree of constant population. `N` must be a multiple of `W`. Without the
+//! flag (`--workload growth`, the default) the run is §44's, unchanged.
+//!
 //! `--mode census` prefills and reports `len()`, `mem_used()` and the peak
 //! resident set, timing nothing; the driver uses it to size the run.
 //! `--mode identify` makes no measurement: one row naming the build (whether
@@ -39,16 +50,16 @@
 //! |---|---|
 //! | `workload_id` | `strmap_poll_stall` |
 //! | `group` | 4 |
-//! | `population` | `--keys` prefilled keys, 2,000,000 or 20,000,000 (METHODOLOGY §44.3), plus the fresh keys the writers insert during the window; `len()` is recorded before and after the window |
-//! | `insertion_order` | generator — the prefill inserts keys in draw order: `routes` key `i` for `i` in `0..N`, `short` the file's XorShift stream with repeats skipped; writers insert fresh keys in their own draw order |
-//! | `probes_and_reuse` | writers: fresh keys for `--seconds`, each inserted once (reuse 1.0); `routes` writer `w` takes indices `N + w + k × W`, `short` writer `w` draws from its own XorShift stream; the poller makes one reading per `--period-ms` |
-//! | `hit_rate` | 0 % — every insert is of a key absent at draw time; a draw already present (`contains_key`) is rejected before the timed insert and counted, and an insert that finds its key present anyway (two writers drew it) is counted as an overwrite |
+//! | `population` | `--keys` prefilled keys, 2,000,000 or 20,000,000 (METHODOLOGY §44.3), plus the fresh keys the writers insert during the window (`--workload growth`), or held at `--keys` by one removal per insert (`--workload churn`, METHODOLOGY §47); `len()` is recorded before and after the window |
+//! | `insertion_order` | generator — the prefill inserts keys in draw order: `routes` key `i` for `i` in `0..N`, `short` the file's XorShift stream with repeats skipped; writers insert fresh keys in their own draw order; under `--workload churn` keys are indexed, the prefill inserts indices `0..N` in order and writer `w` inserts index `N + w + k × W` and removes index `w + k × W` |
+//! | `probes_and_reuse` | writers: fresh keys for `--seconds`, each inserted once (reuse 1.0); `routes` writer `w` takes indices `N + w + k × W`, `short` writer `w` draws from its own XorShift stream; under `--workload churn` each insert is followed by the removal of the oldest key of the writer's residue class; the poller makes one reading per `--period-ms` |
+//! | `hit_rate` | inserts 0 % — every insert is of a key absent at draw time; a draw already present (`contains_key`) is rejected before the timed insert and counted, and an insert that finds its key present anyway (two writers drew it) is counted as an overwrite; churn removals 100 % — each removes a key present by construction, and a removal that finds none is counted |
 //! | `miss_gen_method` | fresh keys drawn from the population's generator and rejected on membership (`contains_key`), outside the timed call (AGENTS.md §8.6) |
 //! | `value_dereference` | the insert's previous value is consumed (overwrite count); each reading's returned value is recorded |
-//! | `measured_region` | `Instant::now()` around each insert and around each reading, uncalibrated; the prefill, key generation and membership check are outside it |
+//! | `measured_region` | `Instant::now()` around each insert, each churn removal (recorded apart from the inserts) and each reading, uncalibrated; the prefill, key generation and membership check are outside it |
 //! | `arm_symmetry` | the three arms run the same prefill, writers, placement and window; they differ only in the poller, and `len` is the poller-presence control for `mem_used` |
 //! | `statistics` | HdrHistogram (3 significant figures) of insert latencies, the 8 largest insert latencies, every reading's offset, duration and value; the driver runs 5 rounds per (cell, arm) as separate processes and computes BCa intervals over rounds |
-//! | `verdict` | **PRE-REGISTERED** — METHODOLOGY §44; read by the driver (S1, M1) |
+//! | `verdict` | **PRE-REGISTERED** — METHODOLOGY §44 (S1, M1) and §47 (G-stall); read by the driver |
 
 use expanse_trie::strmap::NulFreeStr;
 use expanse_trie::sync::SyncExpanseStrMap;
@@ -113,6 +124,24 @@ fn short_key(rng: &mut XorShift, buf: &mut Vec<u8>) {
     buf.extend((0..n).map(|_| ALNUM[(rng.next() % 62) as usize]));
 }
 
+/// `short` key `i` under `--workload churn`: one draw, as `short_key` draws,
+/// from a stream seeded by `i`, so any thread can rebuild key `i` without the
+/// prefill's stream. Two indices can draw one key; the prefill records how
+/// many did (`prefill_collisions`).
+fn indexed_short_key(i: u64, buf: &mut Vec<u8>) {
+    let mut rng = XorShift::new(writer_seed(SHORT_SEED, i));
+    short_key(&mut rng, buf);
+}
+
+/// Key `i` of `shape` under `--workload churn`.
+fn indexed_key(shape: &str, i: u64, buf: &mut Vec<u8>) {
+    match shape {
+        "routes" => route_key(i, buf),
+        "short" => indexed_short_key(i, buf),
+        _ => panic!("unknown --shape {shape}"),
+    }
+}
+
 fn hist() -> Histogram<u64> {
     Histogram::<u64>::new_with_max(HIST_MAX_NS, 3).expect("histogram bounds")
 }
@@ -132,6 +161,11 @@ struct Ops {
     inserted: u64,
     overwrites: u64,
     rejected: u64,
+    /// `--workload churn` only: the removals, timed apart from the inserts.
+    remove_hist: Histogram<u64>,
+    remove_top: Vec<u64>,
+    removed: u64,
+    remove_missed: u64,
     cpu_ns: Option<u64>,
 }
 
@@ -143,6 +177,10 @@ impl Ops {
             inserted: 0,
             overwrites: 0,
             rejected: 0,
+            remove_hist: hist(),
+            remove_top: Vec::with_capacity(TOP + 1),
+            removed: 0,
+            remove_missed: 0,
             cpu_ns: None,
         }
     }
@@ -154,6 +192,14 @@ impl Ops {
         self.inserted += other.inserted;
         self.overwrites += other.overwrites;
         self.rejected += other.rejected;
+        self.remove_hist
+            .add(other.remove_hist)
+            .expect("same bounds");
+        for t in other.remove_top {
+            push_top(&mut self.remove_top, t);
+        }
+        self.removed += other.removed;
+        self.remove_missed += other.remove_missed;
         self.cpu_ns = match (self.cpu_ns, other.cpu_ns) {
             (Some(a), Some(b)) => Some(a + b),
             _ => None,
@@ -335,6 +381,23 @@ fn prefill(m: &SyncExpanseStrMap, shape: &str, keys: u64) {
     );
 }
 
+/// Prefills `m` with indexed keys `0..keys` (`--workload churn`) and returns
+/// how many indices drew a key an earlier index had drawn.
+fn prefill_indexed(m: &SyncExpanseStrMap, shape: &str, keys: u64) -> u64 {
+    let mut buf = Vec::with_capacity(40);
+    for i in 0..keys {
+        indexed_key(shape, i, &mut buf);
+        m.insert(nul_free(&buf), i);
+    }
+    keys - m.len()
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Workload {
+    Growth,
+    Churn,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Arm {
     None,
@@ -387,6 +450,63 @@ fn writer_loop(
     ops
 }
 
+/// One `--workload churn` writer: at step `k`, insert the fresh index
+/// `keys + w + k × writers`, then remove index `w + k × writers`.
+fn churn_loop(
+    m: &SyncExpanseStrMap,
+    shape: &str,
+    keys: u64,
+    w: u64,
+    writers: u64,
+    stop: &AtomicBool,
+) -> Ops {
+    let mut ops = Ops::new();
+    let mut buf = Vec::with_capacity(40);
+    let mut k = 0u64;
+    let c0 = thread_cpu_ns();
+    while !stop.load(Ordering::Relaxed) {
+        indexed_key(shape, keys + w + k * writers, &mut buf);
+        let key = nul_free(&buf);
+        if m.contains_key(key) {
+            // Two indices drew one key. Skipping the pair keeps the
+            // population where it is.
+            ops.rejected += 1;
+            k += 1;
+            continue;
+        }
+        let t = Instant::now();
+        let prev = m.insert(key, w);
+        let ns = t.elapsed().as_nanos() as u64;
+        ops.hist
+            .record(ns.clamp(1, HIST_MAX_NS - 1))
+            .expect("in range");
+        push_top(&mut ops.top, ns);
+        ops.inserted += 1;
+        if prev.is_some() {
+            ops.overwrites += 1;
+        }
+        indexed_key(shape, w + k * writers, &mut buf);
+        let key = nul_free(&buf);
+        let t = Instant::now();
+        let gone = m.remove(key);
+        let ns = t.elapsed().as_nanos() as u64;
+        ops.remove_hist
+            .record(ns.clamp(1, HIST_MAX_NS - 1))
+            .expect("in range");
+        push_top(&mut ops.remove_top, ns);
+        ops.removed += 1;
+        if black_box(gone).is_none() {
+            ops.remove_missed += 1;
+        }
+        k += 1;
+    }
+    ops.cpu_ns = match (c0, thread_cpu_ns()) {
+        (Some(a), Some(b)) => Some(b.saturating_sub(a)),
+        _ => None,
+    };
+    ops
+}
+
 /// The poller's readings: (offset from the window start, duration, value), in ns.
 fn poller_loop(
     m: &SyncExpanseStrMap,
@@ -429,9 +549,25 @@ fn main() {
     let keys = a.num("keys");
     row["shape"] = shape.clone().into();
     row["keys"] = keys.into();
+    let workload = match a.0.get("workload").map(String::as_str) {
+        None | Some("growth") => Workload::Growth,
+        Some("churn") => Workload::Churn,
+        Some(other) => panic!("unknown --workload {other}"),
+    };
+    row["workload"] = if workload == Workload::Churn {
+        "churn"
+    } else {
+        "growth"
+    }
+    .into();
     let m = Arc::new(SyncExpanseStrMap::new());
     let p0 = Instant::now();
-    prefill(&m, &shape, keys);
+    match workload {
+        Workload::Growth => prefill(&m, &shape, keys),
+        Workload::Churn => {
+            row["prefill_collisions"] = prefill_indexed(&m, &shape, keys).into();
+        }
+    }
     row["prefill_s"] = p0.elapsed().as_secs_f64().into();
     row["len_before"] = m.len().into();
     row["mem_used_before"] = (m.mem_used() as u64).into();
@@ -443,6 +579,10 @@ fn main() {
     assert_eq!(mode, "run", "unknown --mode {mode}");
     let writers = a.num("writers");
     assert!(writers >= 1, "--writers must be at least 1");
+    assert!(
+        workload == Workload::Growth || keys.is_multiple_of(writers),
+        "--workload churn needs --keys to be a multiple of --writers"
+    );
     let arm = match a.get("arm") {
         "none" => Arm::None,
         "len" => Arm::Len,
@@ -492,7 +632,10 @@ fn main() {
                     place_thread(cpu);
                 }
                 b.wait();
-                writer_loop(&m, &shape, keys, w, writers, seed, &stop)
+                match workload {
+                    Workload::Growth => writer_loop(&m, &shape, keys, w, writers, seed, &stop),
+                    Workload::Churn => churn_loop(&m, &shape, keys, w, writers, &stop),
+                }
             })
         })
         .collect();
@@ -532,6 +675,12 @@ fn main() {
     row["overwrites"] = ops.overwrites.into();
     row["rejected_present"] = ops.rejected.into();
     row["writer_cpu_ns"] = ops.cpu_ns.into();
+    if workload == Workload::Churn {
+        row["remove"] = percentiles(&ops.remove_hist);
+        row["remove_top_ns"] = ops.remove_top.clone().into();
+        row["removes"] = ops.removed.into();
+        row["remove_missed"] = ops.remove_missed.into();
+    }
     row["polls"] = match &polls {
         Some(p) => p
             .iter()
