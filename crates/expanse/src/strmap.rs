@@ -5906,7 +5906,7 @@ mod tests {
     fn str_node_shell_is_a_raw_class() {
         assert!(crate::alloc::class_for_raw(SHELL_BYTES).is_some());
         assert_eq!(crate::alloc::raw_class_fit(SHELL_BYTES), SHELL_BYTES);
-        assert!(SHELL_BYTES <= 256, "slab-carved classes stop at 256 bytes");
+        const { assert!(SHELL_BYTES <= 256, "slab-carved classes stop at 256 bytes") };
         assert_eq!(
             SHELL_ACCOUNTED,
             SHELL_BYTES.next_multiple_of(crate::types::RAW_ALIGN)

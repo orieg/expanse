@@ -1932,7 +1932,7 @@ impl RootState for ExpanseSet {
 /// `true` means the engine's per-node brackets already cover every store
 /// the operation can make, so [`Shared::write_root_covered`] need not hold
 /// the tree word. `ExpanseStrMap`'s root is not an engine `Root` at all —
-/// it is an `Option<Box<StrNode>>` naming the meta-trie's first node — so
+/// it is an `Option<RootNode>` naming the meta-trie's first node — so
 /// it is never a level-8 trie, and the two transitions that change it
 /// (creating the root node, and taking it when the last key leaves; T11
 /// and T10 of `docs/benchmarks/concurrency/METHODOLOGY.md` §17.2.1) carry
@@ -22095,7 +22095,7 @@ mod tests {
         m.with_locked(|inner| {
             assert!(
                 !RootState::root_is_tree(inner),
-                "the string map's root is an `Option<Box<StrNode>>`, never \
+                "the string map's root is an `Option<RootNode>`, never \
                  an engine `Root::Tree`, so the fallback keeps the \
                  tree-level bracket open across the whole operation"
             );

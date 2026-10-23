@@ -452,7 +452,7 @@ Set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way
 
 ### 4.4 Key Encoding for Low-Cardinality & Composite Keys (#1257)
 
-In database storage engines, string dictionaries and secondary indexes often index composite keys (such as `prefix ‖ name ‖ '/' ‖ id` or decimal order identifiers `t%03d:orders:%010d`). When keys contain low-cardinality byte ranges (e.g. ASCII decimal digits `0..=9`), each byte takes only 10 of 256 possible values. Because 100 keys under a common prefix exceed `LEAF_CAP` (32), the trie cascades into a `BranchB` containing ten 10-key leaves in 12-slot size classes, costing 17.60–17.97 B/key for 8-byte values ([#1257](https://github.com/orieg/expanse/issues/1257)).
+In database storage engines, string dictionaries and secondary indexes often index composite keys (such as `prefix ‖ name ‖ '/' ‖ id` or decimal order identifiers `t%03d:orders:%010d`). When keys contain low-cardinality byte ranges (e.g. ASCII decimal digits `0..=9`), each byte takes only 10 of 256 possible values. Because 100 keys under a common prefix exceed `LEAF_CAP` (32), the trie cascades into a `BranchB` containing ten 10-key leaves in 12-slot size classes, costing 17.60–17.97 B/key for 8-byte values ([#1257](https://github.com/orieg/expanse/issues/1257); the 17.97 predates design B, #1586, and is pending re-measurement, #1586).
 
 Database index and dictionary designers can eliminate this overhead without any engine layout changes by structuring key encodings around Expanse's byte-expanse invariants:
 
@@ -559,7 +559,7 @@ Reading `mem_used()` on every `put` is affordable here because `mem_used` is the
 - while writers run, it can differ by the bytes of the operations in flight;
 - no writer waits for it.
 
-Before design B the reading walked every entry with every writer excluded. With one reading per second, 4 writers and 2·10⁷ keys, no insert then completed for a fraction of wall time of [0.3619, 0.3743] on `routes` keys and [0.9994, 1.0000] on `short` keys *(measured on the code before design B: reference host, run [39685648391](https://github.com/orieg/expanse/actions/runs/39685648391) at `ac7c1237`, BCa 95% over 5 rounds; [`METHODOLOGY.md` §44.11](benchmarks/concurrency/METHODOLOGY.md), artifact [`baseline_strmap_poll_stall.json`](benchmarks/concurrency/results/baseline_strmap_poll_stall.json))*. The stall with design B is pending re-measurement (§47's G-stall).
+Before design B the reading walked every entry with every writer excluded. With one reading per second, 4 writers and 2·10⁷ keys, no insert then completed for a fraction of wall time of [0.3619, 0.3743] on `routes` keys and [0.9994, 1.0000] on `short` keys *(measured on the code before design B: reference host, run [39685648391](https://github.com/orieg/expanse/actions/runs/39685648391) at `ac7c1237`, BCa 95% over 5 rounds; [`METHODOLOGY.md` §44.11](benchmarks/concurrency/METHODOLOGY.md), artifact [`baseline_strmap_poll_stall.json`](benchmarks/concurrency/results/baseline_strmap_poll_stall.json))*. The stall with design B is pending re-measurement (#1586, §47's G-stall).
 
 `mem_held()` still runs with writers excluded on the concurrent string maps. Read it on a map that writers no longer use, such as one frozen or rotated out at a flush, or take a resident-memory bytes-per-key ratio from one reading and budget on `len()` between readings.
 

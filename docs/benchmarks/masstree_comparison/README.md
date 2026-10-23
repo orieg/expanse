@@ -193,6 +193,8 @@ its median fell from 147.66 to 144.22 ns (146.06 in run 2) while
 unmeasured *(measured: reference host, `results/baseline_string_latency.json`
 at `b868fb2e` against the `7fe02c0b` artifact in history)*.
 
+> **Pending re-measurement (design B, [#1586](https://github.com/orieg/expanse/issues/1586)).** The `ExpanseStrMap` memory figures in the next paragraph (`prefixed`) and in the `counter` / `short` / `skewed` paragraph below were measured before node shells and suffix leaves became blocks of the map's allocator (concurrency `METHODOLOGY.md` §47). That change moves both instruments: `mem_used` now counts every block at its accounted size (a shell at 48 bytes, where it counted 40), and the allocator census sees slab pages where it saw one allocation per shell and suffix. The figures are kept as measured, at the commits their tags name, and are stale until the suite re-runs on a build with the change. `ExpanseBytesMap` and the integer maps are not affected.
+
 **Memory at the ends of the density sweep goes to Masstree by a few bytes per
 key.** Masstree holds 22.76 B/key structurally at
 every λ **in the sorted order the suite builds in** — every leaf fills to 15

@@ -7379,3 +7379,74 @@ gh workflow run bench_baremetal.yml -f benchmark_suite=strmap_poll_stall_g47 -f 
 gh workflow run bench_baremetal.yml -f benchmark_suite=writer_scaling_1586_str_vs_base \
   -f ref="$HEAD" -f base_ref="$BASE" -f cpu_pin=0,2,4,6,8,10,12,14
 ```
+
+### 47.9 The deterministic gates on PR B (appended 2026-10-23; §47.1 to §47.8 are not rewritten, and no bound moves)
+
+PR B measured the three increments of §47.1 on the §47.2 instrument (same host, container and toolchain), one build per increment:
+- I1 at `7abe1b01`;
+- I2 at `3fcbf8da`;
+- I3 at `dc178ddb`. The commit after it changes only tests, docs and code compiled under `ablation-unpacked-suffix` alone.
+
+Artifact: `results/strmap_design_b_callgrind_dc178ddb.json` (every arm of the three builds, with §47.3's bound and whether I3 lies inside it). `main` had moved to `273871a6` (#1598) by then. #1598 changed no file under `crates/expanse/src` and none of the Callgrind harnesses, so §47.2's counts are `main`'s.
+
+**G-instr: not met.** 354 of 372 arms lie inside their bounds at I3, and 18 do not. Inside:
+- every shared string arm, including all seven named losers: `sync_strmap_insert_short/short` +6.3692%, `sync_strmap_insert_sorted/uuid` +6.2904%, `sync_strmap_insert/routes` +1.9842%, `rmw_instructions` `sync_strmap_cas_insert/routes` +2.3806%, `sync_strmap_cas/routes` +1.2739%, `sync_strmap_update_rmw/routes` +0.7600%, `sync_strmap_churn/routes` +0.3159%;
+- `sync_strmap_mem_used`: 15,663,913 → 5,851,763 (−62.6418%) on `routes` and 16,838,489 → 5,852,065 (−65.2459%) on `short`;
+- 308 of the 311 non-string arms, which are identical to `main`.
+
+The 18 outside, Δ against `main` at I1 / I2 / I3, with the bound, and the attribution (`callgrind_annotate`-equivalent per-function self Ir from each arm's profile, base against head; per-instruction counts and `objdump -d -C` where a function's source did not change):
+
+| arm | I1 | I2 | I3 | bound | direction |
+|---|---:|---:|---:|---|---|
+| `strmap_churn/routes` | +0.5617% | +1.1665% | +1.1665% | [−0.0136%, +0.1864%] | worse |
+| `smoke_instructions` `strmap_churn/routes` | +0.6797% | +0.9511% | +0.9511% | [−0.1455%, +0.0545%] | worse |
+| `strmap_insert/routes`, `strmap_insert_plain/routes` | −1.1929% | −0.6113% | −0.6113% | [−2.5490%, −1.4684%] | smaller saving |
+| `smoke_instructions` `strmap_insert/routes` | −1.2225% | −0.5797% | −0.5797% | [−2.5100%, −1.4011%] | smaller saving |
+| `capi smoke_instructions` `judysl_insert/routes` | −1.4002% | −1.5392% | −1.5392% | [−2.9792%, −1.9433%] | smaller saving |
+| `strmap_raw_insert/clean` | −0.0725% | −9.4887% | −9.4887% | [−10.0247%, −9.7072%] | smaller saving |
+| `strmap_transcode_insert/clean`, `/escaped` | −0.0633%, +0.0512% | −8.8586%, −6.8860% | same as I2 | [−9.2559%, −8.9486%], [−7.1364%, −6.9363%] | smaller saving |
+| `strmap_oscillate/routes` | −11.1164% | −13.2488% | −13.2488% | [−12.4309%, +1.7688%] | larger saving |
+| `strmap_refill/routes` | −1.8243% | −2.1582% | −2.1582% | [−1.5860%, −0.4571%] | larger saving |
+| `sync_strmap_remove/routes` | −1.1782% | −1.1743% | −1.1743% | [−0.6357%, +0.3436%] | larger saving |
+| `strmap_prefix_bounded`, `_scan`, `_seek` `/paths_dense` | 0 | −0.4055%, −0.3860%, −9.4905% | same | ±0.1%, ±0.1%, ±0.3110% | larger saving |
+| `smoke_instructions` `bytesmap_insert/routes`, `bytesmap_churn/routes`; `rmw_instructions` `sync_bytesmap_cas_remove/routes` | +0.1121%, +0.0370%, −0.0178% | same | same | ±0.01% | non-string |
+
+- **The plain insert and churn paths: register allocation in the inlined bodies.**
+  - On `strmap_churn/routes`, which allocates no shell, the whole +1,250,151 instructions against `main` under `packed-suffix` (the suffix half alone, +99,956) is in the arm wrapper the insert and remove bodies are inlined into: +1,250,000.
+  - Per instruction, a block executed 200,000 times, the per-chunk descent, gains 4 instructions: the key pointer and length are reloaded from the stack (`mov 0x28(%rsp)`, `mov 0x20(%rsp)`) where `main` kept them in registers. A block executed once per operation gains 11.
+  - On `strmap_insert/routes` the shell half itself is inside its range: at I1, `new_shell::<false>` costs 78.9 instructions per call (493,518 over 6,252 calls), inside [25, 85], against 189.9 for the `malloc` it replaces. But the wrapper body gains 464,750 against the packed build of `main`, 9.3 per insert, from the same register allocation drift.
+  - `split_suffix` grew from 765 to 1,671 instructions (1,244 under `packed-suffix` on `main`).
+  - The source change behind it is the root slot's type (`Option<RootNode>` for `Option<Box<StrNode>>`) and the out-of-line `new_shell` calls in the inlined bodies.
+- **One remedy was tried and reverted:** creating the plain root in a `#[cold] #[inline(never)]` function. It left `strmap_churn` at +1.1665% and moved `strmap_insert` from −0.6113% to −0.5012% and `strmap_oscillate` from −13.2488% to −11.8488%, so it was reverted (AGENTS.md §6: a flat or negative result is reverted and written down).
+- **The larger savings** (`strmap_oscillate`, `strmap_refill`, `sync_strmap_remove`) are the derived per-call ranges' lower ends set too high, plus a saving the derivation left out. At I1, a warm-freelist `new_shell` costs 20.1 (`strmap_oscillate`) and 10.0 (`strmap_refill`) instructions per call, under the 25 the range assumed. Taking 40-byte chunks out of glibc's heap removes `malloc_consolidate` and `_int_free_chunk` work on the arm's other allocations: −325,667 and −276,591 on `sync_strmap_remove`. The `paths_dense` prefix arms are the same glibc effect on the arms' own key buffers: −13,120 in `_int_malloc` on `strmap_prefix_seek`.
+- **The non-string arms:** `ExpanseBytesMap::insert`, whose source did not change, grew from 2,091 to 2,113 instructions in the `smoke_instructions` binary, an inlining change, +2 executed per call at I1. `sync_bytesmap_cas_remove`'s −34,946 is in `Shared::<ExpanseBytesMap>`'s writer body, not further attributed.
+
+**What follows (§47.5, first row).** The code changed once and was re-measured against the same bounds, and it did not recover. The bounds stand.
+- The four plain arms that save less than bounded and the two churn arms that lose (`strmap_churn` +1.1665%, the smoke twin +0.9511%) are departures recorded here, not met.
+- The arms that save more than bounded are reported, and do not by themselves block the change.
+- Whether PR B ships over the two plain churn losses is the maintainer's decision. The bound does not move to meet them.
+
+**G-accuracy: clauses 1, 3, 4 and the `layout_census` half of 2 are met; the `stats()` half of clause 2 and of clause 1 is a pre-registration defect.**
+- Met, with clause 3's churn phase included:
+  - `strmap::tests::deferred_mem_used_exact_after_join` (W = 4: inserts, removals and a clear; the lock-free reading equals the exact one and the shards' signed sum);
+  - `strmap::tests::mem_used_band_and_step_while_writers_run` (six phases, every reading within the band and the step bound);
+  - `census::tests` with `layout-census`;
+  - `stats_breakdown_sums_to_mem_used`.
+- §47.3 also wrote that `stats().node_bytes.total()` equals `mem_used` after concurrent writers are joined. On `main` it does not: a `SyncExpanseStrMap` filled by 4 writers with 4,000 keys each reads `stats` 439,316 against `mem_used` 732,820 at `f65060d8`, a defect of `stats()` on a map optimistic writers have written, outside design B. That half of the clause was never true on the code it was written against. The tests read the exact figure and `layout_census` instead, and the `stats()` defect is a separate issue.
+
+**G-density: met.** At I3 (`results/allocator_overhead_dc178ddb.txt`), every exact column is within its §47.3 ceiling, and the `ExpanseMap` shapes equal `main` in every exact column:
+- `mem_held`, `prefix` / `uuid`: 49.17 / 73.57 at 10⁶ and 49.12 / 69.72 at 10⁷;
+- `+headers`: 49.36 / 74.21 and 49.46 / 69.97.
+
+Against `main`, `prefix` `mem_held` rose 13.44 and 8.72 B/key and `+headers` 0.30 and 2.25, inside the named loss.
+
+**G-safety, local part: met; the CI part is read on the PR.**
+- The source census `strmap::tests::str_node_shells_are_node_alloc_blocks` passes, and each of its clauses fails on its own in the test itself.
+- The loom model `occ::loom_tests::loom_acct_fold_exact_after_join` passes.
+- `objdump` of the `instructions` binary at I3, instructions and `%fs:` operands:
+  - the `strmap_insert`, `strmap_oscillate` and `strmap_churn` arm wrappers (the plain bodies, inlined): 1,387 / 3,615 / 4,860, each 0 `%fs:` (`main`: 1,419 / 3,643 / 4,867, 0);
+  - `new_shell::<false>` 75, 0 `%fs:`;
+  - `new_shell::<true>` 113, 1;
+  - `free_shell` 50, 1, on its deferred branch;
+  - `new_suffix` 173, 1 and `dispose_suffix` 89, 1, as `main` under `packed-suffix`;
+  - `SyncExpanseStrMap::insert` 743, 33 and `remove` 4,341, 34 (`main`: 743, 33 and 4,338, 34).
