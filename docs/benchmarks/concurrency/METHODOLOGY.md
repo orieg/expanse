@@ -7861,3 +7861,57 @@ The table below gives the paired T_head/T_base, a lower figure meaning design B 
 - the count of lock-prefixed RMWs per allocation in `Deferred::charge`.
 
 Each needs its own pre-registration.
+
+## 48. Pre-registration for #1602 — an exclusive removal counts a dirty sub-map only as far as its decision needs (appended 2026-10-24, locked before any measurement of the change build; next free section)
+
+### 48.1 The defect and the change
+
+On a `SyncExpanseStrMap` held at constant population on `short` keys, one insert can wait for most of a 30 s window (§47.10, churn cell, both builds). A diagnostic on the x86_64 heavy-jobs host located the cause. That host is not the reference host: these are single runs of an instrumented `occ-stats` build, unpinned, with no interval, so they are a diagnosis, not a figure.
+- **The fold.** A removal that falls back to the serialised path runs `StrNode::remove_shared`, which calls `resync_at` on every node it removes from or prunes under (`strmap.rs`). On a node optimistic writers left dirty, `resync_at` folds the whole sub-map (`sync::fold_branch_pop0`) with the writer gate closed. The root sub-map of a `short`-key map holds the first chunk of every key, so the fold reads every key: 225–365 ms per fold at N = 2·10⁷. Stubbing the fold took the cell from 33 to about 10⁶ operations per second, and its largest insert from 2.27 s to 4.2 ms.
+- **What the fold is for.** The removal reads the folded count only to decide whether to condense the tree into a root leaf or empty it (`MapCore::remove_covered_at`, `now = tree_pop − 1` against 0 and `ROOT_LEAF_CAP`). Branch demotion reads child counts, and ancestor `pop0` updates are saturating bumps.
+
+**The change.** `resync_for_remove_at` replaces `resync_at` at the three removal sites. On a dirty node it counts the sub-map only up to `ROOT_LEAF_CAP + 1` keys (`sync::subtree_pop_capped`).
+- **At or below `ROOT_LEAF_CAP` keys:** the sub-map is folded exactly, which is cheap at that size, and its flag is cleared, as today.
+- **Above it:** the node stays dirty and its stale count is raised to at least `ROOT_LEAF_CAP + 1`. Optimistic inserts leave the count below the truth, so the raise is what keeps the removal from condensing a large tree.
+
+Design review: three synthetic reviewers (low-latency, storage-internals and decision red-team lenses), not peer review. Their conditions are the tests in §48.3.
+
+**Not in scope.** At N = 2·10⁷, 23% of removals take a `branch_split_remove` fallback, in the stubbed and the unstubbed build alike, against about 0.02% at 2·10⁶. That limits throughput, not the stall, and needs its own issue.
+
+### 48.2 Gates
+
+**G48-stall (reference host).**
+- **Cells:** §47.3's churn cell at its coordinates (N = 2·10⁷, W = 4, D = 30 s, both shapes, 5 rounds, one process per round, §44's pin and placement), arm `none`, driven by `strmap_poll_stall.py --plan 47` on the change build.
+- **Statistic:** the per-round largest insert latency (`insert.max_ns`), with BCa 95% intervals (2,000 resamples, `ci_method` recorded).
+- **Verdicts.** Let `S` be the `short` churn cell and `R` the `routes` churn cell, both measured in the same run.
+  - `PASS` iff `S`'s upper bound ≤ 2 × `R`'s upper bound.
+  - `FAIL` iff `S`'s lower bound > 2 × `R`'s upper bound.
+  - `INTERMEDIATE` otherwise.
+- **Why that comparison:** `routes` keys never stalled in §47.10. Their largest insert there was 22–40 ms. The factor 2 allows for the different key shapes, so `PASS` means `short` keys no longer behave differently from a shape that does not stall.
+- **Descriptive only:** the writers' CPU share and the total inserts per cell are reported beside the verdict, and are not compared across runs (`docs/BENCHMARKING.md` rule 18).
+
+**G48-instr (CI, deterministic).** No `instructions` arm is worse than `main` by more than 0.1% (AGENTS.md §6 review threshold). The changed path runs only on the exclusive removals of a shared string map, so the expected movement is confined to `sync_strmap_*` removal arms.
+
+**G48-safety (CI).** The §48.3 tests pass. Each has been shown failing on the clause it guards.
+
+### 48.3 Tests and their negative controls
+
+The tests are `strmap::tests::`:
+- `deferred_olc_removal_from_a_large_dirty_sub_map_keeps_it_a_tree`: stale-low count, exclusive removals, every key checked;
+- `deferred_olc_capped_resync_decides_at_the_root_leaf_boundary`: one removal at a time from `ROOT_LEAF_CAP + 4` keys, asserting the dirty flag, the tree state and the exact count at each step;
+- `deferred_olc_removal_from_a_dirty_sub_map_does_not_fold_it`: at most 64 edges visited per removal from a dirty 20,000-key sub-map;
+- `removal_sites_use_the_capped_resync`: a source pin of the three sites.
+
+Every mutation below was applied alone, and each turned a test red. Five failed through `MapCore::condensed_leaf`'s `written < n` assertion or a named assertion, and one through the edge bound:
+
+| mutation | red test |
+|---|---|
+| no `max` on the raised count | large-sub-map test (condenses a large tree) |
+| the large branch clears the flag | both decision tests |
+| cap `ROOT_LEAF_CAP + 2` | boundary test |
+| cap `ROOT_LEAF_CAP` | both decision tests |
+| always fold | edge-bound test |
+| one removal site reverted to `resync_at` | source pin |
+| one removal site commented out | source pin |
+
+The run waits for the maintainer's go-ahead. No bound in §48.2 moves after it.

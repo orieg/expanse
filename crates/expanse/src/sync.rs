@@ -1489,6 +1489,108 @@ pub(crate) unsafe fn subtree_vacant(edge: *const Edge, level: u8) -> bool {
     }
 }
 
+/// The population of the subtree under `edge` at `level`, counted only as
+/// far as `cap`: the walk stops once it has counted `cap` keys, and then
+/// returns a value of at least `cap`. Below `cap` the count is exact. It sums
+/// what [`fold_branch_pop0`] sums, from the counts optimistic writers keep
+/// exact (immediates, leaf and bitmap-leaf `pop0`, full expanses), and never
+/// reads or writes a branch's `pop0`, which they leave stale. The walk visits
+/// at most the nodes on the paths to the first `cap` keys, in digit order,
+/// and the null edges between them. An undecodable edge counts as 0, which
+/// sends the caller to the exact fold rather than past it (Refs #1602).
+///
+/// # Safety
+///
+/// As [`fold_branch_pop0`]: exclusive, and `edge` points to an EBR-live
+/// `Edge`.
+#[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+pub(crate) unsafe fn subtree_pop_capped(edge: *const Edge, level: u8, cap: u64) -> u64 {
+    #[cfg(test)]
+    fold_edges::bump();
+    // SAFETY: caller guarantees `edge` is EBR-live and exclusive.
+    let e = unsafe { edge.read() };
+    let Some(tag) = e.tag() else {
+        return 0;
+    };
+    // Every child edge of a branch at level `bl`, until `cap` is reached.
+    let run = |edges: *const Edge, n: usize, bl: u8, acc: &mut u64| {
+        for i in 0..n {
+            if *acc >= cap {
+                return;
+            }
+            // SAFETY: `i < n`, inside the branch's live edge array (caller).
+            *acc += unsafe { subtree_pop_capped(edges.add(i), bl - 1, cap - *acc) };
+        }
+    };
+    let mut acc = 0u64;
+    match tag {
+        EdgeTag::Structural(EdgeType::Null) => {}
+        EdgeTag::Immed(im) => acc = im.key_count() as u64,
+        EdgeTag::Structural(
+            t @ (EdgeType::Leaf1
+            | EdgeType::Leaf2
+            | EdgeType::Leaf3
+            | EdgeType::Leaf4
+            | EdgeType::Leaf5
+            | EdgeType::Leaf6
+            | EdgeType::Leaf7),
+        ) => acc = e.pop0(t.leaf_key_bytes().unwrap_or(level)) + 1,
+        EdgeTag::Structural(EdgeType::LeafB1) => acc = e.pop0(1) + 1,
+        EdgeTag::Structural(EdgeType::FullExpanse) => acc = pow256(level),
+        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+            // SAFETY: a live branch edge (caller).
+            let bl = unsafe { branch_form_level(&e, t, level) };
+            let ptr = e.node_ptr();
+            if !ptr.is_null() {
+                // SAFETY: `ptr` is the live branch the edge names.
+                let (num, edges): (usize, *const Edge) = unsafe {
+                    if matches!(t, EdgeType::BranchL3) {
+                        let b = ptr.cast::<BranchL3>();
+                        (
+                            (*b).hdr.num as usize,
+                            (&raw const (*b).edges).cast::<Edge>(),
+                        )
+                    } else {
+                        let b = ptr.cast::<BranchL7>();
+                        (
+                            (*b).hdr.num as usize,
+                            (&raw const (*b).edges).cast::<Edge>(),
+                        )
+                    }
+                };
+                run(edges, num, bl, &mut acc);
+            }
+        }
+        EdgeTag::Structural(EdgeType::BranchB) => {
+            // SAFETY: a live branch edge (caller).
+            let bl = unsafe { branch_form_level(&e, EdgeType::BranchB, level) };
+            let ptr = e.node_ptr();
+            if !ptr.is_null() {
+                let b = ptr.cast::<BranchB>();
+                for sub in 0..8usize {
+                    // SAFETY: `ptr` is the live bitmap branch the edge names.
+                    let (n, sub_ptr) =
+                        unsafe { ((*b).pop_counts[sub] as usize, (*b).subarrays[sub]) };
+                    if n > 0 && !sub_ptr.is_null() {
+                        run(sub_ptr, n, bl, &mut acc);
+                    }
+                }
+            }
+        }
+        EdgeTag::Structural(EdgeType::BranchU) => {
+            // SAFETY: a live branch edge (caller).
+            let bl = unsafe { branch_form_level(&e, EdgeType::BranchU, level) };
+            let ptr = e.node_ptr();
+            if !ptr.is_null() {
+                // SAFETY: `ptr` is the live uncompressed branch the edge names.
+                let edges = unsafe { (&raw const (*ptr.cast::<BranchU>()).edges).cast::<Edge>() };
+                run(edges, BRANCH_FANOUT, bl, &mut acc);
+            }
+        }
+    }
+    acc
+}
+
 /// Lazily computes and updates branch `pop0` counts across the subtree rooted at `edge`.
 ///
 /// Under OLC concurrent mutations, writers update leaf `pop0` counts directly under the
