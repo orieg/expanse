@@ -7734,3 +7734,60 @@ With `HEAD` the increment's commit (40 characters), two independent runs, each i
 gh workflow run bench_baremetal.yml -f benchmark_suite=writer_scaling_1586_str_vs_base \
   -f ref="$HEAD" -f base_ref=6dc24a748bc6b28ef58aa68f6ad0439b4a65ecdc -f cpu_pin=0,2,4,6,8,10,12,14
 ```
+
+### 47.12 The increment's Callgrind outcome (appended 2026-10-24; §47.11 is not rewritten, and no bound moves)
+
+Two builds of the increment were measured on both §47.11 instruments against `a37a044e`, every arm of `instructions` and `rmw_instructions`:
+- `fec9aa7a`, the increment as first committed;
+- `49bc2906`, the same increment with `alloc_raw`'s body stamped by a macro (below).
+
+`75c67e0a`, between them, changed two sentences of §47.11's text before any measurement of the increment was read, and no bound, constant or table row. Artifact: `results/strmap_zeroing_callgrind_49bc2906.json`, every arm of both builds with its delta and bound.
+
+**G-instr for the increment: met at `49bc2906`, on both instruments.** All 286 arms lie inside their bounds under glibc 2.41 and under glibc 2.39.
+- The 46 arms expected to improve did, by the same counts in both builds. The main ones, measured Δ against `a37a044e`, with the bound:
+
+  | arm | 2.41 | 2.41 bound | 2.39 | 2.39 bound |
+  |---|---:|---|---:|---|
+  | `sync_strmap_insert_short/short` | -1.5472% | [-2.7962%, -1.1703%] | -3.7884% | [-4.9824%, -1.4642%] |
+  | `sync_strmap_insert_sorted/uuid` | -2.3642% | [-8.6765%, -1.1108%] | -1.8325% | [-8.4922%, -1.4036%] |
+  | `sync_strmap_insert/routes` | -1.0390% | [-2.6313%, -0.5709%] | -0.9599% | [-2.6989%, -0.6602%] |
+  | `rmw_instructions` `sync_strmap_cas_insert/routes` | -0.6838% | [-1.5797%, -0.4454%] | -0.5979% | [-1.6576%, -0.5486%] |
+  | `sync_strmap_churn_short/short` | -0.7507% | [-1.0667%, -0.4511%] | -0.7600% | [-1.1322%, -0.4876%] |
+  | `strmap_oscillate/routes` | -2.8689% | [-3.9214%, -1.8724%] | -3.0373% | [-4.2203%, -2.0440%] |
+  | `strmap_raw_insert/clean` | -1.7222% | [-5.1534%, -1.1326%] | -1.8310% | [-5.3273%, -1.2453%] |
+  | `strmap_insert/routes` | -0.2214% | [-0.4098%, -0.0476%] | -0.2348% | [-0.4336%, -0.0614%] |
+  | `sync_set_churn/leaf` | -1.7302% | [-2.6231%, -1.3418%] | -1.5874% | [-2.4298%, -1.2313%] |
+  | `sync_map_churn/random` | -0.8731% | [-1.0664%, -0.4522%] | -0.9147% | [-1.1458%, -0.4976%] |
+
+- **The No change arms.** Under 2.41 every one is identical to `a37a044e`, `strmap_churn/routes` among them. Under 2.39, eight shared string read and scan arms move by at most 0.0171% (`sync_strmap_next_after_scan_locked/paths`, −20,887), inside their slack.
+
+**The departure at `fec9aa7a`, and what changed (§47.11's first falsifier row).**
+- At `fec9aa7a`, 284 of 286 arms lay inside on each instrument. Two No change arms did not, by the same counts on both: `map_remove/random` +100,042 Ir (+0.4442% under 2.41) and `map_remove_partial/random60` +275,002 (+0.3960%).
+- `callgrind_annotate --inclusive=no` puts all of `map_remove`'s change in its arm wrapper, whose source did not change: +100,042 instructions and +50,001 data writes, over 50,000 operations. `objdump -d -C` of the wrapper shows its frame growing from `0x348` to `0x358` bytes and its per-key loop reloading the loop pointer from the stack.
+- Bisected by building the `instructions` binary and diffing the wrapper's disassembly against `a37a044e`. `occ.rs`'s change alone leaves it identical. `alloc.rs`'s change alone reproduces it, both with `alloc_raw` wrapping a body that takes `const ZERO` and with `const ZERO` as `alloc_raw`'s own parameter.
+- `49bc2906` stamps the body twice with a macro, `alloc_raw_body!`: the zeroed variant with `write_bytes` and `alloc_zeroed`, the non-zeroing one with neither and `alloc`. The `map_remove`, `map_remove_partial`, `strmap_churn`, `strmap_insert` and `set_insert` wrappers are then instruction for instruction those of `a37a044e`. The full benches were then re-measured, as above.
+
+**Attribution on `sync_strmap_insert_short/short`** (`callgrind_annotate --inclusive=no`, `a37a044e` against `49bc2906`, per function self Ir):
+
+| function | 2.41 | 2.39 |
+|---|---:|---:|
+| `calloc` | -3,334,276 | -3,696,419 |
+| `malloc` | +2,060,483 | +2,260,245 |
+| unnamed libc function at `0xab650` (2.39 only) | | -2,272,628 |
+| `Collector::pop_freelist` | -210,176 | -210,176 |
+| `memset` (unnamed: `0x163280`, `0x189780`) | -109,920 | -117,913 |
+| `new_suffix` | -150 | -150 |
+| `new_shell::<true>` | -1 | -1 |
+| other functions | 0 | +918 |
+| **arm total** | **-1,594,040** | **-4,036,124** |
+
+- The `calloc` to `malloc` swap nets −1,273,793 Ir under 2.41 over the arm's 49,951 shell and suffix allocations, 25.5 per call, inside the per-call range §47.11's term gives this arm's suffix arc, [24.0, 51.8]. Under 2.39, counting `0xab650`, it nets −3,708,802, 74.2 per call, inside [31.0, 100.0].
+- The removed `memset` cost matches the call records: −109,920 against 109,920 under 2.41 to the instruction, and −117,913 against 118,008 under 2.39.
+- **A derivation miss, recorded, deciding nothing.** `pop_freelist`'s own count fell by 210,176 on both instruments, beyond the at most 82,440 (2.41) its per-hit setup term allowed. The function fell from 145 to 103 instructions (`objdump`); which of its paths lost them is not attributed per instruction here. The bound held through the width of the `calloc` term.
+
+**`%fs:` on the plain paths** (`objdump -d -C --no-show-raw-insn` of the 2.41 `instructions` binary, `a37a044e` → `49bc2906`, instructions and `%fs:` operands):
+- the `strmap_insert`, `strmap_oscillate` and `strmap_churn` wrappers: 1,387 / 3,615 / 4,860 at both, 0 `%fs:`;
+- `new_shell::<false>`: 75 → 78, 0 `%fs:`;
+- `new_shell::<true>`: 113 → 94; `new_suffix`: 173 → 189; `pop_freelist`: 145 → 103; each 1 `%fs:` at both.
+
+**Not yet measured.** The wall-clock report §47.11 registers (T_head(W) / T_base(W) against `6dc24a74`, with G-scale) needs the maintainer's dispatch at the increment's head. Against `main`, the instruction-counts job on the PR head is the record.
