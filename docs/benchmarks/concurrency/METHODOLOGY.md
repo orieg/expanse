@@ -7450,3 +7450,96 @@ Against `main`, `prefix` `mem_held` rose 13.44 and 8.72 B/key and `+headers` 0.3
   - `free_shell` 50, 1, on its deferred branch;
   - `new_suffix` 173, 1 and `dispose_suffix` 89, 1, as `main` under `packed-suffix`;
   - `SyncExpanseStrMap::insert` 743, 33 and `remove` 4,341, 34 (`main`: 743, 33 and 4,338, 34).
+
+### 47.10 The reference-host gates, the instrument gap and the outcome (appended 2026-10-24; §47.1 to §47.9 are not rewritten, and no bound moves)
+
+All runs below were admitted by the host-activity guard under §44.10's rules: dispatched at :19 inside 18:19–12:19 UTC, `apt-daily` timers stopped, no login to the host during a run. Intervals are BCa 95% unless marked otherwise.
+
+**G-stall: PASS.**
+- Run [40002326686](https://github.com/orieg/expanse/actions/runs/40002326686) at `3cbe77d6`; artifact `results/gate_1586_strmap_poll_stall.json`; worst foreign load 0.15 core-equivalents.
+- Results by cell:
+
+  | cell (N = 2·10⁷, W = 4, T = 1 s) | `mem_used` arm, largest insert | bound (3 × `len` upper) | verdict |
+  |---|---|---|---|
+  | `routes` growth | [114,610, 165,170] ns | 4,642,480 ns | PASS |
+  | `short` growth | [105,151, 145,573] ns | 417,559 ns | PASS |
+  | `routes` churn | [24,897,125, 45,232,946] ns | 99,827,709 ns | PASS |
+  | `short` churn | [125,750,476, 29,943,975,116] ns | 89,902,389,655 ns | PASS |
+
+- **Only the growth cells carry evidence.** In both churn cells the `len` control itself holds the long stall described next, so the ratio rule cannot detect a `mem_used` stall there (k × control ≈ 90 s on `short`). This reading of the churn cells was not stated in §47.3; it is recorded here and changes no verdict.
+- For comparison on `main`, the same cells at the base `6dc24a74` were run once (run [40057817142](https://github.com/orieg/expanse/actions/runs/40057817142); artifact `results/gate_1586_strmap_poll_stall_base_6dc24a74.json`). Reported, not gated:
+
+  | cell | `main` `mem_used` largest insert, per round | design B |
+  |---|---|---|
+  | `routes` growth | 0.501–0.545 s | 0.11–0.17 ms |
+  | `short` growth | 1.012–2.002 s | 0.11–0.15 ms |
+
+**The churn stall predates design B.** The same base run shows, on `main`:
+- `short` churn: largest insert 29.31–30.09 s in **all 5** rounds of the no-poller arm, with the writers' CPU share at 0.26. Design B's run showed 29.9 s in 2 of 5 rounds of that arm and a share of 0.25–0.28.
+- `routes` churn: 25–37 ms on both builds.
+
+So a single insert on a constant-population `short`-key map can wait for about the whole 30 s window with no poller at all, on both builds. Design B neither introduced nor removed it. The low CPU share points to writers parked rather than spinning. The cause is unmeasured; it is tracked separately, outside §47.
+
+**G-scale: MEETS_FLOOR in both runs.** The statistic is C_head(W)/C_base(W):
+
+| W | run [40039010963](https://github.com/orieg/expanse/actions/runs/40039010963) | run [40044397191](https://github.com/orieg/expanse/actions/runs/40044397191) |
+|---|---|---|
+| 2 | [1.0110, 1.0235] | [0.9997, 1.0231] |
+| 4 | [0.9847, 1.0401] | [0.9723, 1.0646] |
+| 8 | [1.0099, 1.0424] | [1.0038, 1.0470] |
+
+- Artifacts: `results/gate_1586_str_writer_scaling_run{1,2}.json`.
+- C(W) = T(W)/T(1) within each build, so a uniform single-writer loss cancels out of this gate.
+- The absolute throughput ratio T_head(W)/T_base(W), paired per round, n = 8, was not pre-registered and is reported here only:
+
+  | W | run 1 | run 2 | base → head median (M inserts/s) |
+  |---|---|---|---|
+  | 1 | 0.9321 [0.9284, 0.9341] | 0.9306 [0.9250, 0.9354] | 3.57 → 3.33 |
+  | 2 | 0.9486 [0.9438, 0.9540] | 0.9441 [0.9344, 0.9496] | 6.02 → 5.68 |
+  | 4 | 0.9427 [0.9180, 0.9705] | 0.9504 [0.9085, 0.9857] | 10.52 → 9.98 |
+  | 8 | 0.9545 [0.9414, 0.9684] | 0.9564 [0.9350, 0.9742] | 19.89 → 18.67 |
+
+- So design B costs about 7% of shared string-insert throughput at one writer and about 4.5% at eight. Both runs agree.
+
+**G-instr: not met, on both instruments.**
+- On the registered instrument (§47.9, the §47.2 container), 18 arms lie outside their bounds.
+- On CI's `instruction-counts` job (ubuntu-24.04), which `perf_report.py` gates on:
+
+  | arm | CI | registered instrument | §47.3 bound |
+  |---|---:|---:|---|
+  | `sync_strmap_insert_short/short` | +8.79% | +6.37% | [+6.27%, +6.47%] |
+  | `sync_strmap_insert_sorted/uuid` | +5.62% | +6.29% | [+6.19%, +6.39%] |
+  | `sync_strmap_insert/routes` | +1.66% | +1.98% | [+0.34%, +2.09%] |
+  | `sync_strmap_cas_insert/routes` | +2.18% | +2.38% | [+2.18%, +4.78%] |
+  | `sync_strmap_cas/routes` | +1.27% | +1.27% | [+1.17%, +1.37%] |
+  | `sync_strmap_update_rmw/routes` | +0.76% | +0.76% | [+0.66%, +0.86%] |
+  | `strmap_churn/routes` | +1.15% | +1.17% | up to +0.1864% |
+
+- `strmap_churn` was named in §47.3 with that upper bound and exceeds it about 6×. It is a single-threaded plain-tree cost with no gain on its arm, and §47.9 attributes it to register drift in the inlined insert and remove bodies.
+
+**The CI gap is libc, not engine code (measured).** The same base and head binaries, built at `6dc24a74` and `2fef468b` and run under valgrind 3.27.1, reproduce both instruments:
+- under glibc 2.39 (`ubuntu:24.04`, CI's runner image): CI's counts to within 0.003%;
+- under glibc 2.41 (`debian:trixie`): the registered instrument's percentages.
+
+On `sync_strmap_insert_short` the engine functions move identically under both:
+- `new_suffix` +3,499,750 Ir
+- `Collector::pop_freelist` +2,400,088 Ir
+- `olc_insert` −1,005,493 Ir
+- total about +4.89M (+5.0%)
+
+The libc share is +1.27M on 2.41 and +3.72M on 2.39. Its source is design B replacing `malloc` with zeroed `calloc` for shells and suffixes; on 2.39 that `calloc` takes a longer path through one unresolved function, identified as `_int_malloc` by size and position only. §47.3 derived its shared-allocation range on one glibc and fixed no C library among its silent constants (§47.6). That is a pre-registration defect, recorded here; the bounds do not move.
+
+**G-accuracy:** clauses 1, 3 and 4 and the `layout_census` half of clause 2 are met. The `stats()` half is **NOT_EVALUABLE**: §47.3 assumed `stats()` sums to `mem_used` after concurrent writers, and it does not on `main` either (§47.9). It is tracked separately.
+
+**G-density, G-safety:** met (§47.9). CI's Miri, ASan (default and `ablation-unpacked-suffix` passes), loom, Windows and ARM lanes pass.
+
+**Outcome.**
+- Every gate is met except G-instr. That includes G-stall, the gain axis, in the growth cells that can show it.
+- Under §47.5's first row, a G-instr miss is attributed (above) and the change waits for the maintainer's decision. No override is entered for it.
+- What the decision weighs:
+  - **Gain:** a `mem_used` reading no longer holds writers. The largest insert falls from 0.5–2 s to about 0.15 ms at 2·10⁷ keys, on the long-lived growing map the caller described.
+  - **Cost:**
+    - about 7% (one writer) to 4.5% (eight) of shared string-insert throughput;
+    - +1.15% instructions on plain `strmap_churn`;
+    - the glibc-dependent `calloc` share on every shared shell and suffix allocation.
+- The likely first lever on the cost is allocating shells, which are fully written, without zeroing. It is unmeasured.
