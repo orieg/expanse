@@ -2115,6 +2115,11 @@ impl Collector {
     }
 
     /// Pops a reclaimed block from this collector's size-class freelist.
+    ///
+    /// The block comes back as it was reclaimed, not zeroed: its first word
+    /// is the freelist link and the rest is the previous occupant's bytes.
+    /// Its one caller, `NodeAlloc::alloc_block`, zeroes the bytes it hands out
+    /// when its caller asks for a zeroed block.
     #[inline(never)]
     pub(crate) fn pop_freelist(&self, class: usize) -> *mut u8 {
         let mut head = self
@@ -2133,9 +2138,6 @@ impl Collector {
             head.1.reused += 1;
         }
         drop(head);
-        let bytes = CLASS_SPECS[class].0;
-        // SAFETY: zero out the reused memory before returning.
-        unsafe { core::ptr::write_bytes(block.cast::<u8>(), 0, bytes) };
         block.cast::<u8>()
     }
 

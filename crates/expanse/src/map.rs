@@ -847,6 +847,17 @@ impl MapCore {
         }
     }
 
+    /// The offsets, and the values, of the two words [`Self::new`] writes:
+    /// the root's tag (word 0 of the `repr(u64)` `Root`) and the population.
+    /// An empty root leaves its payload words unwritten. For tests that check
+    /// a core written over a block that was not zeroed
+    /// (`strmap::tests::shell_is_fully_written_over_a_stale_block`).
+    #[cfg(test)]
+    pub(crate) const NEW_WORDS: [(usize, u64); 2] = [
+        (core::mem::offset_of!(MapCore, root), ROOT_EMPTY),
+        (core::mem::offset_of!(MapCore, tree_pop), 0),
+    ];
+
     /// Number of keys in the map.
     #[inline(always)]
     #[must_use]

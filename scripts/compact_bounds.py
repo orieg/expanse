@@ -8,7 +8,7 @@ unit-tested code (AGENTS.md §8.8 commit 1).
 `compact()` builds a fresh tree of the surviving keys into a new allocator from
 the ordered iteration, swaps it in and drops the old one. What that holds, what
 it peaks at and what it may cost follow from how the allocator carves slab
-pages (crates/expanse/src/alloc.rs, `NodeAlloc::alloc_raw` and
+pages (crates/expanse/src/alloc.rs, `NodeAlloc::alloc_block` and
 `NodeAlloc::census`):
 
   * `no_free_held` — the `mem_held()` of an allocator that has only ever
@@ -93,7 +93,7 @@ def no_free_held(classes, system_live_bytes: int) -> int:
     `classes` is an iterable of (live_blocks, blocks_per_page), one per slab
     class. With no free, a class's freelist holds only the uncarved rest of its
     newest page, and a page is carved only when that freelist is empty
-    (`NodeAlloc::alloc_raw`), so the class holds ceil(live / blocks_per_page)
+    (`NodeAlloc::alloc_block`), so the class holds ceil(live / blocks_per_page)
     pages. The system-served classes hold their live bytes and, with no free,
     no freelist block."""
     if system_live_bytes < 0:
@@ -211,12 +211,13 @@ def engine_source_problems(text: str) -> list[str]:
         if got != want:
             problems.append(f"alloc.rs: `fn {fn}` body is {got!r}, model mirrors {want!r}")
     # A page is carved only once the class freelist is empty: the carve sits
-    # after the freelist pop returns, inside `alloc_raw`.
-    body = _fn_body(text, "alloc_raw") or ""
+    # after the freelist pop returns, inside `alloc_block` (the body
+    # `alloc_raw` and the non-zeroing entry points share).
+    body = _fn_body(text, "alloc_block") or ""
     pop = body.find("self.freelists[class].store(next,Ordering::Relaxed);")
     carve = body.find("alloc_zeroed(page_layout)")
     if pop < 0 or carve < 0 or carve < pop:
-        problems.append("alloc.rs: `alloc_raw` no longer pops the freelist before carving a page")
+        problems.append("alloc.rs: `alloc_block` no longer pops the freelist before carving a page")
     return problems
 
 
@@ -231,7 +232,7 @@ def test_engine_sync() -> None:
          "(SLAB_PAGE_SIZE - 2 * SLAB_HEADER) / accounted_size(bytes, align)", "slab_blocks"),
         ("+ self.system_free_bytes()\n", "\n", "fn held"),
         ("let page_raw = unsafe { alloc_zeroed(page_layout) };",
-         "let page_raw = unsafe { core::ptr::null_mut::<u8>() };", "alloc_raw"),
+         "let page_raw = unsafe { core::ptr::null_mut::<u8>() };", "alloc_block"),
     )
     for old, new, expect in mutations:
         assert old in text, f"negative control out of date: {old!r} not in alloc.rs"

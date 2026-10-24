@@ -59,14 +59,14 @@ use crate::types::{CACHE_LINE, RAW_ALIGN};
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 #[cfg(feature = "std")]
-use std::alloc::{Layout, alloc_zeroed, dealloc, handle_alloc_error};
+use std::alloc::{Layout, alloc as alloc_uninit, alloc_zeroed, dealloc, handle_alloc_error};
 #[cfg(feature = "std")]
 use std::sync::{Arc, OnceLock};
 
 #[cfg(not(feature = "std"))]
 use core::alloc::Layout;
 #[cfg(not(feature = "std"))]
-use core_alloc::alloc::{alloc_zeroed, dealloc, handle_alloc_error};
+use core_alloc::alloc::{alloc as alloc_uninit, alloc_zeroed, dealloc, handle_alloc_error};
 
 #[repr(C)]
 pub(crate) struct FreeBlock {
@@ -1204,6 +1204,26 @@ impl NodeAlloc {
     /// [`RAW_ALIGN`], `alloc_node`/`free_node` are always `align_of::<T>()`.
     #[inline(always)]
     fn alloc_raw<const OCC: bool>(&self, bytes: usize, align: usize) -> NonNull<u8> {
+        self.alloc_block::<OCC, true>(bytes, align)
+    }
+
+    /// [`Self::alloc_raw`], zeroing the block only when `ZERO` is set.
+    ///
+    /// With `ZERO = false` the block's contents are unspecified: uninitialised
+    /// on a fresh system allocation, the previous occupant's bytes (with a
+    /// freelist link over its first word) on a reused one. Only a caller that
+    /// writes every byte it later reads before it reads it may ask for that:
+    /// `strmap::new_shell`, which writes a whole `StrNode`, and
+    /// `strmap::new_suffix`, which writes the header and the key bytes and
+    /// whose class-size tail nothing reads (Refs #1586, METHODOLOGY §47.11).
+    /// The free is the
+    /// same for both: `alloc` and `alloc_zeroed` take the same layout.
+    #[inline(always)]
+    fn alloc_block<const OCC: bool, const ZERO: bool>(
+        &self,
+        bytes: usize,
+        align: usize,
+    ) -> NonNull<u8> {
         #[cfg(feature = "std")]
         debug_assert!(
             OCC || self.deferred.get().is_none(),
@@ -1222,14 +1242,19 @@ impl NodeAlloc {
             if let Some(class) = class_for(bytes, align) {
                 let raw = d.collector.pop_freelist(class);
                 if !raw.is_null() {
-                    // SAFETY: zero out the reused memory before returning.
-                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                    // `pop_freelist` hands the block back as it was reclaimed,
+                    // so this is the one zeroing of a reused deferred block.
+                    if ZERO {
+                        // SAFETY: `raw` is a popped block of this `(bytes,
+                        // align)` class, at least `bytes` long and owned here.
+                        unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                    }
                     return NonNull::new(raw).expect("non-null free block");
                 }
             }
             // Per-tree freelists are single-writer, so a deferred tree never
             // pops them: a collector miss goes to the system allocator.
-            return Self::alloc_system(bytes, align);
+            return Self::alloc_system::<ZERO>(bytes, align);
         }
 
         self.bytes_in_use
@@ -1241,7 +1266,7 @@ impl NodeAlloc {
         // accounted above as in every build (module docs).
         #[cfg(miri)]
         if self.exact_size {
-            return Self::alloc_system(bytes, align);
+            return Self::alloc_system::<ZERO>(bytes, align);
         }
 
         if let Some(class) = class_for(bytes, align) {
@@ -1275,8 +1300,10 @@ impl NodeAlloc {
                 let next = unsafe { (*head).next };
                 self.freelists[class].store(next, Ordering::Relaxed);
                 let raw = head.cast::<u8>();
-                // SAFETY: zero out the reused memory before returning.
-                unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                if ZERO {
+                    // SAFETY: zero out the reused memory before returning.
+                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                }
                 return NonNull::new(raw).expect("non-null free block");
             }
 
@@ -1319,21 +1346,31 @@ impl NodeAlloc {
 
                 // SAFETY: header_offset is aligned to CACHE_LINE.
                 let raw = unsafe { page_raw.add(header_offset) };
-                // SAFETY: zero out the reused memory before returning.
-                unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                if ZERO {
+                    // SAFETY: zero out the reused memory before returning.
+                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                }
                 return NonNull::new(raw).expect("non-null free block");
             }
         }
 
-        Self::alloc_system(bytes, align)
+        Self::alloc_system::<ZERO>(bytes, align)
     }
 
-    /// A zeroed block straight from the system allocator.
+    /// A block straight from the system allocator: zeroed (`alloc_zeroed`)
+    /// when `ZERO` is set, uninitialised (`alloc`) otherwise.
     #[inline(always)]
-    fn alloc_system(bytes: usize, align: usize) -> NonNull<u8> {
+    fn alloc_system<const ZERO: bool>(bytes: usize, align: usize) -> NonNull<u8> {
         let layout = Self::layout_for(bytes, align);
-        // SAFETY: `layout` has nonzero size (asserted in `layout_for`).
-        let raw = unsafe { alloc_zeroed(layout) };
+        // SAFETY: `layout` has nonzero size (asserted in `layout_for`); both
+        // functions take any such layout.
+        let raw = unsafe {
+            if ZERO {
+                alloc_zeroed(layout)
+            } else {
+                alloc_uninit(layout)
+            }
+        };
         let Some(ptr) = NonNull::new(raw) else {
             handle_alloc_error(layout)
         };
@@ -1416,6 +1453,21 @@ impl NodeAlloc {
         self.alloc_raw::<true>(bytes, RAW_ALIGN)
     }
 
+    /// [`Self::alloc_bytes`] without zeroing the block.
+    ///
+    /// The block's contents are unspecified: uninitialised on a fresh system
+    /// allocation, the previous occupant's bytes on a reused one. The caller
+    /// must write every byte it will read before reading it, and must not
+    /// publish the block before then. Freed with [`Self::free_bytes`], as a
+    /// zeroed block is. Its one caller is the packed suffix path, so the
+    /// inverse `ablation-unpacked-suffix` compiles it out.
+    #[cfg(not(feature = "ablation-unpacked-suffix"))]
+    #[must_use]
+    #[inline(always)]
+    pub(crate) fn alloc_bytes_uninit(&self, bytes: usize) -> NonNull<u8> {
+        self.alloc_block::<true, false>(bytes, RAW_ALIGN)
+    }
+
     /// Frees an allocation made by [`Self::alloc_bytes`] with this handle.
     ///
     /// # Safety
@@ -1461,6 +1513,19 @@ impl NodeAlloc {
     #[inline(always)]
     pub(crate) fn alloc_bytes_dispatch<const OCC: bool>(&self, bytes: usize) -> NonNull<u8> {
         self.alloc_raw::<OCC>(bytes, RAW_ALIGN)
+    }
+
+    /// [`Self::alloc_bytes_dispatch`] without zeroing the block.
+    ///
+    /// The block's contents are unspecified: uninitialised on a fresh system
+    /// allocation, the previous occupant's bytes on a reused one. The caller
+    /// must write every byte it will read before reading it, and must not
+    /// publish the block before then. Freed with [`Self::free_bytes`] or
+    /// [`Self::free_bytes_dispatch`], as a zeroed block is.
+    #[must_use]
+    #[inline(always)]
+    pub(crate) fn alloc_bytes_uninit_dispatch<const OCC: bool>(&self, bytes: usize) -> NonNull<u8> {
+        self.alloc_block::<OCC, false>(bytes, RAW_ALIGN)
     }
 
     /// [`Self::free_bytes`] with the collector branch chosen at compile time.

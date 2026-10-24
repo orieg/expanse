@@ -148,6 +148,11 @@ const TAG_SUFFIX: u64 = 1;
 /// - **Header and bytes are write-once after publication**; only `value`
 ///   mutates in place, which is what lets a concurrent reader load them
 ///   under a version bracket ([`ExpanseStrMap::get_validated`]).
+/// - **Nothing reads past `SUFFIX_BYTES + len`.** The block is a size class
+///   ([`packed_suffix_bytes`]) and is not zeroed (Refs #1586, METHODOLOGY
+///   §47.11), so its tail is uninitialised or stale. Every read of the bytes
+///   is [`suffix_bytes`], which is exactly `len` long, and every other read
+///   is of `value` or `len`.
 #[repr(C)]
 struct StrSuffix {
     value: u64,
@@ -226,10 +231,12 @@ fn packed_suffix_bytes(layout: Layout) -> usize {
 /// Allocates a suffix leaf holding `bytes` and `value` in one allocation.
 fn new_suffix(bytes: &[u8], value: u64, arena: SuffixArena<'_>) -> *mut StrSuffix {
     let layout = suffix_layout(bytes.len());
+    // Not zeroed (§47.11): the header and the `bytes.len()` bytes below are
+    // the whole of what any reader reads (see `StrSuffix`).
     #[cfg(not(feature = "ablation-unpacked-suffix"))]
     let raw = arena
         .alloc
-        .alloc_bytes(packed_suffix_bytes(layout))
+        .alloc_bytes_uninit(packed_suffix_bytes(layout))
         .as_ptr();
     #[cfg(feature = "ablation-unpacked-suffix")]
     let raw = {
@@ -242,10 +249,13 @@ fn new_suffix(bytes: &[u8], value: u64, arena: SuffixArena<'_>) -> *mut StrSuffi
         raw
     };
     let ptr = raw.cast::<StrSuffix>();
-    // SAFETY: `raw` is a fresh allocation of `SUFFIX_BYTES + bytes.len()` at
-    // `align_of::<StrSuffix>()`, so the header write is in bounds and aligned
-    // and the byte copy lands in the tail this layout reserved for it. The
-    // destination is freshly allocated, so it cannot overlap `bytes`.
+    // SAFETY: `raw` is a fresh allocation of at least `SUFFIX_BYTES +
+    // bytes.len()` at `align_of::<StrSuffix>()` or stronger, so the header
+    // write is in bounds and aligned and the byte copy lands in the room this
+    // layout reserved for it. The destination is freshly allocated and owned
+    // here, so it cannot overlap `bytes`. Its prior contents are unspecified:
+    // the header write and the copy read none of them, and together they
+    // initialise every byte a reader reads (`StrSuffix`).
     unsafe {
         ptr.write(StrSuffix {
             value,
@@ -430,15 +440,26 @@ const SHELL_ACCOUNTED: usize = crate::alloc::accounted_size(SHELL_BYTES, crate::
 /// on purpose: `alloc_raw` is `#[inline(always)]`, and a shell allocation
 /// inlined into the insert walks would move their codegen (AGENTS.md §2.1
 /// invariant 5).
+///
+/// The block is not zeroed (Refs #1586, METHODOLOGY §47.11): the one write of
+/// `StrNode::new()` below initialises the shell, and nothing reads the block
+/// before it. `shell_is_fully_written_over_a_stale_block` and, under Miri,
+/// `deferred_shell_on_an_uninit_block_is_fully_written` pin that.
 #[inline(never)]
 fn new_shell<const SHARED: bool>(alloc: &NodeAlloc) -> *mut StrNode {
     let raw = alloc
-        .alloc_bytes_dispatch::<SHARED>(SHELL_BYTES)
+        .alloc_bytes_uninit_dispatch::<SHARED>(SHELL_BYTES)
         .cast::<StrNode>()
         .as_ptr();
-    // SAFETY: `raw` is a fresh block of `SHELL_BYTES` = `size_of::<StrNode>()`
-    // bytes at `RAW_ALIGN`, which is at least `StrNode`'s alignment (asserted
-    // above), so the write is in bounds and aligned; nothing else holds it.
+    // SAFETY: `raw` is a block of `SHELL_BYTES` = `size_of::<StrNode>()` bytes
+    // at `RAW_ALIGN`, which is at least `StrNode`'s alignment (asserted above),
+    // so the write is in bounds and aligned; nothing else holds it, and it is
+    // not yet published. Its contents are unspecified (uninitialised, or a
+    // reclaimed block's bytes): `ptr::write` reads none of them and overwrites
+    // every field. `StrNode` is `repr(C)` with no padding (4 + 4 + 32 bytes);
+    // the empty root writes only its tag, and every reader of a root's
+    // payload words checks the tag first (`map::root_word`), as it does on
+    // any `MapCore::new()`.
     unsafe { raw.write(StrNode::new()) };
     raw
 }
@@ -5911,6 +5932,203 @@ mod tests {
             SHELL_ACCOUNTED,
             SHELL_BYTES.next_multiple_of(crate::types::RAW_ALIGN)
         );
+    }
+
+    /// The words `StrNode::new()` writes, as (name, byte offset, width, value):
+    /// the cover, the dirty flag, and the two words of `MapCore::new()`. An
+    /// empty root's payload words are not among them; nothing reads those
+    /// before the tag says the root holds a leaf or a tree.
+    fn shell_new_words() -> [(&'static str, usize, usize, u64); 4] {
+        let map = core::mem::offset_of!(StrNode, map);
+        let [(tag, tag_v), (pop, pop_v)] = crate::map::MapCore::NEW_WORDS;
+        [
+            ("cover", core::mem::offset_of!(StrNode, cover), 4, 0),
+            ("dirty", core::mem::offset_of!(StrNode, dirty), 4, 0),
+            ("root tag", map + tag, 8, tag_v),
+            ("tree_pop", map + pop, 8, pop_v),
+        ]
+    }
+
+    /// The words of [`shell_new_words`] that do not hold their fresh value.
+    ///
+    /// # Safety
+    ///
+    /// `p` points to a live block of `SHELL_BYTES` whose bytes at those words
+    /// are initialised.
+    unsafe fn shell_words_not_fresh(p: *const StrNode) -> Vec<&'static str> {
+        let b = p.cast::<u8>();
+        shell_new_words()
+            .into_iter()
+            .filter(|&(_, off, width, v)| {
+                // SAFETY: caller contract; each word lies inside the block.
+                let got = unsafe {
+                    if width == 4 {
+                        u64::from(b.add(off).cast::<u32>().read_unaligned())
+                    } else {
+                        b.add(off).cast::<u64>().read_unaligned()
+                    }
+                };
+                got != v
+            })
+            .map(|(name, ..)| name)
+            .collect()
+    }
+
+    /// A shell is allocated without zeroing (§47.11), so `new_shell` must
+    /// write every word a reader uses. Here it reuses a block whose bytes were
+    /// poisoned, from a plain tree's freelist (LIFO, so the block comes back),
+    /// and every word must read fresh. The controls show the test can fail:
+    /// the stale block reads non-fresh before the call (so a word `new_shell`
+    /// left unwritten would stay poisoned), and poisoning each word of a
+    /// fresh shell in turn is caught for that word alone. Not under Miri,
+    /// whose allocators are exact-size and never hand a block back; there
+    /// `deferred_shell_on_an_uninit_block_is_fully_written` covers it.
+    #[cfg(not(miri))]
+    #[test]
+    fn shell_is_fully_written_over_a_stale_block() {
+        const POISON: u8 = 0xA5;
+        let alloc = NodeAlloc::new();
+        // Two blocks, so the reused one's freelist link (its first word)
+        // points at the other and is not null.
+        let first = alloc.alloc_bytes_uninit_dispatch::<false>(SHELL_BYTES);
+        let block = alloc.alloc_bytes_uninit_dispatch::<false>(SHELL_BYTES);
+        for b in [first, block] {
+            // SAFETY: a live block of `SHELL_BYTES` this test owns.
+            unsafe { core::ptr::write_bytes(b.as_ptr(), POISON, SHELL_BYTES) };
+        }
+        // SAFETY: both came from `alloc_bytes_uninit_dispatch::<false>` at
+        // `SHELL_BYTES` on this plain allocator and are freed once.
+        unsafe {
+            alloc.free_bytes_plain(first, SHELL_BYTES);
+            alloc.free_bytes_plain(block, SHELL_BYTES);
+        }
+        let stale = block.as_ptr().cast::<StrNode>();
+        // Control 1: the block reads stale where the root's words are (the
+        // freelist link covers only the cover and dirty words).
+        // SAFETY: the block is on the freelist, unchanged but for its link;
+        // every byte is initialised.
+        let before = unsafe { shell_words_not_fresh(stale) };
+        assert!(
+            before.contains(&"root tag") && before.contains(&"tree_pop"),
+            "the reused block must read stale before new_shell, got {before:?}"
+        );
+        let p = new_shell::<false>(&alloc);
+        assert_eq!(p, stale, "the plain freelist hands the poisoned block back");
+        // SAFETY: `new_shell` wrote the shell; its words are initialised.
+        assert_eq!(unsafe { shell_words_not_fresh(p) }, Vec::<&str>::new());
+        // SAFETY: as above; a fresh shell's core is valid to borrow.
+        assert!(unsafe { (*p).map.is_empty() });
+        // Control 2, one per word: a word left stale is reported, alone.
+        for (name, off, width, _) in shell_new_words() {
+            // SAFETY: the word lies inside the live shell.
+            unsafe { core::ptr::write_bytes(p.cast::<u8>().add(off), POISON, width) };
+            // SAFETY: every word read is initialised.
+            assert_eq!(unsafe { shell_words_not_fresh(p) }, vec![name]);
+            // SAFETY: the shell is live and owned here; this restores it.
+            unsafe { p.write(StrNode::new()) };
+        }
+        // SAFETY: from `new_shell` on this allocator, unlinked, its map empty.
+        unsafe { free_shell(&alloc, p) };
+    }
+
+    /// A suffix leaf is allocated without zeroing (§47.11): `new_suffix`
+    /// writes the header and the key bytes, and the class-size tail past them
+    /// stays as the block held it, because nothing reads it (`StrSuffix`). The
+    /// leaf reuses a poisoned block from a plain tree's freelist; its header
+    /// and bytes must read back, and the controls show the block was not
+    /// zeroed: the header read stale before the call, and the tail still holds
+    /// the poison after it. Not under Miri, as for the shell test; there every
+    /// suffix tail is uninitialised, so a read of one is reported.
+    #[cfg(all(not(miri), not(feature = "ablation-unpacked-suffix")))]
+    #[test]
+    fn suffix_is_fully_written_over_a_stale_block() {
+        const POISON: u8 = 0xA5;
+        // The shortest remainder whose class leaves a tail past its bytes.
+        let len = (1..=240)
+            .find(|&n| packed_suffix_bytes(suffix_layout(n)) > SUFFIX_BYTES + n)
+            .expect("some suffix class leaves a tail");
+        let key: Vec<u8> = (0..len).map(|i| b'a' + (i % 26) as u8).collect();
+        let key = &key[..];
+        let size = packed_suffix_bytes(suffix_layout(key.len()));
+        let alloc = NodeAlloc::new();
+        let first = alloc.alloc_bytes_uninit(size);
+        let block = alloc.alloc_bytes_uninit(size);
+        for b in [first, block] {
+            // SAFETY: a live block of `size` bytes this test owns.
+            unsafe { core::ptr::write_bytes(b.as_ptr(), POISON, size) };
+        }
+        // SAFETY: both came from `alloc_bytes_uninit(size)` on this allocator
+        // and are freed once.
+        unsafe {
+            alloc.free_bytes(first, size);
+            alloc.free_bytes(block, size);
+        }
+        let raw = block.as_ptr();
+        // Control 1: `len` (bytes 8..16, past the freelist link) reads stale.
+        // SAFETY: inside the initialised block.
+        let stale_len = unsafe { raw.add(8).cast::<usize>().read_unaligned() };
+        assert_ne!(stale_len, key.len());
+        let p = new_suffix(key, 7, SuffixArena::of(&alloc));
+        assert_eq!(
+            p.cast::<u8>(),
+            raw,
+            "the plain freelist hands the poisoned block back"
+        );
+        // SAFETY: `new_suffix` wrote the header and bytes; the leaf is live.
+        unsafe {
+            assert_eq!((*p).value, 7);
+            assert_eq!((*p).len, key.len());
+            assert_eq!(suffix_bytes(p), key);
+            // Control 2: the tail was not written.
+            for i in SUFFIX_BYTES + key.len()..size {
+                assert_eq!(raw.add(i).read(), POISON, "tail byte {i}");
+            }
+        }
+        dispose_suffix(p, None, SuffixArena::of(&alloc));
+    }
+
+    /// Under Miri a shared tree's allocator is exact-size, so a shell from an
+    /// empty collector freelist is a fresh `alloc` block, uninitialised: a
+    /// read of any byte `new_shell` did not write before it is reported as
+    /// undefined behaviour (§47.11). This test drives every shell site there:
+    /// one shell straight from `new_shell::<true>`, then a shared map's root
+    /// and split shells through inserts, reads and removals; the suffix
+    /// leaves those inserts make have uninitialised tails, so a read past a
+    /// suffix's bytes is reported the same way. Outside Miri a
+    /// fresh system block usually reads zero, so a missing write passes here
+    /// unseen: `shell_is_fully_written_over_a_stale_block` is that instrument.
+    #[cfg(feature = "std")]
+    #[test]
+    fn deferred_shell_on_an_uninit_block_is_fully_written() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(std::sync::Arc::new(crate::occ::Collector::new()));
+        let p = new_shell::<true>(&alloc);
+        // SAFETY: `new_shell` wrote the shell; its words are initialised.
+        assert_eq!(unsafe { shell_words_not_fresh(p) }, Vec::<&str>::new());
+        // SAFETY: as above.
+        assert!(unsafe { (*p).map.is_empty() });
+        // SAFETY: from `new_shell` on this allocator, never linked, map empty.
+        unsafe { free_shell(&alloc, p) };
+
+        let n = if cfg!(miri) { 40 } else { 2_000 };
+        let sync = crate::sync::SyncExpanseStrMap::new();
+        for i in 0..n {
+            let k = design_b_key(0, i);
+            sync.insert(NulFreeStr::new(&k).expect("no NUL"), i as u64);
+        }
+        for i in 0..n {
+            let k = design_b_key(0, i);
+            let k = NulFreeStr::new(&k).expect("no NUL");
+            assert!(sync.get(k).is_some(), "key {i} present");
+            if i % 2 == 0 {
+                sync.remove(k);
+            }
+        }
+        for i in 0..n {
+            let k = design_b_key(0, i);
+            let k = NulFreeStr::new(&k).expect("no NUL");
+            assert_eq!(sync.get(k).is_some(), i % 2 == 1, "key {i}");
+        }
     }
 
     /// #929 groundwork: the cover word heads the node, so the OCC protocol
