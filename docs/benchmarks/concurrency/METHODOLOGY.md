@@ -7791,3 +7791,73 @@ Two builds of the increment were measured on both §47.11 instruments against `a
 - `new_shell::<true>`: 113 → 94; `new_suffix`: 173 → 189; `pop_freelist`: 145 → 103; each 1 `%fs:` at both.
 
 **Not yet measured.** The wall-clock report §47.11 registers (T_head(W) / T_base(W) against `6dc24a74`, with G-scale) needs the maintainer's dispatch at the increment's head. Against `main`, the instruction-counts job on the PR head is the record.
+
+### 47.13 The zeroing increment on the reference host, and the outcome for design B (appended 2026-10-24; §47.1 to §47.12 are not rewritten, and no bound moves)
+
+**Wall clock, increment head `af4810f6` against `main` `6dc24a74`.** Two dispatches under §44.10's rules, both admitted: runs [40081486902](https://github.com/orieg/expanse/actions/runs/40081486902) and [40085444157](https://github.com/orieg/expanse/actions/runs/40085444157). Artifacts are `results/gate_1586_str_writer_scaling_zeroing_run{1,2}.json`.
+
+G-scale (C_head/C_base) meets its floor in both runs:
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 2 | [1.0081, 1.0202] | [0.9499, 1.0191] |
+| 4 | [0.9826, 1.0290] | [0.9936, 1.0496] |
+| 8 | [0.9744, 1.0586] | [0.9897, 1.0547] |
+
+The verdict is MEETS_FLOOR in both runs.
+
+The table below gives the paired T_head/T_base, a lower figure meaning design B is slower. It is BCa 95% with n = 8 per run, reported and not gated (§47.11):
+
+| W | run 1 | run 2 | §47.10, before the increment |
+|---|---|---|---|
+| 1 | 0.9486 [0.9458, 0.9507] | 0.9499 [0.9485, 0.9509] | 0.9321 / 0.9306 |
+| 2 | 0.9619 [0.9573, 0.9654] | 0.9443 [0.9027, 0.9673] | 0.9486 / 0.9441 |
+| 4 | 0.9560 [0.9304, 0.9768] | 0.9661 [0.9430, 0.9969] | 0.9427 / 0.9504 |
+| 8 | 0.9689 [0.9271, 1.0047] | 0.9662 [0.9405, 1.0015] | 0.9545 / 0.9564 |
+
+§47.11's reported condition holds in both runs: the W = 1 lower bound is above 0.928. Design B with the increment still costs about 5% of shared string-insert throughput at one writer and about 3–4% at eight.
+
+**G-instr against §47.3: NOT MET.** CI run [40074862826](https://github.com/orieg/expanse/actions/runs/40074862826) measured instruction counts at `af4810f6` against `main` `a2fc24c1`. `a2fc24c1` changes nothing under `crates/` or `include/` since `6dc24a74`.
+
+| arm | head / base Ir | Δ | §47.3 bound | position |
+|---|---:|---:|---|---|
+| `sync_strmap_insert_short/short` | 102,503,237 / 97,934,923 | +4.66% | [+6.27%, +6.47%] | below (favourable) |
+| `sync_strmap_insert_sorted/uuid` | 47,997,972 / 46,291,751 | +3.69% | [+6.19%, +6.39%] | below (favourable) |
+| `sync_strmap_cas_insert/routes` | 102,611,783 / 101,026,457 | +1.57% | [+2.18%, +4.78%] | below (favourable) |
+| `sync_strmap_cas/routes` | 73,804,246 / 72,879,132 | +1.27% | [+1.17%, +1.37%] | inside |
+| `sync_strmap_update_rmw/routes` | 123,164,601 / 122,239,487 | +0.76% | [+0.66%, +0.86%] | inside |
+| `sync_strmap_insert/routes` | 78,082,111 / 77,553,128 | +0.68% | [+0.34%, +2.09%] | inside |
+| `strmap_churn/routes` | 119,088,554 / 117,738,626 | +1.15% | up to +0.1864% | **above, about 6×** |
+
+- `strmap_churn` is a plain-tree cost with no gain on its arm. It is register drift in the inlined insert and remove bodies (§47.9). One remedy was tried and reverted, and the increment leaves this arm unchanged at 0 Ir. It ships as a **disclosed miss**, not as a pre-registered loss.
+- The composite "design B plus the increment against `main`" was never registered as a bound of its own. The increment itself met its own bounds (§47.11) on both C libraries (§47.12).
+
+**Carried forward:**
+- G-stall PASS on the growth cells (§47.10). The churn cells are uninformative, because a 30 s single-insert stall on `short` keys is present on `main` as well.
+- G-accuracy is met, with its `stats()` half NOT_EVALUABLE.
+- G-density and G-safety are met.
+
+**Whether a `len()` × ratio estimate would do instead.**
+- A ratio taken from an exact reading at the start of each 30 s window misestimates the end-of-window `mem_used`:
+  - by 0.58–0.62% on `routes` keys;
+  - by 14.4–19.1% on `short` keys, on both builds, as the map grows about 6× and bytes per key fall (54.07 → 47.0 on design B; 43.84 → 36.9 on `main`).
+- These figures are derived from the committed G-stall artifacts' `mem_used_before/after` and `len_before/after`.
+- So the recipe needs refreshes to stay within ±10% on short keys. On a map that is never rotated, each refresh is the 0.5–2 s stall this design removes.
+- The caller's growth between readings is smaller than this window's. That is unmeasured.
+
+**Outcome.**
+- Every §47 gate is met except G-instr: the gain axis G-stall, G-scale (four runs), G-accuracy, G-density and G-safety.
+- G-instr is NOT MET against §47.3. Three arms lie below their bounds, three inside, and `strmap_churn` above.
+- Under §47.5's first row, the change ships on the maintainer's decision, weighing:
+  - the gain: a `mem_used` reading no longer holds writers. The largest insert goes from 0.5–2 s to about 0.15 ms.
+  - the named costs: about 5% of shared string-insert throughput at one writer, the CI instruction losses above, and `strmap_churn`'s disclosed miss.
+- The decision to merge is recorded with the merge.
+
+**Follow-ups, not part of this change** (Refs #1586):
+- the 30 s churn-cell stall, which predates design B;
+- `stats()` not summing to `mem_used` on concurrently written maps;
+- the `strmap_churn` inlining recovery;
+- a relaxed emptiness hint before the locked freelist pop;
+- the count of lock-prefixed RMWs per allocation in `Deferred::charge`.
+
+Each needs its own pre-registration.

@@ -45,7 +45,7 @@ On `short` string keys Masstree wins every writer cell in both runs:
 0.726 [0.686, 0.782] and 0.678 [0.662, 0.728] with one writer, 0.643–0.660 at
 two, 0.653–0.658 at four, 0.760–0.766 at eight and 0.802–0.804 at sixteen,
 where the Expanse string writers run at 25.41–26.52 M inserts/s against
-Masstree's 31.71–31.93 *(workload: `masstree_conc_str`; measured before design B, #1586, which costs shared string inserts about 4.5–7% of throughput, METHODOLOGY §47.10, so these figures are pending re-measurement, #1586)*. What limits either
+Masstree's 31.71–31.93 *(workload: `masstree_conc_str`; measured before design B, #1586, which costs shared string inserts about 3–5% of throughput, METHODOLOGY §47.13, so these figures are pending re-measurement, #1586)*. What limits either
 Expanse arm's scaling is **unmeasured** — this arm carries no hardware counters
 (§8.9) — and no mechanism is claimed. §6.1 rows 1 and 2 are **`CONFIRMED`**.
 
