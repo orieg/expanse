@@ -4689,6 +4689,49 @@ unsafe fn resync_at(node: *mut StrNode) {
     }
 }
 
+/// Prepares `node`'s sub-map for an exclusive removal, through a raw pointer
+/// (see [`covered_at`]). The removal decides from the sub-map's population
+/// only whether to condense the tree into a root leaf or empty it
+/// (`MapCore::remove_covered_at`), so on a dirty node the population is
+/// counted only as far as that decision needs: up to `ROOT_LEAF_CAP + 1`
+/// keys ([`crate::sync::subtree_pop_capped`]). A sub-map at or below
+/// `ROOT_LEAF_CAP` keys is folded exactly, as [`resync_at`] does, which is
+/// cheap at that size, and its flag is cleared. A larger one stays dirty,
+/// and its stale count is raised to at least `ROOT_LEAF_CAP + 1`, the floor
+/// the walk established: optimistic inserts leave the count below the
+/// truth, and a removal that read such a count would condense or empty a
+/// tree that is not small. A stale count above the floor is kept, not
+/// lowered. Its branch `pop0` words stay stale until the sub-map is small
+/// enough to fold. Without the cap, every exclusive removal from a dirty
+/// sub-map folded the whole sub-map with the writer gate closed, which for
+/// a root holding millions of chunks serialised every writer behind it
+/// (Refs #1602).
+///
+/// # Safety
+///
+/// As [`covered_at`].
+#[cfg(feature = "std")]
+#[inline(always)]
+unsafe fn resync_for_remove_at(node: *mut StrNode) {
+    #[cfg(not(feature = "ablation-str-serial-writers"))]
+    // SAFETY: caller contract; the flag is only ever accessed as an atomic.
+    unsafe {
+        let cell = &*(&raw mut (*node).dirty).cast::<AtomicU32>();
+        if cell.load(Ordering::Relaxed) != 0 {
+            let m = &raw mut (*node).map;
+            if let Some(top) = MapCore::root_top_ptr_of(m) {
+                const FLOOR: u64 = crate::set::ROOT_LEAF_CAP as u64 + 1;
+                if crate::sync::subtree_pop_capped(top.as_ptr(), 8, FLOOR) >= FLOOR {
+                    MapCore::set_tree_pop_at(m, MapCore::len_of(m).max(FLOOR));
+                    return;
+                }
+            }
+        }
+    }
+    // SAFETY: caller contract.
+    unsafe { resync_at(node) }
+}
+
 /// Whether `node`'s sub-map holds no key, decided exactly on a dirty node
 /// too, through a raw pointer (see [`covered_at`]). Optimistic writers
 /// leave a tree's count stale, so a dirty tree is tested structurally
@@ -4749,7 +4792,7 @@ impl StrNode {
             let removed = loop {
                 let (chunk, terminal) = chunk_at(key, off);
                 if terminal {
-                    resync_at(node);
+                    resync_for_remove_at(node);
                     break covered_at(node, alloc, |m| {
                         MapCore::remove_covered_at(m, alloc, chunk)
                     })?;
@@ -4760,7 +4803,7 @@ impl StrNode {
                     if &key[off + CHUNK..] != suffix_bytes(sfx) {
                         return None;
                     }
-                    resync_at(node);
+                    resync_for_remove_at(node);
                     covered_at(node, alloc, |m| MapCore::remove_covered_at(m, alloc, chunk));
                     // Unlinked above; the last owner reads it before
                     // retiring it.
@@ -4809,7 +4852,7 @@ impl StrNode {
             if !is_empty_exact_at(child) {
                 return false;
             }
-            resync_at(parent);
+            resync_for_remove_at(parent);
             covered_at(parent, alloc, |m| {
                 MapCore::remove_covered_at(m, alloc, chunk)
             });
@@ -6607,6 +6650,158 @@ mod tests {
             assert_eq!(inner.mem_used(), 0);
         });
         assert_eq!(m.get(tk(&keys[0])), None);
+    }
+
+    /// #1602: an exclusive removal from a large dirty sub-map counts it only
+    /// as far as `ROOT_LEAF_CAP + 1`, keeps the node dirty, and raises its
+    /// stale count to that floor. The optimistic inserts leave the count far
+    /// below the truth here, so a removal that trusted it would condense a
+    /// tree of hundreds of keys into a root leaf of a few dozen: red when the
+    /// `max(FLOOR)` in `resync_for_remove_at` is dropped (the removals then
+    /// lose keys) and when the large branch clears the flag.
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+    #[test]
+    fn deferred_olc_removal_from_a_large_dirty_sub_map_keeps_it_a_tree() {
+        use crate::set::ROOT_LEAF_CAP;
+        use crate::sync::SyncExpanseStrMap;
+        let m = SyncExpanseStrMap::new();
+        let n = if cfg!(miri) { ROOT_LEAF_CAP * 3 } else { 1_000 };
+        let keys: Vec<Vec<u8>> = (0..n).map(|i| format!("d{i:05}").into_bytes()).collect();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(tk(k), i as u64);
+        }
+        let gone = ROOT_LEAF_CAP;
+        m.exclusive(|inner| {
+            let root = inner.root.as_deref().expect("root present");
+            assert_eq!(root.dirty, 1, "precondition: the root sub-map is dirty");
+            assert!(
+                root.map.len() < (ROOT_LEAF_CAP + gone) as u64,
+                "precondition: the stale count ({}) is low enough that {gone} \
+                 removals trusting it would condense the tree",
+                root.map.len()
+            );
+            for k in &keys[..gone] {
+                assert!(inner.remove_deferred(tk(k)).is_some());
+            }
+        });
+        m.with_locked(|inner| {
+            let root = inner.root.as_deref().expect("root present");
+            assert!(root.map.root_is_tree(), "a large sub-map stays a tree");
+            assert_eq!(root.dirty, 1, "a large sub-map stays dirty");
+            assert!(root.map.len() >= ROOT_LEAF_CAP as u64);
+        });
+        assert_eq!(m.len(), (n - gone) as u64);
+        for (i, k) in keys.iter().enumerate() {
+            let want = (i >= gone).then_some(i as u64);
+            assert_eq!(m.get(tk(k)), want, "key {i}");
+        }
+    }
+
+    /// #1602: the boundary of the capped count. A dirty sub-map drained one
+    /// exclusive removal at a time stays dirty while it holds more than
+    /// `ROOT_LEAF_CAP` keys before the removal, is folded exactly (flag
+    /// cleared) once it holds `ROOT_LEAF_CAP`, and condenses on the removal
+    /// that takes it below `ROOT_LEAF_CAP`, as an exact count would decide.
+    /// Red when the cap moves by one either way.
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+    #[test]
+    fn deferred_olc_capped_resync_decides_at_the_root_leaf_boundary() {
+        use crate::set::ROOT_LEAF_CAP;
+        use crate::sync::SyncExpanseStrMap;
+        let m = SyncExpanseStrMap::new();
+        let n = ROOT_LEAF_CAP + 4;
+        let keys: Vec<Vec<u8>> = (0..n).map(|i| format!("b{i:05}").into_bytes()).collect();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(tk(k), i as u64);
+        }
+        m.with_locked(|inner| {
+            assert_eq!(
+                inner.root.as_deref().expect("root").dirty,
+                1,
+                "precondition"
+            );
+        });
+        for (i, k) in keys.iter().enumerate().take(6) {
+            let before = n - i;
+            m.exclusive(|inner| assert!(inner.remove_deferred(tk(k)).is_some()));
+            m.with_locked(|inner| {
+                let root = inner.root.as_deref().expect("root present");
+                let after = before - 1;
+                assert_eq!(
+                    root.dirty != 0,
+                    before > ROOT_LEAF_CAP,
+                    "dirty after removing from {before} keys"
+                );
+                assert_eq!(
+                    root.map.root_is_tree(),
+                    after >= ROOT_LEAF_CAP,
+                    "tree state after removing from {before} keys"
+                );
+                if before <= ROOT_LEAF_CAP {
+                    assert_eq!(root.map.len(), after as u64, "exact count at {after}");
+                }
+            });
+        }
+        assert_eq!(m.len(), (n - 6) as u64);
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(m.get(tk(k)), (i >= 6).then_some(i as u64), "key {i}");
+        }
+    }
+
+    /// #1602: an exclusive removal from a dirty sub-map of many keys visits a
+    /// bounded number of edges, not the whole sub-map. Red when
+    /// `resync_for_remove_at` folds instead of counting to its cap.
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn deferred_olc_removal_from_a_dirty_sub_map_does_not_fold_it() {
+        use crate::sync::{SyncExpanseStrMap, fold_edges};
+        let m = SyncExpanseStrMap::new();
+        let n = 20_000usize;
+        let keys: Vec<Vec<u8>> = (0..n).map(|i| format!("{i:07}").into_bytes()).collect();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(tk(k), i as u64);
+        }
+        let removals = 100usize;
+        let before = fold_edges::get();
+        m.exclusive(|inner| {
+            assert_eq!(
+                inner.root.as_deref().expect("root").dirty,
+                1,
+                "precondition"
+            );
+            for k in keys.iter().step_by(n / removals) {
+                assert!(inner.remove_deferred(tk(k)).is_some());
+            }
+        });
+        let per = (fold_edges::get() - before) / removals as u64;
+        assert!(
+            per <= 64,
+            "{per} edges visited per exclusive removal from a dirty {n}-key sub-map"
+        );
+        assert_eq!(m.len(), (n - removals) as u64);
+    }
+
+    /// #1602: every exclusive removal site reaches the capped re-sync, and
+    /// the full fold has no production caller other than it.
+    #[test]
+    fn removal_sites_use_the_capped_resync() {
+        let src = production_source();
+        assert_eq!(
+            src.matches("resync_for_remove_at(node);").count(),
+            2,
+            "remove_shared's terminal and suffix removals"
+        );
+        assert_eq!(
+            src.matches("resync_for_remove_at(parent);").count(),
+            1,
+            "prune_child_shared"
+        );
+        assert_eq!(
+            src.matches("resync_at(").count() - src.matches("fn resync_at(").count(),
+            1,
+            "the full fold is reached only from resync_for_remove_at"
+        );
     }
 
     /// #929: the engine's optimistic inserts leave a sub-map's own
