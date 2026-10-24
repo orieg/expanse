@@ -332,6 +332,31 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
     stats: &mut ExpanseStats,
     depth: usize,
 ) -> Result<u64, String> {
+    walk::<MAP, true>(edge, level, stats, depth)
+}
+
+/// [`expanse_validate_and_stats`] without the cross-check of a branch's
+/// `pop0` against its subtree, for gathering statistics. Optimistic writers
+/// leave ancestor branch `pop0` stale until the next quiescent fold
+/// (`sync::fold_branch_pop0`), and a string map re-syncs a sub-map only
+/// before a removal decides from it, so a shared string map's sub-maps can
+/// carry stale branch counts under the writer lock. No byte or node count
+/// reads a branch's `pop0`, so the statistics stay exact; every other check
+/// still applies (Refs #1603).
+pub(crate) fn stats_walk<const MAP: bool>(
+    edge: &Edge,
+    level: u8,
+    stats: &mut ExpanseStats,
+) -> Result<u64, String> {
+    walk::<MAP, false>(edge, level, stats, 0)
+}
+
+fn walk<const MAP: bool, const CHECK_BRANCH_POP0: bool>(
+    edge: &Edge,
+    level: u8,
+    stats: &mut ExpanseStats,
+    depth: usize,
+) -> Result<u64, String> {
     if depth > 8 {
         return Err("depth limit exceeded (possible cycle)".into());
     }
@@ -591,7 +616,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                 if child.is_null() {
                     return Err("linear branch holds a null child".into());
                 }
-                pop += expanse_validate_and_stats::<MAP>(child, bl - 1, stats, depth + 1)?;
+                pop += walk::<MAP, CHECK_BRANCH_POP0>(child, bl - 1, stats, depth + 1)?;
             }
             pop
         }
@@ -652,7 +677,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                                 "bitmap branch subarray {sub} index {i} holds a null child"
                             ));
                         }
-                        pop += expanse_validate_and_stats::<MAP>(child, bl - 1, stats, depth + 1)?;
+                        pop += walk::<MAP, CHECK_BRANCH_POP0>(child, bl - 1, stats, depth + 1)?;
                     }
                 }
             }
@@ -694,14 +719,15 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             let mut pop = 0;
             for child in &b.edges {
                 if !child.is_null() {
-                    pop += expanse_validate_and_stats::<MAP>(child, bl - 1, stats, depth + 1)?;
+                    pop += walk::<MAP, CHECK_BRANCH_POP0>(child, bl - 1, stats, depth + 1)?;
                 }
             }
             pop
         }
     };
 
-    if bl <= 7
+    if CHECK_BRANCH_POP0
+        && bl <= 7
         && matches!(
             tag,
             EdgeTag::Structural(

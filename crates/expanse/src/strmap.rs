@@ -7330,6 +7330,62 @@ mod tests {
         assert_eq!(sync.mem_used(), exact_shared(&sync));
     }
 
+    /// `stats()` sums to `mem_used` on a map optimistic writers filled
+    /// (Refs #1603). They leave ancestor branch `pop0` stale until a fold, so
+    /// a sub-map's statistics walk must not stop at the first branch whose
+    /// count disagrees with its subtree; before the fix it did, and read a
+    /// few kilobytes of a map using tens of kilobytes, at W = 1 as at W = 4.
+    #[cfg(feature = "std")]
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn shared_fill_stats_breakdown_sums_to_mem_used() {
+        for writers in [1usize, 4] {
+            let sync = std::sync::Arc::new(crate::sync::SyncExpanseStrMap::new());
+            let hs: Vec<_> = (0..writers)
+                .map(|w| {
+                    let s = std::sync::Arc::clone(&sync);
+                    std::thread::spawn(move || {
+                        for i in 0..4_000 {
+                            let k = design_b_key(w, i);
+                            s.insert(NulFreeStr::new(&k).expect("no NUL"), i as u64);
+                        }
+                    })
+                })
+                .collect();
+            for h in hs {
+                h.join().expect("writer");
+            }
+            sync.with_locked(|inner| {
+                // The precondition: some sub-map was left dirty, so its
+                // ancestor branch counts may be stale.
+                let mut dirty = 0usize;
+                let mut stack: Vec<*const StrNode> =
+                    vec![core::ptr::from_ref(inner.root.as_deref().expect("root"))];
+                while let Some(p) = stack.pop() {
+                    // SAFETY: the root and continuation values are live nodes,
+                    // and the writer lock excludes every writer.
+                    let node = unsafe { &*p };
+                    // SAFETY: as above; the flag is only ever addressed as an
+                    // atomic.
+                    let flag = unsafe { StrNode::dirty_cell(p) }.load(Ordering::Relaxed);
+                    dirty += usize::from(flag != 0);
+                    for (k, v) in node.map.iter() {
+                        if !is_terminal(k) && !is_suffix_ptr(v) {
+                            stack.push(unpack_child(v));
+                        }
+                    }
+                }
+                assert!(dirty > 0, "W = {writers}: the fill left a sub-map dirty");
+                let stats = inner.stats();
+                assert_eq!(
+                    stats.node_bytes.total(),
+                    inner.mem_used(),
+                    "W = {writers}: the breakdown covers the whole map"
+                );
+            });
+        }
+    }
+
     /// §47.3 G-accuracy 3 and 4: phases of W = 4 writers, each growing the map
     /// by at most a quarter (and one churn phase), with an exact quiet reading
     /// between phases. Every reading taken while a phase runs lies within 10%
