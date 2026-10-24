@@ -3694,7 +3694,11 @@ impl MapCore {
                     crate::alloc::accounted_size(leaf_size(*pop), crate::types::RAW_ALIGN);
             }
             Root::Tree { top, .. } => {
-                let _ = crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0);
+                // Statistics are best-effort on a corrupt tree; `validate`
+                // reports the error. Branch `pop0` may be stale on a sub-map
+                // optimistic writers touched, so it is not cross-checked
+                // here (Refs #1603).
+                let _ = crate::validate::stats_walk::<true>(top, 8, &mut stats); // discipline:allow(error-swallowing)
             }
         }
         stats
