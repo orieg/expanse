@@ -2118,7 +2118,7 @@ impl Collector {
     ///
     /// The block comes back as it was reclaimed, not zeroed: its first word
     /// is the freelist link and the rest is the previous occupant's bytes.
-    /// Its one caller, `NodeAlloc::alloc_block`, zeroes the bytes it hands out
+    /// Its one caller, `NodeAlloc::alloc_raw`, zeroes the bytes it hands out
     /// when its caller asks for a zeroed block.
     #[inline(never)]
     pub(crate) fn pop_freelist(&self, class: usize) -> *mut u8 {
