@@ -35,6 +35,15 @@ Design B (METHODOLOGY §47) adds the arithmetic its gates read:
 8. `density_ceiling(...)` — G-density's per-shape ceiling;
 9. `run_seconds_bound(**DISPATCH_47)` — the G-stall dispatch's length.
 
+§47.11 (one increment on design B: shells and suffix leaves allocated without
+zeroing, and no second zeroing of a deferred freelist hit) adds:
+
+10. `zeroing_term(calls, libc, page_memset_ir)` and `zeroing_bound(base, term)` — the per-arm
+    two-sided Callgrind bound against design B's head `a37a044e`, on each of
+    two C libraries, from the arm's measured call records in
+    `results/strmap_zeroing_baseline_callgrind_a37a044e.json`
+    (`--design-b-zeroing` prints the table).
+
 Every input of 6 to 8 is a measured figure in
 `results/strmap_design_b_baseline_callgrind_f65060d8.json` or
 `results/allocator_overhead_f65060d8.txt`, or a constant below whose
@@ -389,6 +398,169 @@ def design_b_bounds(path: Path = DESIGN_B_BASELINE) -> list[dict]:
     return out
 
 
+# §47.11: one increment on design B's head. Every constant is named in §47.11's silent constants.
+ZB_BASELINE = REPO_ROOT / "results" / "strmap_zeroing_baseline_callgrind_a37a044e.json"
+ZB_LIBCS = ("glibc-2.41", "glibc-2.39")
+# Per collected memset call the change removes (pop_freelist's tail call, new_suffix's zeroing):
+# the call's own setup, beside the memset's inclusive cost, which is removed exactly. 4 at a37a044e
+# for pop_freelist's tail call (`objdump`), so [0, 6].
+ZB_MEMSET_SETUP_IR = (0, 6)
+# The smallest inclusive cost of one memset call: bounds how many collected calls stand behind
+# an arc's measured cost (the smallest per-call figure among the base's arcs is 10.0).
+ZB_MEMSET_MIN_IR = 8
+# Per shared shell served from a collector freelist: `alloc_raw`'s 40-byte inline zeroing in
+# `new_shell::<true>`, 4 instructions at a37a044e (`objdump`), so [0, 6].
+ZB_SHELL_HIT_ZERO_IR = (0, 6)
+# Per plain shell: at a37a044e the zeroing and the write of `StrNode::new()` merge into 4
+# stores; the write alone needs at least 3, so [0, 2].
+ZB_PLAIN_SHELL_ZERO_IR = (0, 2)
+# An arc to calloc whose cost per call is at least this is read as fully collected; below it the
+# count includes calls outside the measured region (the cheapest calloc measured is 71.0 Ir).
+ZB_CALLOC_EXACT_MIN_IR = 60
+# calloc(40) minus malloc(40) per call, the smallest difference over the three measured heap
+# states (allocpc, the artifact): the least a collected calloc->malloc swap saves.
+ZB_CALLOC_MINUS_MALLOC_MIN_IR = {"glibc-2.41": 24.0, "glibc-2.39": 31.0}
+# malloc(40) per call with tcache holding the size, the cheapest measured malloc: the most a swap
+# can save is the calloc's measured cost less this.
+ZB_MALLOC_FLOOR_IR = {"glibc-2.41": 47.0, "glibc-2.39": 53.0}
+# An arc to posix_memalign (one slab page) whose cost per call is at least this is read as fully
+# collected; the base's fully collected arcs cost 420 to 685 per call.
+ZB_POSIX_EXACT_MIN_IR = 300
+
+
+def zeroing_term(calls: dict, libc: str, page_memset_ir: int) -> tuple[float, float]:
+    """The increment's instruction change on one arm, as (low, high), on C library `libc`.
+
+    `calls` holds the arm's call records at the base (artifact field names; a missing field is 0).
+    The memset calls the change removes (`pop_memset_ir`, `suffix_memset_ir`) go exactly, plus
+    `ZB_MEMSET_SETUP_IR` per collected call, at most their cost over `ZB_MEMSET_MIN_IR`; the one
+    exception is the memset of each slab page `new_suffix` carves (`suffix_pages`, at
+    `page_memset_ir` each, measured), which stays. A shared
+    shell served from a freelist loses its inline zeroing (`ZB_SHELL_HIT_ZERO_IR`), a plain shell
+    its merged store (`ZB_PLAIN_SHELL_ZERO_IR`). Each calloc of a shell or suffix becomes a malloc:
+    on a fully collected arc (cost per call at least `ZB_CALLOC_EXACT_MIN_IR`) it saves between
+    `ZB_CALLOC_MINUS_MALLOC_MIN_IR` per call and its cost less `ZB_MALLOC_FLOOR_IR` per call;
+    on any other arc between nothing and its whole cost.
+    """
+    if libc not in ZB_LIBCS:
+        raise ValueError(f"unknown C library {libc!r}")
+    c = {k: _nonneg_int(k, v) for k, v in calls.items()}
+    g = c.get
+    memset_ir = g("pop_memset_ir", 0) + g("suffix_memset_ir", 0)
+    if (g("pop_hits", 0) == 0) != (g("pop_memset_ir", 0) == 0) or \
+            (g("suffix_memset_calls", 0) == 0) != (g("suffix_memset_ir", 0) == 0):
+        raise ValueError("a memset count and its cost must both be zero or both positive")
+    p_ir = _nonneg_int("page_memset_ir", page_memset_ir)
+    pages, pages_ir = g("suffix_pages", 0), g("suffix_pages_ir", 0)
+    if (pages == 0) != (pages_ir == 0) or (pages and p_ir == 0):
+        raise ValueError("a page count, its cost and the page memset cost must agree")
+    # The pages' memsets are inside suffix_memset_ir: at most as many as that cost holds, and exactly
+    # `pages` when the arc is fully collected.
+    p_hi = min(pages, g("suffix_memset_ir", 0) // p_ir) if pages else 0
+    p_lo = p_hi if pages and pages_ir >= ZB_POSIX_EXACT_MIN_IR * pages else 0
+    save_lo = float(memset_ir - p_hi * p_ir)
+    save_hi = memset_ir - p_lo * p_ir + ZB_MEMSET_SETUP_IR[1] * memset_ir / ZB_MEMSET_MIN_IR
+    hits = g("shared_shell_pops", 0) - g("shared_shell_callocs", 0)
+    if hits < 0:
+        raise ValueError("more shell callocs than shell freelist pops")
+    save_hi += ZB_SHELL_HIT_ZERO_IR[1] * hits + ZB_PLAIN_SHELL_ZERO_IR[1] * g("plain_shells", 0)
+    for n_key, ir_key in (("shared_shell_callocs", "shared_shell_calloc_ir"), ("suffix_callocs", "suffix_calloc_ir")):
+        n, ir = g(n_key, 0), g(ir_key, 0)
+        if n == 0:
+            if ir:
+                raise ValueError(f"{ir_key} without {n_key}")
+            continue
+        if ir >= ZB_CALLOC_EXACT_MIN_IR * n:
+            save_lo += ZB_CALLOC_MINUS_MALLOC_MIN_IR[libc] * n
+            save_hi += ir - ZB_MALLOC_FLOOR_IR[libc] * n
+        else:
+            save_hi += ir
+    return -save_hi, -save_lo
+
+
+def zeroing_bound(base: int, term: tuple[float, float]) -> tuple[float, float]:
+    """§47.11's two-sided bound on one arm, as (low, high) Ir deltas against a37a044e: the term,
+    widened on both sides by `CODEGEN_SLACK_FRAC` of the base with a `CODEGEN_SLACK_ABS` floor.
+    A zero term is §47.11's "No change"."""
+    b = _nonneg_int("base", base)
+    if b == 0:
+        raise ValueError("base must be positive")
+    lo, hi = (_finite("term", x) for x in term)
+    if lo > hi:
+        raise ValueError(f"term low {lo} exceeds high {hi}")
+    slack = max(CODEGEN_SLACK_FRAC * b, CODEGEN_SLACK_ABS)
+    return lo - slack, hi + slack
+
+
+def design_b_zeroing_bounds(path: Path = ZB_BASELINE) -> list[dict]:
+    """Every arm of the §47.11 baseline, per C library, with its bound."""
+    art = json.loads(Path(path).read_text())
+    out = []
+    for libc in ZB_LIBCS:
+        inst = art["instruments"][libc]
+        for row in inst["arms"]:
+            term = zeroing_term(row.get("calls", {}), libc, inst["page_memset_ir"]["per_call"])
+            lo, hi = zeroing_bound(row["base"], term)
+            out.append({"libc": libc, "bench": row["bench"], "arm": row["arm"], "id": row["id"],
+                        "base": row["base"], "kind": "No change" if term == (0.0, 0.0)
+                        else "improves", "lo": lo, "hi": hi,
+                        "lo_pct": 100 * lo / row["base"], "hi_pct": 100 * hi / row["base"]})
+    return out
+
+
+def _self_test_zeroing() -> None:
+    # The term: exact memset removal, setup over the memset floor, one exact and one inexact arc.
+    t = zeroing_term({"pop_hits": 10, "pop_memset_ir": 160, "suffix_memset_calls": 2, "suffix_memset_ir": 40,
+                      "shared_shell_pops": 5, "shared_shell_callocs": 3, "shared_shell_calloc_ir": 300,
+                      "suffix_callocs": 100, "suffix_calloc_ir": 50, "plain_shells": 7}, "glibc-2.41", 4114)
+    # lo: 200 memset + 3 x 24 (shell arc exact: 100 per call); suffix arc inexact (0.5 per call): 0.
+    # hi: 200 + 6 x 200 / 8 + 6 x 2 hits + 2 x 7 plain + (300 - 3 x 47) + 50.
+    assert t == (-(200 + 150 + 12 + 14 + 159 + 50), -(200 + 72.0)), t
+    assert zeroing_term({}, "glibc-2.39", 4113) == (-0.0, -0.0)
+    t = zeroing_term({"suffix_callocs": 10, "suffix_calloc_ir": 1530}, "glibc-2.39", 4113)
+    assert t == (-(1530 - 530), -310.0), t
+    # Slab pages: their memsets stay. Exact arc (450 per page): 2 pages out of 8,328.
+    t = zeroing_term({"suffix_memset_calls": 12, "suffix_memset_ir": 8328, "suffix_pages": 2, "suffix_pages_ir": 900},
+                     "glibc-2.41", 4114)
+    assert t == (-(8328 - 8228 + 6 * 8328 / 8), -(8328 - 8228.0)), t
+    # Inexact arc (10 per page): between none and as many as the memset cost holds (2) staying.
+    t = zeroing_term({"suffix_memset_calls": 12, "suffix_memset_ir": 8328, "suffix_pages": 5, "suffix_pages_ir": 50},
+                     "glibc-2.41", 4114)
+    assert t == (-(8328 + 6 * 8328 / 8), -(8328 - 8228.0)), t
+    _raises(zeroing_term, {}, "musl", 4114)
+    _raises(zeroing_term, {"pop_hits": 1}, "glibc-2.41", 4114)
+    _raises(zeroing_term, {"shared_shell_callocs": 2, "shared_shell_pops": 1, "shared_shell_calloc_ir": 200},
+            "glibc-2.41", 4114)
+    _raises(zeroing_term, {"suffix_calloc_ir": 5}, "glibc-2.41", 4114)
+    _raises(zeroing_term, {"plain_shells": -1}, "glibc-2.41", 4114)
+    _raises(zeroing_term, {"suffix_pages": 1}, "glibc-2.41", 4114)
+    _raises(zeroing_term, {"suffix_pages": 1, "suffix_pages_ir": 400}, "glibc-2.41", 0)
+    # The bound: the term widened by 0.1% of the base, with the 500 floor.
+    assert zeroing_bound(1_000_000, (-100.0, -50.0)) == (-1100.0, 950.0)
+    assert zeroing_bound(100_000, (0.0, 0.0)) == (-500, 500)
+    _raises(zeroing_bound, 0, (0.0, 0.0))
+    _raises(zeroing_bound, 1, (1.0, 0.0))
+    # The committed baseline: 286 arms per C library, and one arm pinned per library by hand.
+    rows = {(r["libc"], r["bench"], r["arm"], r["id"]): r for r in design_b_zeroing_bounds()}
+    assert len(rows) == 2 * 286
+    r = rows[("glibc-2.41", "instructions", "sync_strmap_insert_short", "short")]
+    # memset 109,420 + 500; setup 6 x 109,920 / 8; shell hits 0; shell arc 233 for 1 call (exact);
+    # suffix arc 4,932,910 for 49,950 calls (98.8 per call, exact); slack 103,028.14.
+    save_lo = 109_920 + 24.0 + 24.0 * 49_950
+    save_hi = 109_920 + 6 * 109_920 / 8 + (233 - 47.0) + (4_932_910 - 47.0 * 49_950)
+    assert r["kind"] == "improves" and (r["lo"], r["hi"]) == (-save_hi - 103_028.14, -save_lo + 103_028.14), r
+    r = rows[("glibc-2.39", "instructions", "sync_strmap_insert_short", "short")]
+    save_lo = 118_008 + 31.0 + 31.0 * 49_950
+    save_hi = 118_008 + 6 * 118_008 / 8 + (220 - 53.0) + (7_642_375 - 53.0 * 49_950)
+    assert (r["lo"], r["hi"]) == (-save_hi - 106_539.09, -save_lo + 106_539.09), r
+    r = rows[("glibc-2.41", "instructions", "strmap_raw_insert", "clean")]
+    # 2,101,038 memset Ir of which 387 slab pages x 4,114 stay (arc 171,106 Ir, exact); slack 41,288.529.
+    keep = 2_101_038 - 387 * 4114
+    assert (r["lo"], r["hi"]) == (-(keep + 6 * 2_101_038 / 8 + 2 * 893) - 41_288.529, -keep + 41_288.529), r
+    r = rows[("glibc-2.41", "instructions", "set_insert", "sequential")]
+    assert r["kind"] == "No change" and r["hi"] == -r["lo"] == max(1e-3 * r["base"], 500), r
+
+
 def _self_test_design_b() -> None:
     # G-stall: the rule, one negative control per clause.
     assert g_stall_outcome(100, 290, 100) == "PASS"
@@ -531,6 +703,7 @@ def self_test() -> int:
         _raises(run_seconds_bound, *bad)
     _raises(run_seconds_bound, {1: 1}, 10, 0, 0, 0, 3000, 600)
     _self_test_design_b()
+    _self_test_zeroing()
     print("strmap_stall_bounds.py self-test PASSED")
     return 0
 
@@ -574,8 +747,19 @@ def main() -> int:
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--design-b", action="store_true",
                     help="print METHODOLOGY §47.3's G-instr table for every string arm, then the self-test")
+    ap.add_argument("--design-b-zeroing", action="store_true",
+                    help="print METHODOLOGY §47.11's bound for every arm the increment is expected to move, "
+                         "per C library, then the self-test")
     args = ap.parse_args()
-    if args.design_b:
+    if args.design_b_zeroing:
+        print("| C library | harness | arm | a37a044e | bound low | bound high |")
+        print("|---|---|---|---:|---:|---:|")
+        for r in design_b_zeroing_bounds():
+            if r["kind"] == "No change":
+                continue
+            print(f"| {r['libc']} | `{r['bench']}` | `{r['arm']}/{r['id']}` | {r['base']:,} | "
+                  f"{r['lo_pct']:+.4f}% | {r['hi_pct']:+.4f}% |")
+    elif args.design_b:
         print("| harness | arm | main | kind | bound low | bound high |")
         print("|---|---|---:|---|---:|---:|")
         for r in design_b_bounds():

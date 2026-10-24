@@ -7543,3 +7543,194 @@ The libc share is +1.27M on 2.41 and +3.72M on 2.39. Its source is design B repl
     - +1.15% instructions on plain `strmap_churn`;
     - the glibc-dependent `calloc` share on every shared shell and suffix allocation.
 - The likely first lever on the cost is allocating shells, which are fully written, without zeroing. It is unmeasured.
+
+### 47.11 Pre-registration for one increment on design B: shells and suffix leaves without zeroing, and one zeroing per deferred freelist hit (appended 2026-10-24, locked before any measurement of a build containing the increment; §47.1 to §47.10 are not rewritten, and no bound moves)
+
+§47.10 names allocating shells without zeroing as the likely first lever on design B's cost, and its instrument gap is design B's zeroed `calloc` for shells and suffixes. This section pre-registers one increment on PR B's head `a37a044e`, measured against that head, not against `main`. It holds no data of the increment.
+
+#### The change
+
+- **Shells.** `new_shell::<SHARED>` takes its block from a non-zeroing path of `NodeAlloc` and initialises it with its one `ptr::write` of `StrNode::new()`. That write already covers every word a reader reads: the cover, the dirty flag, the root's tag and the population. An empty root's two payload words stay unwritten, as they are on any `MapCore::new()`, and every reader of them checks the tag first (`map::root_word`). `new_shell` stays out of line (AGENTS.md §2.1 invariant 5).
+- **Suffix leaves**, taken only with an audit of the unwritten tail. The audit, against `a37a044e`: `new_suffix` writes the 16-byte header and the key's `len` bytes; the block is `raw_class_fit(16 + len)` bytes, so a tail of up to the class step stays unwritten. Every read of a suffix's bytes in `strmap.rs` goes through `suffix_bytes`, a slice of exactly `len` bytes, and every other read is of `value` or `len`. No other module reads a suffix leaf. So nothing reads the tail, and `new_suffix` takes the non-zeroing path too. The `StrSuffix` type docs carry the invariant.
+- **One zeroing per deferred freelist hit.** `Collector::pop_freelist` no longer zeroes the class size it pops. `NodeAlloc::alloc_raw` still zeroes the `bytes` it hands out, so a hit is zeroed once instead of twice, and not at all on the non-zeroing path.
+- **The zeroed contract is unchanged for every other caller.** `alloc_bytes`, `alloc_bytes_plain`, `alloc_bytes_dispatch` and the `alloc_node` family keep returning zeroed blocks. The non-zeroing path is a separate entry point (`alloc_bytes_uninit`, `alloc_bytes_uninit_dispatch`) whose only callers are `new_shell` and `new_suffix`. `pop_freelist`'s one production caller is `alloc_raw`. Slab pages stay `alloc_zeroed`.
+- **Tests.**
+  - `strmap::tests::shell_is_fully_written_over_a_stale_block` and `suffix_is_fully_written_over_a_stale_block` reuse a poisoned block through a plain tree's freelist. Their controls show the block reads stale before the call, and the shell test poisons each word in turn and expects it reported alone.
+  - Under Miri every allocation is exact-size, so a shell or suffix block that does not come from a freelist is uninitialised, and any read of a byte the write did not cover is reported. `strmap::tests::deferred_shell_on_an_uninit_block_is_fully_written` falls under the Tier-1 `strmap::tests::deferred` filter. Miri is not run locally.
+
+#### Instruments and base
+
+Callgrind, two instruments that differ only in the C library, both on the x86_64 heavy-jobs host (the §47.2 host) with `--security-opt seccomp=unconfined`:
+- **glibc 2.41**: `rust:1.99.1-trixie@sha256:931c2c05…`, libc6 `2.41-12+deb13u4`;
+- **glibc 2.39**: `ubuntu:24.04@sha256:224a1869…` (CI's runner release), libc6 `2.39-0ubuntu8.9`, rustup 1.99.1.
+
+Both use rustc 1.99.1 (LLVM 23.1.1), valgrind 3.27.1 built from the pinned tarball the way `.github/actions/valgrind` builds it, and `iai-callgrind-runner` 0.16.1. The harnesses are `instructions` and `rmw_instructions` in full, 286 arms per instrument. Base `a37a044e`; head the increment's commit.
+
+#### What was measured at the base (before this lock)
+
+Artifact: `results/strmap_zeroing_baseline_callgrind_a37a044e.json`, every arm's count on both instruments with the call records below.
+- **Call records.** For each arm: `pop_freelist`'s `memset` calls and their inclusive Ir; `new_suffix`'s `memset` calls, its slab pages (`posix_memalign` calls) and its `calloc` calls; `new_shell::<true>`'s freelist pops and `calloc` calls; `new_shell::<false>` calls. A `calls=` count includes calls made outside the arm's measured region whenever the same arc also ran inside it, while the cost is the region's alone. The bound reads a count as exact only where its cost per call is plausible.
+- **Disassembly of `a37a044e`** (`objdump -d -C`): `new_shell::<true>` zeroes a freelist block with 4 instructions before its write. In `new_shell::<false>` the zeroing and the write merge into 4 stores. `pop_freelist`'s zeroing is a tail call to `memset` with 4 instructions of setup.
+- **One slab page's `memset`** is 4,114 Ir under 2.41 and 4,113 under 2.39 (`new_shell::<false>`'s 75 page `memset` calls in `strmap_insert/routes`). A page stays zeroed, so this share of `new_suffix`'s `memset` cost stays.
+- **`calloc(40)` against `malloc(40)`** per call, 50,000 calls each, one process per (function, heap state), with the C source in the artifact:
+
+  | heap state | 2.41 `calloc` | 2.41 `malloc` | 2.41 difference | 2.39 `calloc` | 2.39 `malloc` | 2.39 difference |
+  |---|---:|---:|---:|---:|---:|---:|
+  | growth (no frees) | 240.06 | 196.05 | 44.01 | 229.05 | 198.05 | 31.00 |
+  | mixed (a 24-byte free per step) | 302.15 | 258.13 | 44.02 | 302.26 | 271.26 | 31.00 |
+  | same (a 40-byte free per step) | 71.01 | 47.00 | 24.01 | 163.01 | 53.00 | 110.01 |
+
+  In the arms, a shell's or suffix's `calloc` costs 98.8 (2.41) and 153.0 (2.39) per call in `sync_strmap_insert_short`, and 245.3 and 248.1 in `sync_strmap_insert_sorted`. No single heap state stands for an arm, so the bound below spans them.
+
+#### G-instr for the increment (Callgrind; head against `a37a044e`, per arm, two-sided, on both instruments)
+
+Every function is in `scripts/strmap_stall_bounds.py` with pinned tests; `python3 scripts/strmap_stall_bounds.py --design-b-zeroing` prints the table from the artifact.
+
+**Derivation** (`zeroing_term`, `zeroing_bound`). The saving on an arm is the sum of five terms:
+- **The `memset` calls the change removes**, exactly. These are `pop_freelist`'s, and `new_suffix`'s less its slab pages at the measured page cost. When the page arc is not fully collected, between none and as many pages as the cost holds stay.
+- **Each removed call's setup**, [0, 6] Ir. There are at most the removed cost over 8 such calls: 8 Ir is below the cheapest fully collected `memset` arc in the base, 10.0 per call (`new_suffix` in `sync_strmap_insert_short` under 2.41).
+- **A shared shell served from a freelist** loses its inline zeroing, [0, 6] Ir.
+- **A plain shell** loses its merged store, [0, 2] Ir.
+- **Each `calloc` of a shell or suffix becomes a `malloc`.** On an arc whose cost is at least 60 Ir per call, read as fully collected, it saves at least the smallest measured difference per call (24.0 under 2.41, 31.0 under 2.39). It saves at most its measured cost less the cheapest measured `malloc` per call (47.0, 53.0). On any other arc it saves between nothing and its whole cost.
+
+The bound is minus that saving, widened on both sides by 0.1% of the arm (AGENTS.md §6 review threshold) with a floor of 500 Ir, as §47.3's slack.
+
+**No change.** Every arm with no term (240 of 286 under each C library, including every plain arm that allocates no shell and no suffix) is bounded at ±max(0.1%, 500 Ir).
+
+**Arms expected to improve**, both instruments (low and high Δ against `a37a044e`):
+
+| C library | harness | arm | a37a044e | bound low | bound high |
+|---|---|---|---:|---:|---:|
+| glibc-2.41 | `instructions` | `domain_dict_insert/routes` | 87,543,666 | -0.2498% | +0.0286% |
+| glibc-2.41 | `instructions` | `ordered_bytesmap_insert/clean` | 46,159,029 | -4.6202% | -1.0025% |
+| glibc-2.41 | `instructions` | `ordered_bytesmap_insert/escaped` | 63,455,939 | -3.4239% | -0.6880% |
+| glibc-2.41 | `instructions` | `strmap_clear_refill/routes` | 51,832,766 | -0.4070% | +0.0032% |
+| glibc-2.41 | `instructions` | `strmap_insert/routes` | 42,348,262 | -0.4098% | -0.0476% |
+| glibc-2.41 | `instructions` | `strmap_insert_plain/routes` | 42,348,262 | -0.4098% | -0.0476% |
+| glibc-2.41 | `instructions` | `strmap_oscillate/routes` | 27,884,795 | -3.9214% | -1.8724% |
+| glibc-2.41 | `instructions` | `strmap_raw_insert/clean` | 41,288,529 | -5.1534% | -1.1326% |
+| glibc-2.41 | `instructions` | `strmap_refill/routes` | 98,783,461 | -0.2517% | +0.0492% |
+| glibc-2.41 | `instructions` | `strmap_refill_small/routes` | 84,221,275 | -0.2488% | +0.0239% |
+| glibc-2.41 | `instructions` | `strmap_transcode_insert/clean` | 45,542,017 | -4.6814% | -1.0175% |
+| glibc-2.41 | `instructions` | `strmap_transcode_insert/escaped` | 92,668,188 | -2.3761% | -0.4396% |
+| glibc-2.41 | `instructions` | `sync_blobmap_churn/random` | 135,499,840 | -0.8314% | -0.3180% |
+| glibc-2.41 | `instructions` | `sync_blobmap_insert/random` | 55,988,491 | -0.4922% | -0.1241% |
+| glibc-2.41 | `instructions` | `sync_blobmap_reclaim_free/random` | 256,027 | -0.3252% | +0.1211% |
+| glibc-2.41 | `instructions` | `sync_blobmap_remove/random` | 65,053,263 | -0.7505% | -0.2717% |
+| glibc-2.41 | `instructions` | `sync_bytesmap_churn/routes` | 297,603,609 | -0.4323% | -0.0899% |
+| glibc-2.41 | `instructions` | `sync_bytesmap_insert/routes` | 111,792,788 | -0.2958% | -0.0119% |
+| glibc-2.41 | `instructions` | `sync_bytesmap_remove/routes` | 182,165,612 | -0.3330% | -0.0331% |
+| glibc-2.41 | `instructions` | `sync_map_branchu_band/top` | 9,607,214 | -0.2694% | +0.0032% |
+| glibc-2.41 | `instructions` | `sync_map_churn/random` | 119,043,770 | -1.0664% | -0.4522% |
+| glibc-2.41 | `instructions` | `sync_map_compact_drained/random60` | 20,541,618 | -0.4703% | -0.1116% |
+| glibc-2.41 | `instructions` | `sync_map_count_after_write/one_top_byte` | 1,709,867,155 | -0.1007% | +0.0996% |
+| glibc-2.41 | `instructions` | `sync_map_count_after_write/random` | 32,036,998 | -0.1364% | +0.0792% |
+| glibc-2.41 | `instructions` | `sync_map_count_after_write/sequential` | 14,452,770 | -0.1202% | +0.0884% |
+| glibc-2.41 | `instructions` | `sync_map_drain_floor/top` | 240,055 | -0.3935% | +0.1025% |
+| glibc-2.41 | `instructions` | `sync_map_insert/random` | 48,913,392 | -0.5490% | -0.1566% |
+| glibc-2.41 | `instructions` | `sync_map_remove/random` | 62,718,249 | -0.7747% | -0.2856% |
+| glibc-2.41 | `instructions` | `sync_map_write_twin/one_top_byte` | 2,057,074 | -0.6664% | -0.2237% |
+| glibc-2.41 | `instructions` | `sync_map_write_twin/random` | 1,825,039 | -0.7384% | -0.2648% |
+| glibc-2.41 | `instructions` | `sync_map_write_twin/sequential` | 2,130,198 | -0.2373% | +0.0216% |
+| glibc-2.41 | `instructions` | `sync_set_churn/leaf` | 86,663,509 | -2.6231% | -1.3418% |
+| glibc-2.41 | `instructions` | `sync_set_churn/random` | 93,261,435 | -0.5028% | -0.1302% |
+| glibc-2.41 | `instructions` | `sync_set_compact_drained/random60` | 18,985,417 | -0.8655% | -0.3375% |
+| glibc-2.41 | `instructions` | `sync_set_drain_floor/top` | 239,038 | -0.4171% | +0.0904% |
+| glibc-2.41 | `instructions` | `sync_set_insert/random` | 45,039,439 | -0.4774% | -0.1157% |
+| glibc-2.41 | `instructions` | `sync_set_remove/random` | 53,136,483 | -0.5627% | -0.1644% |
+| glibc-2.41 | `instructions` | `sync_strmap_churn_short/short` | 229,652,955 | -1.0667% | -0.4511% |
+| glibc-2.41 | `instructions` | `sync_strmap_insert/routes` | 78,421,550 | -2.6313% | -0.5709% |
+| glibc-2.41 | `instructions` | `sync_strmap_insert_short/short` | 103,028,140 | -2.7962% | -1.1703% |
+| glibc-2.41 | `instructions` | `sync_strmap_insert_sorted/uuid` | 48,409,841 | -8.6765% | -1.1108% |
+| glibc-2.41 | `instructions` | `sync_strmap_remove/routes` | 87,230,853 | -0.3303% | -0.0316% |
+| glibc-2.41 | `rmw_instructions` | `sync_bytesmap_cas_insert/routes` | 107,504,183 | -0.2893% | -0.0082% |
+| glibc-2.41 | `rmw_instructions` | `sync_bytesmap_cas_remove/routes` | 195,961,904 | -0.3166% | -0.0238% |
+| glibc-2.41 | `rmw_instructions` | `sync_map_cas_insert/random` | 46,722,841 | -0.5341% | -0.1480% |
+| glibc-2.41 | `rmw_instructions` | `sync_strmap_cas_insert/routes` | 101,507,889 | -1.5797% | -0.4454% |
+| glibc-2.39 | `instructions` | `domain_dict_insert/routes` | 88,104,489 | -0.2613% | +0.0219% |
+| glibc-2.39 | `instructions` | `ordered_bytesmap_insert/clean` | 46,483,897 | -4.7796% | -1.1043% |
+| glibc-2.39 | `instructions` | `ordered_bytesmap_insert/escaped` | 65,398,789 | -3.4585% | -0.7410% |
+| glibc-2.39 | `instructions` | `strmap_clear_refill/routes` | 52,142,720 | -0.4261% | -0.0082% |
+| glibc-2.39 | `instructions` | `strmap_insert/routes` | 42,602,403 | -0.4336% | -0.0614% |
+| glibc-2.39 | `instructions` | `strmap_insert_plain/routes` | 42,602,403 | -0.4336% | -0.0614% |
+| glibc-2.39 | `instructions` | `strmap_oscillate/routes` | 27,985,161 | -4.2203% | -2.0440% |
+| glibc-2.39 | `instructions` | `strmap_raw_insert/clean` | 41,613,234 | -5.3273% | -1.2453% |
+| glibc-2.39 | `instructions` | `strmap_refill/routes` | 100,804,387 | -0.2595% | +0.0440% |
+| glibc-2.39 | `instructions` | `strmap_refill_small/routes` | 86,532,659 | -0.2578% | +0.0185% |
+| glibc-2.39 | `instructions` | `strmap_transcode_insert/clean` | 45,866,878 | -4.8425% | -1.1205% |
+| glibc-2.39 | `instructions` | `strmap_transcode_insert/escaped` | 96,535,197 | -2.3753% | -0.4698% |
+| glibc-2.39 | `instructions` | `sync_blobmap_churn/random` | 137,996,113 | -0.8825% | -0.3471% |
+| glibc-2.39 | `instructions` | `sync_blobmap_insert/random` | 56,940,240 | -0.5157% | -0.1375% |
+| glibc-2.39 | `instructions` | `sync_blobmap_reclaim_free/random` | 276,267 | -0.3102% | +0.1071% |
+| glibc-2.39 | `instructions` | `sync_blobmap_remove/random` | 66,038,564 | -0.7881% | -0.2932% |
+| glibc-2.39 | `instructions` | `sync_bytesmap_churn/routes` | 299,649,054 | -0.4596% | -0.1055% |
+| glibc-2.39 | `instructions` | `sync_bytesmap_insert/routes` | 112,847,725 | -0.3091% | -0.0195% |
+| glibc-2.39 | `instructions` | `sync_bytesmap_remove/routes` | 183,529,985 | -0.3483% | -0.0419% |
+| glibc-2.39 | `instructions` | `sync_map_branchu_band/top` | 9,922,514 | -0.2746% | +0.0002% |
+| glibc-2.39 | `instructions` | `sync_map_churn/random` | 120,453,006 | -1.1458% | -0.4976% |
+| glibc-2.39 | `instructions` | `sync_map_compact_drained/random60` | 20,549,652 | -0.4852% | -0.1201% |
+| glibc-2.39 | `instructions` | `sync_map_count_after_write/one_top_byte` | 1,709,934,343 | -0.1007% | +0.0996% |
+| glibc-2.39 | `instructions` | `sync_map_count_after_write/random` | 32,099,111 | -0.1397% | +0.0773% |
+| glibc-2.39 | `instructions` | `sync_map_count_after_write/sequential` | 14,457,345 | -0.1219% | +0.0875% |
+| glibc-2.39 | `instructions` | `sync_map_drain_floor/top` | 246,042 | -0.3945% | +0.0939% |
+| glibc-2.39 | `instructions` | `sync_map_insert/random` | 49,827,275 | -0.5750% | -0.1714% |
+| glibc-2.39 | `instructions` | `sync_map_remove/random` | 63,735,969 | -0.8130% | -0.3074% |
+| glibc-2.39 | `instructions` | `sync_map_write_twin/one_top_byte` | 2,123,666 | -0.6995% | -0.2426% |
+| glibc-2.39 | `instructions` | `sync_map_write_twin/random` | 1,886,726 | -0.7748% | -0.2856% |
+| glibc-2.39 | `instructions` | `sync_map_write_twin/sequential` | 2,134,636 | -0.2481% | +0.0154% |
+| glibc-2.39 | `instructions` | `sync_set_churn/leaf` | 97,606,675 | -2.4298% | -1.2313% |
+| glibc-2.39 | `instructions` | `sync_set_churn/random` | 93,659,973 | -0.5409% | -0.1519% |
+| glibc-2.39 | `instructions` | `sync_set_compact_drained/random60` | 19,104,347 | -0.8983% | -0.3562% |
+| glibc-2.39 | `instructions` | `sync_set_drain_floor/top` | 244,243 | -0.4204% | +0.0815% |
+| glibc-2.39 | `instructions` | `sync_set_insert/random` | 45,669,368 | -0.4988% | -0.1279% |
+| glibc-2.39 | `instructions` | `sync_set_remove/random` | 53,837,680 | -0.5858% | -0.1776% |
+| glibc-2.39 | `instructions` | `sync_strmap_churn_short/short` | 234,312,270 | -1.1322% | -0.4876% |
+| glibc-2.39 | `instructions` | `sync_strmap_insert/routes` | 78,836,908 | -2.6989% | -0.6602% |
+| glibc-2.39 | `instructions` | `sync_strmap_insert_short/short` | 106,539,090 | -4.9824% | -1.4642% |
+| glibc-2.39 | `instructions` | `sync_strmap_insert_sorted/uuid` | 48,893,629 | -8.4922% | -1.4036% |
+| glibc-2.39 | `instructions` | `sync_strmap_remove/routes` | 87,976,618 | -0.3459% | -0.0405% |
+| glibc-2.39 | `rmw_instructions` | `sync_bytesmap_cas_insert/routes` | 109,680,661 | -0.3039% | -0.0165% |
+| glibc-2.39 | `rmw_instructions` | `sync_bytesmap_cas_remove/routes` | 197,505,800 | -0.3307% | -0.0318% |
+| glibc-2.39 | `rmw_instructions` | `sync_map_cas_insert/random` | 47,441,394 | -0.5698% | -0.1685% |
+| glibc-2.39 | `rmw_instructions` | `sync_strmap_cas_insert/routes` | 103,229,461 | -1.6576% | -0.5486% |
+
+The arms §47.10 names as design B's cost are among them: `sync_strmap_insert_short/short`, `sync_strmap_insert_sorted/uuid`, `sync_strmap_insert/routes` and `rmw_instructions` `sync_strmap_cas_insert/routes`. The non-string `sync_*` arms improve through the freelist-hit term alone. `strmap_churn/routes`, §47.10's plain loser, makes no call to `new_shell` or `new_suffix` in its profile at the base, so it is bounded at No change: this increment does not address it.
+
+#### Wall-clock (reference host)
+
+- **The gate is §47.3's G-scale, unchanged:** C_head(W) / C_base(W) at W ∈ {2, 4, 8}, the 0.90 floor, two independent runs, 8 rounds, the pin `0,2,4,6,8,10,12,14`. Head is the increment's commit; base is `main` at `6dc24a748bc6b28ef58aa68f6ad0439b4a65ecdc`, the base of §47.10's runs.
+- **Reported against an expectation, deciding no gate:** the paired T_head(W) / T_base(W), BCa 95%, n = 8 per run, at W ∈ {1, 2, 4, 8}, in both runs.
+- **Pass condition, for the maintainer to weigh:** in both runs, the W = 1 ratio's lower bound is above 0.928. §47.10 measured [0.9284, 0.9341] and [0.9250, 0.9354].
+- **Expectation:** upward at every W, of unpredicted size. The instruction saving above is the only derived quantity, and how instructions map to time on this path is unmeasured (§47.7).
+
+#### Falsifiers, and what follows each
+
+| Falsifier | What follows |
+|---|---|
+| An arm outside its bound on either instrument, including a No change arm moving by more than its slack | `callgrind_annotate --inclusive=no` base against head on the arm, and `objdump -d -C` of every function whose count moved without a source change (AGENTS.md §6). Then the code changes and is re-measured against the same bound, or the departure is recorded here as a dated note. The bound does not move. |
+| The two instruments disagree on an arm's direction | attributed as above, per C library; the C library's share is reported separately from the engine's |
+| A stale-block test, the Miri test, or CI's Tier-1 Miri, ASan or loom fails | the change does not ship as is |
+| A plain path gains a `%fs:` operand (`objdump` of the `instructions` binary, base against head: the `strmap_insert`, `strmap_oscillate` and `strmap_churn` wrappers, and `new_shell::<false>`) | fixed before the push is marked ready (AGENTS.md §2.1 invariant 5) |
+| G-scale `BELOW_FLOOR` or `INTERMEDIATE` | as §47.5 |
+| The W = 1 pass condition not met | reported; no wall-clock gain is claimed for the increment |
+
+#### Silent constants, fixed here
+
+- The base `a37a044e` and the G-scale base `6dc24a74`.
+- Both instruments as stated: the images and their digests, libc6 `2.41-12+deb13u4` and `2.39-0ubuntu8.9`, rustc 1.99.1, valgrind 3.27.1 built from source, `iai-callgrind-runner` 0.16.1. The harnesses are `instructions` and `rmw_instructions` only.
+- The per-call ranges: [0, 6] setup per removed `memset`, the 8 Ir `memset` floor, [0, 6] per shared shell freelist hit, and [0, 2] per plain shell.
+- The page `memset` cost (4,114 and 4,113), and the fully collected thresholds (60 Ir per `calloc` call, 300 per `posix_memalign` call).
+- The `calloc` difference floor (24.0, 31.0) and the `malloc` floor (47.0, 53.0), with the three heap states that produced them.
+- The 0.1% slack with its 500 Ir floor.
+- G-scale's own constants (§47.6), and the 0.928 threshold.
+
+Changing any of these after a measurement of the increment relabels that result `INTERMEDIATE` (AGENTS.md §8.19).
+
+#### Dispatch, for the maintainer
+
+With `HEAD` the increment's commit (40 characters), two independent runs, each its own dispatch:
+
+```bash
+gh workflow run bench_baremetal.yml -f benchmark_suite=writer_scaling_1586_str_vs_base \
+  -f ref="$HEAD" -f base_ref=6dc24a748bc6b28ef58aa68f6ad0439b4a65ecdc -f cpu_pin=0,2,4,6,8,10,12,14
+```
