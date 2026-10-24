@@ -7580,7 +7580,7 @@ Artifact: `results/strmap_zeroing_baseline_callgrind_a37a044e.json`, every arm's
   | mixed (a 24-byte free per step) | 302.15 | 258.13 | 44.02 | 302.26 | 271.26 | 31.00 |
   | same (a 40-byte free per step) | 71.01 | 47.00 | 24.01 | 163.01 | 53.00 | 110.01 |
 
-  In the arms, a shell's or suffix's `calloc` costs 98.8 (2.41) and 153.0 (2.39) per call in `sync_strmap_insert_short`, and 245.3 and 248.1 in `sync_strmap_insert_sorted`. No single heap state stands for an arm, so the bound below spans them.
+  In the arms, a suffix's `calloc` costs 98.8 (2.41) and 153.0 (2.39) per call in `sync_strmap_insert_short`, and 245.3 and 248.1 in `sync_strmap_insert_sorted`. No single heap state stands for an arm, so the bound below spans them.
 
 #### G-instr for the increment (Callgrind; head against `a37a044e`, per arm, two-sided, on both instruments)
 
@@ -7588,7 +7588,7 @@ Every function is in `scripts/strmap_stall_bounds.py` with pinned tests; `python
 
 **Derivation** (`zeroing_term`, `zeroing_bound`). The saving on an arm is the sum of five terms:
 - **The `memset` calls the change removes**, exactly. These are `pop_freelist`'s, and `new_suffix`'s less its slab pages at the measured page cost. When the page arc is not fully collected, between none and as many pages as the cost holds stay.
-- **Each removed call's setup**, [0, 6] Ir. There are at most the removed cost over 8 such calls: 8 Ir is below the cheapest fully collected `memset` arc in the base, 10.0 per call (`new_suffix` in `sync_strmap_insert_short` under 2.41).
+- **Each removed call's setup**, [0, 6] Ir. There are at most the removed cost over 8 such calls. 8 Ir is below one `memset` call's cost wherever an arc's calls all fall in the measured region (the smallest such figure is 10.0, `new_suffix`'s 50 calls in `sync_strmap_insert_short` under 2.41); an arc with a smaller figure carries calls from outside the region.
 - **A shared shell served from a freelist** loses its inline zeroing, [0, 6] Ir.
 - **A plain shell** loses its merged store, [0, 2] Ir.
 - **Each `calloc` of a shell or suffix becomes a `malloc`.** On an arc whose cost is at least 60 Ir per call, read as fully collected, it saves at least the smallest measured difference per call (24.0 under 2.41, 31.0 under 2.39). It saves at most its measured cost less the cheapest measured `malloc` per call (47.0, 53.0). On any other arc it saves between nothing and its whole cost.
