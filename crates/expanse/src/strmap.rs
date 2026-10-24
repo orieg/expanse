@@ -7335,7 +7335,9 @@ mod tests {
     /// a sub-map's statistics walk must not stop at the first branch whose
     /// count disagrees with its subtree; before the fix it did, and read a
     /// few kilobytes of a map using tens of kilobytes, at W = 1 as at W = 4.
-    #[cfg(feature = "std")]
+    /// Under `ablation-str-serial-writers` no optimistic insert runs, so no
+    /// node is ever dirty and the test has nothing to show.
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
     #[cfg_attr(miri, ignore)]
     #[test]
     fn shared_fill_stats_breakdown_sums_to_mem_used() {
