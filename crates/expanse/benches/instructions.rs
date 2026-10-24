@@ -4086,18 +4086,18 @@ fn sync_strmap_scan_pointops(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
 
 // ---- The string wrapper's memory reading (#1586) -------------------------
 //
-// `SyncExpanseStrMap::mem_used` takes the writer lock and walks every
-// `StrNode` shell and suffix leaf (`ExpanseStrMap::mem_used`: the allocator's
-// `bytes_in_use` plus `shell_bytes`), so every insert waits for the walk.
-// This arm counts that read on the two populations the wrapper's write arms
+// `SyncExpanseStrMap::mem_used` took the writer lock and walked every
+// `StrNode` shell and suffix leaf until design B (concurrency METHODOLOGY §47),
+// which made it a fold over the allocator's per-writer accounting shards, with
+// no lock and no walk. This arm counts that read on the two populations the wrapper's write arms
 // build: `routes` (`str_keys`, 50k 37-byte keys sharing prefixes, so most
 // strings end in terminal chunks below a chain of shells) and `short` (50k
 // random 8- to 16-byte keys, most of them a suffix leaf under the root). It is
-// the baseline for a reading that does not walk. One thread, no writer, so
-// no lock is contended and the count is exact. Counted per read
+// what the shard fold costs on those populations. One thread, no writer, so
+// the count is exact. Counted per read
 // (`MEM_USED_READS`).
 
-/// Reads measured by `sync_strmap_mem_used`. Each one walks the whole tree,
+/// Reads measured by `sync_strmap_mem_used`. Each one is deterministic,
 /// so a few suffice for an exact per-read count.
 const MEM_USED_READS: usize = 4;
 

@@ -1,0 +1,4043 @@
+{
+ "suite": "strmap_zeroing_baseline_callgrind",
+ "refs": "#1586; docs/benchmarks/concurrency/METHODOLOGY.md section 47.11",
+ "measured": "2026-10-24 (UTC)",
+ "base": "a37a044edfd8ccf827f917864d87d0ffee4c441d (PR #1599 head, design B after section 47.10)",
+ "what": "Callgrind Ir of every instructions and rmw_instructions arm at the base, on two instruments that differ only in the C library, with the call records section 47.11's bound reads; and the per-call cost of calloc against malloc for a 40-byte block under each C library",
+ "provenance": {
+  "host": {
+   "cpu": "Intel Xeon E5-2697 v4 @ 2.30GHz, 2 sockets, 72 threads",
+   "os": "Ubuntu 22.04.5 LTS host, Linux 5.15; benches run in the containers below",
+   "role": "x86_64 heavy-jobs host; not the reference benchmark host. Callgrind counts are deterministic",
+   "docker": "28.1.1, --security-opt seccomp=unconfined"
+  },
+  "instruments": {
+   "glibc-2.41": {
+    "image": "rust:1.99.1-trixie@sha256:931c2c0531a8b143e044f0f3914dfe802f15bb3d1955f0b657e9359327ac2ffc",
+    "libc6": "2.41-12+deb13u4 (Debian 13)",
+    "rustc": "the image's rustc 1.99.1 (58cf8f9c3 2026-10-13), LLVM 23.1.1"
+   },
+   "glibc-2.39": {
+    "image": "ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",
+    "libc6": "2.39-0ubuntu8.9 (Ubuntu 24.04, the CI runner image's release)",
+    "rustc": "rustup --default-toolchain 1.99.1: rustc 1.99.1 (58cf8f9c3 2026-10-13), LLVM 23.1.1"
+   }
+  },
+  "valgrind": "3.27.1, built from https://sourceware.org/pub/valgrind/valgrind-3.27.1.tar.bz2 (sha256 5d589152eb8071c02feab8ce6ab719e431a1fbc3e2b1700f5432632a8b9264dc) inside each image with ./configure --prefix=/opt/valgrind && make && make install, as .github/actions/valgrind does",
+  "iai_callgrind_runner": "0.16.1 (cargo install), matching iai-callgrind 0.16.1 in Cargo.lock",
+  "commands": [
+   "git archive a37a044e | tar -x into a fresh directory; a fresh CARGO_TARGET_DIR per instrument",
+   "cargo build --release -p expanse-capi; EXPANSE_CDYLIB=<target>/release/libexpanse.so",
+   "cargo bench --bench instructions -p expanse-trie; cargo bench --bench rmw_instructions -p expanse-trie"
+  ],
+  "estimators": {
+   "base": "the arm's Callgrind Ir; every profile's total equals the printed count (284 of 286 compared; the two sensor_timestamps arms print under a header the comparison does not parse)",
+   "call_records": "parsed from each arm's callgrind.<arm>.<id>.out: for each caller -> callee arc, the calls= count and the inclusive cost line after it. A count includes calls made while collection was off (outside the arm's measured region) whenever the same arc also ran inside it; the cost is the measured region's only. The bound therefore treats a count as exact only where its cost per call is plausible (section 47.11)",
+   "memset": "the C library's memset is unnamed in both images (no debug symbols); it is identified as pop_freelist's one callee, 0x163280 (2.41) and 0x189780 (2.39)",
+   "pop_memset_ir": "inclusive Ir of pop_freelist's memset calls; pop_hits their count",
+   "suffix_memset_ir": "inclusive Ir of new_suffix's memset calls (alloc_raw's zeroing of the runtime-sized block); suffix_memset_calls their count",
+   "shared_shells": "calls to new_shell::<true>; shared_shell_pops its calls to pop_freelist; shared_shell_callocs/_ir its calls to calloc",
+   "suffix_callocs": "new_suffix's calls to calloc and their inclusive Ir",
+   "plain_shells": "calls to new_shell::<false>",
+   "suffix_pages": "new_suffix's calls to posix_memalign, one per 4096-byte slab page it carves (whose memset stays), and their inclusive Ir (suffix_pages_ir)"
+  },
+  "allocpc": {
+   "what": "per-call cost of calloc(40, 1) and malloc(40) under each C library, three heap states, 50,000 calls each, one process per (function, state)",
+   "commands": [
+    "gcc -O2 -o apc allocpc.c",
+    "valgrind --tool=callgrind --toggle-collect=one ./apc <calloc|malloc> <growth|mixed|same> 50000"
+   ],
+   "totals_ir": {
+    "glibc-2.41": {
+     "growth": {
+      "calloc": 12003176,
+      "malloc": 9802499
+     },
+     "mixed": {
+      "calloc": 15107387,
+      "malloc": 12906620
+     },
+     "same": {
+      "calloc": 3550677,
+      "malloc": 2350000
+     }
+    },
+    "glibc-2.39": {
+     "growth": {
+      "calloc": 11452533,
+      "malloc": 9902533
+     },
+     "mixed": {
+      "calloc": 15113138,
+      "malloc": 13563048
+     },
+     "same": {
+      "calloc": 8150462,
+      "malloc": 2650000
+     }
+    }
+   },
+   "source": "/* Per-call instruction cost of calloc(n, 1) against malloc(n) under one glibc,\n * for the allocation a design-B shell makes on a collector-freelist miss\n * (40 bytes at 16-byte alignment, which Rust's System allocator serves with\n * malloc/calloc). Three heap states, each run as its own process so the\n * heaps do not share history:\n *   growth: N fresh blocks, none freed (an insert arm's shells);\n *   same:   as mixed, but the freed block is 40 bytes, so tcache holds the size;\n *   mixed:  each step frees one earlier short-lived 24-byte block first, so\n *           the bins and tcache are warm (an arm that drops probe strings).\n * usage: allocpc <calloc|malloc> <growth|mixed|same> <N>\n * Run under: valgrind --tool=callgrind --toggle-collect=one */\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\nstatic void *volatile sink;\n\n__attribute__((noinline)) void *one(int use_calloc, size_t n) {\n    return use_calloc ? calloc(n, 1) : malloc(n);\n}\n\n__attribute__((noinline)) void work(int use_calloc, int mixed, long n, void **keep, void **tmp) {\n    for (long i = 0; i < n; i++) {\n        if (mixed) {\n            free(tmp[i]);\n        }\n        keep[i] = one(use_calloc, 40);\n    }\n}\n\nint main(int argc, char **argv) {\n    if (argc != 4) return 2;\n    int use_calloc = strcmp(argv[1], \"calloc\") == 0;\n    int mixed = strcmp(argv[2], \"growth\") != 0; size_t tsz = strcmp(argv[2], \"same\") == 0 ? 40 : 24;\n    long n = atol(argv[3]);\n    void **keep = malloc(sizeof(void *) * n);\n    void **tmp = malloc(sizeof(void *) * n);\n    for (long i = 0; i < n; i++) tmp[i] = mixed ? malloc(tsz) : NULL;\n    work(use_calloc, mixed, n, keep, tmp);\n    sink = keep[n - 1];\n    printf(\"ok %s %s %ld\\n\", argv[1], argv[2], n);\n    return 0;\n}\n"
+  }
+ },
+ "instruments": {
+  "glibc-2.41": {
+   "memset_symbol": "0x0000000000163280",
+   "page_memset_ir": {
+    "per_call": 4114,
+    "source": "new_shell::<false> -> memset in instructions strmap_insert/routes: 308550 Ir over 75 calls, every one a 4096-byte slab page"
+   },
+   "arms": [
+    {
+     "bench": "instructions",
+     "arm": "blobmap32_scan",
+     "id": "ipv4_routes",
+     "base": 341888
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_churn",
+     "id": "random",
+     "base": 72293945
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_compact",
+     "id": "random",
+     "base": 19386168
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_get",
+     "id": "random",
+     "base": 10692294
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_insert",
+     "id": "random",
+     "base": 30887096
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_insert_inline",
+     "id": "random",
+     "base": 28536441
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_insert_reclaiming",
+     "id": "random",
+     "base": 505457
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_overwrite",
+     "id": "random",
+     "base": 19537301
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_remove",
+     "id": "random",
+     "base": 25397424
+    },
+    {
+     "bench": "instructions",
+     "arm": "bytesmap_churn",
+     "id": "routes",
+     "base": 141785638
+    },
+    {
+     "bench": "instructions",
+     "arm": "bytesmap_get",
+     "id": "routes",
+     "base": 29361366
+    },
+    {
+     "bench": "instructions",
+     "arm": "bytesmap_insert",
+     "id": "routes",
+     "base": 78140019
+    },
+    {
+     "bench": "instructions",
+     "arm": "bytesmap_overwrite",
+     "id": "routes",
+     "base": 35436237
+    },
+    {
+     "bench": "instructions",
+     "arm": "bytesmap_remove",
+     "id": "routes",
+     "base": 85390457
+    },
+    {
+     "bench": "instructions",
+     "arm": "domain_dict_get",
+     "id": "routes",
+     "base": 51816474
+    },
+    {
+     "bench": "instructions",
+     "arm": "domain_dict_insert",
+     "id": "routes",
+     "base": 87543666,
+     "calls": {
+      "suffix_memset_calls": 6255,
+      "suffix_memset_ir": 74864,
+      "plain_shells": 6253,
+      "suffix_pages": 3,
+      "suffix_pages_ir": 1260
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_compact_drained",
+     "id": "random28",
+     "base": 47256899
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_for_each_range",
+     "id": "clustered",
+     "base": 207675
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_for_each_range",
+     "id": "random",
+     "base": 97745
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_for_each_range",
+     "id": "sequential",
+     "base": 138213
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_from_sorted_iter",
+     "id": "random",
+     "base": 5363805
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_from_sorted_iter",
+     "id": "random_sorted",
+     "base": 3750664
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_from_sorted_iter",
+     "id": "sequential",
+     "base": 1865785
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_get",
+     "id": "can_dispatch",
+     "base": 105841
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_insert",
+     "id": "sensor_timestamps",
+     "base": 4731334
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_insert_sorted",
+     "id": "random",
+     "base": 9538921
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_insert_sorted",
+     "id": "random_sorted",
+     "base": 9003231
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_insert_sorted",
+     "id": "sequential",
+     "base": 4767540
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_iterate",
+     "id": "clustered",
+     "base": 294256
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_iterate",
+     "id": "random",
+     "base": 334107
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_iterate",
+     "id": "sequential",
+     "base": 188834
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_nav",
+     "id": "clustered",
+     "base": 2301311
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_nav",
+     "id": "random",
+     "base": 5284959
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_nav",
+     "id": "sequential",
+     "base": 1185688
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_prev",
+     "id": "clustered",
+     "base": 2491406
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_prev",
+     "id": "random",
+     "base": 5133351
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_prev",
+     "id": "sequential",
+     "base": 1203000
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_range",
+     "id": "clustered",
+     "base": 294265
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_range",
+     "id": "random",
+     "base": 168083
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_range",
+     "id": "sequential",
+     "base": 188843
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_rebuild_drained",
+     "id": "random28",
+     "base": 93939793
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_remove",
+     "id": "clustered",
+     "base": 1942329
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_remove",
+     "id": "random",
+     "base": 1337141
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_remove",
+     "id": "sequential",
+     "base": 1435079
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_churn",
+     "id": "random",
+     "base": 58220455
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_clear_refill",
+     "id": "random",
+     "base": 26897309
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_clone",
+     "id": "random",
+     "base": 27895319
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_clone",
+     "id": "sequential",
+     "base": 9579638
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_collect",
+     "id": "random",
+     "base": 24311414
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_collect",
+     "id": "random_sorted",
+     "base": 23342273
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_collect",
+     "id": "sequential",
+     "base": 8307517
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_compact_drained",
+     "id": "random60",
+     "base": 16843630
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_count_below",
+     "id": "one_top_byte",
+     "base": 518916589
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_count_below",
+     "id": "random",
+     "base": 515890260
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_count_below",
+     "id": "sequential",
+     "base": 188472636
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_cursor_scan",
+     "id": "clustered",
+     "base": 2255529
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_cursor_scan",
+     "id": "random",
+     "base": 6347786
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_cursor_scan",
+     "id": "sequential",
+     "base": 2241739
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_from_sorted_iter",
+     "id": "random",
+     "base": 24341658
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_from_sorted_iter",
+     "id": "random_sorted",
+     "base": 10353231
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_from_sorted_iter",
+     "id": "sequential",
+     "base": 3316685
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get",
+     "id": "clustered",
+     "base": 5619908
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get",
+     "id": "dense_leaf",
+     "base": 11111356
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get",
+     "id": "linear_leaf",
+     "base": 9954401
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get",
+     "id": "random",
+     "base": 6262175
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get",
+     "id": "sequential",
+     "base": 6950212
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get_batch",
+     "id": "random",
+     "base": 8531842
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_ins_slot",
+     "id": "random",
+     "base": 24810612
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "clustered",
+     "base": 17017442
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "dense_leaf",
+     "base": 21781281
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "linear_leaf",
+     "base": 23462004
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "random",
+     "base": 24561496
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "sequential",
+     "base": 8553965
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "small",
+     "base": 24131849
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_iterate",
+     "id": "random",
+     "base": 5310508
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_nav",
+     "id": "clustered",
+     "base": 15943747
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_nav",
+     "id": "random",
+     "base": 15625592
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_nav",
+     "id": "sequential",
+     "base": 22350211
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_oscillate",
+     "id": "random",
+     "base": 3806024
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_prev",
+     "id": "clustered",
+     "base": 16701565
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_prev",
+     "id": "random",
+     "base": 21880844
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_prev",
+     "id": "sequential",
+     "base": 23449765
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range_cursor_scan",
+     "id": "clustered",
+     "base": 3905990
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range_cursor_scan",
+     "id": "random",
+     "base": 7651312
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range_cursor_scan",
+     "id": "sequential",
+     "base": 3889147
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_rebuild_drained",
+     "id": "random60",
+     "base": 38597753
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_refill",
+     "id": "random",
+     "base": 45707791
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_regrow_after_shrink",
+     "id": "random60",
+     "base": 65884050
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_remove",
+     "id": "random",
+     "base": 22520007
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_remove_partial",
+     "id": "random60",
+     "base": 69436415
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_shrink_drained",
+     "id": "random60",
+     "base": 14920820
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_cursor",
+     "id": "clean",
+     "base": 26742127
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_cursor",
+     "id": "escaped",
+     "base": 40022558
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_cursor_into",
+     "id": "clean",
+     "base": 18842105
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_cursor_into",
+     "id": "escaped",
+     "base": 29819378
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_get",
+     "id": "clean",
+     "base": 21955493
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_get",
+     "id": "escaped",
+     "base": 33365891
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_insert",
+     "id": "clean",
+     "base": 46159029,
+     "calls": {
+      "suffix_memset_calls": 51279,
+      "suffix_memset_ir": 2101038,
+      "plain_shells": 893,
+      "suffix_pages": 387,
+      "suffix_pages_ir": 170725
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_insert",
+     "id": "escaped",
+     "base": 63455939,
+     "calls": {
+      "suffix_memset_calls": 50401,
+      "suffix_memset_ir": 2145611,
+      "plain_shells": 2,
+      "suffix_pages": 400,
+      "suffix_pages_ir": 177576
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_compact_drained",
+     "id": "random28",
+     "base": 37910310
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_from_sorted_iter",
+     "id": "random",
+     "base": 4768145
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_from_sorted_iter",
+     "id": "random_sorted",
+     "base": 3571089
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_from_sorted_iter",
+     "id": "sequential",
+     "base": 542827
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_insert",
+     "id": "sensor_timestamps",
+     "base": 4989671
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_insert_sorted",
+     "id": "random",
+     "base": 9465766
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_insert_sorted",
+     "id": "random_sorted",
+     "base": 8700724
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_insert_sorted",
+     "id": "sequential",
+     "base": 5006486
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_iterate",
+     "id": "clustered",
+     "base": 261256
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_iterate",
+     "id": "random",
+     "base": 294054
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_iterate",
+     "id": "sequential",
+     "base": 133631
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_range",
+     "id": "clustered",
+     "base": 261265
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_range",
+     "id": "random",
+     "base": 148195
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_range",
+     "id": "sequential",
+     "base": 133640
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_rebuild_drained",
+     "id": "random28",
+     "base": 72458050
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_remove",
+     "id": "clustered",
+     "base": 1824435
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_remove",
+     "id": "random",
+     "base": 1097547
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_remove",
+     "id": "sequential",
+     "base": 1078094
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_clear_refill",
+     "id": "random",
+     "base": 22604959
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_clone",
+     "id": "random",
+     "base": 15003127
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_clone",
+     "id": "sequential",
+     "base": 2698107
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_compact_drained",
+     "id": "random60",
+     "base": 16212069
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_contains",
+     "id": "random",
+     "base": 6023282
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_contains_batch",
+     "id": "random",
+     "base": 8369863
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_count_below",
+     "id": "one_top_byte",
+     "base": 526154918
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_count_below",
+     "id": "random",
+     "base": 521363715
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_count_below",
+     "id": "sequential",
+     "base": 199619100
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_insert",
+     "id": "clustered",
+     "base": 10648907
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_insert",
+     "id": "dense_leaf",
+     "base": 17800542
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_insert",
+     "id": "linear_leaf",
+     "base": 18738011
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_insert",
+     "id": "random",
+     "base": 20550250
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_insert",
+     "id": "sequential",
+     "base": 3126086
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_nav",
+     "id": "clustered",
+     "base": 14293756
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_nav",
+     "id": "random",
+     "base": 15824125
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_nav",
+     "id": "sequential",
+     "base": 19457612
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_oscillate",
+     "id": "random",
+     "base": 3306015
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_prev",
+     "id": "clustered",
+     "base": 14871097
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_prev",
+     "id": "random",
+     "base": 22599272
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_prev",
+     "id": "sequential",
+     "base": 20405851
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_rebuild_drained",
+     "id": "random60",
+     "base": 16656384
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_refill",
+     "id": "random",
+     "base": 42979837
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_remove",
+     "id": "random",
+     "base": 23285065
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_remove_partial",
+     "id": "random60",
+     "base": 77999348
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_shrink_drained",
+     "id": "random60",
+     "base": 11081428
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_boundary_oscillate",
+     "id": "band2",
+     "base": 16916127
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_boundary_oscillate",
+     "id": "band9",
+     "base": 70931871
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_condense",
+     "id": "h1",
+     "base": 632591
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_condense",
+     "id": "wide",
+     "base": 526978
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_condense_control",
+     "id": "h1",
+     "base": 638131
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_condense_control",
+     "id": "wide",
+     "base": 550371
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_split",
+     "id": "e1024",
+     "base": 11710935
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_split_control",
+     "id": "e1024",
+     "base": 382443
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_churn",
+     "id": "routes",
+     "base": 117088402
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_clear_refill",
+     "id": "routes",
+     "base": 51832766,
+     "calls": {
+      "suffix_memset_calls": 12519,
+      "suffix_memset_ir": 111890,
+      "plain_shells": 12505,
+      "suffix_pages": 15,
+      "suffix_pages_ir": 7497
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_cursor_scan",
+     "id": "paths",
+     "base": 9204895
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_cursor_scan",
+     "id": "paths_dense",
+     "base": 13693955
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_get",
+     "id": "routes",
+     "base": 35163669
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_get_short",
+     "id": "short",
+     "base": 20487589
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_insert",
+     "id": "routes",
+     "base": 42348262,
+     "calls": {
+      "suffix_memset_calls": 6255,
+      "suffix_memset_ir": 74864,
+      "plain_shells": 6253,
+      "suffix_pages": 3,
+      "suffix_pages_ir": 1260
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_insert_plain",
+     "id": "routes",
+     "base": 42348262,
+     "calls": {
+      "suffix_memset_calls": 6255,
+      "suffix_memset_ir": 74864,
+      "plain_shells": 6253,
+      "suffix_pages": 3,
+      "suffix_pages_ir": 1260
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_oscillate",
+     "id": "routes",
+     "base": 27884795,
+     "calls": {
+      "suffix_memset_calls": 50001,
+      "suffix_memset_ir": 554114,
+      "plain_shells": 50000,
+      "suffix_pages": 1,
+      "suffix_pages_ir": 420
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_bounded",
+     "id": "paths",
+     "base": 2622259
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_bounded",
+     "id": "paths_dense",
+     "base": 3747206
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_scan",
+     "id": "paths",
+     "base": 2807170
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_scan",
+     "id": "paths_dense",
+     "base": 3937229
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_seek",
+     "id": "paths",
+     "base": 146157
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_seek",
+     "id": "paths_dense",
+     "base": 145495
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_raw_cursor",
+     "id": "clean",
+     "base": 14534087
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_raw_get",
+     "id": "clean",
+     "base": 17405493
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_raw_insert",
+     "id": "clean",
+     "base": 41288529,
+     "calls": {
+      "suffix_memset_calls": 51279,
+      "suffix_memset_ir": 2101038,
+      "plain_shells": 893,
+      "suffix_pages": 387,
+      "suffix_pages_ir": 171106
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_refill",
+     "id": "routes",
+     "base": 98783461,
+     "calls": {
+      "suffix_memset_calls": 12516,
+      "suffix_memset_ir": 99548,
+      "plain_shells": 12505,
+      "suffix_pages": 12,
+      "suffix_pages_ir": 5441
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_refill_small",
+     "id": "routes",
+     "base": 84221275,
+     "calls": {
+      "suffix_memset_calls": 6525,
+      "suffix_memset_ir": 64100,
+      "plain_shells": 6578
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_cursor",
+     "id": "clean",
+     "base": 25734088
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_cursor",
+     "id": "escaped",
+     "base": 39120684
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_get",
+     "id": "clean",
+     "base": 21655495
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_get",
+     "id": "escaped",
+     "base": 62669523
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_insert",
+     "id": "clean",
+     "base": 45542017,
+     "calls": {
+      "suffix_memset_calls": 51279,
+      "suffix_memset_ir": 2101038,
+      "plain_shells": 893,
+      "suffix_pages": 387,
+      "suffix_pages_ir": 170725
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_insert",
+     "id": "escaped",
+     "base": 92668188,
+     "calls": {
+      "suffix_memset_calls": 50401,
+      "suffix_memset_ir": 2145611,
+      "plain_shells": 2,
+      "suffix_pages": 400,
+      "suffix_pages_ir": 214099
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_get",
+     "id": "bitmap",
+     "base": 1460470
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_get",
+     "id": "linear",
+     "base": 1790630
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_get",
+     "id": "linear_wide",
+     "base": 1464624
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_write",
+     "id": "churn",
+     "base": 1125219
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_write",
+     "id": "overwrite",
+     "base": 1472444
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_write",
+     "id": "overwrite_same",
+     "base": 608444
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_churn",
+     "id": "random",
+     "base": 135499840,
+     "calls": {
+      "pop_hits": 60444,
+      "pop_memset_ir": 566346
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_compact",
+     "id": "random",
+     "base": 19387043
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_compare_exchange",
+     "id": "random",
+     "base": 50745407
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_get",
+     "id": "random",
+     "base": 19659573
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_get_into",
+     "id": "random",
+     "base": 19991771
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_insert",
+     "id": "random",
+     "base": 55988491,
+     "calls": {
+      "pop_hits": 9757,
+      "pop_memset_ir": 125488
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_insert_reclaiming",
+     "id": "random",
+     "base": 699951
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_overwrite",
+     "id": "random",
+     "base": 32519216
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_reclaim_free",
+     "id": "random",
+     "base": 256027,
+     "calls": {
+      "pop_hits": 5981,
+      "pop_memset_ir": 190
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_remove",
+     "id": "random",
+     "base": 65053263,
+     "calls": {
+      "pop_hits": 27616,
+      "pop_memset_ir": 241812
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_remove_miss",
+     "id": "random",
+     "base": 17825592
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_churn",
+     "id": "routes",
+     "base": 297603609,
+     "calls": {
+      "pop_hits": 60369,
+      "pop_memset_ir": 565105
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_compare_exchange",
+     "id": "routes",
+     "base": 130517727
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_get",
+     "id": "routes",
+     "base": 32346617
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_insert",
+     "id": "routes",
+     "base": 111792788,
+     "calls": {
+      "pop_hits": 9768,
+      "pop_memset_ir": 125053
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_overwrite",
+     "id": "routes",
+     "base": 57399211
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_remove",
+     "id": "routes",
+     "base": 182165612,
+     "calls": {
+      "pop_hits": 27653,
+      "pop_memset_ir": 242521
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_update",
+     "id": "routes",
+     "base": 102477044
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_branchu_band",
+     "id": "top",
+     "base": 9607214,
+     "calls": {
+      "pop_hits": 620,
+      "pop_memset_ir": 9300
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_churn",
+     "id": "leaf",
+     "base": 99430496
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_churn",
+     "id": "random",
+     "base": 119043770,
+     "calls": {
+      "pop_hits": 72149,
+      "pop_memset_ir": 657412
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_compact_baseline",
+     "id": "random60",
+     "base": 44952220
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_compact_drained",
+     "id": "random60",
+     "base": 20541618,
+     "calls": {
+      "pop_hits": 138052,
+      "pop_memset_ir": 43462
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_compare_exchange",
+     "id": "random",
+     "base": 40985602
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_after_write",
+     "id": "one_top_byte",
+     "base": 1709867155,
+     "calls": {
+      "pop_hits": 10374,
+      "pop_memset_ir": 6658
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_after_write",
+     "id": "random",
+     "base": 32036998,
+     "calls": {
+      "pop_hits": 10374,
+      "pop_memset_ir": 6658
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_after_write",
+     "id": "sequential",
+     "base": 14452770,
+     "calls": {
+      "pop_hits": 10687,
+      "pop_memset_ir": 1671
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_locked",
+     "id": "one_top_byte",
+     "base": 11110209
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_locked",
+     "id": "random",
+     "base": 11049679
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_locked",
+     "id": "sequential",
+     "base": 4426917
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_drain_floor",
+     "id": "top",
+     "base": 240055,
+     "calls": {
+      "pop_hits": 35,
+      "pop_memset_ir": 254
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_get",
+     "id": "leaf",
+     "base": 7554516
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_get",
+     "id": "random",
+     "base": 14946993
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_insert",
+     "id": "random",
+     "base": 48913392,
+     "calls": {
+      "pop_hits": 9757,
+      "pop_memset_ir": 125488
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_next_after_scan",
+     "id": "clustered",
+     "base": 26299701
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_next_after_scan",
+     "id": "random",
+     "base": 33004872
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_next_after_scan",
+     "id": "sequential",
+     "base": 35301481
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_prev",
+     "id": "random",
+     "base": 34041421
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_prev_locked",
+     "id": "random",
+     "base": 57180347
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_remove",
+     "id": "random",
+     "base": 62718249,
+     "calls": {
+      "pop_hits": 27616,
+      "pop_memset_ir": 241812
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_scan",
+     "id": "clustered",
+     "base": 4544671
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_scan",
+     "id": "random",
+     "base": 10202171
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_scan",
+     "id": "sequential",
+     "base": 4541467
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_update",
+     "id": "random",
+     "base": 40985602
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_write_twin",
+     "id": "one_top_byte",
+     "base": 2057074,
+     "calls": {
+      "pop_hits": 10374,
+      "pop_memset_ir": 6658
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_write_twin",
+     "id": "random",
+     "base": 1825039,
+     "calls": {
+      "pop_hits": 10374,
+      "pop_memset_ir": 6658
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_write_twin",
+     "id": "sequential",
+     "base": 2130198,
+     "calls": {
+      "pop_hits": 10687,
+      "pop_memset_ir": 1671
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_churn",
+     "id": "leaf",
+     "base": 86663509,
+     "calls": {
+      "pop_hits": 49979,
+      "pop_memset_ir": 1249475
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_churn",
+     "id": "random",
+     "base": 93261435,
+     "calls": {
+      "pop_hits": 28235,
+      "pop_memset_ir": 214653
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_compact_baseline",
+     "id": "random60",
+     "base": 22631245
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_compact_drained",
+     "id": "random60",
+     "base": 18985417,
+     "calls": {
+      "pop_hits": 136441,
+      "pop_memset_ir": 83052
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_contains",
+     "id": "leaf",
+     "base": 7104599
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_contains",
+     "id": "random",
+     "base": 14754943
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_drain_floor",
+     "id": "top",
+     "base": 239038,
+     "calls": {
+      "pop_hits": 37,
+      "pop_memset_ir": 284
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_insert",
+     "id": "random",
+     "base": 45039439,
+     "calls": {
+      "pop_hits": 6944,
+      "pop_memset_ir": 97139
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan",
+     "id": "clustered",
+     "base": 25022329
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan",
+     "id": "random",
+     "base": 33592531
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan",
+     "id": "sequential",
+     "base": 32954973
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan_locked",
+     "id": "clustered",
+     "base": 48035213
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan_locked",
+     "id": "random",
+     "base": 57120698
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan_locked",
+     "id": "sequential",
+     "base": 53167570
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev",
+     "id": "immed",
+     "base": 57114019
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev",
+     "id": "leaf",
+     "base": 7002583
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev",
+     "id": "random",
+     "base": 33101648
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev_locked",
+     "id": "immed",
+     "base": 78542796
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev_locked",
+     "id": "leaf",
+     "base": 37281424
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev_locked",
+     "id": "random",
+     "base": 57961669
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_remove",
+     "id": "random",
+     "base": 53136483,
+     "calls": {
+      "pop_hits": 15905,
+      "pop_memset_ir": 140488
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_churn",
+     "id": "routes",
+     "base": 189093017
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_churn_short",
+     "id": "short",
+     "base": 229652955,
+     "calls": {
+      "pop_hits": 69413,
+      "pop_memset_ir": 766167,
+      "suffix_memset_calls": 49992,
+      "suffix_memset_ir": 499420,
+      "suffix_callocs": 50008,
+      "suffix_calloc_ir": 5380
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_compare_exchange",
+     "id": "routes",
+     "base": 122998839
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_get_short",
+     "id": "short",
+     "base": 29883074
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_insert",
+     "id": "routes",
+     "base": 78421550,
+     "calls": {
+      "pop_hits": 23054,
+      "pop_memset_ir": 312975,
+      "suffix_memset_calls": 6282,
+      "suffix_memset_ir": 62820,
+      "shared_shells": 6253,
+      "shared_shell_pops": 6253,
+      "shared_shell_callocs": 6252,
+      "shared_shell_calloc_ir": 1618915,
+      "suffix_callocs": 13,
+      "suffix_calloc_ir": 2944
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_insert_short",
+     "id": "short",
+     "base": 103028140,
+     "calls": {
+      "pop_hits": 8038,
+      "pop_memset_ir": 109420,
+      "suffix_memset_calls": 50,
+      "suffix_memset_ir": 500,
+      "shared_shells": 1,
+      "shared_shell_pops": 1,
+      "shared_shell_callocs": 1,
+      "shared_shell_calloc_ir": 233,
+      "suffix_callocs": 49950,
+      "suffix_calloc_ir": 4932910
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_insert_sorted",
+     "id": "uuid",
+     "base": 48409841,
+     "calls": {
+      "pop_hits": 8816,
+      "pop_memset_ir": 103757,
+      "suffix_memset_calls": 215,
+      "suffix_memset_ir": 2365,
+      "shared_shells": 1,
+      "shared_shell_pops": 1,
+      "shared_shell_callocs": 1,
+      "shared_shell_calloc_ir": 64,
+      "suffix_callocs": 20000,
+      "suffix_calloc_ir": 4906150
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_mem_used",
+     "id": "routes",
+     "base": 5851763
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_mem_used",
+     "id": "short",
+     "base": 5852065
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_next_after_scan_locked",
+     "id": "paths",
+     "base": 118327680
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_next_after_scan_locked",
+     "id": "paths_dense",
+     "base": 134216528
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_remove",
+     "id": "routes",
+     "base": 87230853,
+     "calls": {
+      "pop_hits": 31872,
+      "pop_memset_ir": 114791
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_scan_locked",
+     "id": "paths",
+     "base": 9155815
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_scan_locked",
+     "id": "paths_dense",
+     "base": 13644632
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_scan_pointops",
+     "id": "paths",
+     "base": 182740751
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_scan_pointops",
+     "id": "paths_dense",
+     "base": 171943380
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_update",
+     "id": "routes",
+     "base": 73816055
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range",
+     "id": "clustered",
+     "base": 350751
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range",
+     "id": "random",
+     "base": 68640
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range",
+     "id": "sequential",
+     "base": 408758
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_range",
+     "id": "clustered",
+     "base": 266760
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_range",
+     "id": "random",
+     "base": 72710
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_range",
+     "id": "sequential",
+     "base": 203732
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_blobmap_cas",
+     "id": "random",
+     "base": 61764299
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_blobmap_update_rmw",
+     "id": "random",
+     "base": 95686676
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_bytesmap_cas",
+     "id": "routes",
+     "base": 56396728
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_bytesmap_cas_insert",
+     "id": "routes",
+     "base": 107504183,
+     "calls": {
+      "pop_hits": 21267,
+      "pop_memset_ir": 116302
+     }
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_bytesmap_cas_remove",
+     "id": "routes",
+     "base": 195961904,
+     "calls": {
+      "pop_hits": 27653,
+      "pop_memset_ir": 242521
+     }
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_bytesmap_update_rmw",
+     "id": "routes",
+     "base": 88353725
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_map_cas",
+     "id": "random",
+     "base": 26335084
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_map_cas_insert",
+     "id": "random",
+     "base": 46722841,
+     "calls": {
+      "pop_hits": 21226,
+      "pop_memset_ir": 115896
+     }
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_map_update_rmw",
+     "id": "random",
+     "base": 43781863
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_strmap_cas",
+     "id": "routes",
+     "base": 73554134
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_strmap_cas_insert",
+     "id": "routes",
+     "base": 101507889,
+     "calls": {
+      "pop_hits": 37667,
+      "pop_memset_ir": 173379,
+      "suffix_memset_calls": 11291,
+      "suffix_memset_ir": 50090,
+      "shared_shells": 12502,
+      "shared_shell_pops": 12503,
+      "shared_shell_callocs": 12502,
+      "shared_shell_calloc_ir": 1473913,
+      "suffix_callocs": 1256,
+      "suffix_calloc_ir": 283606
+     }
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_strmap_update_rmw",
+     "id": "routes",
+     "base": 122664489
+    }
+   ]
+  },
+  "glibc-2.39": {
+   "memset_symbol": "0x0000000000189780",
+   "page_memset_ir": {
+    "per_call": 4113,
+    "source": "new_shell::<false> -> memset in instructions strmap_insert/routes: 308475 Ir over 75 calls, every one a 4096-byte slab page"
+   },
+   "arms": [
+    {
+     "bench": "instructions",
+     "arm": "blobmap32_scan",
+     "id": "ipv4_routes",
+     "base": 343888
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_churn",
+     "id": "random",
+     "base": 74558979
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_compact",
+     "id": "random",
+     "base": 19436162
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_get",
+     "id": "random",
+     "base": 10692296
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_insert",
+     "id": "random",
+     "base": 31403576
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_insert_inline",
+     "id": "random",
+     "base": 29002925
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_insert_reclaiming",
+     "id": "random",
+     "base": 507505
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_overwrite",
+     "id": "random",
+     "base": 19587351
+    },
+    {
+     "bench": "instructions",
+     "arm": "blobmap_remove",
+     "id": "random",
+     "base": 25873477
+    },
+    {
+     "bench": "instructions",
+     "arm": "bytesmap_churn",
+     "id": "routes",
+     "base": 148108239
+    },
+    {
+     "bench": "instructions",
+     "arm": "bytesmap_get",
+     "id": "routes",
+     "base": 29261529
+    },
+    {
+     "bench": "instructions",
+     "arm": "bytesmap_insert",
+     "id": "routes",
+     "base": 78902948
+    },
+    {
+     "bench": "instructions",
+     "arm": "bytesmap_overwrite",
+     "id": "routes",
+     "base": 35336400
+    },
+    {
+     "bench": "instructions",
+     "arm": "bytesmap_remove",
+     "id": "routes",
+     "base": 86078885
+    },
+    {
+     "bench": "instructions",
+     "arm": "domain_dict_get",
+     "id": "routes",
+     "base": 51916638
+    },
+    {
+     "bench": "instructions",
+     "arm": "domain_dict_insert",
+     "id": "routes",
+     "base": 88104489,
+     "calls": {
+      "suffix_memset_calls": 6255,
+      "suffix_memset_ir": 81113,
+      "plain_shells": 6253,
+      "suffix_pages": 3,
+      "suffix_pages_ir": 1533
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_compact_drained",
+     "id": "random28",
+     "base": 48168978
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_for_each_range",
+     "id": "clustered",
+     "base": 207675
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_for_each_range",
+     "id": "random",
+     "base": 97759
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_for_each_range",
+     "id": "sequential",
+     "base": 138213
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_from_sorted_iter",
+     "id": "random",
+     "base": 5457571
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_from_sorted_iter",
+     "id": "random_sorted",
+     "base": 3843918
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_from_sorted_iter",
+     "id": "sequential",
+     "base": 1888443
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_get",
+     "id": "can_dispatch",
+     "base": 106341
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_insert",
+     "id": "sensor_timestamps",
+     "base": 4982440
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_insert_sorted",
+     "id": "random",
+     "base": 9886965
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_insert_sorted",
+     "id": "random_sorted",
+     "base": 9374884
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_insert_sorted",
+     "id": "sequential",
+     "base": 4997915
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_iterate",
+     "id": "clustered",
+     "base": 294256
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_iterate",
+     "id": "random",
+     "base": 334139
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_iterate",
+     "id": "sequential",
+     "base": 188834
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_nav",
+     "id": "clustered",
+     "base": 2301319
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_nav",
+     "id": "random",
+     "base": 5284999
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_nav",
+     "id": "sequential",
+     "base": 1185696
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_prev",
+     "id": "clustered",
+     "base": 2491414
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_prev",
+     "id": "random",
+     "base": 5133423
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_prev",
+     "id": "sequential",
+     "base": 1203008
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_range",
+     "id": "clustered",
+     "base": 294265
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_range",
+     "id": "random",
+     "base": 168097
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_range",
+     "id": "sequential",
+     "base": 188843
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_rebuild_drained",
+     "id": "random28",
+     "base": 96558257
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_remove",
+     "id": "clustered",
+     "base": 1994407
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_remove",
+     "id": "random",
+     "base": 1402633
+    },
+    {
+     "bench": "instructions",
+     "arm": "map32_remove",
+     "id": "sequential",
+     "base": 1473701
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_churn",
+     "id": "random",
+     "base": 58570899
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_clear_refill",
+     "id": "random",
+     "base": 27693261
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_clone",
+     "id": "random",
+     "base": 28627519
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_clone",
+     "id": "sequential",
+     "base": 9841902
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_collect",
+     "id": "random",
+     "base": 24777896
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_collect",
+     "id": "random_sorted",
+     "base": 24063018
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_collect",
+     "id": "sequential",
+     "base": 8561048
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_compact_drained",
+     "id": "random60",
+     "base": 16841430
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_count_below",
+     "id": "one_top_byte",
+     "base": 518939888
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_count_below",
+     "id": "random",
+     "base": 515913559
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_count_below",
+     "id": "sequential",
+     "base": 188472638
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_cursor_scan",
+     "id": "clustered",
+     "base": 2255534
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_cursor_scan",
+     "id": "random",
+     "base": 6347791
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_cursor_scan",
+     "id": "sequential",
+     "base": 2241744
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_from_sorted_iter",
+     "id": "random",
+     "base": 24502580
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_from_sorted_iter",
+     "id": "random_sorted",
+     "base": 10511545
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_from_sorted_iter",
+     "id": "sequential",
+     "base": 3305091
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get",
+     "id": "clustered",
+     "base": 5619910
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get",
+     "id": "dense_leaf",
+     "base": 11111358
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get",
+     "id": "linear_leaf",
+     "base": 9954403
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get",
+     "id": "random",
+     "base": 6262177
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get",
+     "id": "sequential",
+     "base": 6950214
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_get_batch",
+     "id": "random",
+     "base": 8531844
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_ins_slot",
+     "id": "random",
+     "base": 25277084
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "clustered",
+     "base": 17255757
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "dense_leaf",
+     "base": 23109584
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "linear_leaf",
+     "base": 24885311
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "random",
+     "base": 25027975
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "sequential",
+     "base": 8807489
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_insert",
+     "id": "small",
+     "base": 24335081
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_iterate",
+     "id": "random",
+     "base": 5310512
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_nav",
+     "id": "clustered",
+     "base": 15943749
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_nav",
+     "id": "random",
+     "base": 15648891
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_nav",
+     "id": "sequential",
+     "base": 22350213
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_oscillate",
+     "id": "random",
+     "base": 3806019
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_prev",
+     "id": "clustered",
+     "base": 16701567
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_prev",
+     "id": "random",
+     "base": 21927440
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_prev",
+     "id": "sequential",
+     "base": 23449767
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range_cursor_scan",
+     "id": "clustered",
+     "base": 3905995
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range_cursor_scan",
+     "id": "random",
+     "base": 7651317
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range_cursor_scan",
+     "id": "sequential",
+     "base": 3889152
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_rebuild_drained",
+     "id": "random60",
+     "base": 40112173
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_refill",
+     "id": "random",
+     "base": 46863421
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_regrow_after_shrink",
+     "id": "random60",
+     "base": 66193884
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_remove",
+     "id": "random",
+     "base": 22995250
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_remove_partial",
+     "id": "random60",
+     "base": 69775251
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_shrink_drained",
+     "id": "random60",
+     "base": 14922235
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_cursor",
+     "id": "clean",
+     "base": 27842545
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_cursor",
+     "id": "escaped",
+     "base": 41073136
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_cursor_into",
+     "id": "clean",
+     "base": 18692523
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_cursor_into",
+     "id": "escaped",
+     "base": 29669956
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_get",
+     "id": "clean",
+     "base": 21908156
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_get",
+     "id": "escaped",
+     "base": 33366062
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_insert",
+     "id": "clean",
+     "base": 46483897,
+     "calls": {
+      "suffix_memset_calls": 51279,
+      "suffix_memset_ir": 2151543,
+      "plain_shells": 893,
+      "suffix_pages": 387,
+      "suffix_pages_ir": 210109
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "ordered_bytesmap_insert",
+     "id": "escaped",
+     "base": 65398789,
+     "calls": {
+      "suffix_memset_calls": 50401,
+      "suffix_memset_ir": 2195212,
+      "plain_shells": 2,
+      "suffix_pages": 400,
+      "suffix_pages_ir": 237400
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_compact_drained",
+     "id": "random28",
+     "base": 38167072
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_from_sorted_iter",
+     "id": "random",
+     "base": 4817711
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_from_sorted_iter",
+     "id": "random_sorted",
+     "base": 3620360
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_from_sorted_iter",
+     "id": "sequential",
+     "base": 546838
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_insert",
+     "id": "sensor_timestamps",
+     "base": 5110260
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_insert_sorted",
+     "id": "random",
+     "base": 9694821
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_insert_sorted",
+     "id": "random_sorted",
+     "base": 8997029
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_insert_sorted",
+     "id": "sequential",
+     "base": 5120357
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_iterate",
+     "id": "clustered",
+     "base": 261256
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_iterate",
+     "id": "random",
+     "base": 294054
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_iterate",
+     "id": "sequential",
+     "base": 133631
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_range",
+     "id": "clustered",
+     "base": 261265
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_range",
+     "id": "random",
+     "base": 148195
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_range",
+     "id": "sequential",
+     "base": 133640
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_rebuild_drained",
+     "id": "random28",
+     "base": 73582445
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_remove",
+     "id": "clustered",
+     "base": 1840695
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_remove",
+     "id": "random",
+     "base": 1143525
+    },
+    {
+     "bench": "instructions",
+     "arm": "set32_remove",
+     "id": "sequential",
+     "base": 1092979
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_clear_refill",
+     "id": "random",
+     "base": 23281181
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_clone",
+     "id": "random",
+     "base": 15361301
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_clone",
+     "id": "sequential",
+     "base": 2698641
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_compact_drained",
+     "id": "random60",
+     "base": 16331380
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_contains",
+     "id": "random",
+     "base": 6023284
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_contains_batch",
+     "id": "random",
+     "base": 8369865
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_count_below",
+     "id": "one_top_byte",
+     "base": 526234144
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_count_below",
+     "id": "random",
+     "base": 521422646
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_count_below",
+     "id": "sequential",
+     "base": 199619102
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_insert",
+     "id": "clustered",
+     "base": 10714616
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_insert",
+     "id": "dense_leaf",
+     "base": 17979301
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_insert",
+     "id": "linear_leaf",
+     "base": 18892007
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_insert",
+     "id": "random",
+     "base": 20918264
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_insert",
+     "id": "sequential",
+     "base": 3135290
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_nav",
+     "id": "clustered",
+     "base": 14293758
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_nav",
+     "id": "random",
+     "base": 15883056
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_nav",
+     "id": "sequential",
+     "base": 19457614
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_oscillate",
+     "id": "random",
+     "base": 3306017
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_prev",
+     "id": "clustered",
+     "base": 14871099
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_prev",
+     "id": "random",
+     "base": 22699316
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_prev",
+     "id": "sequential",
+     "base": 20405853
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_rebuild_drained",
+     "id": "random60",
+     "base": 16756167
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_refill",
+     "id": "random",
+     "base": 44021625
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_remove",
+     "id": "random",
+     "base": 23727175
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_remove_partial",
+     "id": "random60",
+     "base": 78279367
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_shrink_drained",
+     "id": "random60",
+     "base": 11394050
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_boundary_oscillate",
+     "id": "band2",
+     "base": 17005282
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_boundary_oscillate",
+     "id": "band9",
+     "base": 71249378
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_condense",
+     "id": "h1",
+     "base": 640066
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_condense",
+     "id": "wide",
+     "base": 528563
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_condense_control",
+     "id": "h1",
+     "base": 646241
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_condense_control",
+     "id": "wide",
+     "base": 554139
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_split",
+     "id": "e1024",
+     "base": 11813529
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_subtree_split_control",
+     "id": "e1024",
+     "base": 383353
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_churn",
+     "id": "routes",
+     "base": 119088554
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_clear_refill",
+     "id": "routes",
+     "base": 52142720,
+     "calls": {
+      "suffix_memset_calls": 12519,
+      "suffix_memset_ir": 118130,
+      "plain_shells": 12505,
+      "suffix_pages": 15,
+      "suffix_pages_ir": 8583
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_cursor_scan",
+     "id": "paths",
+     "base": 9205009
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_cursor_scan",
+     "id": "paths_dense",
+     "base": 13694405
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_get",
+     "id": "routes",
+     "base": 35263832
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_get_short",
+     "id": "short",
+     "base": 20438298
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_insert",
+     "id": "routes",
+     "base": 42602403,
+     "calls": {
+      "suffix_memset_calls": 6255,
+      "suffix_memset_ir": 81113,
+      "plain_shells": 6253,
+      "suffix_pages": 3,
+      "suffix_pages_ir": 1533
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_insert_plain",
+     "id": "routes",
+     "base": 42602403,
+     "calls": {
+      "suffix_memset_calls": 6255,
+      "suffix_memset_ir": 81113,
+      "plain_shells": 6253,
+      "suffix_pages": 3,
+      "suffix_pages_ir": 1533
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_oscillate",
+     "id": "routes",
+     "base": 27985161,
+     "calls": {
+      "suffix_memset_calls": 50001,
+      "suffix_memset_ir": 604113,
+      "plain_shells": 50000,
+      "suffix_pages": 1,
+      "suffix_pages_ir": 511
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_bounded",
+     "id": "paths",
+     "base": 2626451
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_bounded",
+     "id": "paths_dense",
+     "base": 3754285
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_scan",
+     "id": "paths",
+     "base": 2823845
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_scan",
+     "id": "paths_dense",
+     "base": 3956788
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_seek",
+     "id": "paths",
+     "base": 150211
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_prefix_seek",
+     "id": "paths_dense",
+     "base": 152393
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_raw_cursor",
+     "id": "clean",
+     "base": 14384505
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_raw_get",
+     "id": "clean",
+     "base": 17358156
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_raw_insert",
+     "id": "clean",
+     "base": 41613234,
+     "calls": {
+      "suffix_memset_calls": 51279,
+      "suffix_memset_ir": 2151543,
+      "plain_shells": 893,
+      "suffix_pages": 387,
+      "suffix_pages_ir": 210121
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_refill",
+     "id": "routes",
+     "base": 100804387,
+     "calls": {
+      "suffix_memset_calls": 12516,
+      "suffix_memset_ir": 105791,
+      "plain_shells": 12505,
+      "suffix_pages": 12,
+      "suffix_pages_ir": 6743
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_refill_small",
+     "id": "routes",
+     "base": 86532659,
+     "calls": {
+      "suffix_memset_calls": 6525,
+      "suffix_memset_ir": 70500,
+      "plain_shells": 6578
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_cursor",
+     "id": "clean",
+     "base": 26834506
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_cursor",
+     "id": "escaped",
+     "base": 40171846
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_get",
+     "id": "clean",
+     "base": 21608158
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_get",
+     "id": "escaped",
+     "base": 64569711
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_insert",
+     "id": "clean",
+     "base": 45866878,
+     "calls": {
+      "suffix_memset_calls": 51279,
+      "suffix_memset_ir": 2151543,
+      "plain_shells": 893,
+      "suffix_pages": 387,
+      "suffix_pages_ir": 210109
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "strmap_transcode_insert",
+     "id": "escaped",
+     "base": 96535197,
+     "calls": {
+      "suffix_memset_calls": 50401,
+      "suffix_memset_ir": 2195212,
+      "plain_shells": 2,
+      "suffix_pages": 400,
+      "suffix_pages_ir": 273919
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_get",
+     "id": "bitmap",
+     "base": 1460719
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_get",
+     "id": "linear",
+     "base": 1790909
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_get",
+     "id": "linear_wide",
+     "base": 1466298
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_write",
+     "id": "churn",
+     "base": 1127858
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_write",
+     "id": "overwrite",
+     "base": 1472573
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync32_map_write",
+     "id": "overwrite_same",
+     "base": 608573
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_churn",
+     "id": "random",
+     "base": 137996113,
+     "calls": {
+      "pop_hits": 60444,
+      "pop_memset_ir": 617033
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_compact",
+     "id": "random",
+     "base": 19436942
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_compare_exchange",
+     "id": "random",
+     "base": 50819218
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_get",
+     "id": "random",
+     "base": 19682875
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_get_into",
+     "id": "random",
+     "base": 20065073
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_insert",
+     "id": "random",
+     "base": 56940240,
+     "calls": {
+      "pop_hits": 9757,
+      "pop_memset_ir": 135245
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_insert_reclaiming",
+     "id": "random",
+     "base": 703994
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_overwrite",
+     "id": "random",
+     "base": 32569726
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_reclaim_free",
+     "id": "random",
+     "base": 276267,
+     "calls": {
+      "pop_hits": 5981,
+      "pop_memset_ir": 204
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_remove",
+     "id": "random",
+     "base": 66038564,
+     "calls": {
+      "pop_hits": 27616,
+      "pop_memset_ir": 259671
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_blobmap_remove_miss",
+     "id": "random",
+     "base": 17825665
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_churn",
+     "id": "routes",
+     "base": 299649054,
+     "calls": {
+      "pop_hits": 60369,
+      "pop_memset_ir": 615706
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_compare_exchange",
+     "id": "routes",
+     "base": 130541426
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_get",
+     "id": "routes",
+     "base": 32270096
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_insert",
+     "id": "routes",
+     "base": 112847725,
+     "calls": {
+      "pop_hits": 9768,
+      "pop_memset_ir": 134821
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_overwrite",
+     "id": "routes",
+     "base": 57322690
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_remove",
+     "id": "routes",
+     "base": 183529985,
+     "calls": {
+      "pop_hits": 27653,
+      "pop_memset_ir": 260406
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_bytesmap_update",
+     "id": "routes",
+     "base": 102427426
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_branchu_band",
+     "id": "top",
+     "base": 9922514,
+     "calls": {
+      "pop_hits": 620,
+      "pop_memset_ir": 9900
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_churn",
+     "id": "leaf",
+     "base": 125116601
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_churn",
+     "id": "random",
+     "base": 120453006,
+     "calls": {
+      "pop_hits": 72149,
+      "pop_memset_ir": 719804
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_compact_baseline",
+     "id": "random60",
+     "base": 46096848
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_compact_drained",
+     "id": "random60",
+     "base": 20549652,
+     "calls": {
+      "pop_hits": 138052,
+      "pop_memset_ir": 45238
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_compare_exchange",
+     "id": "random",
+     "base": 41008993
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_after_write",
+     "id": "one_top_byte",
+     "base": 1709934343,
+     "calls": {
+      "pop_hits": 10374,
+      "pop_memset_ir": 7275
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_after_write",
+     "id": "random",
+     "base": 32099111,
+     "calls": {
+      "pop_hits": 10374,
+      "pop_memset_ir": 7275
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_after_write",
+     "id": "sequential",
+     "base": 14457345,
+     "calls": {
+      "pop_hits": 10687,
+      "pop_memset_ir": 1806
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_locked",
+     "id": "one_top_byte",
+     "base": 11110655
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_locked",
+     "id": "random",
+     "base": 11050125
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_count_locked",
+     "id": "sequential",
+     "base": 4426901
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_drain_floor",
+     "id": "top",
+     "base": 246042,
+     "calls": {
+      "pop_hits": 35,
+      "pop_memset_ir": 269
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_get",
+     "id": "leaf",
+     "base": 7554525
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_get",
+     "id": "random",
+     "base": 14970295
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_insert",
+     "id": "random",
+     "base": 49827275,
+     "calls": {
+      "pop_hits": 9757,
+      "pop_memset_ir": 135245
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_next_after_scan",
+     "id": "clustered",
+     "base": 26299706
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_next_after_scan",
+     "id": "random",
+     "base": 33051471
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_next_after_scan",
+     "id": "sequential",
+     "base": 35301486
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_prev",
+     "id": "random",
+     "base": 34088020
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_prev_locked",
+     "id": "random",
+     "base": 57226942
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_remove",
+     "id": "random",
+     "base": 63735969,
+     "calls": {
+      "pop_hits": 27616,
+      "pop_memset_ir": 259671
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_scan",
+     "id": "clustered",
+     "base": 4544417
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_scan",
+     "id": "random",
+     "base": 10225628
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_scan",
+     "id": "sequential",
+     "base": 4541471
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_update",
+     "id": "random",
+     "base": 41008993
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_write_twin",
+     "id": "one_top_byte",
+     "base": 2123666,
+     "calls": {
+      "pop_hits": 10374,
+      "pop_memset_ir": 7275
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_write_twin",
+     "id": "random",
+     "base": 1886726,
+     "calls": {
+      "pop_hits": 10374,
+      "pop_memset_ir": 7275
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_map_write_twin",
+     "id": "sequential",
+     "base": 2134636,
+     "calls": {
+      "pop_hits": 10687,
+      "pop_memset_ir": 1806
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_churn",
+     "id": "leaf",
+     "base": 97606675,
+     "calls": {
+      "pop_hits": 49979,
+      "pop_memset_ir": 1299454
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_churn",
+     "id": "random",
+     "base": 93659973,
+     "calls": {
+      "pop_hits": 28235,
+      "pop_memset_ir": 235944
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_compact_baseline",
+     "id": "random60",
+     "base": 22886079
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_compact_drained",
+     "id": "random60",
+     "base": 19104347,
+     "calls": {
+      "pop_hits": 136441,
+      "pop_memset_ir": 87147
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_contains",
+     "id": "leaf",
+     "base": 7104530
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_contains",
+     "id": "random",
+     "base": 15196054
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_drain_floor",
+     "id": "top",
+     "base": 244243,
+     "calls": {
+      "pop_hits": 37,
+      "pop_memset_ir": 301
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_insert",
+     "id": "random",
+     "base": 45669368,
+     "calls": {
+      "pop_hits": 6944,
+      "pop_memset_ir": 104083
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan",
+     "id": "clustered",
+     "base": 25022334
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan",
+     "id": "random",
+     "base": 33692403
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan",
+     "id": "sequential",
+     "base": 32955025
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan_locked",
+     "id": "clustered",
+     "base": 48035214
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan_locked",
+     "id": "random",
+     "base": 57220741
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_next_after_scan_locked",
+     "id": "sequential",
+     "base": 53167571
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev",
+     "id": "immed",
+     "base": 57713911
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev",
+     "id": "leaf",
+     "base": 7002514
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev",
+     "id": "random",
+     "base": 33201520
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev_locked",
+     "id": "immed",
+     "base": 79142757
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev_locked",
+     "id": "leaf",
+     "base": 37281425
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_prev_locked",
+     "id": "random",
+     "base": 58061712
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_set_remove",
+     "id": "random",
+     "base": 53837680,
+     "calls": {
+      "pop_hits": 15905,
+      "pop_memset_ir": 149449
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_churn",
+     "id": "routes",
+     "base": 189693291
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_churn_short",
+     "id": "short",
+     "base": 234312270,
+     "calls": {
+      "pop_hits": 69413,
+      "pop_memset_ir": 827542,
+      "suffix_memset_calls": 49992,
+      "suffix_memset_ir": 549362,
+      "suffix_callocs": 50008,
+      "suffix_calloc_ir": 8901
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_compare_exchange",
+     "id": "routes",
+     "base": 123599039
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_get_short",
+     "id": "short",
+     "base": 29832709
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_insert",
+     "id": "routes",
+     "base": 78836908,
+     "calls": {
+      "pop_hits": 23054,
+      "pop_memset_ir": 336029,
+      "suffix_memset_calls": 6282,
+      "suffix_memset_ir": 69102,
+      "shared_shells": 6253,
+      "shared_shell_pops": 6253,
+      "shared_shell_callocs": 6252,
+      "shared_shell_calloc_ir": 1669073,
+      "suffix_callocs": 13,
+      "suffix_calloc_ir": 2846
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_insert_short",
+     "id": "short",
+     "base": 106539090,
+     "calls": {
+      "pop_hits": 8038,
+      "pop_memset_ir": 117458,
+      "suffix_memset_calls": 50,
+      "suffix_memset_ir": 550,
+      "shared_shells": 1,
+      "shared_shell_pops": 1,
+      "shared_shell_callocs": 1,
+      "shared_shell_calloc_ir": 220,
+      "suffix_callocs": 49950,
+      "suffix_calloc_ir": 7642375
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_insert_sorted",
+     "id": "uuid",
+     "base": 48893629,
+     "calls": {
+      "pop_hits": 8816,
+      "pop_memset_ir": 112573,
+      "suffix_memset_calls": 215,
+      "suffix_memset_ir": 2580,
+      "shared_shells": 1,
+      "shared_shell_pops": 1,
+      "shared_shell_callocs": 1,
+      "shared_shell_calloc_ir": 220,
+      "suffix_callocs": 20000,
+      "suffix_calloc_ir": 4961571
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_mem_used",
+     "id": "routes",
+     "base": 5701925
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_mem_used",
+     "id": "short",
+     "base": 5702065
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_next_after_scan_locked",
+     "id": "paths",
+     "base": 122350781
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_next_after_scan_locked",
+     "id": "paths_dense",
+     "base": 138290951
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_remove",
+     "id": "routes",
+     "base": 87976618,
+     "calls": {
+      "pop_hits": 31872,
+      "pop_memset_ir": 123609
+     }
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_scan_locked",
+     "id": "paths",
+     "base": 9155380
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_scan_locked",
+     "id": "paths_dense",
+     "base": 13644942
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_scan_pointops",
+     "id": "paths",
+     "base": 186742977
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_scan_pointops",
+     "id": "paths_dense",
+     "base": 175909666
+    },
+    {
+     "bench": "instructions",
+     "arm": "sync_strmap_update",
+     "id": "routes",
+     "base": 74166329
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range",
+     "id": "clustered",
+     "base": 350953
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range",
+     "id": "random",
+     "base": 68892
+    },
+    {
+     "bench": "instructions",
+     "arm": "map_range",
+     "id": "sequential",
+     "base": 408960
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_range",
+     "id": "clustered",
+     "base": 267037
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_range",
+     "id": "random",
+     "base": 73082
+    },
+    {
+     "bench": "instructions",
+     "arm": "set_range",
+     "id": "sequential",
+     "base": 203934
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_blobmap_cas",
+     "id": "random",
+     "base": 63138105
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_blobmap_update_rmw",
+     "id": "random",
+     "base": 99533779
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_bytesmap_cas",
+     "id": "routes",
+     "base": 56470265
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_bytesmap_cas_insert",
+     "id": "routes",
+     "base": 109680661,
+     "calls": {
+      "pop_hits": 21267,
+      "pop_memset_ir": 127801
+     }
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_bytesmap_cas_remove",
+     "id": "routes",
+     "base": 197505800,
+     "calls": {
+      "pop_hits": 27653,
+      "pop_memset_ir": 260406
+     }
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_bytesmap_update_rmw",
+     "id": "routes",
+     "base": 88500579
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_map_cas",
+     "id": "random",
+     "base": 26335173
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_map_cas_insert",
+     "id": "random",
+     "base": 47441394,
+     "calls": {
+      "pop_hits": 21226,
+      "pop_memset_ir": 127365
+     }
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_map_update_rmw",
+     "id": "random",
+     "base": 43805249
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_strmap_cas",
+     "id": "routes",
+     "base": 73804246
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_strmap_cas_insert",
+     "id": "routes",
+     "base": 103229461,
+     "calls": {
+      "pop_hits": 37667,
+      "pop_memset_ir": 187992,
+      "suffix_memset_calls": 11291,
+      "suffix_memset_ir": 55099,
+      "shared_shells": 12502,
+      "shared_shell_pops": 12503,
+      "shared_shell_callocs": 12502,
+      "shared_shell_calloc_ir": 1612760,
+      "suffix_callocs": 1256,
+      "suffix_calloc_ir": 298892
+     }
+    },
+    {
+     "bench": "rmw_instructions",
+     "arm": "sync_strmap_update_rmw",
+     "id": "routes",
+     "base": 123164601
+    }
+   ]
+  }
+ }
+}

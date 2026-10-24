@@ -2115,6 +2115,11 @@ impl Collector {
     }
 
     /// Pops a reclaimed block from this collector's size-class freelist.
+    ///
+    /// The block comes back as it was reclaimed, not zeroed: its first word
+    /// is the freelist link and the rest is the previous occupant's bytes.
+    /// Its one caller, `NodeAlloc::alloc_raw`, zeroes the bytes it hands out
+    /// when its caller asks for a zeroed block.
     #[inline(never)]
     pub(crate) fn pop_freelist(&self, class: usize) -> *mut u8 {
         let mut head = self
@@ -2133,9 +2138,6 @@ impl Collector {
             head.1.reused += 1;
         }
         drop(head);
-        let bytes = CLASS_SPECS[class].0;
-        // SAFETY: zero out the reused memory before returning.
-        unsafe { core::ptr::write_bytes(block.cast::<u8>(), 0, bytes) };
         block.cast::<u8>()
     }
 
@@ -4344,6 +4346,58 @@ mod loom_tests {
     #[should_panic(expected = "a live pin taken at epoch 0 lost its registration")]
     fn loom_shared_reader_handle_sibling_pin_drop_clears_pin() {
         pin_survives_sibling_pin(true);
+    }
+
+    /// The lock-free `mem_used` of the string wrapper (Refs #1586, concurrency
+    /// METHODOLOGY §47.4), at protocol level: per-writer accounting shards
+    /// changed only by relaxed RMWs, and a reader that folds them with one
+    /// relaxed load each while a block is allocated on one shard and freed on
+    /// another (published between the two writers through release/acquire,
+    /// as the tree publishes a node). A fold taken beside the writers lies
+    /// within the bytes in flight of the quiet figure; one taken after both
+    /// writers are joined is exact.
+    #[test]
+    fn loom_acct_fold_exact_after_join() {
+        use loom::sync::atomic::AtomicIsize;
+        const BASE: isize = 100;
+        const BLOCK: isize = 48;
+        loom::model(|| {
+            let shards = Arc::new([AtomicIsize::new(BASE), AtomicIsize::new(0)]);
+            let published = Arc::new(AtomicBool::new(false));
+            let fold = |s: &[AtomicIsize; 2]| {
+                s.iter()
+                    .fold(0isize, |acc, x| acc + x.load(Ordering::Relaxed))
+            };
+
+            let (sa, pa) = (Arc::clone(&shards), Arc::clone(&published));
+            let alloc = loom::thread::spawn(move || {
+                sa[0].fetch_add(BLOCK, Ordering::Relaxed);
+                pa.store(true, Ordering::Release);
+            });
+            let (sb, pb) = (Arc::clone(&shards), Arc::clone(&published));
+            let free = loom::thread::spawn(move || {
+                if pb.load(Ordering::Acquire) {
+                    sb[1].fetch_sub(BLOCK, Ordering::Relaxed);
+                    true
+                } else {
+                    false
+                }
+            });
+
+            let during = fold(&shards);
+            assert!(
+                (BASE - BLOCK..=BASE + BLOCK).contains(&during),
+                "a fold beside the writers stays within the bytes in flight: {during}"
+            );
+            alloc.join().unwrap();
+            let freed = free.join().unwrap();
+            let after = fold(&shards);
+            assert_eq!(
+                after,
+                if freed { BASE } else { BASE + BLOCK },
+                "a fold after the join is exact"
+            );
+        });
     }
 
     /// Seqlock: a reader that validates successfully saw either the

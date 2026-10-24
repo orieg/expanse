@@ -83,7 +83,6 @@ use core::alloc::Layout;
 use core::ptr::NonNull;
 #[cfg(feature = "std")]
 use core::sync::atomic::{AtomicU32, Ordering};
-use core_alloc::boxed::Box;
 #[cfg(feature = "std")]
 use core_alloc::sync::Arc;
 use core_alloc::vec;
@@ -149,6 +148,11 @@ const TAG_SUFFIX: u64 = 1;
 /// - **Header and bytes are write-once after publication**; only `value`
 ///   mutates in place, which is what lets a concurrent reader load them
 ///   under a version bracket ([`ExpanseStrMap::get_validated`]).
+/// - **Nothing reads past `SUFFIX_BYTES + len`.** The block is a size class
+///   ([`packed_suffix_bytes`]) and is not zeroed (Refs #1586, METHODOLOGY
+///   §47.11), so its tail is uninitialised or stale. Every read of the bytes
+///   is [`suffix_bytes`], which is exactly `len` long, and every other read
+///   is of `value` or `len`.
 #[repr(C)]
 struct StrSuffix {
     value: u64,
@@ -184,27 +188,27 @@ fn suffix_layout(len: usize) -> Layout {
         .expect("suffix layout: size is header + key remainder, align is 8")
 }
 
-/// Where suffix leaves are allocated. With `packed-suffix` they come from the
-/// tree's `NodeAlloc` size classes (slab-carved up to 256 bytes), so a
-/// suffix costs its size rounded to 16 bytes and no system-allocator chunk
-/// header; without it this is a zero-sized marker and suffixes are separate
-/// global allocations, as before the feature existed.
+/// Where suffix leaves are allocated: the tree's `NodeAlloc` size classes
+/// (slab-carved up to 256 bytes), so a suffix costs its size rounded to 16
+/// bytes and no system-allocator chunk header (Refs #1586: the default since
+/// design B). Under the diagnostic `ablation-unpacked-suffix` this is a
+/// zero-sized marker and suffixes are separate global allocations, as before.
 #[derive(Clone, Copy)]
 struct SuffixArena<'a> {
-    #[cfg(feature = "packed-suffix")]
+    #[cfg(not(feature = "ablation-unpacked-suffix"))]
     alloc: &'a NodeAlloc,
-    #[cfg(not(feature = "packed-suffix"))]
+    #[cfg(feature = "ablation-unpacked-suffix")]
     _alloc: core::marker::PhantomData<&'a NodeAlloc>,
 }
 
 impl<'a> SuffixArena<'a> {
     #[inline(always)]
     fn of(alloc: &'a NodeAlloc) -> Self {
-        #[cfg(feature = "packed-suffix")]
+        #[cfg(not(feature = "ablation-unpacked-suffix"))]
         {
             Self { alloc }
         }
-        #[cfg(not(feature = "packed-suffix"))]
+        #[cfg(feature = "ablation-unpacked-suffix")]
         {
             let _ = alloc;
             Self {
@@ -218,24 +222,23 @@ impl<'a> SuffixArena<'a> {
 /// header plus bytes, fitted to a size class so it never becomes its own
 /// system allocation. Every alloc and free of a packed suffix goes through
 /// this, so the two always agree.
-#[cfg(feature = "packed-suffix")]
+#[cfg(not(feature = "ablation-unpacked-suffix"))]
 #[inline]
 fn packed_suffix_bytes(layout: Layout) -> usize {
     crate::alloc::raw_class_fit(layout.size())
 }
 
-/// Whether suffix bytes are already inside `NodeAlloc::bytes_in_use`.
-const SUFFIX_IN_NODE_ALLOC: bool = cfg!(feature = "packed-suffix");
-
 /// Allocates a suffix leaf holding `bytes` and `value` in one allocation.
 fn new_suffix(bytes: &[u8], value: u64, arena: SuffixArena<'_>) -> *mut StrSuffix {
     let layout = suffix_layout(bytes.len());
-    #[cfg(feature = "packed-suffix")]
+    // Not zeroed (§47.11): the header and the `bytes.len()` bytes below are
+    // the whole of what any reader reads (see `StrSuffix`).
+    #[cfg(not(feature = "ablation-unpacked-suffix"))]
     let raw = arena
         .alloc
-        .alloc_bytes(packed_suffix_bytes(layout))
+        .alloc_bytes_uninit(packed_suffix_bytes(layout))
         .as_ptr();
-    #[cfg(not(feature = "packed-suffix"))]
+    #[cfg(feature = "ablation-unpacked-suffix")]
     let raw = {
         let _ = arena;
         // SAFETY: `layout` has non-zero size — the header alone is 16 bytes.
@@ -246,10 +249,13 @@ fn new_suffix(bytes: &[u8], value: u64, arena: SuffixArena<'_>) -> *mut StrSuffi
         raw
     };
     let ptr = raw.cast::<StrSuffix>();
-    // SAFETY: `raw` is a fresh allocation of `SUFFIX_BYTES + bytes.len()` at
-    // `align_of::<StrSuffix>()`, so the header write is in bounds and aligned
-    // and the byte copy lands in the tail this layout reserved for it. The
-    // destination is freshly allocated, so it cannot overlap `bytes`.
+    // SAFETY: `raw` is a fresh allocation of at least `SUFFIX_BYTES +
+    // bytes.len()` at `align_of::<StrSuffix>()` or stronger, so the header
+    // write is in bounds and aligned and the byte copy lands in the room this
+    // layout reserved for it. The destination is freshly allocated and owned
+    // here, so it cannot overlap `bytes`. Its prior contents are unspecified:
+    // the header write and the copy read none of them, and together they
+    // initialise every byte a reader reads (`StrSuffix`).
     unsafe {
         ptr.write(StrSuffix {
             value,
@@ -404,7 +410,125 @@ const _: () = {
         core::mem::offset_of!(StrNode, dirty) == 4,
         "the dirty flag lives in the cover word's alignment padding"
     );
+    assert!(
+        align_of::<StrNode>() <= crate::types::RAW_ALIGN,
+        "a shell is a raw `NodeAlloc` block, which is RAW_ALIGN-aligned"
+    );
+    // A shell is held by a nullable owning pointer (`RootNode`, the
+    // continuation entries), and `root_raw` reads the root slot as a bare
+    // `*mut StrNode`.
+    assert!(size_of::<Option<RootNode>>() == size_of::<*mut StrNode>());
 };
+
+/// The `NodeAlloc` request for one `StrNode` shell (Refs #1586, design B).
+/// Shells are raw blocks of the tree's allocator, like every sub-map node and
+/// suffix leaf, so `NodeAlloc::bytes_in_use` counts them and no walk is
+/// needed to know the map's size. `str_node_shell_is_a_raw_class` pins that
+/// the size is a class size, so a shell is slab-carved rather than a system
+/// allocation of its own.
+const SHELL_BYTES: usize = size_of::<StrNode>();
+
+/// The bytes a shell adds to `bytes_in_use`: [`SHELL_BYTES`] rounded to the
+/// raw alignment, by the one rule every block is accounted by.
+const SHELL_ACCOUNTED: usize = crate::alloc::accounted_size(SHELL_BYTES, crate::types::RAW_ALIGN);
+
+/// Allocates and initialises one shell from the tree's allocator.
+///
+/// `SHARED` selects the allocator path at compile time, as the engine's own
+/// `_dispatch::<OCC>` entry points do: `false` on the plain paths, which then
+/// carry no deferred-tree branch, `true` on a shared map's paths. Out of line
+/// on purpose: `alloc_raw` is `#[inline(always)]`, and a shell allocation
+/// inlined into the insert walks would move their codegen (AGENTS.md §2.1
+/// invariant 5).
+///
+/// The block is not zeroed (Refs #1586, METHODOLOGY §47.11): the one write of
+/// `StrNode::new()` below initialises the shell, and nothing reads the block
+/// before it. `shell_is_fully_written_over_a_stale_block` and, under Miri,
+/// `deferred_shell_on_an_uninit_block_is_fully_written` pin that.
+#[inline(never)]
+fn new_shell<const SHARED: bool>(alloc: &NodeAlloc) -> *mut StrNode {
+    let raw = alloc
+        .alloc_bytes_uninit_dispatch::<SHARED>(SHELL_BYTES)
+        .cast::<StrNode>()
+        .as_ptr();
+    // SAFETY: `raw` is a block of `SHELL_BYTES` = `size_of::<StrNode>()` bytes
+    // at `RAW_ALIGN`, which is at least `StrNode`'s alignment (asserted above),
+    // so the write is in bounds and aligned; nothing else holds it, and it is
+    // not yet published. Its contents are unspecified (uninitialised, or a
+    // reclaimed block's bytes): `ptr::write` reads none of them and overwrites
+    // every field. `StrNode` is `repr(C)` with no padding (4 + 4 + 32 bytes);
+    // the empty root writes only its tag, and every reader of a root's
+    // payload words checks the tag first (`map::root_word`), as it does on
+    // any `MapCore::new()`.
+    unsafe { raw.write(StrNode::new()) };
+    raw
+}
+
+/// Frees or retires one unlinked shell through the tree's allocator, which
+/// decides by itself: a shared tree's allocator is deferred and retires the
+/// block through its collector, a plain tree's frees it. Runtime-dispatched
+/// rather than `SHARED`-selected because a never-published shell of a shared
+/// tree is disposed of through the plain arm of [`dispose_node`] (the
+/// optimistic split's abort). Out of line, as [`new_shell`].
+///
+/// # Safety
+///
+/// `ptr` came from [`new_shell`] on `alloc`, is unlinked, its sub-map is
+/// already cleared, and nothing uses it afterwards except readers pinned
+/// before the unlink.
+#[inline(never)]
+unsafe fn free_shell(alloc: &NodeAlloc, ptr: *mut StrNode) {
+    // SAFETY: caller contract; `new_shell` allocated it with `alloc_bytes*`
+    // at `SHELL_BYTES`, so `free_bytes` at the same size matches.
+    unsafe {
+        alloc.free_bytes(
+            NonNull::new(ptr.cast::<u8>()).expect("non-null node"),
+            SHELL_BYTES,
+        );
+    }
+}
+
+/// The owning pointer to the meta-trie's root shell (Refs #1586, design B).
+///
+/// A shell is a block of the map's `NodeAlloc`, so the root cannot be a
+/// `Box`: dropping one would hand the block to the global allocator. This
+/// handle owns the block and has no `Drop`: the map disposes of the root
+/// through [`dispose_node`] / [`dispose_tree`], as it does every other shell.
+/// `#[repr(transparent)]` over `NonNull`, so `Option<RootNode>` is a nullable
+/// pointer (the guaranteed null-pointer optimisation, asserted above) and
+/// [`ExpanseStrMap::root_raw`] may read the slot as a `*mut StrNode`.
+#[repr(transparent)]
+struct RootNode(NonNull<StrNode>);
+
+impl RootNode {
+    /// A fresh, empty root shell of `alloc`, on the plain path.
+    fn new_plain(alloc: &NodeAlloc) -> Self {
+        Self(NonNull::new(new_shell::<false>(alloc)).expect("non-null node"))
+    }
+
+    /// Gives up ownership; the caller disposes of the shell.
+    fn into_raw(self) -> *mut StrNode {
+        self.0.as_ptr()
+    }
+}
+
+impl core::ops::Deref for RootNode {
+    type Target = StrNode;
+    #[inline(always)]
+    fn deref(&self) -> &StrNode {
+        // SAFETY: the handle owns a live, initialised shell, and `&self`
+        // borrows it no longer than the handle lives.
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl core::ops::DerefMut for RootNode {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut StrNode {
+        // SAFETY: as `deref`; `&mut self` makes the borrow unique.
+        unsafe { self.0.as_mut() }
+    }
+}
 
 /// Disposes an unlinked suffix: freed immediately when not shared, retired
 /// through the epoch collector when it is — a reader that validated the
@@ -424,7 +548,7 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>, arena: SuffixAren
     // The tree's allocator decides between freeing and retiring by itself:
     // a shared tree's allocator is deferred, so this retires through the
     // same collector `defer` names.
-    #[cfg(feature = "packed-suffix")]
+    #[cfg(not(feature = "ablation-unpacked-suffix"))]
     {
         let _ = defer;
         // SAFETY: `ptr` came from `alloc_bytes(packed_suffix_bytes(layout))` on this
@@ -437,9 +561,9 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>, arena: SuffixAren
         }
     }
     // Every arm below is the global-allocator path, compiled out above.
-    #[cfg(not(feature = "packed-suffix"))]
+    #[cfg(feature = "ablation-unpacked-suffix")]
     let _ = arena;
-    #[cfg(all(feature = "std", not(feature = "packed-suffix")))]
+    #[cfg(all(feature = "std", feature = "ablation-unpacked-suffix"))]
     match defer {
         // SAFETY: unlinked, last owner, and `layout` is by construction the
         // one this block was allocated with.
@@ -455,7 +579,7 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>, arena: SuffixAren
             )
         },
     }
-    #[cfg(all(not(feature = "std"), not(feature = "packed-suffix")))]
+    #[cfg(all(not(feature = "std"), feature = "ablation-unpacked-suffix"))]
     {
         // Without `std` there is no epoch collector to defer to, so the
         // deferred arm degenerates to the immediate one.
@@ -475,8 +599,8 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>, arena: SuffixAren
 /// allocator first (`StrNode` has no `Drop` since the allocator moved
 /// out of the node, #363 Step A): when shared, those frees route through
 /// the deferred `NodeAlloc` and retire to the collector, so pinned
-/// readers keep their memory; the shell then frees (or retires) exactly
-/// once with the layout it was allocated with.
+/// readers keep their memory; the shell then goes back to the same
+/// allocator exactly once ([`free_shell`]).
 fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
     // Property S3 (Refs #929): a shared node that ceases to be reachable is
     // marked obsolete before its interior changes, so a reader that
@@ -508,40 +632,17 @@ fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
     unsafe {
         (*ptr).map.clear_pathless(alloc)
     };
-    #[cfg(feature = "std")]
-    match defer {
-        None => {
-            // SAFETY: last reference; the owning `Box` (created by
-            // `Box::into_raw` at publication) frees the shell with its
-            // original provenance and layout.
-            drop(unsafe { Box::from_raw(ptr) });
-        }
-        Some(c) => {
-            // Retire the shell raw — no `Drop` to run: the map interior
-            // was cleared above, and any continuation words it held are
-            // the caller's to dispose.
-            // SAFETY: `ptr` is the shell's `Box<StrNode>` allocation
-            // (`Layout::new::<StrNode>()`, from `Box::into_raw` at
-            // publication), unlinked by the caller and owned here alone, so
-            // it is retired once; it was marked obsolete above, and only
-            // readers pinned before the unlink can still load it.
-            unsafe {
-                c.retire(
-                    NonNull::new(ptr.cast::<u8>()).expect("non-null node"),
-                    size_of::<StrNode>(),
-                    align_of::<StrNode>(),
-                );
-            }
-        }
-    }
+    // The shell goes back through the tree's allocator, which retires it
+    // through the collector on a shared tree and frees it on a plain one. No
+    // `Drop` runs: the map interior was cleared above, and any continuation
+    // words it held are the caller's to dispose.
     #[cfg(not(feature = "std"))]
-    {
-        // Without `std` there is no epoch collector to defer to, so the
-        // deferred arm degenerates to the immediate one.
-        let _ = defer;
-        // SAFETY: caller unlinked `ptr`; this is the last reference.
-        drop(unsafe { Box::from_raw(ptr) });
-    }
+    let _ = defer;
+    // SAFETY: `ptr` is a `new_shell` block of `alloc`, unlinked by the caller
+    // and owned here alone, so it is freed or retired once; on a shared tree
+    // it was marked obsolete above, and only readers pinned before the unlink
+    // can still load it.
+    unsafe { free_shell(alloc, ptr) };
 }
 
 /// Disposes a whole unlinked subtree. Iterative like every other walk in
@@ -909,9 +1010,9 @@ impl StrNode {
 
     /// # Safety
     ///
-    /// `v` must be a continuation child pointer produced by `Box::into_raw`.
+    /// `v` must be a continuation child pointer to a live [`new_shell`] block.
     unsafe fn child<'a>(v: u64) -> &'a StrNode {
-        // SAFETY: per contract, `v` is a live Box<StrNode> pointer.
+        // SAFETY: per contract, `v` names a live, initialised shell.
         unsafe { &*unpack_child(v) }
     }
 
@@ -1308,34 +1409,29 @@ impl StrNode {
         Some(removed)
     }
 
-    /// Heap bytes of this subtree's node shells and suffix leaves — the
-    /// allocations **outside** the shared `NodeAlloc` (whose
-    /// `bytes_in_use` covers every sub-map's interior byte-exactly, all
-    /// sub-tries at once, since #363 Step A). `ExpanseStrMap::mem_used`
-    /// is the sum of both.
+    /// Heap bytes of this subtree's suffix leaves under the diagnostic
+    /// `ablation-unpacked-suffix`, where each is a global allocation outside
+    /// the shared `NodeAlloc`. In every other build every byte of the map is
+    /// a `NodeAlloc` block and no walk exists (Refs #1586, design B).
     ///
     /// Iterative: `clear()` calls this, so recursing would overflow the
     /// stack on exactly the deep chains the iterative teardown exists to
     /// survive.
-    fn shell_bytes(&self) -> u64 {
+    #[cfg(feature = "ablation-unpacked-suffix")]
+    fn unpacked_suffix_bytes(&self) -> u64 {
         let mut bytes = 0u64;
         let mut stack: Vec<*const StrNode> = vec![core::ptr::from_ref(self)];
         while let Some(p) = stack.pop() {
             // SAFETY: `self` plus continuation values, all live nodes.
             let node = unsafe { &*p };
-            bytes += size_of::<Self>() as u64;
             for (k, v) in node.map.iter() {
                 if !is_terminal(k) {
                     if is_suffix_ptr(v) {
                         // SAFETY: tagged pointer encodes a live suffix leaf.
                         let len = unsafe { (*unpack_suffix(v)).len };
                         // One block: header plus the inline bytes, which is
-                        // exactly what `dispose_suffix` will hand back —
-                        // unless it came from `NodeAlloc`, whose
-                        // `bytes_in_use` already counts it.
-                        if !SUFFIX_IN_NODE_ALLOC {
-                            bytes += suffix_layout(len).size() as u64;
-                        }
+                        // exactly what `dispose_suffix` will hand back.
+                        bytes += suffix_layout(len).size() as u64;
                     } else {
                         debug_assert_ne!(v, 0);
                         stack.push(unpack_child(v));
@@ -1347,8 +1443,8 @@ impl StrNode {
     }
 
     /// Adds every node's sub-map, shell and suffix leaves under `self` to
-    /// `c` (feature `layout-census`). Iterative for the reason
-    /// [`Self::shell_bytes`] is.
+    /// `c` (feature `layout-census`). Iterative: one frame per 8 key bytes
+    /// would overflow the stack on the deep chains this module survives.
     ///
     /// Returns the number of strings under `self`, counted from the walk (one
     /// terminal chunk entry or one suffix leaf per string) rather than read
@@ -1366,8 +1462,8 @@ impl StrNode {
             // SAFETY: `self` plus continuation values, all live nodes.
             let node = unsafe { &*p };
             c.str_nodes += 1;
-            c.str_node_shell_bytes += size_of::<Self>();
-            c.bytes += size_of::<Self>();
+            c.str_node_shell_bytes += SHELL_ACCOUNTED;
+            c.bytes += SHELL_ACCOUNTED;
             // The sub-map's entries are chunks, not keys: the walk counts
             // them, and the string map's key count is set by the caller.
             node.map.layout_census_into(c, rule);
@@ -1380,12 +1476,12 @@ impl StrNode {
                         // SAFETY: tagged pointer encodes a live suffix leaf.
                         let len = unsafe { (*unpack_suffix(v)).len };
                         *c.suffix_leaves.entry(len).or_insert(0) += 1;
-                        #[cfg(feature = "packed-suffix")]
+                        #[cfg(not(feature = "ablation-unpacked-suffix"))]
                         let b = crate::alloc::accounted_size(
                             packed_suffix_bytes(suffix_layout(len)),
                             crate::types::RAW_ALIGN,
                         );
-                        #[cfg(not(feature = "packed-suffix"))]
+                        #[cfg(feature = "ablation-unpacked-suffix")]
                         let b = suffix_layout(len).size();
                         c.suffix_bytes += b;
                         c.bytes += b;
@@ -1881,7 +1977,7 @@ impl<'a, const BOUNDED: bool> Walk<'a, BOUNDED> {
 /// A sorted map from NUL-free byte strings to `u64` values (compat:
 /// JudySL). Iteration order is byte-lexicographic.
 pub struct ExpanseStrMap {
-    root: Option<Box<StrNode>>,
+    root: Option<RootNode>,
     pop: u64,
     /// The **one** allocator behind every sub-trie's word map (issue #363
     /// Step A). Nodes store no pointer to it — every operation passes a
@@ -2030,11 +2126,43 @@ impl ExpanseStrMap {
     }
 
     /// Heap bytes used by the map: the shared allocator's byte-exact
-    /// `bytes_in_use` (every sub-map interior) plus a read-only walk over
-    /// the node shells and suffix leaves.
+    /// `bytes_in_use`. Every sub-map node, node shell and suffix leaf is a
+    /// block of that one allocator (Refs #1586, design B), so this reads a
+    /// counter and walks nothing, and each block counts at its accounted size
+    /// (its request rounded to its alignment).
     #[must_use]
     pub fn mem_used(&self) -> usize {
-        self.alloc.bytes_in_use() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
+        self.alloc.bytes_in_use() + self.unpacked_bytes()
+    }
+
+    /// The suffix bytes outside the allocator: 0, except under the
+    /// diagnostic `ablation-unpacked-suffix`, which walks every entry.
+    #[inline(always)]
+    fn unpacked_bytes(&self) -> usize {
+        #[cfg(feature = "ablation-unpacked-suffix")]
+        {
+            self.root
+                .as_deref()
+                .map_or(0, |r| r.unpacked_suffix_bytes() as usize)
+        }
+        #[cfg(not(feature = "ablation-unpacked-suffix"))]
+        {
+            0
+        }
+    }
+
+    /// The accounting cell of the map's allocator, published when the map
+    /// was switched to deferred reclamation, for the concurrent wrapper's
+    /// lock-free [`crate::sync::SyncExpanseStrMap::mem_used`] (Refs #1586).
+    /// `None` on a map that was never deferred.
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-unsharded-alloc"),
+        not(feature = "ablation-unpacked-suffix")
+    ))]
+    pub(crate) fn acct_cell(&self) -> Option<crate::alloc::AcctCell> {
+        self.alloc.acct_cell()
     }
 
     /// Gathers structural statistics of the string map.
@@ -2052,7 +2180,7 @@ impl ExpanseStrMap {
             // SAFETY: `root` plus continuation values, all live nodes.
             let node = unsafe { &*p };
             stats.str_nodes += 1;
-            stats.node_bytes.node_shells += size_of::<StrNode>();
+            stats.node_bytes.node_shells += SHELL_ACCOUNTED;
 
             let sub_stats = node.map.stats();
             stats.node_bytes.sub_maps += &sub_stats.node_bytes;
@@ -2093,12 +2221,12 @@ impl ExpanseStrMap {
                         stats.suffix_leaves += 1;
                         // SAFETY: tagged pointer encodes a live suffix leaf.
                         let len = unsafe { (*unpack_suffix(v)).len };
-                        #[cfg(feature = "packed-suffix")]
+                        #[cfg(not(feature = "ablation-unpacked-suffix"))]
                         let b = crate::alloc::accounted_size(
                             packed_suffix_bytes(suffix_layout(len)),
                             crate::types::RAW_ALIGN,
                         );
-                        #[cfg(not(feature = "packed-suffix"))]
+                        #[cfg(feature = "ablation-unpacked-suffix")]
                         let b = suffix_layout(len).size();
                         stats.node_bytes.suffixes += b;
                     } else {
@@ -2144,11 +2272,11 @@ impl ExpanseStrMap {
     /// example measures it.
     ///
     /// Computed on demand by walking the allocator's slab pages and
-    /// freelists (O(pages + free blocks)); no counter is kept on the
-    /// allocation path.
+    /// freelists (O(pages + free blocks), never the entries); no counter is
+    /// kept on the allocation path.
     #[must_use]
     pub fn mem_held(&self) -> usize {
-        self.alloc.bytes_held() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
+        self.alloc.bytes_held() + self.unpacked_bytes()
     }
 
     /// Returns memory the map holds but does not use to the system
@@ -2177,7 +2305,10 @@ impl ExpanseStrMap {
         old: *mut StrSuffix,
         alloc: &NodeAlloc,
     ) -> *mut StrNode {
-        let mut child = Box::new(StrNode::new());
+        let child_raw = new_shell::<SHARED>(alloc);
+        // SAFETY: a fresh shell nobody else can reach until the caller
+        // publishes it.
+        let child = unsafe { &mut *child_raw };
         // SAFETY: `old` is the live suffix being split, reached as a raw
         // pointer so the projection covers the inline bytes; both borrows
         // end before the caller disposes of it.
@@ -2196,7 +2327,7 @@ impl ExpanseStrMap {
                 .map
                 .insert_pathless_dispatch::<SHARED, SHARED>(alloc, c1, pack_suffix(s1));
         }
-        Box::into_raw(child)
+        child_raw
     }
 
     /// Splits a suffix entry that diverges from the key being inserted:
@@ -2294,7 +2425,7 @@ impl ExpanseStrMap {
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
         // the loop.
         if self.root.is_none() {
-            self.root = Some(Box::new(StrNode::new()));
+            self.root = Some(RootNode::new_plain(&self.alloc));
         }
         let alloc = &self.alloc;
         let mut node: &mut StrNode = self.root.as_deref_mut().expect("root just ensured");
@@ -2335,7 +2466,7 @@ impl ExpanseStrMap {
                         return Some(unsafe { core::ptr::replace(&raw mut (*sfx).value, val) });
                     }
                     let child_raw = Self::split_suffix(node, chunk, sfx, alloc);
-                    // SAFETY: freshly allocated Box<StrNode> above.
+                    // SAFETY: the shell `split_suffix` just published.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
                 }
@@ -2377,7 +2508,7 @@ impl ExpanseStrMap {
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
         // the loop.
         if self.root.is_none() {
-            self.root = Some(Box::new(StrNode::new()));
+            self.root = Some(RootNode::new_plain(&self.alloc));
         }
         let alloc = &self.alloc;
         let mut node: &mut StrNode = self.root.as_deref_mut().expect("root just ensured");
@@ -2423,7 +2554,7 @@ impl ExpanseStrMap {
                     // Divergence: publish a child over the suffix entry,
                     // then dispose of the old suffix (see `split_suffix`).
                     let child_raw = Self::split_suffix(node, chunk, sfx, alloc);
-                    // SAFETY: freshly allocated Box<StrNode> above.
+                    // SAFETY: the shell `split_suffix` just published.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
                 }
@@ -3104,9 +3235,9 @@ impl ExpanseStrMap {
         let removed = root.remove_impl(key, 0, alloc)?;
         self.pop -= 1;
         if root.map.is_empty() {
-            let root_box = self.root.take().expect("root present");
+            let root = self.root.take().expect("root present");
             // Unlinked (the root slot is cleared).
-            dispose_node(Box::into_raw(root_box), alloc, None);
+            dispose_node(root.into_raw(), alloc, None);
         }
         Some(removed)
     }
@@ -3257,16 +3388,15 @@ impl ExpanseStrMap {
         let bytes = match self.root.take() {
             Some(root) => {
                 // Count first — the shared allocator's byte-exact
-                // `bytes_in_use` (all sub-map interiors, all of which are
-                // about to be freed) plus a read-only walk over shells and
-                // suffixes — then dispose of the subtree (retired through
-                // the collector when shared).
-                let bytes = self.alloc.bytes_in_use() as u64 + root.shell_bytes();
-                dispose_tree(
-                    Box::into_raw(root),
-                    &self.alloc,
-                    self.defer_handle().as_ref(),
-                );
+                // `bytes_in_use`, every block of which is about to be freed —
+                // then dispose of the subtree (retired through the collector
+                // when shared).
+                #[cfg(feature = "ablation-unpacked-suffix")]
+                let unpacked = root.unpacked_suffix_bytes();
+                #[cfg(not(feature = "ablation-unpacked-suffix"))]
+                let unpacked = 0u64;
+                let bytes = self.alloc.bytes_in_use() as u64 + unpacked;
+                dispose_tree(root.into_raw(), &self.alloc, self.defer_handle().as_ref());
                 debug_assert_eq!(self.alloc.bytes_in_use(), 0);
                 bytes
             }
@@ -3465,10 +3595,10 @@ mod olc {
         // SAFETY: allocated by `new_suffix` on this thread and never stored
         // anywhere; `len` describes the allocation.
         let layout = suffix_layout(unsafe { (*ptr).len });
-        // With `packed-suffix` the block is the allocator's: it goes back
+        // The block is the allocator's (unless `ablation-unpacked-suffix`): it goes back
         // through the unpublished path, which recycles it at once without a
         // grace period — no reader ever saw it.
-        #[cfg(feature = "packed-suffix")]
+        #[cfg(not(feature = "ablation-unpacked-suffix"))]
         // SAFETY: `ptr` came from `alloc_bytes(packed_suffix_bytes(layout))` on this
         // allocator in `new_suffix` and was never published.
         unsafe {
@@ -3477,7 +3607,7 @@ mod olc {
                 packed_suffix_bytes(layout),
             );
         }
-        #[cfg(not(feature = "packed-suffix"))]
+        #[cfg(feature = "ablation-unpacked-suffix")]
         {
             let _ = arena;
             // SAFETY: as above, and `layout` is the one the block was
@@ -4432,10 +4562,12 @@ impl ExpanseStrMap {
         // not — a null pointer reaching a dereference (caught on aarch64 by
         // the debug null-dereference check in `version_cell`, PR #1001).
         //
-        // SAFETY: `Option<Box<T>>` has the layout of a nullable pointer to
-        // `T` (the guaranteed null-pointer optimisation), so the slot can be
-        // read as a `*mut StrNode` without materialising a `Box` from a word
-        // another thread may be replacing. The read is a racy single-word
+        // SAFETY: `Option<RootNode>` has the layout of a nullable pointer to
+        // `StrNode` (`RootNode` is a transparent `NonNull`, and the
+        // null-pointer optimisation is guaranteed for it; asserted at compile
+        // time beside `StrNode`), so the slot can be read as a `*mut StrNode`
+        // without materialising a handle from a word another thread may be
+        // replacing. The read is a racy single-word
         // copy: whatever it returns is validated before any answer (the tree
         // word covers every store to this slot), and a node it names is
         // obsolete-marked before it retires and EBR-live under the caller's
@@ -4698,15 +4830,15 @@ impl ExpanseStrMap {
         if let Some(p) = self.root_raw() {
             return p;
         }
-        let p = Box::into_raw(Box::new(StrNode::new()));
-        // SAFETY: `Option<Box<T>>` has the layout of a nullable pointer, and
-        // the slot held `None`, so nothing is overwritten.
+        let p = new_shell::<true>(&self.alloc);
+        // SAFETY: `Option<RootNode>` has the layout of a nullable pointer,
+        // and the slot held `None`, so nothing is overwritten.
         unsafe { (&raw mut self.root).cast::<*mut StrNode>().write(p) };
         p
     }
 
-    /// Clears the root slot of a shared map without moving the box out of
-    /// it, and returns the node for disposal (see [`covered_at`]).
+    /// Clears the root slot of a shared map without moving the handle out
+    /// of it, and returns the node for disposal (see [`covered_at`]).
     fn take_root_shared(&mut self) -> Option<*mut StrNode> {
         let p = self.root_raw()?;
         // SAFETY: as in `root_or_create_shared`; ownership passes to the
@@ -4863,8 +4995,14 @@ impl ExpanseStrMap {
             Some(root) => {
                 // SAFETY: the unlinked root, live until disposed of below;
                 // the walk only reads.
-                let shells = unsafe { (*root).shell_bytes() };
-                let bytes = self.alloc.bytes_in_use() as u64 + shells;
+                #[cfg(feature = "ablation-unpacked-suffix")]
+                let unpacked = unsafe { (*root).unpacked_suffix_bytes() };
+                #[cfg(not(feature = "ablation-unpacked-suffix"))]
+                let unpacked = {
+                    let _ = root;
+                    0u64
+                };
+                let bytes = self.alloc.bytes_in_use() as u64 + unpacked;
                 dispose_tree(root, &self.alloc, defer);
                 debug_assert_eq!(self.alloc.bytes_in_use(), 0);
                 bytes
@@ -5780,6 +5918,217 @@ mod tests {
             "StrNode grew past one cache line: {}",
             size_of::<StrNode>()
         );
+    }
+
+    /// A shell is a raw class size of the tree's allocator, so it is carved
+    /// from a slab page rather than becoming a system allocation of its own,
+    /// and it is accounted at that class's size (Refs #1586, design B).
+    #[test]
+    fn str_node_shell_is_a_raw_class() {
+        assert!(crate::alloc::class_for_raw(SHELL_BYTES).is_some());
+        assert_eq!(crate::alloc::raw_class_fit(SHELL_BYTES), SHELL_BYTES);
+        const { assert!(SHELL_BYTES <= 256, "slab-carved classes stop at 256 bytes") };
+        assert_eq!(
+            SHELL_ACCOUNTED,
+            SHELL_BYTES.next_multiple_of(crate::types::RAW_ALIGN)
+        );
+    }
+
+    /// The words `StrNode::new()` writes, as (name, byte offset, width, value):
+    /// the cover, the dirty flag, and the two words of `MapCore::new()`. An
+    /// empty root's payload words are not among them; nothing reads those
+    /// before the tag says the root holds a leaf or a tree.
+    fn shell_new_words() -> [(&'static str, usize, usize, u64); 4] {
+        let map = core::mem::offset_of!(StrNode, map);
+        let [(tag, tag_v), (pop, pop_v)] = crate::map::MapCore::NEW_WORDS;
+        [
+            ("cover", core::mem::offset_of!(StrNode, cover), 4, 0),
+            ("dirty", core::mem::offset_of!(StrNode, dirty), 4, 0),
+            ("root tag", map + tag, 8, tag_v),
+            ("tree_pop", map + pop, 8, pop_v),
+        ]
+    }
+
+    /// The words of [`shell_new_words`] that do not hold their fresh value.
+    ///
+    /// # Safety
+    ///
+    /// `p` points to a live block of `SHELL_BYTES` whose bytes at those words
+    /// are initialised.
+    unsafe fn shell_words_not_fresh(p: *const StrNode) -> Vec<&'static str> {
+        let b = p.cast::<u8>();
+        shell_new_words()
+            .into_iter()
+            .filter(|&(_, off, width, v)| {
+                // SAFETY: caller contract; each word lies inside the block.
+                let got = unsafe {
+                    if width == 4 {
+                        u64::from(b.add(off).cast::<u32>().read_unaligned())
+                    } else {
+                        b.add(off).cast::<u64>().read_unaligned()
+                    }
+                };
+                got != v
+            })
+            .map(|(name, ..)| name)
+            .collect()
+    }
+
+    /// A shell is allocated without zeroing (§47.11), so `new_shell` must
+    /// write every word a reader uses. Here it reuses a block whose bytes were
+    /// poisoned, from a plain tree's freelist (LIFO, so the block comes back),
+    /// and every word must read fresh. The controls show the test can fail:
+    /// the stale block reads non-fresh before the call (so a word `new_shell`
+    /// left unwritten would stay poisoned), and poisoning each word of a
+    /// fresh shell in turn is caught for that word alone. Not under Miri,
+    /// whose allocators are exact-size and never hand a block back; there
+    /// `deferred_shell_on_an_uninit_block_is_fully_written` covers it.
+    #[cfg(not(miri))]
+    #[test]
+    fn shell_is_fully_written_over_a_stale_block() {
+        const POISON: u8 = 0xA5;
+        let alloc = NodeAlloc::new();
+        // Two blocks, so the reused one's freelist link (its first word)
+        // points at the other and is not null.
+        let first = alloc.alloc_bytes_uninit_dispatch::<false>(SHELL_BYTES);
+        let block = alloc.alloc_bytes_uninit_dispatch::<false>(SHELL_BYTES);
+        for b in [first, block] {
+            // SAFETY: a live block of `SHELL_BYTES` this test owns.
+            unsafe { core::ptr::write_bytes(b.as_ptr(), POISON, SHELL_BYTES) };
+        }
+        // SAFETY: both came from `alloc_bytes_uninit_dispatch::<false>` at
+        // `SHELL_BYTES` on this plain allocator and are freed once.
+        unsafe {
+            alloc.free_bytes_plain(first, SHELL_BYTES);
+            alloc.free_bytes_plain(block, SHELL_BYTES);
+        }
+        let stale = block.as_ptr().cast::<StrNode>();
+        // Control 1: the block reads stale where the root's words are (the
+        // freelist link covers only the cover and dirty words).
+        // SAFETY: the block is on the freelist, unchanged but for its link;
+        // every byte is initialised.
+        let before = unsafe { shell_words_not_fresh(stale) };
+        assert!(
+            before.contains(&"root tag") && before.contains(&"tree_pop"),
+            "the reused block must read stale before new_shell, got {before:?}"
+        );
+        let p = new_shell::<false>(&alloc);
+        assert_eq!(p, stale, "the plain freelist hands the poisoned block back");
+        // SAFETY: `new_shell` wrote the shell; its words are initialised.
+        assert_eq!(unsafe { shell_words_not_fresh(p) }, Vec::<&str>::new());
+        // SAFETY: as above; a fresh shell's core is valid to borrow.
+        assert!(unsafe { (*p).map.is_empty() });
+        // Control 2, one per word: a word left stale is reported, alone.
+        for (name, off, width, _) in shell_new_words() {
+            // SAFETY: the word lies inside the live shell.
+            unsafe { core::ptr::write_bytes(p.cast::<u8>().add(off), POISON, width) };
+            // SAFETY: every word read is initialised.
+            assert_eq!(unsafe { shell_words_not_fresh(p) }, vec![name]);
+            // SAFETY: the shell is live and owned here; this restores it.
+            unsafe { p.write(StrNode::new()) };
+        }
+        // SAFETY: from `new_shell` on this allocator, unlinked, its map empty.
+        unsafe { free_shell(&alloc, p) };
+    }
+
+    /// A suffix leaf is allocated without zeroing (§47.11): `new_suffix`
+    /// writes the header and the key bytes, and the class-size tail past them
+    /// stays as the block held it, because nothing reads it (`StrSuffix`). The
+    /// leaf reuses a poisoned block from a plain tree's freelist; its header
+    /// and bytes must read back, and the controls show the block was not
+    /// zeroed: the header read stale before the call, and the tail still holds
+    /// the poison after it. Not under Miri, as for the shell test; there every
+    /// suffix tail is uninitialised, so a read of one is reported.
+    #[cfg(all(not(miri), not(feature = "ablation-unpacked-suffix")))]
+    #[test]
+    fn suffix_is_fully_written_over_a_stale_block() {
+        const POISON: u8 = 0xA5;
+        // The shortest remainder whose class leaves a tail past its bytes.
+        let len = (1..=240)
+            .find(|&n| packed_suffix_bytes(suffix_layout(n)) > SUFFIX_BYTES + n)
+            .expect("some suffix class leaves a tail");
+        let key: Vec<u8> = (0..len).map(|i| b'a' + (i % 26) as u8).collect();
+        let key = &key[..];
+        let size = packed_suffix_bytes(suffix_layout(key.len()));
+        let alloc = NodeAlloc::new();
+        let first = alloc.alloc_bytes_uninit(size);
+        let block = alloc.alloc_bytes_uninit(size);
+        for b in [first, block] {
+            // SAFETY: a live block of `size` bytes this test owns.
+            unsafe { core::ptr::write_bytes(b.as_ptr(), POISON, size) };
+        }
+        // SAFETY: both came from `alloc_bytes_uninit(size)` on this allocator
+        // and are freed once.
+        unsafe {
+            alloc.free_bytes(first, size);
+            alloc.free_bytes(block, size);
+        }
+        let raw = block.as_ptr();
+        // Control 1: `len` (bytes 8..16, past the freelist link) reads stale.
+        // SAFETY: inside the initialised block.
+        let stale_len = unsafe { raw.add(8).cast::<usize>().read_unaligned() };
+        assert_ne!(stale_len, key.len());
+        let p = new_suffix(key, 7, SuffixArena::of(&alloc));
+        assert_eq!(
+            p.cast::<u8>(),
+            raw,
+            "the plain freelist hands the poisoned block back"
+        );
+        // SAFETY: `new_suffix` wrote the header and bytes; the leaf is live.
+        unsafe {
+            assert_eq!((*p).value, 7);
+            assert_eq!((*p).len, key.len());
+            assert_eq!(suffix_bytes(p), key);
+            // Control 2: the tail was not written.
+            for i in SUFFIX_BYTES + key.len()..size {
+                assert_eq!(raw.add(i).read(), POISON, "tail byte {i}");
+            }
+        }
+        dispose_suffix(p, None, SuffixArena::of(&alloc));
+    }
+
+    /// Under Miri a shared tree's allocator is exact-size, so a shell from an
+    /// empty collector freelist is a fresh `alloc` block, uninitialised: a
+    /// read of any byte `new_shell` did not write before it is reported as
+    /// undefined behaviour (§47.11). This test drives every shell site there:
+    /// one shell straight from `new_shell::<true>`, then a shared map's root
+    /// and split shells through inserts, reads and removals; the suffix
+    /// leaves those inserts make have uninitialised tails, so a read past a
+    /// suffix's bytes is reported the same way. Outside Miri a
+    /// fresh system block usually reads zero, so a missing write passes here
+    /// unseen: `shell_is_fully_written_over_a_stale_block` is that instrument.
+    #[cfg(feature = "std")]
+    #[test]
+    fn deferred_shell_on_an_uninit_block_is_fully_written() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(std::sync::Arc::new(crate::occ::Collector::new()));
+        let p = new_shell::<true>(&alloc);
+        // SAFETY: `new_shell` wrote the shell; its words are initialised.
+        assert_eq!(unsafe { shell_words_not_fresh(p) }, Vec::<&str>::new());
+        // SAFETY: as above.
+        assert!(unsafe { (*p).map.is_empty() });
+        // SAFETY: from `new_shell` on this allocator, never linked, map empty.
+        unsafe { free_shell(&alloc, p) };
+
+        let n = if cfg!(miri) { 40 } else { 2_000 };
+        let sync = crate::sync::SyncExpanseStrMap::new();
+        for i in 0..n {
+            let k = design_b_key(0, i);
+            sync.insert(NulFreeStr::new(&k).expect("no NUL"), i as u64);
+        }
+        for i in 0..n {
+            let k = design_b_key(0, i);
+            let k = NulFreeStr::new(&k).expect("no NUL");
+            assert!(sync.get(k).is_some(), "key {i} present");
+            if i % 2 == 0 {
+                sync.remove(k);
+            }
+        }
+        for i in 0..n {
+            let k = design_b_key(0, i);
+            let k = NulFreeStr::new(&k).expect("no NUL");
+            assert_eq!(sync.get(k).is_some(), i % 2 == 1, "key {i}");
+        }
     }
 
     /// #929 groundwork: the cover word heads the node, so the OCC protocol
@@ -6737,7 +7086,7 @@ mod tests {
         assert_eq!(s.str_nodes, 1);
         assert_eq!(s.suffix_leaves, 0);
         assert_eq!(s.node_bytes.suffixes, 0);
-        assert_eq!(s.node_bytes.node_shells, size_of::<StrNode>());
+        assert_eq!(s.node_bytes.node_shells, SHELL_ACCOUNTED);
 
         m.insert(tk(b"alpha_suffix_leaf"), 4);
         m.insert(tk(b"beta_another_suffix"), 5);
@@ -6764,6 +7113,325 @@ mod tests {
             let s_sync = sync.stats();
             assert_eq!(s_sync.node_bytes.total(), sync.mem_used());
             assert_eq!(s_sync, sync.with_locked(|inner| inner.stats()));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Design B (Refs #1586, concurrency METHODOLOGY §47)
+    // ------------------------------------------------------------------
+
+    /// The production half of this file, for the source census below: every
+    /// line before the test module, with `//` comment lines dropped.
+    fn production_source() -> String {
+        // A Windows checkout has CRLF line endings; normalise them so the
+        // markers below match on every platform.
+        let src = include_str!("strmap.rs").replace("\r\n", "\n");
+        let end = src
+            .find("\n#[cfg(test)]\nmod tests {")
+            .expect("the test module marker");
+        src[..end]
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// §47.3 G-safety 2, as a function so each clause can be shown failing on
+    /// its own: no `Box` of a `StrNode` in production code, and exactly one
+    /// call site per allocation form (plain root, shared root, the split that
+    /// both paths instantiate).
+    fn shell_census(src: &str) -> Result<(), String> {
+        for banned in [
+            "Box::new(StrNode",
+            "Box::<StrNode",
+            "Box<StrNode>",
+            "Box::into_raw(",
+            "Box::from_raw(",
+        ] {
+            if src.contains(banned) {
+                return Err(format!("`{banned}` in production code"));
+            }
+        }
+        for (site, want) in [
+            ("new_shell::<false>(", 1),
+            ("new_shell::<true>(", 1),
+            ("new_shell::<SHARED>(", 1),
+        ] {
+            let got = src.matches(site).count();
+            if got != want {
+                return Err(format!("`{site}` appears {got} times, expected {want}"));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn str_node_shells_are_node_alloc_blocks() {
+        let src = production_source();
+        shell_census(&src).unwrap();
+        // One negative control per clause, each on its own.
+        let boxed = src.replacen(
+            "let child_raw = new_shell::<SHARED>(alloc);",
+            "let child_raw = new_shell::<SHARED>(alloc); let _b = Box::new(StrNode::new());",
+            1,
+        );
+        assert!(
+            shell_census(&boxed)
+                .unwrap_err()
+                .contains("Box::new(StrNode")
+        );
+        let from_raw =
+            format!("{src}\nfn x(p: *mut StrNode) {{ drop(unsafe {{ Box::from_raw(p) }}); }}");
+        assert!(
+            shell_census(&from_raw)
+                .unwrap_err()
+                .contains("Box::from_raw(")
+        );
+        let extra_plain = format!("{src}\nfn y(a: &NodeAlloc) {{ new_shell::<false>(a); }}");
+        assert!(
+            shell_census(&extra_plain)
+                .unwrap_err()
+                .contains("new_shell::<false>(")
+        );
+        let no_shared = src.replacen("new_shell::<true>(", "new_shell::<false>(", 1);
+        let e = shell_census(&no_shared).unwrap_err();
+        assert!(
+            e.contains("new_shell::<false>(") || e.contains("new_shell::<true>("),
+            "{e}"
+        );
+        let no_split = src.replacen("new_shell::<SHARED>(", "new_shell::<true>(", 1);
+        assert!(
+            shell_census(&no_split)
+                .unwrap_err()
+                .contains("new_shell::<")
+        );
+    }
+
+    /// The exact figure on a shared map, read under the writer exclusion.
+    #[cfg(feature = "std")]
+    fn exact_shared(sync: &crate::sync::SyncExpanseStrMap) -> usize {
+        sync.with_locked(ExpanseStrMap::mem_used)
+    }
+
+    #[cfg(feature = "std")]
+    fn design_b_key(w: usize, i: usize) -> Vec<u8> {
+        let mut k = format!("/t/{w:02}/{:06}/r", i / 7).into_bytes();
+        // A suffix of varying length on most keys, a terminal chunk on some.
+        k.extend(core::iter::repeat_n(b'a' + (i % 23) as u8, i % 29));
+        k
+    }
+
+    /// §47.3 G-accuracy 1: once every writer is joined, the lock-free reading
+    /// is exact and equals the shards' signed sum, so that sum is not
+    /// negative. Inserts, removals and a clear, at W = 4.
+    #[cfg(feature = "std")]
+    #[test]
+    fn deferred_mem_used_exact_after_join() {
+        let n = if cfg!(miri) { 40 } else { 4_000 };
+        let sync = std::sync::Arc::new(crate::sync::SyncExpanseStrMap::new());
+        let check = |sync: &crate::sync::SyncExpanseStrMap| {
+            let exact = exact_shared(sync);
+            assert_eq!(sync.mem_used(), exact, "the quiet reading is exact");
+            // `stats()` is not compared here: on a map optimistic writers have
+            // written it undercounts on `main` too, a defect outside design B
+            // (concurrency METHODOLOGY §47.9). `layout_census` is pinned equal
+            // to `mem_used` after multi-threaded inserts in `census::tests`.
+            #[cfg(all(
+                target_pointer_width = "64",
+                not(feature = "ablation-unsharded-alloc"),
+                not(feature = "ablation-unpacked-suffix")
+            ))]
+            {
+                let cell = sync
+                    .with_locked(|m| m.acct_cell())
+                    .expect("a deferred map has a cell");
+                // SAFETY: the map that owns the cell is alive for the call.
+                let signed = unsafe { cell.signed_bytes_in_use() };
+                assert_eq!(signed, exact as isize, "the signed sum is the exact figure");
+            }
+            exact
+        };
+        let run = |remove: bool| {
+            let hs: Vec<_> = (0..4)
+                .map(|w| {
+                    let s = std::sync::Arc::clone(&sync);
+                    std::thread::spawn(move || {
+                        for i in 0..n {
+                            let k = design_b_key(w, i);
+                            let k = NulFreeStr::new(&k).expect("no NUL");
+                            if remove {
+                                if i % 3 != 0 {
+                                    s.remove(k);
+                                }
+                            } else {
+                                s.insert(k, i as u64);
+                            }
+                        }
+                    })
+                })
+                .collect();
+            for h in hs {
+                h.join().expect("writer");
+            }
+        };
+        assert_eq!(check(&sync), 0);
+        run(false);
+        assert!(check(&sync) > 0);
+        run(true);
+        assert!(check(&sync) > 0);
+        sync.clear();
+        assert_eq!(check(&sync), 0, "a cleared map uses nothing");
+    }
+
+    /// §47.3 G-safety 1: a reader thread reads `mem_used` while two writers
+    /// insert and remove, so Miri sees the lock-free reading beside the
+    /// optimistic writers (it is in the Tier-1 `strmap::tests::deferred`
+    /// filter). Every reading is a value some quiet reading could bound, and
+    /// the last one, after the join, is exact.
+    #[cfg(feature = "std")]
+    #[test]
+    fn deferred_mem_used_reads_beside_writers() {
+        let n = if cfg!(miri) { 24 } else { 2_000 };
+        let sync = std::sync::Arc::new(crate::sync::SyncExpanseStrMap::new());
+        let stop = std::sync::Arc::new(core::sync::atomic::AtomicBool::new(false));
+        let reader = {
+            let (s, stop) = (std::sync::Arc::clone(&sync), std::sync::Arc::clone(&stop));
+            std::thread::spawn(move || {
+                let mut reads = 0u64;
+                let mut seen = 0usize;
+                while !stop.load(Ordering::Acquire) || reads == 0 {
+                    seen = seen.max(s.mem_used());
+                    reads += 1;
+                }
+                (reads, seen)
+            })
+        };
+        let hs: Vec<_> = (0..2)
+            .map(|w| {
+                let s = std::sync::Arc::clone(&sync);
+                std::thread::spawn(move || {
+                    for i in 0..n {
+                        let k = design_b_key(w, i);
+                        let k = NulFreeStr::new(&k).expect("no NUL");
+                        s.insert(k, i as u64);
+                        if i % 2 == 1 {
+                            s.remove(k);
+                        }
+                    }
+                })
+            })
+            .collect();
+        for h in hs {
+            h.join().expect("writer");
+        }
+        stop.store(true, Ordering::Release);
+        let (reads, _seen) = reader.join().expect("reader");
+        assert!(reads > 0);
+        assert_eq!(sync.mem_used(), exact_shared(&sync));
+    }
+
+    /// §47.3 G-accuracy 3 and 4: phases of W = 4 writers, each growing the map
+    /// by at most a quarter (and one churn phase), with an exact quiet reading
+    /// between phases. Every reading taken while a phase runs lies within 10%
+    /// of the two exact readings that bracket it, and consecutive readings
+    /// step by at most the phase's change plus 2% of the map.
+    ///
+    /// The clause is about the lock-free reading, so the test exists only in
+    /// the builds that have it. Under `ablation-unpacked-suffix` or
+    /// `ablation-unsharded-alloc` `mem_used` takes `read_locked`, and a
+    /// poller calling it continuously holds the writer gate often enough to
+    /// starve the writers.
+    #[cfg(all(
+        feature = "std",
+        target_pointer_width = "64",
+        not(feature = "ablation-unsharded-alloc"),
+        not(feature = "ablation-unpacked-suffix")
+    ))]
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn mem_used_band_and_step_while_writers_run() {
+        let sync = std::sync::Arc::new(crate::sync::SyncExpanseStrMap::new());
+        // A base the phases grow from.
+        for i in 0..40_000 {
+            let k = design_b_key(9, i);
+            sync.insert(NulFreeStr::new(&k).expect("no NUL"), 1);
+        }
+        let mut before = exact_shared(&sync);
+        let mut next = 0usize;
+        for phase in 0..6 {
+            let churn = phase == 3;
+            let per_writer = 2_000;
+            let stop = std::sync::Arc::new(core::sync::atomic::AtomicBool::new(false));
+            let poller = {
+                let (s, stop) = (std::sync::Arc::clone(&sync), std::sync::Arc::clone(&stop));
+                std::thread::spawn(move || {
+                    // Yield between readings so the poller does not starve
+                    // the writers on a small or sanitizer-instrumented runner,
+                    // and keep a bounded sample.
+                    const MAX_POLLS: usize = 20_000;
+                    let mut out = Vec::with_capacity(1_024);
+                    while !stop.load(Ordering::Acquire) {
+                        if out.len() < MAX_POLLS {
+                            out.push(s.mem_used());
+                        }
+                        std::thread::yield_now();
+                    }
+                    out.push(s.mem_used());
+                    out
+                })
+            };
+            let start = next;
+            let hs: Vec<_> = (0..4)
+                .map(|w| {
+                    let s = std::sync::Arc::clone(&sync);
+                    std::thread::spawn(move || {
+                        for i in 0..per_writer {
+                            let idx = start + w * per_writer + i;
+                            let k = design_b_key(w, idx);
+                            let k = NulFreeStr::new(&k).expect("no NUL");
+                            s.insert(k, 1);
+                            if churn {
+                                s.remove(k);
+                            }
+                        }
+                    })
+                })
+                .collect();
+            for h in hs {
+                h.join().expect("writer");
+            }
+            stop.store(true, Ordering::Release);
+            let polls = poller.join().expect("poller");
+            next += 4 * per_writer;
+            let after = exact_shared(&sync);
+            assert!(
+                after <= before + before / 4,
+                "a phase grows the map by at most a quarter"
+            );
+            let (lo, hi) = (
+                before.min(after) as f64 * 0.9,
+                before.max(after) as f64 * 1.1,
+            );
+            let step = before.abs_diff(after) as f64 + 0.02 * before.max(after) as f64;
+            for (i, &p) in polls.iter().enumerate() {
+                assert!(
+                    (lo..=hi).contains(&(p as f64)),
+                    "phase {phase} reading {i}: {p} outside [{lo}, {hi}]"
+                );
+                if i > 0 {
+                    assert!(
+                        (p.abs_diff(polls[i - 1]) as f64) <= step,
+                        "phase {phase} reading {i}: stepped {} > {step}",
+                        p.abs_diff(polls[i - 1])
+                    );
+                }
+            }
+            assert_eq!(
+                *polls.last().expect("a reading"),
+                after,
+                "the reading after the join is exact"
+            );
+            before = after;
         }
     }
 }

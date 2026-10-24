@@ -234,7 +234,7 @@ fn mem_held_brackets_what_the_tree_holds() {
         drop(buf);
         m
     });
-    if cfg!(feature = "packed-suffix") {
+    if !cfg!(feature = "ablation-unpacked-suffix") {
         // Suffix leaves come from `NodeAlloc` too, so the bracket closes.
         check_exact(
             "string map",

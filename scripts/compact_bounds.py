@@ -175,8 +175,8 @@ def _strip_comments(text: str) -> str:
     return re.sub(r"//[^\n]*", "", text)
 
 
-def _fn_body(text: str, name: str) -> str | None:
-    m = re.search(rf"\bfn {name}\b[^{{]*\{{", text)
+def _fn_body(text: str, name: str, kind: str = "fn") -> str | None:
+    m = re.search(rf"\b{kind} {name}\b[^{{]*\{{", text)
     if not m:
         return None
     depth, i = 1, m.end()
@@ -211,12 +211,13 @@ def engine_source_problems(text: str) -> list[str]:
         if got != want:
             problems.append(f"alloc.rs: `fn {fn}` body is {got!r}, model mirrors {want!r}")
     # A page is carved only once the class freelist is empty: the carve sits
-    # after the freelist pop returns, inside `alloc_raw`.
-    body = _fn_body(text, "alloc_raw") or ""
-    pop = body.find("self.freelists[class].store(next,Ordering::Relaxed);")
+    # after the freelist pop returns, inside `alloc_raw`'s body, which the
+    # `alloc_raw_body!` macro stamps for the zeroed and non-zeroing variants.
+    body = _fn_body(text, "alloc_raw_body", kind="macro_rules!") or ""
+    pop = body.find("$s.freelists[class].store(next,Ordering::Relaxed);")
     carve = body.find("alloc_zeroed(page_layout)")
     if pop < 0 or carve < 0 or carve < pop:
-        problems.append("alloc.rs: `alloc_raw` no longer pops the freelist before carving a page")
+        problems.append("alloc.rs: `alloc_raw_body!` no longer pops the freelist before carving a page")
     return problems
 
 
@@ -231,7 +232,7 @@ def test_engine_sync() -> None:
          "(SLAB_PAGE_SIZE - 2 * SLAB_HEADER) / accounted_size(bytes, align)", "slab_blocks"),
         ("+ self.system_free_bytes()\n", "\n", "fn held"),
         ("let page_raw = unsafe { alloc_zeroed(page_layout) };",
-         "let page_raw = unsafe { core::ptr::null_mut::<u8>() };", "alloc_raw"),
+         "let page_raw = unsafe { core::ptr::null_mut::<u8>() };", "alloc_raw_body"),
     )
     for old, new, expect in mutations:
         assert old in text, f"negative control out of date: {old!r} not in alloc.rs"

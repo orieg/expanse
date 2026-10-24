@@ -1932,7 +1932,7 @@ impl RootState for ExpanseSet {
 /// `true` means the engine's per-node brackets already cover every store
 /// the operation can make, so [`Shared::write_root_covered`] need not hold
 /// the tree word. `ExpanseStrMap`'s root is not an engine `Root` at all —
-/// it is an `Option<Box<StrNode>>` naming the meta-trie's first node — so
+/// it is an `Option<RootNode>` naming the meta-trie's first node — so
 /// it is never a level-8 trie, and the two transitions that change it
 /// (creating the root node, and taking it when the last key leaves; T11
 /// and T10 of `docs/benchmarks/concurrency/METHODOLOGY.md` §17.2.1) carry
@@ -13912,6 +13912,18 @@ impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
 /// what stays outside ([#1086](https://github.com/orieg/expanse/issues/1086)).
 pub struct SyncExpanseStrMap {
     shared: SharedBox<ExpanseStrMap>,
+    /// The map allocator's accounting cell, read by [`Self::mem_used`]
+    /// without reaching into the engine (Refs #1586, design B; concurrency
+    /// METHODOLOGY §47.4). Valid for the life of `shared`: the cell is boxed
+    /// in the allocator's `OnceLock`, which is never reset, and nothing
+    /// replaces the map after `from_map`. Declared last so `shared` keeps its
+    /// offset.
+    #[cfg(all(
+        target_pointer_width = "64",
+        not(feature = "ablation-unsharded-alloc"),
+        not(feature = "ablation-unpacked-suffix")
+    ))]
+    acct: crate::alloc::AcctCell,
 }
 
 impl Default for SyncExpanseStrMap {
@@ -13950,8 +13962,27 @@ impl SyncExpanseStrMap {
             map.insert_deferred(k, v);
             cursor = src.next_after(k);
         }
+        let shared = Shared::with_collector(map, collector);
+        // Taken from the engine at its final address, before any other thread
+        // can see the map. The map was deferred before its first allocation,
+        // so every byte it accounts is on the cell's shards.
+        #[cfg(all(
+            target_pointer_width = "64",
+            not(feature = "ablation-unsharded-alloc"),
+            not(feature = "ablation-unpacked-suffix")
+        ))]
+        let acct = shared
+            .inner_ref()
+            .acct_cell()
+            .expect("the map was deferred by `defer_to` above");
         Self {
-            shared: Shared::with_collector(map, collector),
+            shared,
+            #[cfg(all(
+                target_pointer_width = "64",
+                not(feature = "ablation-unsharded-alloc"),
+                not(feature = "ablation-unpacked-suffix")
+            ))]
+            acct,
         }
     }
 
@@ -14369,45 +14400,61 @@ impl SyncExpanseStrMap {
         self.len() == 0
     }
 
-    /// Heap bytes used: [`ExpanseStrMap::mem_used`], read with every writer
-    /// excluded.
+    /// Heap bytes used: [`ExpanseStrMap::mem_used`], read without excluding
+    /// writers.
     ///
-    /// # Cost: every writer waits for an O(keys) walk
+    /// # Cost: one load per writer slot, and no writer waits
     ///
-    /// The tree's node shells and, without the `packed-suffix` feature, its
-    /// suffix leaves are allocated outside the tree's node allocator, so the
-    /// figure is the allocator's byte count plus a walk over every entry of
-    /// every node. The walk runs under `Shared::read_locked`: it takes the
-    /// fallback mutex, closes the writer gate and waits for writers in flight
-    /// to drain, then takes the writer mutex. Every writer waits for the whole
-    /// walk, optimistic ones included: a new insert spins at the closed gate,
-    /// and an optimistic attempt that sees it closed falls back to the writer
-    /// mutex. A reader that falls back to the lock waits too; optimistic
-    /// reads run on.
+    /// Every node, shell and suffix leaf of the map is a block of its one
+    /// allocator, whose per-writer accounting counters already hold the total
+    /// (Refs #1586, design B). The reading sums those counters, one relaxed
+    /// load each: it takes no lock, does not close the writer gate, walks
+    /// nothing and forms no reference to the tree, so writers and readers run
+    /// on beside it. It is cheap enough to call on every checkpoint of a map
+    /// that keeps taking inserts.
     ///
-    /// Measured on the reference host with one reading per second, 4 writers
-    /// and 2·10⁷ keys at the window's start, no insert completed for a
-    /// fraction of wall time of [0.3619, 0.3743] on 37-byte `routes` keys and
-    /// [0.9994, 1.0000] on 8–16-byte `short` keys (BCa 95% over 5 rounds;
-    /// `docs/benchmarks/concurrency/METHODOLOGY.md` §44.11, artifact
-    /// `docs/benchmarks/concurrency/results/baseline_strmap_poll_stall.json`,
-    /// run 39685648391 at `ac7c1237`).
+    /// # What it returns
     ///
-    /// # Budgeting without stalling writers
+    /// - **Exact when quiet.** If every insert, removal and clear on the map
+    ///   happens-before this call (the writers were joined, or released a
+    ///   lock or an atomic this thread acquired) and none runs concurrently
+    ///   with it, the result is exactly the map's [`ExpanseStrMap::mem_used`]:
+    ///   each counter is written only by atomic read-modify-writes, so every
+    ///   load returns the counter's last value.
+    /// - **Close while writers run.** The loads are not one snapshot, so the
+    ///   result can differ from the map's bytes at the call's start by up to
+    ///   the bytes that operations overlapping the call allocate or free. It
+    ///   can be below the true figure: it is not an upper bound.
+    /// - **Smooth.** Two readings differ by what the operations between them
+    ///   allocated and freed; nothing is cached or estimated.
     ///
-    /// - Read `mem_used` or [`Self::mem_held`] on a map that writers no
-    ///   longer use, such as one frozen or rotated out at a flush. A reading
-    ///   there stalls nobody.
-    /// - Between exact readings, budget on [`Self::len`], which takes no lock
-    ///   and stalls nothing, times a bytes-per-key ratio taken from the last
-    ///   exact reading. Take the ratio from `mem_held` rather than `mem_used`
-    ///   when the budget protects resident memory: `mem_used` counts live
-    ///   bytes only.
-    /// - The ratio is exact at the reading it came from and drifts with key
-    ///   shape and length until the next one.
+    /// It counts live blocks at their accounted size and leaves out what the
+    /// epoch collector holds; [`Self::mem_held`] counts that, and takes the
+    /// writer-excluding read. Under the diagnostic `ablation-unpacked-suffix`
+    /// or `ablation-unsharded-alloc` features the reading walks or folds
+    /// under that exclusion again, as it did before design B.
     #[must_use]
     pub fn mem_used(&self) -> usize {
-        self.shared.read_locked(ExpanseStrMap::mem_used)
+        #[cfg(all(
+            target_pointer_width = "64",
+            not(feature = "ablation-unsharded-alloc"),
+            not(feature = "ablation-unpacked-suffix")
+        ))]
+        {
+            // SAFETY: the cell belongs to the allocator of the map
+            // `self.shared` owns, which lives until `self` drops; the map is
+            // never replaced after construction (`mem_held` asserts it in
+            // debug builds).
+            unsafe { self.acct.bytes_in_use() }
+        }
+        #[cfg(not(all(
+            target_pointer_width = "64",
+            not(feature = "ablation-unsharded-alloc"),
+            not(feature = "ablation-unpacked-suffix")
+        )))]
+        {
+            self.shared.read_locked(ExpanseStrMap::mem_used)
+        }
     }
 
     /// Gathers structural statistics of the string map (runs under the writer lock).
@@ -14422,19 +14469,30 @@ impl SyncExpanseStrMap {
     /// freelists for reuse, and retired blocks still in their grace period.
     /// Compare this, not `mem_used`, with resident memory.
     ///
-    /// # Cost
+    /// # Cost: writers wait for it
     ///
-    /// The tree's share is the same O(keys) walk as [`Self::mem_used`], under
-    /// the same `Shared::read_locked` exclusion, so every writer waits for
-    /// it, optimistic ones included, and it does not belong in a hot loop or
-    /// on a write path (`docs/benchmarks/concurrency/METHODOLOGY.md` §44.11
-    /// measures the stall of `mem_used`). Read it on a map that writers no
-    /// longer use, and between readings budget on [`Self::len`] times the
-    /// bytes-per-key ratio of the last `mem_held` reading, as
-    /// [`Self::mem_used`] describes.
+    /// The tree's share is read under `Shared::read_locked`: it takes the
+    /// fallback mutex, closes the writer gate and waits for writers in flight
+    /// to drain, then takes the writer mutex, so every writer waits for it,
+    /// optimistic ones included. Since design B (Refs #1586) the read walks
+    /// no entry, only the allocator's slab pages and freelists, of which a
+    /// shared map keeps none, so the wait is the quiescence itself; it is
+    /// still not for a hot loop or a write path. [`Self::mem_used`] does not
+    /// wait.
     #[must_use]
     pub fn mem_held(&self) -> usize {
-        self.shared.read_locked(ExpanseStrMap::mem_held) + self.shared.collector_held()
+        self.shared.read_locked(|m| {
+            // The handle `mem_used` reads must name this map's cell for as
+            // long as the map lives: a path that replaced the map would leave
+            // it dangling.
+            #[cfg(all(
+                target_pointer_width = "64",
+                not(feature = "ablation-unsharded-alloc"),
+                not(feature = "ablation-unpacked-suffix")
+            ))]
+            debug_assert_eq!(m.acct_cell(), Some(self.acct));
+            m.mem_held()
+        }) + self.shared.collector_held()
     }
 
     /// Returns the freed blocks the string map's epoch collector keeps for reuse
@@ -16840,14 +16898,11 @@ impl SyncExpanseOrderedBytesMap {
     }
 
     /// Heap bytes used: [`SyncExpanseStrMap::mem_used`] of the underlying
-    /// string map, read with every writer excluded.
-    ///
-    /// It is an O(keys) walk that every writer waits for, optimistic ones
-    /// included (`docs/benchmarks/concurrency/METHODOLOGY.md` §44.11 measures
-    /// the stall). Read it on a map that writers no longer use, and between
-    /// readings budget on [`Self::len`] times the bytes-per-key ratio of the
-    /// last exact reading; [`SyncExpanseStrMap::mem_used`] states the cost
-    /// and the guidance in full.
+    /// string map, which sums the allocator's per-writer counters without
+    /// excluding writers, so no writer waits for it. It is exact once every
+    /// write happens-before the call, and within the bytes of the operations
+    /// in flight while writers run; [`SyncExpanseStrMap::mem_used`] states
+    /// the contract in full.
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.inner.mem_used()
@@ -16862,8 +16917,8 @@ impl SyncExpanseOrderedBytesMap {
     /// Heap bytes held from the global allocator, including freelists and slab slack:
     /// [`SyncExpanseStrMap::mem_held`] of the underlying string map.
     ///
-    /// The same O(keys) walk as [`Self::mem_used`], which every writer waits for;
-    /// [`SyncExpanseStrMap::mem_used`] gives the budgeting guidance.
+    /// Read with every writer excluded, so every writer waits for it, as
+    /// [`SyncExpanseStrMap::mem_held`] says; [`Self::mem_used`] does not wait.
     #[must_use]
     pub fn mem_held(&self) -> usize {
         self.inner.mem_held()
@@ -22040,7 +22095,7 @@ mod tests {
         m.with_locked(|inner| {
             assert!(
                 !RootState::root_is_tree(inner),
-                "the string map's root is an `Option<Box<StrNode>>`, never \
+                "the string map's root is an `Option<RootNode>`, never \
                  an engine `Root::Tree`, so the fallback keeps the \
                  tree-level bracket open across the whole operation"
             );
