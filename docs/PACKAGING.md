@@ -388,7 +388,7 @@ Expanse is *intended* to be distributed on [NuGet.org](https://www.nuget.org) as
   dotnet add package Orieg.Expanse
 
   # PackageReference (csproj)
-  <PackageReference Include="Orieg.Expanse" Version="0.15.0" />
+  <PackageReference Include="Orieg.Expanse" Version="0.16.0" />
   ```
 - **Quick Usage Snippet (C#)**:
   ```csharp
@@ -479,7 +479,7 @@ Expanse is distributed for Ruby 3.0+ as the `expanse` gem under `bindings/ruby`:
 The Go binding is consumed directly from the monorepo as a **nested Go module**:
 
 ```bash
-go get github.com/orieg/expanse/bindings/go@v0.15.0
+go get github.com/orieg/expanse/bindings/go@v0.16.0
 ```
 
 Pinned versions resolve via **`bindings/go/vX.Y.Z` tags** (Go's subdirectory-module convention), pushed automatically by the `promote` job on every stable release tag. The nightly `go-tag-drift` job (`scripts/check_go_tags.py`) fails when a release tag has no Go tag, or the two point at different commits; if it does, push the missing tag by hand: `git push origin <release commit>:refs/tags/bindings/go/vX.Y.Z`.
@@ -608,7 +608,7 @@ Add the dependency to your project's `main/idf_component.yml`:
 ```yaml
 dependencies:
   expanse:
-    version: "^0.15.0"
+    version: "^0.16.0"
 ```
 Or clone the component directly into your project's `components/` directory.
 
