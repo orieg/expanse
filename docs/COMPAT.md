@@ -472,7 +472,7 @@ thirty-eight entry points.
   untouched, exact fit, `NULL` inputs, the empty key, an empty map); and a
   walk under concurrent inserts and removes that returns every stable key in
   order with the too-small retry taken. Its single-threaded tests run under
-  Miri (`ci.yml` job `miri`, shard 3) and the whole target under ASan (job
+  Miri (`ci.yml` job `miri`, shard 2) and the whole target under ASan (job
   `test-asan`). `crates/expanse-capi/smoke/modern_api_smoke.c` calls every
   entry point once and runs a pthread writer against four reader threads on
   each map; on the ordered-bytes map each reader also walks the map in order.

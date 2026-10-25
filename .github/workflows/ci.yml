@@ -1775,9 +1775,11 @@ jobs:
       # The C ABI layer over the shared containers (#1538): the `Box` round
       # trips of the handles and the `'static` lifetime extension of a reader
       # handle. The targets' threaded tests are `cfg_attr(miri, ignore)`. Each
-      # of the three test binaries must report a non-zero pass count.
+      # of the three test binaries must report a non-zero pass count. On
+      # shard 2, the lightest lib shard: on shard 3 it brought slow runners to
+      # the 900 s limit (docs/CI.md §5).
       - name: Miri (C ABI — the shared string, bytes, ordered-bytes and blob maps' handles and readers, single-threaded)
-        if: matrix.shard == '3 of 3'
+        if: matrix.shard == '2 of 3'
         run: |
           set -o pipefail
           cargo miri test -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi 2>&1 | tee capi-miri.log
