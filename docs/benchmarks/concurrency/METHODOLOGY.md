@@ -7915,3 +7915,38 @@ Every mutation below was applied alone, and each turned a test red. Five failed 
 | one removal site commented out | source pin |
 
 The run waits for the maintainer's go-ahead. No bound in §48.2 moves after it.
+
+### 48.4 The G48-stall outcome (appended 2026-10-25; §48.1 to §48.3 are not rewritten, and no bound moves)
+
+**The run.**
+- **Host:** the reference host (12th Gen Intel Core i9-12900F, 24 threads, pinned to CPUs 0–15).
+- **Commit:** `f5cb17a6`, `main` with #1606 merged.
+- **Suite:** `strmap_poll_stall_g47` (`strmap_poll_stall.py --plan 47`), CI run [40161439558](https://github.com/orieg/expanse/actions/runs/40161439558).
+- **Artifact:** `results/gate_1602_strmap_poll_stall.json`, the driver's output committed unchanged under this name. Its provenance names §47 and #1586 because the suite is §47's driver.
+
+**G48-stall: `PASS`.** The statistic is the per-round largest insert of the `none` arm of each churn cell, 5 rounds, with BCa 95% intervals (2,000 resamples, `bca_bootstrap.bca_bootstrap_ci_with_method`):
+
+| cell | rounds (ns) | BCa 95% (ns) |
+|---|---|---|
+| `short` churn (`S`) | 614,911 · 87,423 · 125,439 · 85,695 · 134,015 | [96,050, 422,553] |
+| `routes` churn (`R`) | 1,284,095 · 219,647 · 131,007 · 166,015 · 197,247 | [164,505, 858,316] |
+
+`S`'s upper bound, 422,553 ns, is at most 2 × `R`'s upper bound, 1,716,632 ns, so the cell is `PASS` (measured: reference host, `f5cb17a6`).
+
+**Host quiet.** The foreign busy CPU of the ten processes G48 reads was at most 0.37, against the void threshold of 1.0 (§8.17).
+- The workflow concluded `failure` because §47's own G-stall verdict reads `VOID`.
+- One process voided it: the `short` growth cell's `len` arm, round 0, with foreign busy CPU 1.25.
+- That cell is not one G48 reads. §47's verdict on this build is not part of §48.
+
+**Descriptive, not compared** (§48.2; `docs/BENCHMARKING.md` rule 18).
+- **Writers' CPU share, `short` churn:** 0.94–1.00 per round.
+- **Throughput, BCa 95% over the rounds:**
+
+  | cell | ops/s |
+  |---|---|
+  | `short` churn | [1,107,524, 1,172,868] |
+  | `routes` churn | [2,980,294, 3,066,920] |
+
+- **Earlier record:** §47.10 recorded this cell on earlier builds with a largest insert of 29.31–30.09 s and a share of 0.26. Those are different builds and different runs, and this run does not form a paired comparison with them.
+
+**Still open.** The `branch_split_remove` fallback rate at N = 2·10⁷ (§48.1) is untouched by this change and needs its own issue.
