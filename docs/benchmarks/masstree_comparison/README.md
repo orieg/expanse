@@ -45,7 +45,7 @@ On `short` string keys Masstree wins every writer cell in both runs:
 0.726 [0.686, 0.782] and 0.678 [0.662, 0.728] with one writer, 0.643–0.660 at
 two, 0.653–0.658 at four, 0.760–0.766 at eight and 0.802–0.804 at sixteen,
 where the Expanse string writers run at 25.41–26.52 M inserts/s against
-Masstree's 31.71–31.93 *(workload: `masstree_conc_str`; measured before design B, #1586, which costs shared string inserts about 3–5% of throughput, METHODOLOGY §47.13, so these figures are pending re-measurement, #1586)*. What limits either
+Masstree's 31.71–31.93 *(workload: `masstree_conc_str`; measured before design B, #1586, which costs shared string inserts about 3–5% of throughput, METHODOLOGY §47.13, so these figures are pending re-measurement, #1586, tracked in #1611)*. What limits either
 Expanse arm's scaling is **unmeasured** — this arm carries no hardware counters
 (§8.9) — and no mechanism is claimed. §6.1 rows 1 and 2 are **`CONFIRMED`**.
 
@@ -193,7 +193,7 @@ its median fell from 147.66 to 144.22 ns (146.06 in run 2) while
 unmeasured *(measured: reference host, `results/baseline_string_latency.json`
 at `b868fb2e` against the `7fe02c0b` artifact in history)*.
 
-> **Pending re-measurement (design B, [#1586](https://github.com/orieg/expanse/issues/1586)).** The `ExpanseStrMap` memory figures in the next paragraph (`prefixed`) and in the `counter` / `short` / `skewed` paragraph below were measured before node shells and suffix leaves became blocks of the map's allocator (concurrency `METHODOLOGY.md` §47). That change moves both instruments: `mem_used` now counts every block at its accounted size (a shell at 48 bytes, where it counted 40), and the allocator census sees slab pages where it saw one allocation per shell and suffix. The figures are kept as measured, at the commits their tags name, and are stale until the suite re-runs on a build with the change. `ExpanseBytesMap` and the integer maps are not affected.
+> **Pending re-measurement (design B, [#1586](https://github.com/orieg/expanse/issues/1586); tracked in [#1611](https://github.com/orieg/expanse/issues/1611)).** The `ExpanseStrMap` memory figures in the next paragraph (`prefixed`) and in the `counter` / `short` / `skewed` paragraph below were measured before node shells and suffix leaves became blocks of the map's allocator (concurrency `METHODOLOGY.md` §47). That change moves both instruments: `mem_used` now counts every block at its accounted size (a shell at 48 bytes, where it counted 40), and the allocator census sees slab pages where it saw one allocation per shell and suffix. The figures are kept as measured, at the commits their tags name, and are stale until the suite re-runs on a build with the change. `ExpanseBytesMap` and the integer maps are not affected.
 
 **Memory at the ends of the density sweep goes to Masstree by a few bytes per
 key.** Masstree holds 22.76 B/key structurally at

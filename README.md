@@ -186,7 +186,7 @@ Measured at 1M keys unless noted, ratios above 1 = Expanse faster. Full suites: 
 | **Masstree** (integer keys) | **Expanse** 2.9×–13.5× | **Masstree** 0.68×–0.75× on sorted `random`/`sparse`; **Expanse** 1.89× on shuffled `random` | **Expanse** 1.08×–2.54× on structured keys and `random` at 1M; **Masstree** 0.49×–0.67× on `random` at 10k–100k | **Masstree** flat 22.8 B/key; Expanse 17.6–20.0 for λ ∈ [8, 30], 23.8–24.7 past it |
 | **Masstree** (string keys) | **Expanse** on `short` 1.33×, `skewed` 1.47×, `prefixed` 1.12×; **Masstree** on `counter` 0.95× | **Masstree** 0.43×–0.96× | **Masstree** in 33 of 36 cells, 0.09×–0.83×; **Expanse** on `prefixed` k = 10, 1.53×–2.27× | **Masstree** 33.9 vs 48.2 B/key (workload: `masstree_str_map`) |
 
-The two string-key Memory cells were measured before design B ([#1586](https://github.com/orieg/expanse/issues/1586)) moved `ExpanseStrMap`'s node shells and suffix leaves into its allocator, and are pending re-measurement (#1586, concurrency `METHODOLOGY.md` §47).
+The two string-key Memory cells were measured before design B ([#1586](https://github.com/orieg/expanse/issues/1586)) moved `ExpanseStrMap`'s node shells and suffix leaves into its allocator, and are pending re-measurement (#1586, re-measurement tracked in #1611; concurrency `METHODOLOGY.md` §47).
 
 Across the HOT integer suite, 112 of 144 latency cells go to Expanse, 31 to HOT (28 of them scans) and 1 to parity, identically in two runs.
 

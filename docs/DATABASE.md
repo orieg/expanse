@@ -452,7 +452,7 @@ Set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way
 
 ### 4.4 Key Encoding for Low-Cardinality & Composite Keys (#1257)
 
-In database storage engines, string dictionaries and secondary indexes often index composite keys (such as `prefix ‖ name ‖ '/' ‖ id` or decimal order identifiers `t%03d:orders:%010d`). When keys contain low-cardinality byte ranges (e.g. ASCII decimal digits `0..=9`), each byte takes only 10 of 256 possible values. Because 100 keys under a common prefix exceed `LEAF_CAP` (32), the trie cascades into a `BranchB` containing ten 10-key leaves in 12-slot size classes, costing 17.60–17.97 B/key for 8-byte values ([#1257](https://github.com/orieg/expanse/issues/1257); the 17.97 predates design B, #1586, and is pending re-measurement, #1586).
+In database storage engines, string dictionaries and secondary indexes often index composite keys (such as `prefix ‖ name ‖ '/' ‖ id` or decimal order identifiers `t%03d:orders:%010d`). When keys contain low-cardinality byte ranges (e.g. ASCII decimal digits `0..=9`), each byte takes only 10 of 256 possible values. Because 100 keys under a common prefix exceed `LEAF_CAP` (32), the trie cascades into a `BranchB` containing ten 10-key leaves in 12-slot size classes, costing 17.60–17.97 B/key for 8-byte values ([#1257](https://github.com/orieg/expanse/issues/1257); the 17.97 predates design B, #1586, and is pending re-measurement, #1611).
 
 Database index and dictionary designers can eliminate this overhead without any engine layout changes by structuring key encodings around Expanse's byte-expanse invariants:
 
