@@ -2247,7 +2247,7 @@ impl ExpanseStrMap {
     /// ([`MapCore::validate_stale`]), and must be in tree state, which is
     /// the only state the flag is ever set in. The caller excludes every
     /// writer (`with_locked`, `exclusive`) (Refs #1612).
-    #[cfg(all(test, feature = "std"))]
+    #[cfg(all(test, feature = "std", not(feature = "ablation-str-serial-writers")))]
     pub(crate) fn validate_defensive(&self) -> Result<(), String> {
         let Some(root) = self.root.as_deref() else {
             return Ok(());

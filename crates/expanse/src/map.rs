@@ -3657,7 +3657,7 @@ impl MapCore {
     /// Those writers leave ancestor branch `pop0` and `tree_pop` stale
     /// until a census fold, so this skips both cross-checks against the
     /// counted population; every other check still applies (Refs #1612).
-    #[cfg(all(test, feature = "std"))]
+    #[cfg(all(test, feature = "std", not(feature = "ablation-str-serial-writers")))]
     pub(crate) fn validate_stale(&self) -> Result<(), String> {
         self.validate_with::<false>()
     }
