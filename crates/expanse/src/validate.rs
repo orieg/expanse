@@ -342,7 +342,8 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
 /// before a removal decides from it, so a shared string map's sub-maps can
 /// carry stale branch counts under the writer lock. No byte or node count
 /// reads a branch's `pop0`, so the statistics stay exact; every other check
-/// still applies (Refs #1603).
+/// still applies (Refs #1603). `MapCore::validate_stale` validates such a
+/// sub-map with it (Refs #1612).
 pub(crate) fn stats_walk<const MAP: bool>(
     edge: &Edge,
     level: u8,
