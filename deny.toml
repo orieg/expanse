@@ -40,6 +40,18 @@ ignore = [
     "RUSTSEC-2026-0367", # zip: SUID/SGID bits preserved on extraction
     "RUSTSEC-2026-0368", # zip: extract() symlink targets outside destination
     "RUSTSEC-2026-0369", # zip: permissions applied through symlinks
+    # RUSTSEC-2026-0391/0398/0403 (zstd < 0.14 and zstd-safe < 8: data from an
+    # abandoned stream leaking into the next on a reused context, a `Vec`
+    # length set past its capacity by `Seekable::decompress`, uninitialised
+    # bytes exposed when a legacy-frame decompression fails). zstd reaches the
+    # tree only through zip, on the same `cfg(windows)` build-dependency path of
+    # `ext-php-rs` as above; no shipped artifact links it, and no Expanse code
+    # compresses or decompresses. The fix is zstd >= 0.14 (zstd-safe >= 8),
+    # which zip ^8 does not accept. zstd-sys is updated to 2.1.2 rather than
+    # ignored (RUSTSEC-2026-0410). Drop these three with the zip entries.
+    "RUSTSEC-2026-0391", # zstd: abandoned stream data leaks into the next stream
+    "RUSTSEC-2026-0398", # zstd-safe: Seekable::decompress Vec length past capacity
+    "RUSTSEC-2026-0403", # zstd-safe: uninitialised memory on a failed legacy frame
     { crate = "zip@8.6.0", reason = "yanked upstream; windows-only build dependency of ext-php-rs, which has no release past zip ^8" },
 ]
 
