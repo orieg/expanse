@@ -72,7 +72,10 @@ LIB_SHARDS: dict[str, list[str]] = {
     "lib-cursor": ["cursor", "cursor32"],
     "lib-set": ["set", "set32"],
     "lib-map": ["map", "map32"],
-    "lib-sync": ["sync", "sync32"],
+    "lib-sync": ["sync"],
+    # Its own shard: with `sync` it ran past the 180-minute job budget
+    # (docs/CI.md §5, Tier 3).
+    "lib-sync32": ["sync32"],
     "lib-blobmap-bits": ["blobmap", "bits"],
 }
 REST_SHARD = "lib-rest"
@@ -271,7 +274,7 @@ def self_test() -> None:
         d = Path(td)
         (d / "linearizability.rs").write_text("fn main(){}\n")
         (d / "proptest_model.rs").write_text("//! doc\n#![cfg(not(miri))]\n")
-        good_yaml = "    shard: [lib-cursor, lib-set, lib-map, lib-sync, lib-blobmap-bits, lib-rest, linearizability]\n"
+        good_yaml = "    shard: [lib-cursor, lib-set, lib-map, lib-sync, lib-sync32, lib-blobmap-bits, lib-rest, linearizability]\n"
         assert census(tests, good_yaml, d) == [], census(tests, good_yaml, d)
 
         # 1. New integration file with no shard and no not(miri) gate → fatal.
@@ -310,7 +313,9 @@ def self_test() -> None:
     assert "strmap::tests::k" in select(tests, REST_SHARD)
     # A shard whose modules are all gated off Miri selects nothing; that is
     # reported, not fatal (the workflow warns and skips).
-    assert select([t for t in tests if not t.startswith(("sync::", "sync32::"))], "lib-sync") == []
+    assert select([t for t in tests if not t.startswith("sync::")], "lib-sync") == []
+    assert select(tests, "lib-sync") == ["sync::tests::g"]
+    assert select(tests, "lib-sync32") == ["sync32::tests::h"]
     # Tier 1. A test two shards select, a filter word the other lists lack,
     # a stale word, a misnamed shard and a dangling ablation `if:` are each
     # fatal on their own.
@@ -363,8 +368,8 @@ def main() -> int:
     if args.select:
         # The census runs on the native list; the workflow feeds this the
         # Miri-visible list, which is smaller (`sync::tests` is
-        # `cfg(all(test, not(miri)))`, so `lib-sync` is `sync32` alone under
-        # the interpreter). An empty selection is therefore a legitimate
+        # `cfg(all(test, not(miri)))`, so `lib-sync` keeps only the other
+        # `sync` test modules under the interpreter). An empty selection is therefore a legitimate
         # outcome of gating, not an error: print nothing and say so on stderr,
         # and let the workflow surface the skip as a warning annotation.
         names = select(parse_list_output(sys.stdin.read()), args.select)
