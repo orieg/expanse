@@ -3649,6 +3649,20 @@ impl MapCore {
     /// Returns `Ok(())` if the trie invariants are fully met, or `Err(reason)`
     /// indicating what structural corruption was detected.
     pub(crate) fn validate_defensive(&self) -> Result<(), String> {
+        self.validate_with::<true>()
+    }
+
+    /// [`Self::validate_defensive`] for a sub-map that optimistic writers
+    /// left stale: a string-map node whose dirty flag is set (`StrNode`).
+    /// Those writers leave ancestor branch `pop0` and `tree_pop` stale
+    /// until a census fold, so this skips both cross-checks against the
+    /// counted population; every other check still applies (Refs #1612).
+    #[cfg(all(test, feature = "std", not(feature = "ablation-str-serial-writers")))]
+    pub(crate) fn validate_stale(&self) -> Result<(), String> {
+        self.validate_with::<false>()
+    }
+
+    fn validate_with<const EXACT: bool>(&self) -> Result<(), String> {
         match &self.root {
             Root::Empty => Ok(()),
             Root::Leaf { ptr, pop } => {
@@ -3666,6 +3680,10 @@ impl MapCore {
                     return Err("tree root with null top".into());
                 }
                 let mut stats = ExpanseStats::default();
+                if !EXACT {
+                    crate::validate::stats_walk::<true>(top, 8, &mut stats)?;
+                    return Ok(());
+                }
                 let counted =
                     crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0)?;
                 let pop = self.tree_pop;

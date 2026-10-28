@@ -2239,6 +2239,44 @@ impl ExpanseStrMap {
         stats
     }
 
+    /// Validates every node's sub-map with
+    /// [`MapCore::validate_defensive`]. A node that optimistic writers left
+    /// dirty carries a stale population and stale branch `pop0` until the
+    /// exclusive path folds it ([`StrNode`]'s docs), so its sub-map is
+    /// validated without those two cross-checks
+    /// ([`MapCore::validate_stale`]), and must be in tree state, which is
+    /// the only state the flag is ever set in. The caller excludes every
+    /// writer (`with_locked`, `exclusive`) (Refs #1612).
+    #[cfg(all(test, feature = "std", not(feature = "ablation-str-serial-writers")))]
+    pub(crate) fn validate_defensive(&self) -> Result<(), String> {
+        let Some(root) = self.root.as_deref() else {
+            return Ok(());
+        };
+        let mut stack: Vec<*const StrNode> = vec![core::ptr::from_ref(root)];
+        while let Some(p) = stack.pop() {
+            // SAFETY: `root` plus continuation values, all live nodes.
+            let node = unsafe { &*p };
+            let checked = if node.dirty != 0 {
+                if !node.map.root_is_tree() {
+                    return Err(format!("dirty node {p:p} is not in tree state"));
+                }
+                node.map.validate_stale()
+            } else {
+                node.map.validate_defensive()
+            };
+            checked.map_err(|e| format!("node {p:p} (dirty {}): {e}", node.dirty))?;
+            for (k, v) in node.map.iter() {
+                if !is_terminal(k) && !is_suffix_ptr(v) {
+                    if v == 0 {
+                        return Err(format!("node {p:p}: null continuation"));
+                    }
+                    stack.push(unpack_child(v));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Decomposes [`Self::mem_used`] into node shells, suffix leaves and the
     /// allocation shapes of every node's word map, whose entries are 8-byte
     /// chunks: `keys` counts the map's strings, and every other count is per
@@ -6859,6 +6897,62 @@ mod tests {
             assert_eq!(inner.len(), keep as u64);
         });
         assert_eq!(m.len(), keep as u64);
+    }
+
+    /// Refs #1612: a shared string map that joined writers filled validates.
+    /// Their optimistic inserts leave the root sub-map and a child sub-map
+    /// dirty, with a stale population and stale branch `pop0`, which the
+    /// exact sub-map validator reports as corruption on a correct tree
+    /// (checked here as a precondition). The map's validator checks a dirty
+    /// sub-map without those two cross-checks. Red when it validates every
+    /// sub-map exactly.
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+    #[test]
+    fn shared_map_filled_by_joined_writers_validates() {
+        use crate::sync::SyncExpanseStrMap;
+        const WRITERS: usize = 4;
+        const PER: usize = 2_000;
+        let m = SyncExpanseStrMap::new();
+        // Root-level keys shorter than a chunk, and keys behind one shared
+        // 8-byte chunk, so both the root and a child sub-map grow to trees.
+        let key = |t: usize, i: usize, child: bool| {
+            if child {
+                format!("prefix00{t}{i:05}").into_bytes()
+            } else {
+                format!("w{t}{i:05}").into_bytes()
+            }
+        };
+        std::thread::scope(|s| {
+            for t in 0..WRITERS {
+                let m = &m;
+                s.spawn(move || {
+                    for i in 0..PER {
+                        for child in [false, true] {
+                            assert_eq!(m.insert(tk(&key(t, i, child)), i as u64), None);
+                        }
+                    }
+                });
+            }
+        });
+        assert_eq!(m.len(), (WRITERS * PER * 2) as u64);
+        m.with_locked(|inner| {
+            let root = inner.root.as_deref().expect("root present");
+            assert_ne!(root.dirty, 0, "precondition: the root sub-map is dirty");
+            assert!(
+                root.map.validate_defensive().is_err(),
+                "precondition: the exact validator fails on the dirty sub-map"
+            );
+            if let Err(e) = inner.validate_defensive() {
+                panic!("a correct shared string map failed validation: {e}");
+            }
+        });
+        for t in 0..WRITERS {
+            for i in 0..PER {
+                for child in [false, true] {
+                    assert_eq!(m.get(tk(&key(t, i, child))), Some(i as u64));
+                }
+            }
+        }
     }
 
     /// Refs #1162: an exclusive insert into a sub-map optimistic writers left

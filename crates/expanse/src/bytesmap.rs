@@ -1595,6 +1595,43 @@ mod tests {
         }
     }
 
+    /// Refs #1612: the hash trie of a shared bytes map that joined writers
+    /// filled and thinned validates exactly under `with_locked`. Their
+    /// optimistic writes leave branch `pop0` and the bucket count stale, but
+    /// they mark the top digit dirty in the wrapper, and `with_locked` folds
+    /// every dirty subtree before the closure runs (`Shared::with_locked_pre`
+    /// on the optimistic build, `Shared::with_locked` on the serial one), so
+    /// no re-sync is needed. Red when that fold is skipped.
+    #[cfg(all(feature = "std", target_pointer_width = "64"))]
+    #[test]
+    fn sync_bytes_map_from_joined_writers_validates_under_with_locked() {
+        const WRITERS: u64 = 4;
+        const PER: u64 = 4_000;
+        let m = crate::sync::SyncExpanseBytesMap::with_hasher(SplitMixBuild);
+        std::thread::scope(|s| {
+            for t in 0..WRITERS {
+                let m = &m;
+                s.spawn(move || {
+                    for i in 0..PER {
+                        let k = t * PER + i;
+                        assert_eq!(m.insert(&k.to_le_bytes(), k), None);
+                    }
+                    for i in (0..PER).step_by(3) {
+                        let k = t * PER + i;
+                        assert_eq!(m.remove(&k.to_le_bytes()), Some(k));
+                    }
+                });
+            }
+        });
+        if let Err(e) = m.with_locked(|b| b.map.validate_defensive()) {
+            panic!("a correct shared bytes map failed validation: {e}");
+        }
+        for k in 0..WRITERS * PER {
+            let want = (!(k % PER).is_multiple_of(3)).then_some(k);
+            assert_eq!(m.get(&k.to_le_bytes()), want, "key {k}");
+        }
+    }
+
     /// The concurrency bench's `bytes` workload on one thread: route-shaped
     /// keys drawn from a 200,000-key universe, a prefill of 100,000 draws,
     /// then 1,000,000 inserts and removes in equal measure, which take the
