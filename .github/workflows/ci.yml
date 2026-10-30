@@ -44,7 +44,7 @@ env:
 jobs:
   detect-changes:
     name: Subsystems / Change Detection
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -375,7 +375,7 @@ jobs:
     # `scripts/check_ci_filters.py` fails when a gated job reads a filter
     # this condition does not.
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || needs.detect-changes.outputs.concurrency-instrument == 'true' || needs.detect-changes.outputs.ycsb-concurrent-instrument == 'true' || needs.detect-changes.outputs.python == 'true' || needs.detect-changes.outputs.node == 'true' || needs.detect-changes.outputs.dotnet == 'true' || needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.integrations == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       PR_BODY: ${{ github.event.pull_request.body }}
@@ -642,7 +642,7 @@ jobs:
     name: Core / MSRV 1.88 Build
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|msrv|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -662,7 +662,7 @@ jobs:
     name: Core / Ablation Features Clippy
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|ablation-clippy|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -697,7 +697,7 @@ jobs:
     needs: [detect-changes, fast-lane]
     # `man/**` sits in the `tooling` filter, so a man-page-only PR reaches this.
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|man-examples|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -733,7 +733,7 @@ jobs:
     # nothing on the PRs that need it most (AGENTS.md 8.1). The job is a
     # 5-minute Python scan; the other filters are untouched, so no compile,
     # Miri, ASan or Callgrind lane is widened by this.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Raised from 5 when the repo-wide policy guards moved in: they need the
     # full history (the deletion gate diffs against the base ref).
     timeout-minutes: 12
@@ -954,7 +954,7 @@ jobs:
     name: Core / Fast Lane Passed
     needs: [detect-changes, lint, docs-lint]
     if: ${{ !cancelled() && needs.detect-changes.result == 'success' && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && needs.docs-lint.result == 'success' && (github.event_name != 'push' || !(needs.detect-changes.outputs.push-verified == 'true')) && !github.event.pull_request.draft }}  # discipline:allow(ci-integrity)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
       - name: Release the slow lanes
@@ -967,7 +967,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
@@ -1289,7 +1289,7 @@ jobs:
     name: Cross / RV64GC Cross-Compile (Linux)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-riscv64|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1308,7 +1308,7 @@ jobs:
     name: Cross / RV32IMAC Cross-Compile (Bare-Metal)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-rv32|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1334,7 +1334,7 @@ jobs:
     name: Cross / RV32IMAC + Zbb Cross-Compile (Bare-Metal)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-rv32-zbb|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1361,7 +1361,7 @@ jobs:
     name: Cross / ESP32-C3 Cross-Compile (Bare-Metal RV32IMC)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-esp32c3|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1536,7 +1536,7 @@ jobs:
     # Also on `integrations` changes: this job links the STM32H747 harness
     # (integrations/stm32h747), so harness-only PRs must exercise it (#601).
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-cortex-m|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Room for apt-install's three bounded attempts, at most
     # 3 x (90 + 150) s plus two 15 s pauses, beside the build.
     timeout-minutes: 20
@@ -1580,7 +1580,7 @@ jobs:
     # ARMv7-M core. Soft float, no cache, not cycle-accurate — the M7/M4
     # numbers stay a hardware measurement (integrations/stm32h747).
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-qemu-cortex-m3|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1615,7 +1615,7 @@ jobs:
     name: Cross / x86_64 Bare-Metal Cross-Compile (x86_64-unknown-none)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-x86_64-none|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1636,7 +1636,7 @@ jobs:
     name: Cross / i686 32-bit Test Execution (Linux)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-i686|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1688,7 +1688,7 @@ jobs:
     name: Cross / Musl Static C ABI (Linux)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-musl|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1725,7 +1725,7 @@ jobs:
     name: Safety / Tier 1 Miri Fast Smoke (${{ matrix.shard }})
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|miri|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The Tier-1 filter (AGENTS.md §5), split in three so each shard runs
     # well inside the limit. As two shards the test time alone reached 754 s
@@ -1816,7 +1816,7 @@ jobs:
     name: Safety / ASan Core Smoke (Ubuntu)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-asan|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -1893,7 +1893,7 @@ jobs:
     name: Compat / PHP-Judy Extension (Linux)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|php-judy-compat|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2002,7 +2002,7 @@ jobs:
     name: Perf / Callgrind Deterministic Instructions
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|instruction-counts|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
@@ -2273,7 +2273,7 @@ jobs:
     name: Perf / Callgrind Fast Smoke (Ubuntu)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|callgrind-smoke|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Headroom for a cold valgrind source build (cache miss).
     timeout-minutes: 25
     steps:
@@ -2365,7 +2365,7 @@ jobs:
     name: Compat / Stock libjudy Oracle (Linux)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|differential-oracle|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2409,7 +2409,7 @@ jobs:
     name: Perf / Memory Budget Invariants
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|memory-budget|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2433,7 +2433,7 @@ jobs:
     # harness twice (default and `occ-stats`), and the contract it guards can
     # only be broken by the two files in the `concurrency-instrument` filter.
     if: needs.detect-changes.outputs.concurrency-instrument == 'true' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|writer-scaling-selftest|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2457,7 +2457,7 @@ jobs:
     name: Perf / YCSB Concurrent Instrument Self-Test
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.ycsb-concurrent-instrument == 'true' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|ycsb-concurrent-selftest|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2475,7 +2475,7 @@ jobs:
     name: Safety / Loom Concurrency Race Model
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|loom|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2537,7 +2537,7 @@ jobs:
     name: Safety / Fuzz Invariants Smoke
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|fuzz-smoke|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2587,7 +2587,7 @@ jobs:
     name: Bindings / Python Fast Smoke (Py3.12)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-python|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2630,7 +2630,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
         node-version: [20, 22, 24]
         # Every supported version on Linux; the newest only on macOS and
         # Windows. The version axis exercises the N-API surface, which is the
@@ -2664,7 +2664,7 @@ jobs:
         run: node crates/expanse-node/test.js
 
       - name: Run Node comparative benchmark smoke
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        if: matrix.os == 'ubuntu-24.04' && matrix.node-version == 22
         run: node crates/expanse-node/bench.js --quick
 
   test-php:
@@ -2674,7 +2674,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
         php-version: ['8.2', '8.3', '8.4']
         # Every supported version on Linux; the newest only on macOS and
         # Windows, for the reason given on `test-node`'s matrix.
@@ -2711,7 +2711,7 @@ jobs:
         run: cargo build --release -p expanse-capi
 
       - name: Validate Composer manifests (library + PIE extension)
-        if: matrix.os == 'ubuntu-latest' && matrix.php-version == '8.3'
+        if: matrix.os == 'ubuntu-24.04' && matrix.php-version == '8.3'
         run: |
           composer validate --no-check-publish --no-check-lock bindings/php/composer.json
           composer validate --no-check-publish --no-check-lock crates/expanse-php/composer.json
@@ -2759,7 +2759,7 @@ jobs:
           php -d ffi.enable=0 -d "extension=$ext" tests/ExpanseTest.php
 
       - name: Run PHP comparative benchmark smoke
-        if: matrix.os == 'ubuntu-latest' && matrix.php-version == '8.3'
+        if: matrix.os == 'ubuntu-24.04' && matrix.php-version == '8.3'
         working-directory: bindings/php
         run: php -d ffi.enable=1 bench.php --quick
 
@@ -2770,7 +2770,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -2811,7 +2811,7 @@ jobs:
     name: Bindings / .NET NuGet Package
     needs: [detect-changes, fast-lane, test-dotnet]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|pack-dotnet|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2848,7 +2848,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -2892,7 +2892,7 @@ jobs:
     name: Bindings / Java JAR Package
     needs: [detect-changes, fast-lane, test-java]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.java == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|pack-java|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2936,7 +2936,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
         sanitizer: [none, asan-ubsan, tsan]
         exclude:
           - os: macos-latest
@@ -3292,7 +3292,7 @@ jobs:
     name: Integrations / RocksDB Optimistic-Seek Callgrind Bound
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|rocksdb-locate-ir-bound|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -3389,7 +3389,7 @@ jobs:
     if: needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-ruby|')
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -3406,13 +3406,13 @@ jobs:
         run: ruby -Ilib test/test_expanse.rb
 
       - name: Run Ruby comparative benchmark smoke
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         working-directory: bindings/ruby
         run: ruby -Ilib bench.rb --quick
 
   test-wasm:
     name: Bindings / WebAssembly (wasm32)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-wasm|')
     timeout-minutes: 15
@@ -3434,7 +3434,7 @@ jobs:
 
   test-wasm64:
     name: Bindings / WebAssembly (wasm64 Memory64 Experimental)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-wasm64|')
     timeout-minutes: 15
@@ -3464,7 +3464,7 @@ jobs:
 
   wasm-fuel:
     name: Perf / WebAssembly Fuel (wasm32 + wasm64, deterministic)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|wasm-fuel|')
     timeout-minutes: 25
@@ -3566,7 +3566,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -3655,7 +3655,7 @@ jobs:
     name: Core / Supply Chain (advisories, licences, sources)
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|supply-chain|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -3690,7 +3690,7 @@ jobs:
     name: Core / Public Rust API Surface
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|public-api|')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -3780,7 +3780,7 @@ jobs:
       - test-wasm
       - test-wasm64
       - test-go
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

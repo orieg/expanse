@@ -32,7 +32,7 @@ permissions:
 jobs:
   languages:
     name: CodeQL / Select Languages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -124,7 +124,7 @@ jobs:
     name: Analyze (${{ matrix.language }})
     needs: languages
     if: needs.languages.outputs.any == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read

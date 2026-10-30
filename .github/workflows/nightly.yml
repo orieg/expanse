@@ -37,7 +37,7 @@ jobs:
     # listed. A measured full run on a 5 GHz core is the sizing reference for
     # the per-shard budget below.
     if: inputs.only != 'bench'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -152,7 +152,7 @@ jobs:
   test-tsan:
     name: Safety / ThreadSanitizer (TSan) Sync* Tests
     if: inputs.only != 'bench'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -372,7 +372,7 @@ jobs:
             }
 
   bench-report:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -609,7 +609,7 @@ jobs:
   # is already out; this job is what notices (#1372 item 7).
   go-tag-drift:
     if: inputs.only != 'bench'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -619,7 +619,7 @@ jobs:
 
   fuzz-long:
     if: inputs.only != 'bench'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false

@@ -27,7 +27,7 @@ permissions:
 jobs:
   subsplit-php-library:
     name: Mirror / bindings/php -> orieg/expanse-php-library
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: subsplit
     steps:
       # A tag push is a publish path: a missing key must fail, never report
@@ -85,7 +85,7 @@ jobs:
 
   subsplit-php-extension:
     name: Mirror / crates/expanse-php -> orieg/php-expanse
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: subsplit
     steps:
       # A tag push is a publish path: a missing key must fail, never report
