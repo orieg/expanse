@@ -43,8 +43,8 @@ jobs:
       fail-fast: false
       matrix:
         # lib shards are module groups sized from a measured run (docs/CI.md §5,
-        # Tier 3); `lib-rest` is every module the other six do not name. The map lives in scripts/check_miri_shards.py.
-        shard: [lib-cursor, lib-set, lib-map, lib-sync, lib-sync32, lib-blobmap-bits, lib-rest, linearizability, no_heap_churn, test_blobmap, test_boundary_invariants, test_domain, test_mem_used_order_invariant, test_ordered_bytesmap, test_snapshot_clone, test_value_compression]
+        # Tier 3); `lib-rest` is every module the other eight do not name. The map lives in scripts/check_miri_shards.py.
+        shard: [lib-cursor, lib-set, lib-map, lib-sync, lib-sync32, lib-blobmap-bits, lib-strmap, lib-bytesmap, lib-rest, linearizability, no_heap_churn, test_blobmap, test_boundary_invariants, test_domain, test_mem_used_order_invariant, test_ordered_bytesmap, test_snapshot_clone, test_value_compression]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

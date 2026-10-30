@@ -77,6 +77,11 @@ LIB_SHARDS: dict[str, list[str]] = {
     # (docs/CI.md §5, Tier 3).
     "lib-sync32": ["sync32"],
     "lib-blobmap-bits": ["blobmap", "bits"],
+    # Split from `lib-rest`, which ran past the 180-minute job budget once
+    # these two modules' joined-writer validation tests landed (docs/CI.md §5,
+    # Tier 3).
+    "lib-strmap": ["strmap"],
+    "lib-bytesmap": ["bytesmap"],
 }
 REST_SHARD = "lib-rest"
 
@@ -259,10 +264,11 @@ def self_test() -> None:
     ]
     # The motivating defect: substring filters put strmap/bytesmap/mutate_map in
     # the set/map shard and blobmap32 in it too, and ran blobmap twice. By
-    # module they are `lib-rest`, and blobmap is in one shard only.
+    # module strmap and bytesmap have shards of their own, mutate_map and
+    # blobmap32 are `lib-rest`, and blobmap is in one shard only.
     by = assign(tests)
-    assert shard_of("strmap::tests::k") == REST_SHARD
-    assert shard_of("bytesmap::tests::l") == REST_SHARD
+    assert shard_of("strmap::tests::k") == "lib-strmap"
+    assert shard_of("bytesmap::tests::l") == "lib-bytesmap"
     assert shard_of("mutate_map::tests::m") == REST_SHARD
     assert shard_of("blobmap32::tests::n") == REST_SHARD
     assert sum("blobmap::tests::i" in v for v in by.values()) == 1
@@ -274,7 +280,7 @@ def self_test() -> None:
         d = Path(td)
         (d / "linearizability.rs").write_text("fn main(){}\n")
         (d / "proptest_model.rs").write_text("//! doc\n#![cfg(not(miri))]\n")
-        good_yaml = "    shard: [lib-cursor, lib-set, lib-map, lib-sync, lib-sync32, lib-blobmap-bits, lib-rest, linearizability]\n"
+        good_yaml = "    shard: [lib-cursor, lib-set, lib-map, lib-sync, lib-sync32, lib-blobmap-bits, lib-strmap, lib-bytesmap, lib-rest, linearizability]\n"
         assert census(tests, good_yaml, d) == [], census(tests, good_yaml, d)
 
         # 1. New integration file with no shard and no not(miri) gate → fatal.
@@ -310,12 +316,18 @@ def self_test() -> None:
     # --select output is exact names, one per line, for the named shard only.
     sel = select(tests, "lib-blobmap-bits")
     assert sel == ["blobmap::tests::i", "bits::tests::j"], sel
-    assert "strmap::tests::k" in select(tests, REST_SHARD)
+    assert select(tests, REST_SHARD) == [
+        "mutate_map::tests::m",
+        "blobmap32::tests::n",
+        "leaf::tests::o",
+    ]
     # A shard whose modules are all gated off Miri selects nothing; that is
     # reported, not fatal (the workflow warns and skips).
     assert select([t for t in tests if not t.startswith("sync::")], "lib-sync") == []
     assert select(tests, "lib-sync") == ["sync::tests::g"]
     assert select(tests, "lib-sync32") == ["sync32::tests::h"]
+    assert select(tests, "lib-strmap") == ["strmap::tests::k"]
+    assert select(tests, "lib-bytesmap") == ["bytesmap::tests::l"]
     # Tier 1. A test two shards select, a filter word the other lists lack,
     # a stale word, a misnamed shard and a dangling ablation `if:` are each
     # fatal on their own.
