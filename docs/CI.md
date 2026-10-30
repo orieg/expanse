@@ -384,6 +384,9 @@ Run the commands from the repository root so the paths in the generated headers 
 
 ---
 
+### 12.5 Linux runner image pin
+Every GitHub-hosted Linux job names `ubuntu-24.04`, never `ubuntu-latest`. When `ubuntu-latest` began resolving to `ubuntu-26.04`, three jobs that pass on 24.04 failed there: `lint` (the `ext-php-rs` build script's bindgen under clang 21), the ubuntu `test` job (`expanse-py` links `-lpython3.12`, which the image lacks), and `php-judy-linux` (the pinned `php-judy` commit does not compile against PHP API 20250925) *(measured: `main` CI run 41063676553 and PR 1620's CI, 2026-10-30, against `main` run 40884027233 on 24.04, 2026-10-29)*. A label that moves under the workflow changes the toolchain every job builds with, without a commit to point at. The move to 26.04 is tracked in [#1622](https://github.com/orieg/expanse/issues/1622): each job is fixed and re-run on the new image before its label changes. The `ubuntu-24.04-arm` jobs were already pinned.
+
 ## Appendix A — Org-Wide CI/CD Standards & New-Project Checklist
 
 These conventions apply across Expanse and its sister repositories (`php-judy`, `judy-cache`, `judy-polyfill`, `yaml-workflows`, `gws-connectors`). They exist so a new repo inherits the same zero-regression discipline.

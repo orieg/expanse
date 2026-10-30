@@ -30,7 +30,7 @@ concurrency:
 jobs:
   # Renders the site. It holds no secret; its output is data for `sign`, never code.
   site:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -60,7 +60,7 @@ jobs:
   # own scripts, from a checkout of the same commit, with egress limited to GitHub.
   sign:
     needs: site
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: package-signing
     permissions:
@@ -138,7 +138,7 @@ jobs:
 
   deploy:
     needs: sign
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       pages: write
