@@ -265,95 +265,19 @@ impl Default for ExpanseOrderedBytesMap {
     }
 }
 
-/// Key iterator for [`ExpanseOrderedBytesMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseOrderedBytesMapKeyIter {
-    pub(crate) keys: Vec<Vec<u8>>,
-    pub(crate) index: usize,
+vec_iter! {
+    /// Key iterator for [`ExpanseOrderedBytesMap`].
+    ExpanseOrderedBytesMapKeyIter { keys: Vec<Vec<u8>> }
+    yields<'py> Bound<'py, PyBytes> = |py, key| PyBytes::new(py, key)
 }
 
-#[pymethods]
-impl ExpanseOrderedBytesMapKeyIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns next byte key.
-    pub fn __next__<'py>(&mut self, py: Python<'py>) -> Option<Bound<'py, PyBytes>> {
-        if self.index < self.keys.len() {
-            let item = &self.keys[self.index];
-            self.index += 1;
-            Some(PyBytes::new(py, item))
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining key count.
-    pub fn __len__(&self) -> usize {
-        self.keys.len().saturating_sub(self.index)
-    }
+vec_iter! {
+    /// Value iterator for [`ExpanseOrderedBytesMap`].
+    ExpanseOrderedBytesMapValueIter { values: Vec<u64> }
 }
 
-/// Value iterator for [`ExpanseOrderedBytesMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseOrderedBytesMapValueIter {
-    pub(crate) values: Vec<u64>,
-    pub(crate) index: usize,
-}
-
-#[pymethods]
-impl ExpanseOrderedBytesMapValueIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns next value.
-    pub fn __next__(&mut self) -> Option<u64> {
-        if self.index < self.values.len() {
-            let item = self.values[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining value count.
-    pub fn __len__(&self) -> usize {
-        self.values.len().saturating_sub(self.index)
-    }
-}
-
-/// Item iterator for [`ExpanseOrderedBytesMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseOrderedBytesMapItemIter {
-    pub(crate) items: Vec<(Vec<u8>, u64)>,
-    pub(crate) index: usize,
-}
-
-#[pymethods]
-impl ExpanseOrderedBytesMapItemIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns next `(key, value)` pair.
-    pub fn __next__<'py>(&mut self, py: Python<'py>) -> Option<(Bound<'py, PyBytes>, u64)> {
-        if self.index < self.items.len() {
-            let (k, v) = &self.items[self.index];
-            self.index += 1;
-            Some((PyBytes::new(py, k), *v))
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining item count.
-    pub fn __len__(&self) -> usize {
-        self.items.len().saturating_sub(self.index)
-    }
+vec_iter! {
+    /// Item iterator for [`ExpanseOrderedBytesMap`].
+    ExpanseOrderedBytesMapItemIter { items: Vec<(Vec<u8>, u64)> }
+    yields<'py> (Bound<'py, PyBytes>, u64) = |py, item| (PyBytes::new(py, &item.0), item.1)
 }

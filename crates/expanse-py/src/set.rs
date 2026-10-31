@@ -284,64 +284,12 @@ impl Default for ExpanseSet {
     }
 }
 
-/// Key iterator for [`ExpanseSet`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseSetIter {
-    pub(crate) items: Vec<u64>,
-    pub(crate) index: usize,
+vec_iter! {
+    /// Key iterator for [`ExpanseSet`].
+    ExpanseSetIter { items: Vec<u64> }
 }
 
-#[pymethods]
-impl ExpanseSetIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next element in ascending order.
-    pub fn __next__(&mut self) -> Option<u64> {
-        if self.index < self.items.len() {
-            let item = self.items[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining element count.
-    pub fn __len__(&self) -> usize {
-        self.items.len().saturating_sub(self.index)
-    }
-}
-
-/// Range iterator for [`ExpanseSet`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseSetRangeIter {
-    pub(crate) items: Vec<u64>,
-    pub(crate) index: usize,
-}
-
-#[pymethods]
-impl ExpanseSetRangeIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next element in range.
-    pub fn __next__(&mut self) -> Option<u64> {
-        if self.index < self.items.len() {
-            let item = self.items[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining element count in range.
-    pub fn __len__(&self) -> usize {
-        self.items.len().saturating_sub(self.index)
-    }
+vec_iter! {
+    /// Range iterator for [`ExpanseSet`].
+    ExpanseSetRangeIter { items: Vec<u64> }
 }

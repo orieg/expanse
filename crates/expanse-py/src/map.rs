@@ -354,126 +354,22 @@ impl Default for ExpanseMap {
     }
 }
 
-/// Iterator yielding keys of [`ExpanseMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseMapKeyIter {
-    pub(crate) keys: Vec<u64>,
-    pub(crate) index: usize,
+vec_iter! {
+    /// Iterator yielding keys of [`ExpanseMap`].
+    ExpanseMapKeyIter { keys: Vec<u64> }
 }
 
-#[pymethods]
-impl ExpanseMapKeyIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next key in ascending order.
-    pub fn __next__(&mut self) -> Option<u64> {
-        if self.index < self.keys.len() {
-            let item = self.keys[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns the remaining count of keys.
-    pub fn __len__(&self) -> usize {
-        self.keys.len().saturating_sub(self.index)
-    }
+vec_iter! {
+    /// Iterator yielding values of [`ExpanseMap`].
+    ExpanseMapValueIter { values: Vec<u64> }
 }
 
-/// Iterator yielding values of [`ExpanseMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseMapValueIter {
-    pub(crate) values: Vec<u64>,
-    pub(crate) index: usize,
+vec_iter! {
+    /// Iterator yielding `(key, value)` pairs of [`ExpanseMap`].
+    ExpanseMapItemIter { items: Vec<(u64, u64)> }
 }
 
-#[pymethods]
-impl ExpanseMapValueIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next value in ascending key order.
-    pub fn __next__(&mut self) -> Option<u64> {
-        if self.index < self.values.len() {
-            let item = self.values[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns the remaining count of values.
-    pub fn __len__(&self) -> usize {
-        self.values.len().saturating_sub(self.index)
-    }
-}
-
-/// Iterator yielding `(key, value)` pairs of [`ExpanseMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseMapItemIter {
-    pub(crate) items: Vec<(u64, u64)>,
-    pub(crate) index: usize,
-}
-
-#[pymethods]
-impl ExpanseMapItemIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next `(key, value)` pair in ascending order.
-    pub fn __next__(&mut self) -> Option<(u64, u64)> {
-        if self.index < self.items.len() {
-            let item = self.items[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns the remaining count of items.
-    pub fn __len__(&self) -> usize {
-        self.items.len().saturating_sub(self.index)
-    }
-}
-
-/// Range iterator yielding `(key, value)` pairs of [`ExpanseMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseMapRangeIter {
-    pub(crate) items: Vec<(u64, u64)>,
-    pub(crate) index: usize,
-}
-
-#[pymethods]
-impl ExpanseMapRangeIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next `(key, value)` pair in the range.
-    pub fn __next__(&mut self) -> Option<(u64, u64)> {
-        if self.index < self.items.len() {
-            let item = self.items[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns the remaining count of items in the range.
-    pub fn __len__(&self) -> usize {
-        self.items.len().saturating_sub(self.index)
-    }
+vec_iter! {
+    /// Range iterator yielding `(key, value)` pairs of [`ExpanseMap`].
+    ExpanseMapRangeIter { items: Vec<(u64, u64)> }
 }
