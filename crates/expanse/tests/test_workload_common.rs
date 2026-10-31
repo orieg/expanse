@@ -1,4 +1,5 @@
-//! Pins the key sequences of the bench and example workload helpers.
+//! Pins the key sequences of the shared bench and example workload helpers
+//! (`benches/workload_common/mod.rs`).
 //!
 //! The benches and examples under `crates/expanse/{benches,examples}` each
 //! carried a private copy of the same XorShift64 step, and the copies differ
@@ -6,351 +7,55 @@
 //! forced-odd seed, or an extra output mix. Every published figure those
 //! harnesses produced was drawn from one of those seed paths, so sharing the
 //! helpers must not move a single key. The pins below were taken from the
-//! per-file copies before they were shared (`legacy` below), and each case
-//! checks one seed path against them.
+//! per-file copies before they were shared, and each case checks one seed
+//! path of the shared module against them.
 #![cfg(not(miri))]
 #![allow(missing_docs)]
 
 use std::collections::HashSet;
 
-/// Verbatim copies of the per-file helpers as they stood before sharing.
-mod legacy {
-    /// `benches/compare.rs` (also the raw copy in most other harnesses).
-    pub mod compare {
-        use std::collections::HashSet;
+#[path = "../benches/workload_common/mod.rs"]
+mod workload_common;
 
-        pub struct XorShift(pub u64);
-        impl XorShift {
-            pub fn next(&mut self) -> u64 {
-                let mut x = self.0;
-                x ^= x << 13;
-                x ^= x >> 7;
-                x ^= x << 17;
-                self.0 = x;
-                x
-            }
-        }
+use workload_common::{
+    KeyGen, XorShift, absent, keys, median, median_upper, miss_keys, miss_keys_from,
+};
 
-        pub struct KeyGen<'a> {
-            dist: &'a str,
-            rng: XorShift,
-            i: u64,
-            base: u64,
-        }
+/// `benches/comparative.rs`'s u32 generator. It stays local to that bench
+/// (its distributions are its own); it is repeated here so the shared
+/// [`absent`] rejection loop is checked on the draw stream it serves there.
+struct ComparativeKeyGen<'a> {
+    dist: &'a str,
+    rng: XorShift,
+    i: u64,
+    base: u32,
+}
 
-        impl<'a> KeyGen<'a> {
-            pub fn new(dist: &'a str, seed: u64) -> Self {
-                Self::with_offset(dist, seed, 0)
-            }
-
-            pub fn with_offset(dist: &'a str, seed: u64, offset: u64) -> Self {
-                Self {
-                    dist,
-                    rng: XorShift(seed),
-                    i: offset,
-                    base: 0,
-                }
-            }
-
-            pub fn next(&mut self) -> u64 {
-                let k = match self.dist {
-                    "sequential" => self.i,
-                    "random" => self.rng.next(),
-                    "clustered" => {
-                        if self.i.is_multiple_of(256) {
-                            self.base = self.rng.next() & !0xFF;
-                        }
-                        self.base + (self.i % 256)
-                    }
-                    "sparse" => self.i << 40,
-                    _ => unreachable!(),
-                };
-                self.i += 1;
-                k
-            }
-        }
-
-        pub fn keys(dist: &str, n: usize) -> Vec<u64> {
-            let mut g = KeyGen::new(dist, 0x0DDB_1A5E_5EED_0001);
-            (0..n).map(|_| g.next()).collect()
-        }
-
-        pub fn generate_miss_keys(
-            dist: &str,
-            present: &HashSet<u64>,
-            n: usize,
-            seed: u64,
-        ) -> Vec<u64> {
-            let mut g = KeyGen::with_offset(dist, seed, present.len() as u64);
-            let mut seen: HashSet<u64> = HashSet::with_capacity(n * 2);
-            let mut out = Vec::with_capacity(n);
-            let budget = n.saturating_mul(64).saturating_add(1024);
-            for _ in 0..budget {
-                if out.len() == n {
-                    return out;
-                }
-                let c = g.next();
-                if !present.contains(&c) && seen.insert(c) {
-                    out.push(c);
-                }
-            }
-            panic!("{dist}: could not draw {n} distinct absent keys within budget");
+impl<'a> ComparativeKeyGen<'a> {
+    fn with_offset(dist: &'a str, seed: u64, offset: u64) -> Self {
+        Self {
+            dist,
+            rng: XorShift(seed),
+            i: offset,
+            base: 0,
         }
     }
 
-    /// `examples/bench_lookup_compare.rs`: zero-guarded seed.
-    pub mod lookup_compare {
-        use std::collections::HashSet;
-
-        pub struct XorShift(u64);
-        impl XorShift {
-            pub fn new(seed: u64) -> Self {
-                Self(if seed == 0 { 0x5CA1_AB1E_0001 } else { seed })
-            }
-            pub fn next(&mut self) -> u64 {
-                let mut x = self.0;
-                x ^= x << 13;
-                x ^= x >> 7;
-                x ^= x << 17;
-                self.0 = x;
-                x
-            }
-        }
-
-        pub struct KeyGen<'a> {
-            dist: &'a str,
-            rng: XorShift,
-            i: u64,
-            base: u64,
-        }
-
-        impl<'a> KeyGen<'a> {
-            pub fn new(dist: &'a str, seed: u64) -> Self {
-                Self::with_offset(dist, seed, 0)
-            }
-
-            pub fn with_offset(dist: &'a str, seed: u64, offset: u64) -> Self {
-                Self {
-                    dist,
-                    rng: XorShift::new(seed),
-                    i: offset,
-                    base: 0,
+    fn next(&mut self) -> u32 {
+        let i = self.i;
+        let k = match self.dist {
+            "sparse" => (i as u32).wrapping_mul(1000),
+            "clustered" => {
+                if i.is_multiple_of(256) {
+                    self.base = (self.rng.next() as u32) & !0xFF;
                 }
+                self.base + (i % 256) as u32
             }
-
-            pub fn next(&mut self) -> u64 {
-                let k = match self.dist {
-                    "sequential" => self.i,
-                    "random" => self.rng.next(),
-                    "clustered" => {
-                        if self.i.is_multiple_of(256) {
-                            self.base = self.rng.next() & !0xFF;
-                        }
-                        self.base + (self.i % 256)
-                    }
-                    "sparse" => self.i << 40,
-                    other => panic!("unknown distribution '{other}'"),
-                };
-                self.i += 1;
-                k
-            }
-        }
-
-        pub fn generate_keys(dist: &str, n: usize, seed: u64) -> Vec<u64> {
-            let mut g = KeyGen::new(dist, seed);
-            (0..n).map(|_| g.next()).collect()
-        }
-
-        pub fn generate_miss_keys(
-            dist: &str,
-            present: &HashSet<u64>,
-            n: usize,
-            seed: u64,
-        ) -> Vec<u64> {
-            let mut g = KeyGen::with_offset(dist, seed, present.len() as u64);
-            let mut seen: HashSet<u64> = HashSet::with_capacity(n * 2);
-            let mut out = Vec::with_capacity(n);
-            let budget = n.saturating_mul(64).saturating_add(1024);
-            for _ in 0..budget {
-                if out.len() == n {
-                    return out;
-                }
-                let c = g.next();
-                if !present.contains(&c) && seen.insert(c) {
-                    out.push(c);
-                }
-            }
-            panic!("{dist}: could not draw {n} distinct absent keys within budget");
-        }
-
-        pub fn median(mut v: Vec<f64>) -> f64 {
-            v.sort_by(f64::total_cmp);
-            v[v.len() / 2]
-        }
-    }
-
-    /// `benches/comparative.rs`: u32 keys, its own distributions.
-    pub mod comparative {
-        use super::compare::XorShift;
-        use std::collections::HashSet;
-
-        pub struct KeyGen<'a> {
-            dist: &'a str,
-            rng: XorShift,
-            i: u64,
-            base: u32,
-        }
-
-        impl<'a> KeyGen<'a> {
-            pub fn new(dist: &'a str, seed: u64) -> Self {
-                Self::with_offset(dist, seed, 0)
-            }
-
-            pub fn with_offset(dist: &'a str, seed: u64, offset: u64) -> Self {
-                Self {
-                    dist,
-                    rng: XorShift(seed),
-                    i: offset,
-                    base: 0,
-                }
-            }
-
-            pub fn next(&mut self) -> u32 {
-                let i = self.i;
-                let k = match self.dist {
-                    "sparse" => (i as u32).wrapping_mul(1000),
-                    "clustered" => {
-                        if i.is_multiple_of(256) {
-                            self.base = (self.rng.next() as u32) & !0xFF;
-                        }
-                        self.base + (i % 256) as u32
-                    }
-                    "dense" => i as u32,
-                    _ => unreachable!(),
-                };
-                self.i += 1;
-                k
-            }
-        }
-
-        pub fn keys(dist: &str, n: usize) -> Vec<u32> {
-            let mut g = KeyGen::new(dist, 0x0DDB_1A5E_5EED_0001);
-            (0..n).map(|_| g.next()).collect()
-        }
-
-        pub fn miss_keys(dist: &str, present: &HashSet<u32>, n: usize, seed: u64) -> Vec<u32> {
-            let offset = match dist {
-                "sparse" | "dense" => present.len() as u64,
-                _ => 0,
-            };
-            let mut g = KeyGen::with_offset(dist, seed, offset);
-            let mut seen: HashSet<u32> = HashSet::with_capacity(n * 2);
-            let mut out = Vec::with_capacity(n);
-            let budget = n.saturating_mul(64).saturating_add(1024);
-            for _ in 0..budget {
-                if out.len() == n {
-                    return out;
-                }
-                let c = g.next();
-                if !present.contains(&c) && seen.insert(c) {
-                    out.push(c);
-                }
-            }
-            panic!("{dist}: could not draw {n} distinct absent keys within budget");
-        }
-    }
-
-    /// `benches/leaf_cap_cascaded{,_wallclock}.rs`: 63-bit masked draws.
-    pub mod cascaded {
-        use super::compare::XorShift;
-        use std::collections::HashSet;
-
-        pub const SEED: u64 = 0x0DDB_1A5E_5EED_0001;
-        pub const MISS_SEED: u64 = 0x51ED_0FF5_C0FF_EE01;
-        const BITS: u32 = 63;
-        const MASK: u64 = (1u64 << BITS) - 1;
-
-        pub fn keys(n: usize) -> Vec<u64> {
-            let mut rng = XorShift(SEED);
-            (0..n).map(|_| rng.next() & MASK).collect()
-        }
-
-        pub fn miss_keys(present: &HashSet<u64>, n: usize) -> Vec<u64> {
-            let mut rng = XorShift(MISS_SEED);
-            let mut seen: HashSet<u64> = HashSet::with_capacity(n * 2);
-            let mut out = Vec::with_capacity(n);
-            let budget = n.saturating_mul(64).saturating_add(1024);
-            for _ in 0..budget {
-                if out.len() == n {
-                    return out;
-                }
-                let c = rng.next() & MASK;
-                if !present.contains(&c) && seen.insert(c) {
-                    out.push(c);
-                }
-            }
-            panic!("could not draw {n} distinct absent keys within budget");
-        }
-    }
-
-    /// The zero-guarded copies (`benches/hashbrown_*.rs`), one fallback each.
-    pub struct Guarded(u64);
-    impl Guarded {
-        pub fn new(seed: u64, fallback: u64) -> Self {
-            Self(if seed == 0 { fallback } else { seed })
-        }
-        pub fn next(&mut self) -> u64 {
-            let mut x = self.0;
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            self.0 = x;
-            x
-        }
-    }
-
-    /// `benches/reclaim_stall.rs` / `benches/strmap_poll_stall.rs`: `seed | 1`.
-    pub struct Odd(u64);
-    impl Odd {
-        pub fn new(seed: u64) -> Self {
-            Self(seed | 1)
-        }
-        pub fn next(&mut self) -> u64 {
-            let mut x = self.0;
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            self.0 = x;
-            x
-        }
-    }
-
-    /// `benches/leaf_layout_timing.rs`: the unit-interval output mix.
-    pub fn unit(rng: &mut compare::XorShift) -> f64 {
-        (rng.next() >> 11) as f64 / (1u64 << 53) as f64
-    }
-
-    /// `examples/bytes_per_key_32.rs`: the truncating output.
-    pub fn next_u32(rng: &mut compare::XorShift) -> u32 {
-        let mut x = rng.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        rng.0 = x;
-        x as u32
-    }
-
-    /// `benches/art_common/mod.rs` and `benches/zset_common/mod.rs`.
-    pub fn median_mid(mut v: Vec<f64>) -> f64 {
-        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let n = v.len();
-        if n == 0 {
-            0.0
-        } else if n % 2 == 1 {
-            v[n / 2]
-        } else {
-            (v[n / 2 - 1] + v[n / 2]) / 2.0
-        }
+            "dense" => i as u32,
+            _ => unreachable!(),
+        };
+        self.i += 1;
+        k
     }
 }
 
@@ -370,7 +75,7 @@ const FALLBACKS: [u64; 6] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Pins, taken from the `legacy` copies above.
+// Pins, taken from the per-file copies before they were shared.
 // ---------------------------------------------------------------------------
 
 /// Raw seed: the first four draws from `SEED`.
@@ -505,88 +210,114 @@ fn draws<T>(mut next: impl FnMut() -> T, n: usize) -> Vec<T> {
     (0..n).map(|_| next()).collect()
 }
 
+/// The three seed paths and the two output mixes.
 #[test]
-fn legacy_xorshift_seed_paths_match_pins() {
-    let mut r = legacy::compare::XorShift(SEED);
+fn xorshift_seed_paths_match_pins() {
+    let mut r = XorShift(SEED);
     assert_eq!(draws(|| r.next(), 4), RAW);
-    let mut r = legacy::compare::XorShift(0);
+    let mut r = XorShift(0);
     assert_eq!(
         draws(|| r.next(), 2),
         [0, 0],
         "the raw path has no zero guard"
     );
     for (fb, want) in FALLBACKS.iter().zip(GUARDED_ZERO) {
-        let mut g = legacy::Guarded::new(0, *fb);
+        let mut g = XorShift::nonzero_or(0, *fb);
         assert_eq!(draws(|| g.next(), 2), want, "fallback {fb:#x}");
-        let mut g = legacy::Guarded::new(SEED, *fb);
+        let mut g = XorShift::nonzero_or(SEED, *fb);
         assert_eq!(
             draws(|| g.next(), 4),
             RAW,
             "a non-zero seed ignores {fb:#x}"
         );
     }
-    let mut o = legacy::Odd::new(ODD_EVEN_SEED);
+    let mut o = XorShift::odd(ODD_EVEN_SEED);
     assert_eq!(draws(|| o.next(), 3), ODD);
-    let mut o = legacy::Odd::new(0);
+    let mut o = XorShift::odd(0);
     assert_eq!(draws(|| o.next(), 2), ODD_ZERO);
-    let mut r = legacy::compare::XorShift(SEED);
-    assert_eq!(draws(|| legacy::unit(&mut r).to_bits(), 3), UNIT_BITS);
-    let mut r = legacy::compare::XorShift(SEED);
-    assert_eq!(draws(|| legacy::next_u32(&mut r), 3), U32);
+    let mut r = XorShift(SEED);
+    assert_eq!(draws(|| r.unit().to_bits(), 3), UNIT_BITS);
+    let mut r = XorShift(SEED);
+    assert_eq!(draws(|| r.next_u32(), 3), U32);
 }
 
+/// `KeyGen` on the raw path (`compare.rs`) and on the zero-guarded path
+/// (`bench_lookup_compare.rs`), and the misses each draws.
 #[test]
-fn legacy_keygen_and_misses_match_pins() {
+fn keygen_and_misses_match_pins() {
     for (d, dist) in DISTS.iter().enumerate() {
-        let k = legacy::compare::keys(dist, 260);
+        let k = keys(dist, 260);
         assert_eq!(k[..3], KEYS_HEAD[d], "{dist}");
         assert_eq!(k[255..258], KEYS_255[d], "{dist}");
+        let mut g = KeyGen::from_rng(dist, XorShift::nonzero_or(SEED, 0x5CA1_AB1E_0001), 0);
         assert_eq!(
-            legacy::lookup_compare::generate_keys(dist, 260, SEED),
+            draws(|| g.next(), 260),
             k,
-            "{dist}"
-        );
-        assert_eq!(
-            legacy::lookup_compare::generate_keys(dist, 3, 0),
-            GUARDED_KEYS_ZERO[d],
-            "{dist}"
-        );
-        let present: HashSet<u64> = legacy::compare::keys(dist, 1000).into_iter().collect();
-        assert_eq!(
-            legacy::compare::generate_miss_keys(dist, &present, 4, MISS_SEED),
-            MISSES[d],
-            "{dist}"
-        );
-        assert_eq!(
-            legacy::lookup_compare::generate_miss_keys(dist, &present, 4, MISS_SEED),
-            MISSES[d],
             "{dist}: a non-zero seed takes the raw path"
         );
+        let mut g = KeyGen::from_rng(dist, XorShift::nonzero_or(0, 0x5CA1_AB1E_0001), 0);
+        assert_eq!(draws(|| g.next(), 3), GUARDED_KEYS_ZERO[d], "{dist}");
+        let present: HashSet<u64> = keys(dist, 1000).into_iter().collect();
+        assert_eq!(miss_keys(dist, &present, 4, MISS_SEED), MISSES[d], "{dist}");
+        let mut g = KeyGen::from_rng(
+            dist,
+            XorShift::nonzero_or(MISS_SEED, 0x5CA1_AB1E_0001),
+            present.len() as u64,
+        );
+        assert_eq!(miss_keys_from(&mut g, &present, 4), MISSES[d], "{dist}");
     }
+}
+
+/// The shared rejection loop on `comparative.rs`'s u32 stream and on the
+/// 63-bit masked stream of `leaf_cap_cascaded{,_wallclock}.rs`.
+#[test]
+fn absent_matches_pins() {
     for (d, dist) in CDISTS.iter().enumerate() {
-        let k = legacy::comparative::keys(dist, 260);
+        let mut g = ComparativeKeyGen::with_offset(dist, SEED, 0);
+        let k = draws(|| g.next(), 1000);
         assert_eq!([&k[..3], &k[255..258]].concat(), CKEYS[d], "{dist}");
-        let present: HashSet<u32> = legacy::comparative::keys(dist, 1000).into_iter().collect();
+        let present: HashSet<u32> = k.into_iter().collect();
+        let offset = match *dist {
+            "sparse" | "dense" => present.len() as u64,
+            _ => 0,
+        };
+        let mut g = ComparativeKeyGen::with_offset(dist, MISS_SEED, offset);
         assert_eq!(
-            legacy::comparative::miss_keys(dist, &present, 4, MISS_SEED),
-            CMISSES[d],
+            absent(&present, 4, || g.next()),
+            Some(CMISSES[d].to_vec()),
             "{dist}"
         );
     }
-    let k = legacy::cascaded::keys(1000);
+    const MASK: u64 = (1u64 << 63) - 1;
+    let mut rng = XorShift(SEED);
+    let k = draws(|| rng.next() & MASK, 1000);
     assert_eq!(k[..3], CASCADED_KEYS);
     let present: HashSet<u64> = k.into_iter().collect();
-    assert_eq!(legacy::cascaded::miss_keys(&present, 4), CASCADED_MISSES);
+    let mut rng = XorShift(MISS_SEED);
+    assert_eq!(
+        absent(&present, 4, || rng.next() & MASK),
+        Some(CASCADED_MISSES.to_vec())
+    );
+}
+
+/// An exhausted budget is reported, never padded: a stream with one absent
+/// value cannot yield two.
+#[test]
+fn absent_reports_an_exhausted_budget() {
+    let present: HashSet<u64> = (0..10).collect();
+    let mut i = 0u64;
+    let got = absent(&present, 2, || {
+        i += 1;
+        i % 11
+    });
+    assert_eq!(got, None);
 }
 
 #[test]
-fn legacy_medians_match_pins() {
-    assert_eq!(legacy::median_mid(vec![3.0, 1.0, 2.0]), 2.0);
-    assert_eq!(legacy::median_mid(vec![4.0, 1.0, 3.0, 2.0]), 2.5);
-    assert_eq!(legacy::median_mid(vec![]), 0.0);
-    assert_eq!(legacy::lookup_compare::median(vec![3.0, 1.0, 2.0]), 2.0);
-    assert_eq!(
-        legacy::lookup_compare::median(vec![4.0, 1.0, 3.0, 2.0]),
-        3.0
-    );
+fn medians_match_pins() {
+    assert_eq!(median(vec![3.0, 1.0, 2.0]), 2.0);
+    assert_eq!(median(vec![4.0, 1.0, 3.0, 2.0]), 2.5);
+    assert_eq!(median(vec![]), 0.0);
+    assert_eq!(median_upper(vec![3.0, 1.0, 2.0]), 2.0);
+    assert_eq!(median_upper(vec![4.0, 1.0, 3.0, 2.0]), 3.0);
 }

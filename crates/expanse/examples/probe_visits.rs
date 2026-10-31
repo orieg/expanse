@@ -34,17 +34,9 @@
 
 use expanse_trie::map::ExpanseMap;
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "../benches/workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// Population matching `crates/expanse/benches/instructions.rs`.
 const POP: usize = 50_000;

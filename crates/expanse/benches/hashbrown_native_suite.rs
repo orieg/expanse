@@ -33,27 +33,12 @@ use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::time::Instant;
 
-struct XorShift64(u64);
-impl XorShift64 {
-    fn new(seed: u64) -> Self {
-        Self(if seed == 0 {
-            0xDEAD_BEEF_CAFE_BABE
-        } else {
-            seed
-        })
-    }
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 fn generate_keys(n: usize, seed: u64) -> Vec<u64> {
-    let mut rng = XorShift64::new(seed);
+    let mut rng = XorShift::nonzero_or(seed, 0xDEAD_BEEF_CAFE_BABE);
     let mut keys = Vec::with_capacity(n);
     for _ in 0..n {
         keys.push(rng.next());

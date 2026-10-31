@@ -25,17 +25,9 @@ use expanse_trie::blobmap::ExpanseBlobMap;
 use std::collections::BTreeMap;
 use std::hint::black_box;
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// Benchmark throughput and allocation comparisons for 0..=7 byte payloads:
 /// ExpanseBlobMap (inline value slots, zero heap allocations) vs BTreeMap<u64, Vec<u8>> (heap allocation).

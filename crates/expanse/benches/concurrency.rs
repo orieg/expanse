@@ -115,17 +115,9 @@ fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
     unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(bytes.as_ref()) }
 }
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 const POP: u64 = 1_000_000;
 /// Map/set arms: prefill and probes draw from the same bounded keyspace

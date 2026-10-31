@@ -70,17 +70,9 @@ use iai_callgrind::{
 use std::collections::HashSet;
 use std::hint::black_box;
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// The seed every committed random cell in this repository draws from
 /// (`examples/keyspace_density.rs`, `instructions.rs`).
@@ -119,19 +111,8 @@ fn shuffled(mut v: Vec<u64>) -> Vec<u64> {
 /// stream that cannot yield enough absent keys aborts loudly.
 fn miss_keys(present: &HashSet<u64>, n: usize) -> Vec<u64> {
     let mut rng = XorShift(MISS_SEED);
-    let mut seen: HashSet<u64> = HashSet::with_capacity(n * 2);
-    let mut out = Vec::with_capacity(n);
-    let budget = n.saturating_mul(64).saturating_add(1024);
-    for _ in 0..budget {
-        if out.len() == n {
-            return out;
-        }
-        let c = rng.next() & MASK;
-        if !present.contains(&c) && seen.insert(c) {
-            out.push(c);
-        }
-    }
-    panic!("could not draw {n} distinct absent keys within budget");
+    workload_common::absent(present, n, || rng.next() & MASK)
+        .unwrap_or_else(|| panic!("could not draw {n} distinct absent keys within budget"))
 }
 
 /// The probe vector for `case`: the shuffled population for `hit`, the

@@ -43,17 +43,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "../benches/workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 const POP: u64 = 1_000_000;
 const KEYSPACE: u64 = 2 * POP;

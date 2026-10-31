@@ -102,18 +102,12 @@ pub fn bench_window<T>(id: &str, case: impl FnOnce() -> T) -> T {
     out
 }
 
+/// The shared bench workload helpers, reachable from here by a harness that
+/// loads this module (a second `#[path]` load of the file is rejected).
+#[path = "../workload_common/mod.rs"]
+pub mod workload_common;
 /// Median of a series of samples (for interleaved round timing per §8.4).
-pub fn median(mut v: Vec<f64>) -> f64 {
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let n = v.len();
-    if n == 0 {
-        0.0
-    } else if n % 2 == 1 {
-        v[n / 2]
-    } else {
-        (v[n / 2 - 1] + v[n / 2]) / 2.0
-    }
-}
+pub use workload_common::median;
 
 /// Mean of a slice of samples.
 pub fn mean(v: &[f64]) -> f64 {

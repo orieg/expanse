@@ -23,22 +23,9 @@
 //! | `statistics` | Exact count and promotion ratio |
 //! | `verdict` | **PASS** `[verified: RUN (Phase 0)]`: Empirical evaluation of value compression crossover. |
 
-struct XorShift64(u64);
-
-impl XorShift64 {
-    fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "../benches/workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 // ---------------------------------------------------------------------------
 // Pure SWAR Codecs
@@ -193,13 +180,13 @@ fn generate_monotonic_ints(n: usize) -> Vec<Vec<u8>> {
 }
 
 fn generate_alnum_slugs(n: usize) -> Vec<Vec<u8>> {
-    let mut rng = XorShift64::new(0xABCD_1234_5678_0001);
+    let mut rng = XorShift(0xABCD_1234_5678_0001);
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
         let len = if i % 2 == 0 { 8 } else { 9 };
         let mut s = Vec::with_capacity(len);
         for _ in 0..len {
-            let idx = (rng.next_u64() % 64) as usize;
+            let idx = (rng.next() % 64) as usize;
             s.push(ALNUM6_LUT[idx]);
         }
         out.push(s);
@@ -208,13 +195,13 @@ fn generate_alnum_slugs(n: usize) -> Vec<Vec<u8>> {
 }
 
 fn generate_decimal_strings(n: usize) -> Vec<Vec<u8>> {
-    let mut rng = XorShift64::new(0x9876_5432_10FE_0001);
+    let mut rng = XorShift(0x9876_5432_10FE_0001);
     let mut out = Vec::with_capacity(n);
     for _ in 0..n {
-        let len = 8 + (rng.next_u64() % 7) as usize; // 8..=14
+        let len = 8 + (rng.next() % 7) as usize; // 8..=14
         let mut s = Vec::with_capacity(len);
         for _ in 0..len {
-            let d = b'0' + (rng.next_u64() % 10) as u8;
+            let d = b'0' + (rng.next() % 10) as u8;
             s.push(d);
         }
         out.push(s);
@@ -223,21 +210,21 @@ fn generate_decimal_strings(n: usize) -> Vec<Vec<u8>> {
 }
 
 fn generate_uniform_random_8b(n: usize) -> Vec<Vec<u8>> {
-    let mut rng = XorShift64::new(0x1122_3344_5566_7788);
+    let mut rng = XorShift(0x1122_3344_5566_7788);
     let mut out = Vec::with_capacity(n);
     for _ in 0..n {
-        out.push(rng.next_u64().to_le_bytes().to_vec());
+        out.push(rng.next().to_le_bytes().to_vec());
     }
     out
 }
 
 fn generate_uniform_random_16b(n: usize) -> Vec<Vec<u8>> {
-    let mut rng = XorShift64::new(0xAABB_CCDD_EEFF_0011);
+    let mut rng = XorShift(0xAABB_CCDD_EEFF_0011);
     let mut out = Vec::with_capacity(n);
     for _ in 0..n {
         let mut buf = Vec::with_capacity(16);
-        buf.extend_from_slice(&rng.next_u64().to_le_bytes());
-        buf.extend_from_slice(&rng.next_u64().to_le_bytes());
+        buf.extend_from_slice(&rng.next().to_le_bytes());
+        buf.extend_from_slice(&rng.next().to_le_bytes());
         out.push(buf);
     }
     out

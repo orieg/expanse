@@ -136,20 +136,9 @@ const RECORDS_PER_CHUNK: u64 = 14_563;
 const CHUNK_BYTES: u64 = 2 << 20;
 const TOP: usize = 8;
 
-struct XorShift64(u64);
-impl XorShift64 {
-    fn new(seed: u64) -> Self {
-        Self(seed | 1)
-    }
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// Thread `t`'s stream seed: `seed` and `t` through SplitMix64's finaliser
 /// (Steele, Lea & Flood, "Fast Splittable Pseudorandom Number Generators",
@@ -177,7 +166,7 @@ const SEED_CHECK_WRITERS: u64 = 8;
 fn streams_overlap(seeds: &[u64], draws: usize) -> Option<(usize, usize)> {
     let mut first: HashMap<u64, usize> = HashMap::with_capacity(seeds.len() * draws);
     for (i, &s) in seeds.iter().enumerate() {
-        let mut rng = XorShift64::new(s);
+        let mut rng = XorShift::odd(s);
         for _ in 0..draws {
             let v = rng.next();
             match first.get(&v) {
@@ -338,7 +327,7 @@ impl Args {
 
 fn reader_loop(m: &SyncExpanseBlobMap, live: u64, seed: u64, stop: &AtomicBool) -> Histogram<u64> {
     let mut h = hist();
-    let mut rng = XorShift64::new(seed);
+    let mut rng = XorShift::odd(seed);
     let mut rd = m.reader();
     let mut sink = 0usize;
     while !stop.load(Ordering::Relaxed) {
@@ -442,7 +431,7 @@ fn main() {
     if mode == "seed-check" {
         // The seeding's fail-then-pass control: the seeds the run uses must
         // pass, and the per-writer `seed ^ (0x5A5A + w)` seeding this replaced
-        // must fail, since `XorShift64::new`'s `| 1` gives writers 2k and
+        // must fail, since `XorShift::odd`'s `| 1` gives writers 2k and
         // 2k + 1 one stream.
         let seed = a.num("seed");
         let new = streams_overlap(&stream_seeds(seed, SEED_CHECK_WRITERS, 0), SEED_CHECK_DRAWS);
@@ -492,7 +481,7 @@ fn main() {
             let heap_before = HEAP.load(Ordering::Relaxed);
             PEAK.store(heap_before, Ordering::Relaxed);
             let mut ops = Ops::new();
-            let mut rng = XorShift64::new(seed);
+            let mut rng = XorShift::odd(seed);
             let t0 = Instant::now();
             for i in 0..appends {
                 let k = rng.next() % live;
@@ -594,7 +583,7 @@ fn main() {
                     let wseed = seeds[w as usize];
                     std::thread::spawn(move || {
                         let mut ops = Ops::new();
-                        let mut rng = XorShift64::new(wseed);
+                        let mut rng = XorShift::odd(wseed);
                         b.wait();
                         let c0 = thread_cpu_ns();
                         if full {

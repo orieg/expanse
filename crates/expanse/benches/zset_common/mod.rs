@@ -61,18 +61,11 @@ impl XorShift64 {
     }
 }
 
+#[path = "../workload_common/mod.rs"]
+mod workload_common;
 /// Median of a set of samples (interleaved-round medians per rule 5).
-pub fn median(mut v: Vec<f64>) -> f64 {
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let n = v.len();
-    if n == 0 {
-        0.0
-    } else if n % 2 == 1 {
-        v[n / 2]
-    } else {
-        (v[n / 2 - 1] + v[n / 2]) / 2.0
-    }
-}
+#[allow(unused_imports)] // not every zset bench reduces rounds
+pub use workload_common::median;
 
 /// A Fisher–Yates shuffle over `0..n` using the given RNG. Members are inserted
 /// in shuffled order so no engine sees a favorable monotonic build.

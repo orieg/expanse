@@ -732,25 +732,9 @@ pub const SEED_STR_FRESH: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0661;
 /// The 62 ASCII alphanumerics — NUL-free by construction.
 const ALNUM: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-/// Deterministic XorShift64 PRNG matching repo standard.
-#[derive(Clone)]
-struct XorShift(u64);
-
-impl XorShift {
-    fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "../benches/workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// The stored value for a key on the map arm, matching `hot_concurrent`.
 #[inline]
@@ -807,7 +791,7 @@ impl WriterWorkload {
         shape: impl Fn(u64) -> u64,
     ) -> Self {
         // 1. Generate prefill keys.
-        let mut rng = XorShift::new(SEED_PREFILL);
+        let mut rng = XorShift(SEED_PREFILL);
         let mut prefill = Vec::with_capacity(n_prefill);
         for _ in 0..n_prefill {
             prefill.push(shape(rng.next()));
@@ -823,7 +807,7 @@ impl WriterWorkload {
         }
 
         // 2. Generate fresh keys rejection-sampled against prefill.
-        let mut fresh_rng = XorShift::new(SEED_FRESH);
+        let mut fresh_rng = XorShift(SEED_FRESH);
         let mut fresh_keys = Vec::with_capacity(m_fresh);
         while fresh_keys.len() < m_fresh {
             let c = shape(fresh_rng.next());
@@ -848,7 +832,7 @@ struct WriterStrWorkload {
 
 impl WriterStrWorkload {
     fn generate(n_prefill: usize, m_fresh: usize) -> Self {
-        let mut rng = XorShift::new(SEED_PREFILL);
+        let mut rng = XorShift(SEED_PREFILL);
         let mut prefill = Vec::with_capacity(n_prefill);
         let mut buf = Vec::with_capacity(16);
         for _ in 0..n_prefill {
@@ -868,7 +852,7 @@ impl WriterStrWorkload {
             }
         }
 
-        let mut fresh_rng = XorShift::new(SEED_STR_FRESH);
+        let mut fresh_rng = XorShift(SEED_STR_FRESH);
         let mut fresh_keys = Vec::with_capacity(m_fresh);
         let mut seen = HashSet::with_capacity(m_fresh);
         while fresh_keys.len() < m_fresh {
@@ -1366,7 +1350,7 @@ impl BlobOverwriteWorkload {
         );
         let base = WriterWorkload::generate(n_prefill, 0, 64);
         let mut rank_keys = base.prefill.clone();
-        let mut rng = XorShift::new(SEED_BLOB_RANK);
+        let mut rng = XorShift(SEED_BLOB_RANK);
         for i in (1..rank_keys.len()).rev() {
             let j = (rng.next() % (i as u64 + 1)) as usize;
             rank_keys.swap(i, j);
@@ -1652,7 +1636,7 @@ impl BytesOverwriteWorkload {
         );
         let base = WriterStrWorkload::generate(n_prefill, 0);
         let mut rank_keys = base.prefill.clone();
-        let mut rng = XorShift::new(SEED_BYTES_RANK);
+        let mut rng = XorShift(SEED_BYTES_RANK);
         for i in (1..rank_keys.len()).rev() {
             let j = (rng.next() % (i as u64 + 1)) as usize;
             rank_keys.swap(i, j);
@@ -1968,7 +1952,7 @@ impl Probe {
 /// most `len / 2^64`, below 2^-43 at the sizes used here.
 fn fisher_yates(keys: &mut [u64], seed: u64) {
     assert_ne!(seed, 0, "XorShift64 has a fixed point at 0");
-    let mut rng = XorShift::new(seed);
+    let mut rng = XorShift(seed);
     for i in (1..keys.len()).rev() {
         let j = (rng.next() % (i as u64 + 1)) as usize;
         keys.swap(i, j);
@@ -1995,7 +1979,7 @@ struct HotspotExpanse {
 impl HotspotExpanse {
     fn generate() -> Self {
         // Clearing the low 16 bits leaves `base + HOTSPOT_WIDTH <= 2^64`.
-        let base = XorShift::new(SEED_HOTSPOT_BASE).next() & !(HOTSPOT_WIDTH - 1);
+        let base = XorShift(SEED_HOTSPOT_BASE).next() & !(HOTSPOT_WIDTH - 1);
         let prefill: Vec<u64> = (0..HOTSPOT_BUCKETS)
             .map(|j| base + j * HOTSPOT_BUCKET + HOTSPOT_PREFILL_OFFSET)
             .collect();

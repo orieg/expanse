@@ -42,17 +42,9 @@ use roaring::RoaringBitmap;
 use std::collections::{BTreeMap, HashSet};
 use std::hint::black_box;
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// The population generator, resumable from an arbitrary index so absent keys
 /// can be drawn from the *same* generator rather than from a transform of a
@@ -118,21 +110,10 @@ fn miss_keys(dist: &str, present: &HashSet<u32>, n: usize, seed: u64) -> Vec<u32
         _ => 0,
     };
     let mut g = KeyGen::with_offset(dist, seed, offset);
-    let mut seen: HashSet<u32> = HashSet::with_capacity(n * 2);
-    let mut out = Vec::with_capacity(n);
     // Bounded so a distribution that cannot yield enough absent keys aborts
     // loudly instead of spinning forever (§8.1).
-    let budget = n.saturating_mul(64).saturating_add(1024);
-    for _ in 0..budget {
-        if out.len() == n {
-            return out;
-        }
-        let c = g.next();
-        if !present.contains(&c) && seen.insert(c) {
-            out.push(c);
-        }
-    }
-    panic!("{dist}: could not draw {n} distinct absent keys within budget");
+    workload_common::absent(present, n, || g.next())
+        .unwrap_or_else(|| panic!("{dist}: could not draw {n} distinct absent keys within budget"))
 }
 
 /// In-place Fisher-Yates with a fixed seed, so hits and misses interleave and

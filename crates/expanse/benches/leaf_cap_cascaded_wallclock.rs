@@ -48,17 +48,9 @@ use expanse_trie::set::ExpanseSet;
 use std::collections::HashSet;
 use std::hint::black_box;
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 const SEED: u64 = 0x0DDB_1A5E_5EED_0001;
 const MISS_SEED: u64 = 0x51ED_0FF5_C0FF_EE01;
@@ -78,19 +70,8 @@ fn keys() -> Vec<u64> {
 /// rejected on membership (AGENTS.md §8.6).
 fn miss_keys(present: &HashSet<u64>, n: usize) -> Vec<u64> {
     let mut rng = XorShift(MISS_SEED);
-    let mut seen: HashSet<u64> = HashSet::with_capacity(n * 2);
-    let mut out = Vec::with_capacity(n);
-    let budget = n.saturating_mul(64).saturating_add(1024);
-    for _ in 0..budget {
-        if out.len() == n {
-            return out;
-        }
-        let c = rng.next() & MASK;
-        if !present.contains(&c) && seen.insert(c) {
-            out.push(c);
-        }
-    }
-    panic!("could not draw {n} distinct absent keys within budget");
+    workload_common::absent(present, n, || rng.next() & MASK)
+        .unwrap_or_else(|| panic!("could not draw {n} distinct absent keys within budget"))
 }
 
 /// (hits, misses): present keys picked under a fixed seed, absent keys

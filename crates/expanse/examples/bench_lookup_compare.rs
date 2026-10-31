@@ -201,90 +201,28 @@ impl StockJudy {
     }
 }
 
-/// Fast deterministic 64-bit XorShift pseudorandom number generator.
-#[derive(Clone, Copy, Debug)]
-struct XorShift(u64);
+#[path = "../benches/workload_common/mod.rs"]
+mod workload_common;
+// Upper-middle median, matching `crates/expanse-capi/examples/bench_vs_libjudy.rs`
+// so both harnesses reduce interleaved rounds the same way.
+use workload_common::{KeyGen, XorShift, median_upper as median};
 
-impl XorShift {
-    #[inline(always)]
-    fn new(seed: u64) -> Self {
-        Self(if seed == 0 { 0x5CA1_AB1E_0001 } else { seed })
-    }
-
-    #[inline(always)]
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
+/// This harness's seed path: a zero seed falls back to a fixed non-zero one.
+fn seeded(seed: u64) -> XorShift {
+    XorShift::nonzero_or(seed, 0x5CA1_AB1E_0001)
 }
 
-/// Key generator structure matching the canonical distribution definitions.
-struct KeyGen<'a> {
-    dist: &'a str,
-    rng: XorShift,
-    i: u64,
-    base: u64,
-}
-
-impl<'a> KeyGen<'a> {
-    fn new(dist: &'a str, seed: u64) -> Self {
-        Self::with_offset(dist, seed, 0)
-    }
-
-    fn with_offset(dist: &'a str, seed: u64, offset: u64) -> Self {
-        Self {
-            dist,
-            rng: XorShift::new(seed),
-            i: offset,
-            base: 0,
-        }
-    }
-
-    fn next(&mut self) -> u64 {
-        let k = match self.dist {
-            "sequential" => self.i,
-            "random" => self.rng.next(),
-            "clustered" => {
-                if self.i.is_multiple_of(256) {
-                    self.base = self.rng.next() & !0xFF;
-                }
-                self.base + (self.i % 256)
-            }
-            "sparse" => self.i << 40,
-            other => panic!("unknown distribution '{other}'"),
-        };
-        self.i += 1;
-        k
-    }
-}
-
-/// Generates $N$ distinct 64-bit keys for the specified distribution class.
+/// Generates $N$ keys for the specified distribution class.
 fn generate_keys(dist: &str, n: usize, seed: u64) -> Vec<u64> {
-    let mut g = KeyGen::new(dist, seed);
+    let mut g = KeyGen::from_rng(dist, seeded(seed), 0);
     (0..n).map(|_| g.next()).collect()
 }
 
 /// `n` distinct keys that are absent from `present`, drawn from the same
 /// generator as the population and rejected on membership (AGENTS.md §8.6).
 fn generate_miss_keys(dist: &str, present: &HashSet<u64>, n: usize, seed: u64) -> Vec<u64> {
-    let mut g = KeyGen::with_offset(dist, seed, present.len() as u64);
-    let mut seen: HashSet<u64> = HashSet::with_capacity(n * 2);
-    let mut out = Vec::with_capacity(n);
-    let budget = n.saturating_mul(64).saturating_add(1024);
-    for _ in 0..budget {
-        if out.len() == n {
-            return out;
-        }
-        let c = g.next();
-        if !present.contains(&c) && seen.insert(c) {
-            out.push(c);
-        }
-    }
-    panic!("{dist}: could not draw {n} distinct absent keys within budget");
+    let mut g = KeyGen::from_rng(dist, seeded(seed), present.len() as u64);
+    workload_common::miss_keys_from(&mut g, present, n)
 }
 
 /// Generates hit and miss probe key sequences with realistic miss distributions.
@@ -294,7 +232,7 @@ fn generate_probes(
     probe_count: usize,
     seed: u64,
 ) -> (Vec<u64>, Vec<u64>) {
-    let mut rng = XorShift::new(seed);
+    let mut rng = seeded(seed);
     let n = keys.len();
     let mut hits = Vec::with_capacity(probe_count);
     for _ in 0..probe_count {
@@ -380,15 +318,6 @@ struct ContainerResult {
     range_throughput_mops: f64,
     bytes_per_key: f64,
     is_ordered_iter: bool,
-}
-
-/// Median of a sample, upper-middle element for even counts.
-///
-/// Matches `crates/expanse-capi/examples/bench_vs_libjudy.rs` so both harnesses
-/// reduce interleaved rounds the same way.
-fn median(mut v: Vec<f64>) -> f64 {
-    v.sort_by(f64::total_cmp);
-    v[v.len() / 2]
 }
 
 /// Reduces one container's per-round measurements to a single result by taking

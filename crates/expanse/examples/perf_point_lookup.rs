@@ -96,17 +96,9 @@ fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
     unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(bytes.as_ref()) }
 }
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+// `art_common` already loads the shared workload module; a second `#[path]`
+// load of the same file would be a second, distinct module.
+use art_common::workload_common::XorShift;
 
 /// Build stream. Same constant as `benches/instructions.rs`, so the two
 /// instruments descend the same shaped tree.
