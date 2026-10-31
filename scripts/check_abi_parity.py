@@ -2133,7 +2133,10 @@ def _signature_self_test(root: Path) -> None:
     assert env.scalars["expanse_word_t"] == U64
     assert env.scalars["expanse_blob_status_t"] == _i(32, None), "a C enum is a 32-bit int"
     assert env.scalars["expanse_predicate_fn"] == PTR, "a callback typedef is a pointer"
-    k = lambda spelling: c_spelled_kind(spelling, env.scalars)[0]  # noqa: E731
+
+    def k(spelling: str) -> Any:
+        return c_spelled_kind(spelling, env.scalars)[0]
+
     assert k("const uint64_t *key_out") == PTR and k("size_t len") == U64 and k("bool") == BOOL
     assert k("unsigned int") == U32 and k("unsigned int hot_meta") == U32
     assert k("long") is None, "C `long` has no single width across LP64 and LLP64"
