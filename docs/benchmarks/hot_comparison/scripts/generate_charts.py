@@ -26,6 +26,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from theme import svg_header  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
+from svg_helpers import esc
+
 BASE = Path(__file__).resolve().parent.parent
 # HOT_RESULTS_DIR lets the string charts be exercised against a quick-mode
 # directory without touching the committed results (§8.5).
@@ -33,10 +36,6 @@ RESULTS = Path(os.environ["HOT_RESULTS_DIR"]) if os.environ.get("HOT_RESULTS_DIR
 
 W, H = 960, 420
 PAD_L, PAD_R, PAD_T, PAD_B = 70, 210, 66, 54
-
-
-def esc(s: str) -> str:
-    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
 def nice_ceiling(v: float) -> float:

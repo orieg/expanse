@@ -26,16 +26,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from theme import svg_header  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
+from svg_helpers import esc
+
 BASE = Path(__file__).resolve().parent.parent
 RESULTS = Path(os.environ["MASSTREE_RESULTS_DIR"]) if os.environ.get("MASSTREE_RESULTS_DIR") else BASE / "results"
 
 W, H = 960, 420
 PAD_L, PAD_R, PAD_T, PAD_B = 70, 230, 66, 54
 GREEN, BLUE, AMBER = "#16a34a", "#2563eb", "#d97706"
-
-
-def esc(s: str) -> str:
-    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def nice_ceiling(v: float) -> float:
