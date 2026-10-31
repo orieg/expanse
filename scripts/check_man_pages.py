@@ -23,6 +23,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import repo_root as get_repo_root
+
 EXPECTED_MAN_PAGES = [
     "expanse.3",
     "expanse_set.3",
@@ -39,10 +42,6 @@ EXPECTED_MAN_PAGES = [
     "JudySL.3",
     "JudyHS.3",
 ]
-
-
-def get_repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent
 
 
 def check_formatting_hygiene(man_path: Path) -> list[str]:

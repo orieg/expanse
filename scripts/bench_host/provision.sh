@@ -513,7 +513,7 @@ cmd_check() {
   # flock opens the file before it locks it, so a conflict (-E 75) means the
   # account opened it and a bench job holds the lock now; only a failure to
   # open (66) or run is a fault. The owner record is written by that job:
-  # first line, bench_lock.py's character set, bounded.
+  # first line, the character set of output_value in scripts/_common.py, bounded.
   local rc=0 holder
   if getent passwd "$SVC" >/dev/null; then
     runuser -u "$SVC" -- flock -n -E 75 "$FLOCK" true || rc=$?

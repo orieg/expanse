@@ -40,6 +40,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import git_toplevel
+
 ALLOW_MARKER = "docs-lint: allow"
 
 # --- fatal: time estimates ---------------------------------------------------
@@ -1392,7 +1395,7 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
-    root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip())
+    root = git_toplevel()
     denylist = [h.strip() for h in os.environ.get("DOCS_HOSTNAME_DENYLIST", "").split(",") if h.strip()]
     if not denylist:
         print("::notice::DOCS_HOSTNAME_DENYLIST is unset — hostname check skipped (set it as a repository secret; never commit it)")

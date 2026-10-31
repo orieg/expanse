@@ -34,6 +34,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import git_toplevel
+
 # Mean glyph advance as a fraction of font-size. Monospace is wider per glyph.
 MONO_ADV, SANS_ADV = 0.60, 0.52
 # Bold runs wider, and the collision that shipped ("604.4 M" at 26px/800 under a
@@ -248,8 +251,7 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
-    root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                               capture_output=True, text=True, check=True).stdout.strip())
+    root = git_toplevel()
     files = args.paths or subprocess.run(
         ["git", "ls-files", "--", "*.svg"], cwd=root,
         capture_output=True, text=True, check=True).stdout.split()

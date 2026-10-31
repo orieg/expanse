@@ -38,10 +38,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-
-def get_repo_root() -> Path:
-    """Returns the repository root directory."""
-    return Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import repo_root as get_repo_root
 
 
 @dataclass
