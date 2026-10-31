@@ -238,6 +238,7 @@ public final class ExpanseNative {
     public static final MethodHandle MH_expanse_sync_blob_map_mem_used;
     public static final MethodHandle MH_expanse_sync_blob_map_mem_used_estimate;
     public static final MethodHandle MH_expanse_sync_blob_map_mem_held;
+    public static final MethodHandle MH_expanse_sync_blob_map_mem_held_estimate;
     public static final MethodHandle MH_expanse_sync_blob_map_shrink_to_fit;
     public static final MethodHandle MH_expanse_sync_blob_map_set_reclaim_at_cap;
     public static final MethodHandle MH_expanse_sync_blob_map_compact;
@@ -511,6 +512,7 @@ public final class ExpanseNative {
         MH_expanse_sync_blob_map_mem_used = downcall("expanse_sync_blob_map_mem_used", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_blob_map_mem_used_estimate = downcall("expanse_sync_blob_map_mem_used_estimate", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_blob_map_mem_held = downcall("expanse_sync_blob_map_mem_held", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_sync_blob_map_mem_held_estimate = downcall("expanse_sync_blob_map_mem_held_estimate", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_blob_map_shrink_to_fit = downcall("expanse_sync_blob_map_shrink_to_fit", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_blob_map_set_reclaim_at_cap = downcall("expanse_sync_blob_map_set_reclaim_at_cap", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BOOLEAN));
         MH_expanse_sync_blob_map_compact = downcall("expanse_sync_blob_map_compact", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));

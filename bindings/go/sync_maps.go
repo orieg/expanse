@@ -542,9 +542,18 @@ func (m *SyncBlobMap) MemoryUsedEstimate() uint64 {
 
 // MemoryHeld returns the heap bytes the map holds from the system allocator.
 // Read with writers excluded; it waits for a running compaction.
+// MemoryHeldEstimate waits for nothing.
 func (m *SyncBlobMap) MemoryHeld() uint64 {
 	defer runtime.KeepAlive(m)
 	return m.nMemHeld()
+}
+
+// MemoryHeldEstimate is MemoryHeld without the wait: it takes no map lock and
+// waits for no collector lock, so beside a running compaction or busy writers
+// it is an estimate.
+func (m *SyncBlobMap) MemoryHeldEstimate() uint64 {
+	defer runtime.KeepAlive(m)
+	return m.nMemHeldEstimate()
 }
 
 // ShrinkToFit returns the collector's freed index blocks to the system

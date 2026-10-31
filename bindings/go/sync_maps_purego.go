@@ -478,7 +478,10 @@ func (m *SyncBlobMap) nMemUsedEstimate() uint64 {
 	return uint64(expanse_sync_blob_map_mem_used_estimate(m.ptr))
 }
 func (m *SyncBlobMap) nMemHeld() uint64 { return uint64(expanse_sync_blob_map_mem_held(m.ptr)) }
-func (m *SyncBlobMap) nShrink() uint64  { return uint64(expanse_sync_blob_map_shrink_to_fit(m.ptr)) }
+func (m *SyncBlobMap) nMemHeldEstimate() uint64 {
+	return uint64(expanse_sync_blob_map_mem_held_estimate(m.ptr))
+}
+func (m *SyncBlobMap) nShrink() uint64 { return uint64(expanse_sync_blob_map_shrink_to_fit(m.ptr)) }
 func (m *SyncBlobMap) nSetReclaimAtCap(on bool) {
 	expanse_sync_blob_map_set_reclaim_at_cap(m.ptr, on)
 }

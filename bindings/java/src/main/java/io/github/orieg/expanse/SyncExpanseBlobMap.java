@@ -645,6 +645,21 @@ public final class SyncExpanseBlobMap implements AutoCloseable {
     }
 
     /**
+     * An estimate of {@link #memHeld()} that takes no map lock and waits for nothing; it may lag
+     * a running compaction or a busy collector freelist.
+     *
+     * @return bytes
+     */
+    public long memHeldEstimate() {
+        checkOpen();
+        try {
+            return (long) MH_expanse_sync_blob_map_mem_held_estimate.invokeExact(handle);
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    /**
      * Returns the collector's freed index blocks to the system allocator.
      *
      * @return bytes released

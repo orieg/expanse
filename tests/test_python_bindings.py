@@ -1452,6 +1452,7 @@ def test_shared_blobmap_point_ops_across_sizes():
     assert len(m) == len(BLOB_SIZES) - 2
     assert m.mem_used() > 0 and m.mem_used_estimate() > 0
     assert m.mem_held() >= 0 and isinstance(m.shrink_to_fit(), int)
+    assert m.mem_held_estimate() == m.mem_held()
     m.clear()
     assert len(m) == 0 and m.get(2) is None
 

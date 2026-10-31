@@ -123,6 +123,7 @@ class SyncExpanseBlobMapTest {
             assertTrue(m.memUsed() > 0);
             assertTrue(m.memUsedEstimate() > 0);
             assertTrue(m.memHeld() > 0);
+            assertEquals(m.memHeld(), m.memHeldEstimate());
             for (int i = 0; i < 100; i += 2) {
                 assertTrue(m.remove(i));
                 assertFalse(m.remove(i));

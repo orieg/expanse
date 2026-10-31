@@ -1356,7 +1356,8 @@ bool     expanse_blob_map_contains(const ExpanseBlobMap *map, uint64_t key);
  * reader handle.
  *
  * Memory: _mem_used and _mem_held read with writers excluded and wait for a
- * running compaction; _mem_used_estimate takes no lock and waits for nothing.
+ * running compaction; _mem_used_estimate and _mem_held_estimate take no map
+ * lock and wait for nothing.
  * _shrink_to_fit returns the collector's freed index blocks to the system.
  * _set_reclaim_at_cap and _compact are those of expanse_blob_map_* above;
  * _compact returns OK, a refusal, or INVALID_ARGUMENT for a NULL map, and
@@ -1385,8 +1386,10 @@ uint64_t expanse_sync_blob_map_len(const expanse_sync_blob_map_t *map);
 size_t   expanse_sync_blob_map_mem_used(const expanse_sync_blob_map_t *map);
 /* No lock, no wait; may lag a running compaction (see expanse_sync(3)). */
 size_t   expanse_sync_blob_map_mem_used_estimate(const expanse_sync_blob_map_t *map);
-/* Waits for a running compaction and makes writers wait; has no non-blocking form. */
+/* Waits for a running compaction and makes writers wait; poll with _mem_held_estimate. */
 size_t   expanse_sync_blob_map_mem_held(const expanse_sync_blob_map_t *map);
+/* No map lock, no wait; may lag a running compaction or a busy freelist (see expanse_sync(3)). */
+size_t   expanse_sync_blob_map_mem_held_estimate(const expanse_sync_blob_map_t *map);
 size_t   expanse_sync_blob_map_shrink_to_fit(const expanse_sync_blob_map_t *map);
 void     expanse_sync_blob_map_set_reclaim_at_cap(expanse_sync_blob_map_t *map, bool on);
 expanse_blob_status_t expanse_sync_blob_map_compact(expanse_sync_blob_map_t *map);

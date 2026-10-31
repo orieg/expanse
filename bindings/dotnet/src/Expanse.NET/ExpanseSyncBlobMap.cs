@@ -414,6 +414,19 @@ public sealed class ExpanseSyncBlobMap : IDisposable
     }
 
     /// <summary>
+    /// Gets an estimate of <see cref="MemoryHeld"/> that takes no map lock and waits for nothing; it may lag a
+    /// running compaction or a busy collector freelist.
+    /// </summary>
+    public nuint MemoryHeldEstimate
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return NativeMethods.expanse_sync_blob_map_mem_held_estimate(_handle);
+        }
+    }
+
+    /// <summary>
     /// Returns the collector's freed index blocks to the system allocator and returns the bytes released.
     /// </summary>
     public nuint ShrinkToFit()

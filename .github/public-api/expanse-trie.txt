@@ -2701,6 +2701,7 @@ pub fn expanse_trie::sync::SyncExpanseBlobMap::insert(&self, expanse_trie::types
 pub fn expanse_trie::sync::SyncExpanseBlobMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseBlobMap::mem_held(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseBlobMap::mem_held_estimate(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBlobMap::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBlobMap::mem_used_estimate(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBlobMap::new() -> Self

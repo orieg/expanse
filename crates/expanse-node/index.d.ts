@@ -918,8 +918,10 @@ export class SyncExpanseBlobMap {
   memUsed(): bigint;
   /** A bounded-cost estimate of `memUsed()` that takes no lock and waits for nothing; it may lag a running compaction. */
   memUsedEstimate(): bigint;
-  /** Heap bytes held from the global allocator, including the collector's blocks. Read with writers excluded; waits for a running compaction and has no non-blocking form. */
+  /** Heap bytes held from the global allocator, including the collector's blocks. Read with writers excluded; waits for a running compaction; poll with `memHeldEstimate()`. */
   memHeld(): bigint;
+  /** A bounded-cost estimate of `memHeld()` that takes no map lock and waits for nothing; it may lag a running compaction or a busy collector freelist. */
+  memHeldEstimate(): bigint;
   shrinkToFit(): bigint;
   setReclaimAtCap(on: boolean): void;
   reclaimAtCap(): boolean;

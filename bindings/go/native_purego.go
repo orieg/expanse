@@ -258,6 +258,7 @@ var (
 	expanse_sync_blob_map_mem_used              func(mapPtr uintptr) uintptr
 	expanse_sync_blob_map_mem_used_estimate     func(mapPtr uintptr) uintptr
 	expanse_sync_blob_map_mem_held              func(mapPtr uintptr) uintptr
+	expanse_sync_blob_map_mem_held_estimate     func(mapPtr uintptr) uintptr
 	expanse_sync_blob_map_shrink_to_fit         func(mapPtr uintptr) uintptr
 	expanse_sync_blob_map_set_reclaim_at_cap    func(mapPtr uintptr, on bool)
 	expanse_sync_blob_map_compact               func(mapPtr uintptr) int32
@@ -575,6 +576,7 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_sync_blob_map_mem_used, "expanse_sync_blob_map_mem_used"},
 		{&expanse_sync_blob_map_mem_used_estimate, "expanse_sync_blob_map_mem_used_estimate"},
 		{&expanse_sync_blob_map_mem_held, "expanse_sync_blob_map_mem_held"},
+		{&expanse_sync_blob_map_mem_held_estimate, "expanse_sync_blob_map_mem_held_estimate"},
 		{&expanse_sync_blob_map_shrink_to_fit, "expanse_sync_blob_map_shrink_to_fit"},
 		{&expanse_sync_blob_map_set_reclaim_at_cap, "expanse_sync_blob_map_set_reclaim_at_cap"},
 		{&expanse_sync_blob_map_compact, "expanse_sync_blob_map_compact"},

@@ -14,12 +14,13 @@ use expanse::modern::{
     SyncBlobMapReader, expanse_sync_blob_map_compact, expanse_sync_blob_map_contains,
     expanse_sync_blob_map_free, expanse_sync_blob_map_get_into, expanse_sync_blob_map_get_meta,
     expanse_sync_blob_map_insert, expanse_sync_blob_map_len, expanse_sync_blob_map_mem_held,
-    expanse_sync_blob_map_mem_used, expanse_sync_blob_map_mem_used_estimate,
-    expanse_sync_blob_map_new, expanse_sync_blob_map_new_with_capacity,
-    expanse_sync_blob_map_reader_contains, expanse_sync_blob_map_reader_free,
-    expanse_sync_blob_map_reader_get_into, expanse_sync_blob_map_reader_get_meta,
-    expanse_sync_blob_map_reader_new, expanse_sync_blob_map_remove,
-    expanse_sync_blob_map_set_reclaim_at_cap, expanse_sync_blob_map_shrink_to_fit,
+    expanse_sync_blob_map_mem_held_estimate, expanse_sync_blob_map_mem_used,
+    expanse_sync_blob_map_mem_used_estimate, expanse_sync_blob_map_new,
+    expanse_sync_blob_map_new_with_capacity, expanse_sync_blob_map_reader_contains,
+    expanse_sync_blob_map_reader_free, expanse_sync_blob_map_reader_get_into,
+    expanse_sync_blob_map_reader_get_meta, expanse_sync_blob_map_reader_new,
+    expanse_sync_blob_map_remove, expanse_sync_blob_map_set_reclaim_at_cap,
+    expanse_sync_blob_map_shrink_to_fit,
 };
 use expanse_trie::blobmap::BlobView;
 use expanse_trie::sync::SyncExpanseBlobMap;
@@ -226,7 +227,13 @@ fn point_operations_and_return_conventions() {
             used,
             "equal with nothing in flight (SyncExpanseBlobMap::mem_used_estimate)"
         );
-        assert!(expanse_sync_blob_map_mem_held(m) >= used);
+        let held = expanse_sync_blob_map_mem_held(m);
+        assert!(held >= used);
+        assert_eq!(
+            expanse_sync_blob_map_mem_held_estimate(m),
+            held,
+            "equal with nothing in flight (SyncExpanseBlobMap::mem_held_estimate)"
+        );
         assert!(expanse_sync_blob_map_remove(m, 2));
         assert!(!expanse_sync_blob_map_remove(m, 2));
         assert_eq!(expanse_sync_blob_map_compact(m), Status::Ok);
@@ -442,6 +449,7 @@ fn null_handles_write_nothing() {
         assert_eq!(expanse_sync_blob_map_mem_used(null_map), 0);
         assert_eq!(expanse_sync_blob_map_mem_used_estimate(null_map), 0);
         assert_eq!(expanse_sync_blob_map_mem_held(null_map), 0);
+        assert_eq!(expanse_sync_blob_map_mem_held_estimate(null_map), 0);
         assert_eq!(expanse_sync_blob_map_shrink_to_fit(null_map), 0);
         expanse_sync_blob_map_set_reclaim_at_cap(null_map, false);
         assert_eq!(

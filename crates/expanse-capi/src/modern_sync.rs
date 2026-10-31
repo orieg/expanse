@@ -1560,6 +1560,22 @@ pub unsafe extern "C" fn expanse_sync_blob_map_mem_used_estimate(
     unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::mem_used_estimate)
 }
 
+/// [`expanse_sync_blob_map_mem_held`] without the wait: the map's share as
+/// [`expanse_sync_blob_map_mem_used_estimate`] reads it, plus what the epoch
+/// collector holds, read without waiting for any lock
+/// (`SyncExpanseBlobMap::mem_held_estimate`). 0 for a null handle.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_mem_held_estimate(
+    map: *const SyncExpanseBlobMap,
+) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::mem_held_estimate)
+}
+
 /// Turns the reclaim at the capacity cap on (the default) or off; a null
 /// handle is a no-op.
 ///

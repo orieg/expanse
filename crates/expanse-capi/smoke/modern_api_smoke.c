@@ -488,6 +488,7 @@ static void sync_blob_map_smoke(void) {
     assert(expanse_sync_blob_map_mem_used(m) > 0);
     assert(expanse_sync_blob_map_mem_used_estimate(m) == expanse_sync_blob_map_mem_used(m));
     assert(expanse_sync_blob_map_mem_held(m) >= expanse_sync_blob_map_mem_used(m));
+    assert(expanse_sync_blob_map_mem_held_estimate(m) == expanse_sync_blob_map_mem_held(m));
     expanse_sync_blob_map_reader_t *r = expanse_sync_blob_map_reader_new(m);
     assert(expanse_sync_blob_map_reader_get_into(r, 1, buf, sizeof buf, &len, &meta) == EXPANSE_BLOB_OK
            && len == 6 && memcmp(buf, "inline", 6) == 0 && meta == 0);
