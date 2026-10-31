@@ -4961,6 +4961,28 @@ The new arm's first counts put the point-op scan at 3,823 instructions per key o
 
 §33.8.1 says an emptied but linked child "reaches the overflow path, never a wrong answer". At the time it was written the overflow path's fallback, `read_locked` running the single-threaded ordered reads, panicked on such a child (`StrNode::extreme_entry`'s `expect("non-empty node")`), as `with_locked` did on `main`. The single-threaded reads pass over the child since the fix that precedes the point ops (Refs #1143), and the sentence holds from that commit on. `StrCursor` under `with_locked` still stops early at such a child, without a panic; that is outside P33.4.
 
+### 33.10 Amendment A2 to §33 — the batch cursor's attempt shape and its read-set bound (appended 2026-10-31, before any engine code of the batch cursor; §33.1 to §33.9 above are not edited)
+
+Item 2 of §33.1 is the batch cursor. §33.7.3 left open which walk the cursor would port; this section fixes it, and derives its bound, before the code that adds it. Where it differs from §33.1, this section stands. No threshold, cell, void condition or gate of §33.3 to §33.6 changes. Refs #1143.
+
+#### 33.10.1 One drained level per attempt, restart by key
+
+A batch is one attempt. It descends the probe's exact continuations (at each level a sub-map drain from the probe's chunk that finds the chunk first and stops at the child it maps to), then drains one `StrNode` sub-map with the u64 batch drain of §32 (`sync_cursor.rs`, `drain_batch_in`, including the end-bound stop of #1382 and #1385) and copies each entry's key into the batch. The attempt never unwinds. Three outcomes end it with nothing copied, and each is validated (every retained version and the tree word) before the next attempt starts by key with an empty read set:
+
+- the level holds nothing at or after the probe: restart at the smallest key above every key under the level's prefix (the prefix with its trailing `0xFF` bytes dropped and its last byte incremented); at the root this ends the scan;
+- the only entry drained is a suffix that sorts below the probe: restart at the smallest key whose chunk at that level is the next one;
+- the first entry to copy is a child: restart at the child's prefix, which the next attempt descends exactly.
+
+A child met after the batch has entries ends the batch, which resumes from the last key followed by `0x01`, as the point ops' `next_after` does. An emptied but linked child (§33.7.5) is a level that holds nothing, so it is passed over by the first rule: it costs an attempt, not a wrong answer and not an overflow.
+
+#### 33.10.2 The bound
+
+Per attempt: $8d + 6$ versions at path depth $d$, $d + 13$ when every ancestor is a sub-map in leaf state (derived: `scripts/str_cursor_bounds.py::str_cursor_drain_attempt_read_set_bound`). A sub-map drain retains at most 13 branches (derived by enumeration: `submap_drain_read_set_branches`, which equals `olc_bounds.max_ordered_read_set_branches()`), and an exact descent at most 7. The figures equal §33.7.3's `one_seek` attempt row (14, 22, 30, 38, 46 for $d = 1 \dots 5$), which the self-test pins. With the point ops' read set of 128 entries every path of depth 15 or less fits (126 at $d = 15$, 134 at $d = 16$, `str_cursor_max_depth_within_cap`); a deeper attempt that overflows a set that still validates fills that batch under the writer lock at once (§33.7.4). On `paths` (depth 5) the worst case is 46 and the overflow count is expected to be 0.
+
+#### 33.10.3 Bounds and buffers
+
+`[lo, hi)` takes a NUL-free `lo` inclusive and `hi` exclusive; a prefix scan is `[p, p')` with $p'$ the prefix incremented as above, unbounded when $p$ is all `0xFF`. The batch holds at most `BATCH_CAP` = 256 entries and 4,096 key bytes (§33.1), plus a 256-entry scratch for the drained `(chunk, value)` pairs, which §33.1's 8 KiB does not count. A key longer than the arena is copied into a spill buffer as a batch of one. P33.2 and its ceiling of 1.15 (target) are unchanged; the constants of §33.7.6 stay (projected), and only the `instruction-counts` job decides P33.2.
+
 ## 34. Pre-registration for #1280 Item 1 — cause of the four-thread peak in `SyncExpanseBlobMap` (appended 2026-10-04, locked before any run of the builds or instruments below)
 
 > **Section numbering note:** Section 33 was claimed by PR #1373 (A6, thread-local freelist allocation stripe) which merged. This pre-registration uses §34 (peak) and §35 (split).
