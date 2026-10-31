@@ -56,22 +56,10 @@ use crate::types32::{
 /// Slot-capacity class: linear-leaf allocations follow a tail-coarsened schedule
 /// (exact for 1 or 2, multiples of 4 for 3..=16, steps of 8 for 17..=32: 24, 32),
 /// so the allocation size stays derivable from the population alone.
-/// Mirrors the 64-bit `leaf::cap_class`.
-#[inline]
-#[must_use]
-pub(crate) const fn cap_class(pop: usize) -> usize {
-    if pop <= 2 {
-        pop
-    } else if pop <= 16 {
-        (pop + 3) & !3
-    } else if pop <= 24 {
-        24
-    } else if pop <= 32 {
-        32
-    } else {
-        (pop + 3) & !3
-    }
-}
+/// The 64-bit `leaf::cap_class` default ladder, defined once in `common`. The
+/// 32-bit engine keeps it under `ablation-leaf-class-10`, which only the
+/// 64-bit ladder follows.
+pub(crate) use crate::common::cap_class;
 
 /// Allocation size of a set-flavour linear leaf (`key_bytes` per key).
 #[inline]

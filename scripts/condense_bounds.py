@@ -46,7 +46,8 @@ fails when the engine moves (with one negative control per kind of check),
 
   LEAF_CAP, LEAF1_CAP, RAW_ALIGN, BRANCH_L3_CAP, BRANCH_L7_CAP,
   BITMAP_TO_UNCOMPRESSED_THRESHOLD, IMMED_PAYLOAD_BYTES   crates/expanse/src/types.rs
-  cap_class, size_set, size_map                           crates/expanse/src/leaf.rs
+  cap_class (the ladder; leaf::cap_class delegates to it)  crates/expanse/src/common.rs, leaf.rs
+  size_set, size_map                                      crates/expanse/src/leaf.rs
   sub_edges_size (cap_class(n) * 16)                      crates/expanse/src/mutate.rs
   map_immed_max (7 // kb), map_immed_val_size             crates/expanse/src/mutate.rs, mutate_map.rs
   ImmedType::max_count (15 // kb)                         crates/expanse/src/types.rs
@@ -669,7 +670,7 @@ def predicted_retention(n: int, m: int, flavor: str, expanses: int = EXPANSES_64
 # ---------------------------------------------------------------------------
 REPO = Path(__file__).resolve().parent.parent
 SRC = "crates/expanse/src"
-SOURCE_FILES = ("types.rs", "node.rs", "leaf.rs", "mutate.rs", "mutate_map.rs", "alloc.rs")
+SOURCE_FILES = ("types.rs", "node.rs", "common.rs", "leaf.rs", "mutate.rs", "mutate_map.rs", "alloc.rs")
 
 # (file, `pub const` name, the Python value it must equal).
 ENGINE_CONSTS = (
@@ -696,8 +697,12 @@ ENGINE_SIZES = (
 
 # Function bodies the model re-implements, whitespace and comments removed.
 ENGINE_BODIES = (
-    ("leaf.rs", "cap_class",
+    # The ladder is defined once in `common.rs`, which both engines use; the
+    # default `leaf::cap_class` (the first `fn cap_class` in leaf.rs) must
+    # still delegate to it, or the model would pin a ladder nothing calls.
+    ("common.rs", "cap_class",
      "ifpop<=2{pop}elseifpop<=16{(pop+3)&!3}elseifpop<=24{24}elseifpop<=32{32}else{(pop+3)&!3}"),
+    ("leaf.rs", "cap_class", "crate::common::cap_class(pop)"),
     ("leaf.rs", "size_set", "key_bytesasusize*cap_class(pop)"),
     ("leaf.rs", "size_map", "8*cap_class(pop)+key_bytesasusize*cap_class(pop)"),
     ("types.rs", "max_count", "(IMMED_PAYLOAD_BYTES/key_bytesasusize)asu8"),
@@ -809,7 +814,8 @@ def test_engine_sync() -> None:
          "size_of::<BranchU>() == 8192 + CACHE_LINE", "BranchU"),
         ("node.rs", "size_of::<BranchB>() == 2 * CACHE_LINE",
          "size_of::<BranchB>() == 3 * CACHE_LINE", "BranchB"),
-        ("leaf.rs", "} else if pop <= 24 {\n        24", "} else if pop <= 24 {\n        28", "cap_class"),
+        ("common.rs", "} else if pop <= 24 {\n        24", "} else if pop <= 24 {\n        28", "cap_class"),
+        ("leaf.rs", "crate::common::cap_class(pop)", "crate::common::cap_class(pop + 1)", "cap_class"),
         ("mutate.rs", "7 / kb as usize", "6 / kb as usize", "map_immed_max"),
         ("mutate.rs", "if digits <= crate::types::BRANCHB_TO_L7_DOWN {",
          "if digits < crate::types::BRANCHB_TO_L7_DOWN {",
