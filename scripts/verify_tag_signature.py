@@ -29,12 +29,23 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 DEFAULT_KEYRING = ".github/release-signing-keys.asc"
+# The GnuPG program, as `git verify-tag` runs it by default. A module global so
+# that the self-test can name one that is not installed.
+GPG = "gpg"
+# A release tag cannot be replaced: the `release-tags` ruleset refuses updating
+# or deleting a `v*` tag. Nothing is built or published when this gate fails,
+# so the way on is the next version, tagged from main.
+NEXT_VERSION = ("The tag cannot be replaced (the release-tags ruleset refuses it), and nothing is built or "
+                "published yet: bump to the next version with scripts/bump_version.py, merge it, and tag that "
+                "commit with scripts/tag_release.py")
 
 
 class Refused(Exception):
@@ -43,6 +54,14 @@ class Refused(Exception):
 
 def _run(cmd: list[str], cwd: Path | None = None, env: dict | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True)
+
+
+def require_gpg() -> None:
+    """Raises `Refused` naming the fix when GnuPG is not on PATH."""
+    if shutil.which(GPG) is None:
+        raise Refused(f"`{GPG}` is not installed or not on PATH, so no signature can be checked. Install GnuPG "
+                      f"(`sudo apt-get install -y gnupg` on Ubuntu, `brew install gnupg` on macOS), then re-run: "
+                      f"the tag itself was not judged")
 
 
 def _gpg_env(home: Path) -> dict:
@@ -54,14 +73,17 @@ def _gpg_env(home: Path) -> dict:
 def keyring_fingerprints(keyring: Path, home: Path) -> set[str]:
     """Imports `keyring` into the empty GnuPG home `home`; returns its primary-key fingerprints."""
     if not keyring.is_file():
-        raise Refused(f"keyring {keyring} does not exist")
+        raise Refused(f"keyring {keyring} does not exist. Restore {DEFAULT_KEYRING} from main, or pass the "
+                      f"committed keyring with --keyring")
+    require_gpg()
     env = _gpg_env(home)
-    imp = _run(["gpg", "--batch", "--quiet", "--import", str(keyring)], env=env)
+    imp = _run([GPG, "--batch", "--quiet", "--import", str(keyring)], env=env)
     if imp.returncode != 0:
-        raise Refused(f"cannot import {keyring}: {imp.stderr.strip()}")
-    listing = _run(["gpg", "--batch", "--with-colons", "--fingerprint", "--list-keys"], env=env)
+        raise Refused(f"cannot import {keyring}: {imp.stderr.strip()}. The committed keyring is not an "
+                      f"armored public key; re-export it with `gpg --armor --export <fingerprint>` and commit it")
+    listing = _run([GPG, "--batch", "--with-colons", "--fingerprint", "--list-keys"], env=env)
     if listing.returncode != 0:
-        raise Refused(f"cannot list the imported keys: {listing.stderr.strip()}")
+        raise Refused(f"cannot list the imported keys: {listing.stderr.strip()}. Check the GnuPG install, then re-run")
     fingerprints: set[str] = set()
     after_pub = False
     for line in listing.stdout.splitlines():
@@ -74,7 +96,8 @@ def keyring_fingerprints(keyring: Path, home: Path) -> set[str]:
             fingerprints.add(fields[9])
             after_pub = False
     if not fingerprints:
-        raise Refused(f"{keyring} holds no public key")
+        raise Refused(f"{keyring} holds no public key. Commit the release key's public half to it "
+                      f"(`gpg --armor --export <fingerprint>`) in a pull request")
     return fingerprints
 
 
@@ -94,54 +117,83 @@ def valid_signers(status: str) -> set[str]:
     return signers
 
 
+# Each status a signature can carry that refuses it, with what to do next.
 REFUSING_STATUS = {
-    "EXPKEYSIG": "the signing key has expired",
-    "REVKEYSIG": "the signing key is revoked",
-    "EXPSIG": "the signature has expired",
-    "BADSIG": "the signature does not match the tag",
+    "EXPKEYSIG": ("the signing key has expired",
+                  "Extend the key's expiry (`gpg --quick-set-expire <fingerprint> <date>`) and commit the "
+                  "refreshed public key to {keyring} on main"),
+    "REVKEYSIG": ("the signing key is revoked",
+                  "Commit a new release key to {keyring} on main and sign with it"),
+    "EXPSIG": ("the signature has expired",
+               "Sign the next tag without a signature expiry"),
+    "BADSIG": ("the signature does not match the tag",
+               "The tag object changed after it was signed: do not use it"),
 }
+NO_PUBKEY_RE = re.compile(r"^\[GNUPG:\] (?:NO_PUBKEY|ERRSIG) ([0-9A-Fa-f]{16,40})\b", re.M)
+
+
+def unknown_keys(status: str) -> set[str]:
+    """Key IDs of signatures made by a key the GnuPG home does not hold."""
+    if "NO_PUBKEY" not in status:
+        return set()
+    return {m.group(1).upper() for m in NO_PUBKEY_RE.finditer(status)}
 
 
 def verify(repo: Path, tag: str, keyring: Path, sha: str | None = None) -> str:
     """Returns the fingerprint that signed `tag`, or raises `Refused`."""
     kind = _run(["git", "cat-file", "-t", f"refs/tags/{tag}"], cwd=repo)
     if kind.returncode != 0:
-        raise Refused(f"tag {tag} does not exist in {repo}. Create the tag with scripts/tag_release.py and push it")
+        raise Refused(f"tag {tag} does not exist in {repo}. Fetch it first "
+                      f"(`git fetch --no-tags origin refs/tags/{tag}:refs/tags/{tag}`); if it was never "
+                      f"pushed, create it with scripts/tag_release.py and push that one ref")
     if kind.stdout.strip() != "tag":
-        raise Refused(f"{tag} is a lightweight tag ({kind.stdout.strip()}): a release tag is annotated and signed. "
-                      f"Re-create the tag with scripts/tag_release.py, which creates a signed annotated tag")
+        raise Refused(f"{tag} is a lightweight tag ({kind.stdout.strip()}): a release tag is annotated and "
+                      f"signed, which scripts/tag_release.py does. {NEXT_VERSION}")
     with tempfile.TemporaryDirectory(prefix="verify-tag-") as tmp:
         home = Path(tmp)
         home.chmod(0o700)
         trusted = keyring_fingerprints(keyring, home)
-        checked = _run(["git", "verify-tag", "--raw", tag], cwd=repo, env=_gpg_env(home))
+        checked = _run(["git", "-c", f"gpg.program={GPG}", "verify-tag", "--raw", tag],
+                       cwd=repo, env=_gpg_env(home))
+    if "cannot run" in checked.stderr and GPG in checked.stderr:
+        require_gpg()
+        raise Refused(f"git could not run `{GPG}` to verify {tag}: {checked.stderr.strip()[:200]}. "
+                      f"Check the GnuPG install, then re-run: the tag itself was not judged")
     # `--raw` prints GnuPG's status lines on stderr.
     statuses = {parts[1] for parts in (line.split() for line in checked.stderr.splitlines())
                 if len(parts) >= 2 and parts[0] == "[GNUPG:]"}
-    for status, meaning in REFUSING_STATUS.items():
+    for status, (meaning, fix) in REFUSING_STATUS.items():
         if status in statuses:
-            raise Refused(f"{tag}: {meaning} ({status}). Nothing is published yet: update "
-                          f"{keyring.name} or sign again with a current key, under a new tag")
+            raise Refused(f"{tag}: {meaning} ({status}). {fix.format(keyring=keyring.name)}. {NEXT_VERSION}")
     signers = valid_signers(checked.stderr)
     if not signers:
-        unsigned = "no signature found" in checked.stderr or "NODATA" in checked.stderr
-        reason = "is not signed" if unsigned else "has no valid signature from a key in the keyring"
-        raise Refused(f"{tag} {reason}. Create the tag with scripts/tag_release.py, which signs it; "
-                      f"if already signed, ensure the key is committed in {keyring.name} and not expired, and that gpg is installed")
+        unknown = unknown_keys(checked.stderr)
+        if unknown:
+            raise Refused(f"{tag} is signed by key {', '.join(sorted(unknown))}, an unknown key: it is not in "
+                          f"{keyring.name}, the only keys trusted. If it is a release key, commit its public half "
+                          f"to {keyring.name} on main in a pull request; otherwise sign with a key that file "
+                          f"holds. {NEXT_VERSION}")
+        if "no signature found" in checked.stderr or "NODATA" in checked.stderr:
+            raise Refused(f"{tag} is not signed: it is an annotated tag with no signature. Release tags are "
+                          f"created by scripts/tag_release.py, which signs them with `git tag -s`. {NEXT_VERSION}")
+        raise Refused(f"{tag} has no valid signature from a key in the keyring "
+                      f"(GnuPG status: {' '.join(sorted(statuses)) or checked.stderr.strip()[:200] or 'none'}). "
+                      f"Run `git verify-tag --raw {tag}` with {keyring.name} imported to read why")
     if checked.returncode != 0:
         raise Refused(f"{tag}: git verify-tag exited {checked.returncode} although a signature was found: "
                       f"{' '.join(sorted(statuses)) or checked.stderr.strip()[:200]}. Check GnuPG status lines or re-sign the tag")
     accepted = signers & trusted
     if not accepted:
-        raise Refused(f"{tag} is signed by {', '.join(sorted(signers))}, which is not in {keyring.name}. "
-                      f"Add the signing key to {keyring.name} or sign with a trusted key under a new tag")
+        raise Refused(f"{tag} is signed by {', '.join(sorted(signers))}, an unknown key: it is not in "
+                      f"{keyring.name}. Commit its public half to {keyring.name} on main, or sign with a key "
+                      f"that file holds. {NEXT_VERSION}")
     # The signature covers the tag object, whose `tag` line is the name it
     # was signed as; a ref can point at any object.
     obj = _run(["git", "cat-file", "tag", f"refs/tags/{tag}"], cwd=repo).stdout
     named = next((line[4:] for line in obj.split("\n\n", 1)[0].splitlines() if line.startswith("tag ")), None)
     if named != tag:
-        raise Refused(f"the object at refs/tags/{tag} is a signed tag named {named!r}, not {tag!r}. "
-                      f"Re-tag with the correct name or re-create {tag} with scripts/tag_release.py")
+        raise Refused(f"the object at refs/tags/{tag} is a signed tag named {named!r}, not {tag!r}: "
+                      f"a signature made for one name cannot release another. {NEXT_VERSION}")
     if sha is not None:
         peeled = _run(["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"], cwd=repo).stdout.strip()
         if peeled != sha:
@@ -227,8 +279,18 @@ def self_test() -> int:
         except Refused as exc:
             failures.append(f"maintainer-signed tag was refused: {exc}")
         refused("signed by a key outside the keyring", lambda: verify(repo, "v1.0.1", keyring),
-                "no valid signature from a key in the keyring")
-        refused("annotated but unsigned", lambda: verify(repo, "v1.0.2", keyring), "is not signed")
+                "an unknown key: it is not in")
+        refused("signed by a key outside the keyring, naming the key", lambda: verify(repo, "v1.0.1", keyring),
+                other[-16:])
+        refused("annotated but unsigned", lambda: verify(repo, "v1.0.2", keyring),
+                "is not signed: it is an annotated tag with no signature")
+        global GPG
+        saved_gpg = GPG
+        GPG = "gpg-not-installed-for-the-self-test"
+        try:
+            refused("no gpg on PATH", lambda: verify(repo, "v1.0.0", keyring), "is not installed or not on PATH")
+        finally:
+            GPG = saved_gpg
         refused("lightweight tag", lambda: verify(repo, "v1.0.3", keyring), "lightweight tag")
         refused("missing tag", lambda: verify(repo, "v9.9.9", keyring), "does not exist")
         refused("missing keyring", lambda: verify(repo, "v1.0.0", root / "nope.asc"), "does not exist")
@@ -277,7 +339,7 @@ def self_test() -> int:
         os.environ["GNUPGHOME"] = str(gpg_home)
         try:
             refused("signer known to the runner but absent from the keyring",
-                    lambda: verify(repo, "v1.0.0", other_ring), "no valid signature from a key in the keyring")
+                    lambda: verify(repo, "v1.0.0", other_ring), "an unknown key")
         finally:
             if saved is None:
                 del os.environ["GNUPGHOME"]
@@ -303,7 +365,7 @@ def main() -> int:
     if args.self_test:
         return self_test()
     if not args.tag:
-        print("::error::--tag is required", file=sys.stderr)
+        print("::error::--tag is required: pass the release tag, e.g. --tag v1.2.3", file=sys.stderr)
         return 1
     keyring = args.keyring or args.repo / DEFAULT_KEYRING
     try:

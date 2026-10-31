@@ -61,7 +61,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          # The patch release the v0.16.0 canary set up (run 40250368548).
+          python-version: "3.11.17"
 
       - name: Refuse a dispatch that would publish
         # A release is a pushed, signed tag. The signature, lockstep and
@@ -112,6 +113,24 @@ jobs:
           # --sha: the signed tag must name this ref and peel to the commit
           # this run builds, so a tag moved after the push is refused.
           python3 scripts/verify_tag_signature.py --tag "${GITHUB_REF_NAME}" --sha "${GITHUB_SHA}"
+
+      # The curated notes are the signed tag's message (scripts/tag_release.py
+      # --notes-file / --notes-from-pr). They read the tag alone, so a stable
+      # tag without notes fails here, before anything is built; the release job
+      # takes the file from the artifact below and puts it at the top of the
+      # release body, ahead of the list generated from pull-request titles.
+      - name: Read the curated notes from the tag
+        if: github.event_name == 'push'  # a canary dispatch has no tag
+        run: |
+          set -euo pipefail
+          python3 scripts/release_notes.py --tag "${GITHUB_REF_NAME}" --out curated-notes.md
+      - name: Hand the curated notes to the release job
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: curated-notes
+          path: curated-notes.md
+          if-no-files-found: error
 
       - name: Assert manifests are in version lockstep with the tag
         if: github.event_name == 'push'  # no tag to compare on a canary dispatch
@@ -846,16 +865,13 @@ jobs:
           name: release-checksums
           path: artifacts/SHA256SUMS
           if-no-files-found: error
-      # The curated notes are the signed tag's message (scripts/tag_release.py
-      # --notes-file / --notes-from-pr). They lead the release body; the list
-      # generated from pull-request titles follows. A stable tag without notes
-      # fails here, before the release is created.
-      - name: Read the curated notes from the tag
+      # Read from the tag and checked by release-gate, before any build.
+      - name: Download the curated notes
         if: github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
-          python3 scripts/release_notes.py --tag "${GITHUB_REF_NAME}" --out curated-notes.md
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: curated-notes
+          path: notes
       - name: Create Release
         id: release
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
@@ -863,7 +879,7 @@ jobs:
         with:
           files: artifacts/*
           # With both set, the action puts the generated notes after this body.
-          body_path: ${{ github.event_name == 'push' && 'curated-notes.md' || '' }}
+          body_path: ${{ github.event_name == 'push' && 'notes/curated-notes.md' || '' }}
           generate_release_notes: true
           # Created as a draft: nothing is public, and nothing downstream runs,
           # until the uploaded assets have been read back and checked below.
@@ -883,7 +899,7 @@ jobs:
         run: |
           set -euo pipefail
           # By release id, not by tag: the tag lookup does not return a draft.
-          [ -n "${RELEASE_ID}" ] || { echo "::error::the release step reported no release id. Check the Create GitHub Release step output or re-run the release job"; exit 1; }
+          [ -n "${RELEASE_ID}" ] || { echo "::error::the Create Release step reported no release id, so the uploaded assets cannot be read back. Nothing is public and no registry ran. Open the repository's releases page; if a draft for ${GITHUB_REF_NAME} exists, delete it (a draft was never public), then use 'Re-run failed jobs'"; exit 1; }
           mkdir readback
           gh api --paginate "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" \
             --jq '.[] | "\(.id)\t\(.name)"' > assets.tsv
@@ -1039,7 +1055,7 @@ jobs:
           RELEASE_ID: ${{ needs.github-release.outputs.release_id }}
         run: |
           set -euo pipefail
-          [ -n "${RELEASE_ID}" ] || { echo "::error::no release id from the release job. Check that github-release succeeded and set its outputs.release_id, or re-run the release"; exit 1; }
+          [ -n "${RELEASE_ID}" ] || { echo "::error::github-release passed no release_id output, so this step cannot name the draft to publish; the release stays unpublished and no registry ran. Read the Create Release step of github-release for its id output, then use 'Re-run failed jobs' (never 'Re-run all jobs' once a release is published)"; exit 1; }
           gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false \
             --jq '"published \(.tag_name): draft=\(.draft) \(.html_url)"'
       - name: Dispatch PyPI publish (python.yml)
@@ -1291,7 +1307,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          # Derived: a canary skips this job, so no log prints the version it
+          # resolves. It is the one release-gate set up (run 40250368548).
+          python-version: "3.11.17"
 
       # Retries with backoff: registries ingest asynchronously, and the PHP
       # library was absent from Packagist minutes after the v0.5.0 tag and

@@ -164,6 +164,26 @@ def file_problems(path: Path, sums_path: Path) -> list[str]:
     return []
 
 
+# What to do about a problem each command reports. Every one stops the release
+# before anything is public, and says so.
+NEXT_STEP = {
+    "check-local": ("Nothing is uploaded or published yet. A missing archive means its `Build Artifacts "
+                    "(<target>)` leg uploaded nothing: read that job's log, fix it, and use 'Re-run failed jobs'; "
+                    "a digest mismatch means artifacts/ changed after SHA256SUMS was written in the release job"),
+    "check-readback": ("The release is still a draft and no registry ran. Delete the draft on the repository's "
+                       "releases page (it was never public), then use 'Re-run failed jobs': the release job "
+                       "uploads every asset again and reads them back"),
+    "check-file": ("Nothing is published yet. The archive the smoke job downloaded is not the one the release "
+                   "job listed in SHA256SUMS: use 'Re-run failed jobs'; if it repeats, compare the build job's "
+                   "artifact with the release job's SHA256SUMS"),
+}
+
+
+def with_next_step(problem: str, command: str) -> str:
+    """`problem` followed by what to do about it."""
+    return f"{problem}. {NEXT_STEP[command]}"
+
+
 def self_test() -> int:
     failures: list[str] = []
 
@@ -279,6 +299,12 @@ def self_test() -> int:
         (bad_sums / SUMS).write_text("not a checksum line\n")
         check("a malformed SHA256SUMS", "not a sha256sum line" in checksum_problems(bad_sums)[0], True)
 
+    # Every command's problems say what to do next.
+    for command in ("check-local", "check-readback", "check-file"):
+        line = with_next_step("x is missing", command)
+        check(f"{command} names a next step", "'Re-run failed jobs'" in line and line.startswith("x is missing. "),
+              True)
+
     # The real workflow names the legs this check will hold a release to.
     real = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "release.yml"
     try:
@@ -315,7 +341,7 @@ def main() -> int:
             return 1
         found = file_problems(args.file, args.sums)
         for p in found:
-            print(f"::error::{p}")
+            print(f"::error::{with_next_step(p, args.command)}")
         if found:
             return 1
         print(f"release_assets check-file: {args.file.name} matches {args.sums.name}")
@@ -327,7 +353,8 @@ def main() -> int:
         try:
             targets = build_targets(args.workflow)
         except (OSError, ValueError) as exc:
-            print(f"::error::{exc}. Check that {args.workflow} exists and contains the {BUILD_JOB} job with matrix targets")
+            print(f"::error::{exc}. The build targets are read from the `{BUILD_JOB}` matrix of {args.workflow}: "
+                  f"pass the release workflow with --workflow, or restore its `- target:` rows")
             return 1
         found = local_problems(args.dir, targets)
         ok = f"{len(targets)} build target(s) each have one archive; {len(files_in(args.dir))} file(s) match {SUMS}"
@@ -338,7 +365,7 @@ def main() -> int:
         found = readback_problems(args.dir, args.local)
         ok = f"{len(files_in(args.dir))} asset(s) read back from the release match what was uploaded"
     for p in found:
-        print(f"::error::{p}")
+        print(f"::error::{with_next_step(p, args.command)}")
     if found:
         return 1
     print(f"release_assets {args.command}: {ok}")
