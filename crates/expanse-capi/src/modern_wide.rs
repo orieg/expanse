@@ -16,6 +16,167 @@ use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::ordered_bytesmap::{EscapeDecodeError, ExpanseOrderedBytesMap};
 use expanse_trie::strmap::ExpanseStrMap;
 
+/// Generates the point operations of a single-threaded keyed map:
+/// `_insert`, `_get`, `_contains`, `_remove`, `_slot` and `_ins_slot`.
+///
+/// The three keyed maps differ only in the handle type, how the C key is
+/// read (`bytes` for a `(pointer, length)` pair, `cstr` for a C string) and
+/// the engine's membership method. A key the decoder refuses is treated like
+/// a null handle: false or null, nothing written.
+macro_rules! keyed_map {
+    (
+        map: $Map:ty,
+        key: ($($kp:ident: $kt:ty),+) => $decode:expr,
+        what: $what:literal,
+        key_doc: $key_doc:literal,
+        contains_with: $contains_with:ident,
+        insert: $insert:ident,
+        get: $get:ident,
+        contains: $contains:ident,
+        remove: $remove:ident,
+        slot: $slot:ident,
+        ins_slot: $ins_slot:ident $(,)?
+    ) => {
+        /// Stores `key -> value` (see [`expanse_map_insert`] for the return
+        /// convention): true when the key is new; when it replaced an existing
+        /// entry, writes the old value through `old_out` (if non-null) and
+        /// returns false.
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("`map` null or live; ", $key_doc, "; `old_out` null or writable.")]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $insert(
+            map: *mut $Map,
+            $($kp: $kt,)+
+            value: u64,
+            old_out: *mut u64,
+        ) -> bool {
+            // SAFETY: forwarded C contract.
+            unsafe {
+                let (Some(m), Some(k)) = (map.as_mut(), $decode) else {
+                    return false;
+                };
+                match m.insert(k, value) {
+                    Some(old) => {
+                        put(old_out, old);
+                        false
+                    }
+                    None => true,
+                }
+            }
+        }
+
+        #[doc = concat!("Reads the ", $what, "'s value into `value_out`; false if absent.")]
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("Same contract as [`", stringify!($insert), "`].")]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $get(
+            map: *const $Map,
+            $($kp: $kt,)+
+            value_out: *mut u64,
+        ) -> bool {
+            // SAFETY: forwarded C contract.
+            unsafe {
+                let (Some(m), Some(k)) = (map.as_ref(), $decode) else {
+                    return false;
+                };
+                let Some(v) = m.get(k) else {
+                    return false;
+                };
+                put(value_out, v);
+                true
+            }
+        }
+
+        #[doc = concat!("Membership test for a ", $what, ".")]
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("Same contract as [`", stringify!($insert), "`].")]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $contains(
+            map: *const $Map,
+            $($kp: $kt,)+
+        ) -> bool {
+            // SAFETY: forwarded C contract.
+            unsafe {
+                let (Some(m), Some(k)) = (map.as_ref(), $decode) else {
+                    return false;
+                };
+                m.$contains_with(k)
+            }
+        }
+
+        #[doc = concat!("Removes the ", $what, ", reporting its value; false if absent.")]
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("Same contract as [`", stringify!($insert), "`].")]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $remove(
+            map: *mut $Map,
+            $($kp: $kt,)+
+            old_out: *mut u64,
+        ) -> bool {
+            // SAFETY: forwarded C contract.
+            unsafe {
+                let (Some(m), Some(k)) = (map.as_mut(), $decode) else {
+                    return false;
+                };
+                let Some(v) = m.remove(k) else {
+                    return false;
+                };
+                put(old_out, v);
+                true
+            }
+        }
+
+        #[doc = concat!("Writable value slot of the ", $what, ", or null if absent.")]
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("Same contract as [`", stringify!($insert), "`]. The returned slot pointer")]
+        /// is valid until the next structural mutation of `map`.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $slot(
+            map: *const $Map,
+            $($kp: $kt,)+
+        ) -> *mut u64 {
+            // SAFETY: forwarded C contract.
+            unsafe {
+                let (Some(m), Some(k)) = (map.as_ref(), $decode) else {
+                    return core::ptr::null_mut();
+                };
+                m.get_slot_ptr(k)
+                    .map_or(core::ptr::null_mut(), core::ptr::NonNull::as_ptr)
+            }
+        }
+
+        #[doc = concat!("Inserts the ", $what, " with value 0 if absent and returns its slot.")]
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("Same contract as [`", stringify!($insert), "`]. The returned slot pointer")]
+        /// is valid until the next structural mutation of `map`.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $ins_slot(
+            map: *mut $Map,
+            $($kp: $kt,)+
+        ) -> *mut u64 {
+            // SAFETY: forwarded C contract.
+            unsafe {
+                let (Some(m), Some(k)) = (map.as_mut(), $decode) else {
+                    return core::ptr::null_mut();
+                };
+                m.ins_slot(k).as_ptr()
+            }
+        }
+    };
+}
+
 // ---------------------------------------------------------------------
 // expanse_bytesmap_t — unordered bytes -> u64 (cf. JudyHS)
 // ---------------------------------------------------------------------
@@ -30,146 +191,19 @@ container!(
     "byte-string map"
 );
 
-/// Stores `key -> value` (see [`expanse_map_insert`] for the return
-/// convention). Embedded NULs are ordinary bytes.
-///
-/// # Safety
-///
-/// `map` null or live; `key` readable for `len` bytes (null only when
-/// `len == 0`); `old_out` null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_insert(
-    map: *mut ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-    value: u64,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
-            return false;
-        };
-        match m.insert(k, value) {
-            Some(old) => {
-                put(old_out, old);
-                false
-            }
-            None => true,
-        }
-    }
-}
-
-/// Reads the byte string's value into `value_out`; false if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_get(
-    map: *const ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), bytes(key, len)) else {
-            return false;
-        };
-        let Some(v) = m.get(k) else {
-            return false;
-        };
-        put(value_out, v);
-        true
-    }
-}
-
-/// Membership test for byte strings.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_contains(
-    map: *const ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), bytes(key, len)) else {
-            return false;
-        };
-        m.contains_key(k)
-    }
-}
-
-/// Removes the byte string, reporting its value; false if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_remove(
-    map: *mut ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
-            return false;
-        };
-        let Some(v) = m.remove(k) else {
-            return false;
-        };
-        put(old_out, v);
-        true
-    }
-}
-
-/// Writable value slot of the byte string, or null if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_slot(
-    map: *const ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-) -> *mut u64 {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), bytes(key, len)) else {
-            return core::ptr::null_mut();
-        };
-        m.get_slot_ptr(k)
-            .map_or(core::ptr::null_mut(), core::ptr::NonNull::as_ptr)
-    }
-}
-
-/// Inserts the byte string with value 0 if absent and returns its slot.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_ins_slot(
-    map: *mut ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-) -> *mut u64 {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
-            return core::ptr::null_mut();
-        };
-        m.ins_slot(k).as_ptr()
-    }
-}
+keyed_map!(
+    map: ExpanseBytesMap,
+    key: (key: *const c_void, len: usize) => bytes(key, len),
+    what: "byte string",
+    key_doc: "`key` readable for `len` bytes (null only when `len == 0`); embedded NULs are ordinary bytes",
+    contains_with: contains_key,
+    insert: expanse_bytesmap_insert,
+    get: expanse_bytesmap_get,
+    contains: expanse_bytesmap_contains,
+    remove: expanse_bytesmap_remove,
+    slot: expanse_bytesmap_slot,
+    ins_slot: expanse_bytesmap_ins_slot,
+);
 
 /// Callback function type for [`expanse_bytesmap_for_each`].
 /// Returns `true` to continue iteration, or `false` to terminate early.
@@ -224,140 +258,19 @@ reclaim!(
     "string map"
 );
 
-/// Stores `key -> value`. Returns true when the key is new; when it
-/// replaced an existing entry, writes the old value through `old_out`
-/// (if non-null) and returns false.
-///
-/// # Safety
-///
-/// `map` null or live; `key` valid NUL-terminated C string; `old_out` null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_insert(
-    map: *mut ExpanseStrMap,
-    key: *const c_char,
-    value: u64,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
-            return false;
-        };
-        match m.insert(k, value) {
-            Some(old) => {
-                put(old_out, old);
-                false
-            }
-            None => true,
-        }
-    }
-}
-
-/// Reads the string's value into `value_out`; false if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_get(
-    map: *const ExpanseStrMap,
-    key: *const c_char,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), cstr(key)) else {
-            return false;
-        };
-        let Some(v) = m.get(k) else {
-            return false;
-        };
-        put(value_out, v);
-        true
-    }
-}
-
-/// Membership test for NUL-terminated C strings.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_contains(
-    map: *const ExpanseStrMap,
-    key: *const c_char,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), cstr(key)) else {
-            return false;
-        };
-        m.contains_key(k)
-    }
-}
-
-/// Removes the string, reporting its value; false if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_remove(
-    map: *mut ExpanseStrMap,
-    key: *const c_char,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
-            return false;
-        };
-        let Some(v) = m.remove(k) else {
-            return false;
-        };
-        put(old_out, v);
-        true
-    }
-}
-
-/// Writable value slot of the string, or null if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_slot(
-    map: *const ExpanseStrMap,
-    key: *const c_char,
-) -> *mut u64 {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), cstr(key)) else {
-            return core::ptr::null_mut();
-        };
-        m.get_slot_ptr(k)
-            .map_or(core::ptr::null_mut(), core::ptr::NonNull::as_ptr)
-    }
-}
-
-/// Inserts the string with value 0 if absent and returns its slot.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_ins_slot(
-    map: *mut ExpanseStrMap,
-    key: *const c_char,
-) -> *mut u64 {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
-            return core::ptr::null_mut();
-        };
-        m.ins_slot(k).as_ptr()
-    }
-}
+keyed_map!(
+    map: ExpanseStrMap,
+    key: (key: *const c_char) => cstr(key),
+    what: "string",
+    key_doc: "`key` a valid NUL-terminated C string",
+    contains_with: contains_key,
+    insert: expanse_strmap_insert,
+    get: expanse_strmap_get,
+    contains: expanse_strmap_contains,
+    remove: expanse_strmap_remove,
+    slot: expanse_strmap_slot,
+    ins_slot: expanse_strmap_ins_slot,
+);
 
 /// Generates a string map navigation entry point returning `bool` + key/value.
 macro_rules! strmap_nav {
@@ -653,148 +566,19 @@ reclaim!(
     "ordered byte-string map"
 );
 
-/// Stores `key -> value` (see [`expanse_map_insert`] for the return
-/// convention). Embedded NULs and arbitrary bytes are handled transparently.
-///
-/// # Safety
-///
-/// `map` null or live; `key` readable for `len` bytes (null only when
-/// `len == 0`); `old_out` null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_ordered_bytesmap_insert(
-    map: *mut ExpanseOrderedBytesMap,
-    key: *const c_void,
-    len: usize,
-    value: u64,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
-            return false;
-        };
-        match m.insert(k, value) {
-            Some(old) => {
-                put(old_out, old);
-                false
-            }
-            None => true,
-        }
-    }
-}
-
-/// Reads the byte string's value into `value_out`; false if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_ordered_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_ordered_bytesmap_get(
-    map: *const ExpanseOrderedBytesMap,
-    key: *const c_void,
-    len: usize,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), bytes(key, len)) else {
-            return false;
-        };
-        let Some(v) = m.get(k) else {
-            return false;
-        };
-        put(value_out, v);
-        true
-    }
-}
-
-/// Membership test for arbitrary byte strings.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_ordered_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_ordered_bytesmap_contains(
-    map: *const ExpanseOrderedBytesMap,
-    key: *const c_void,
-    len: usize,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), bytes(key, len)) else {
-            return false;
-        };
-        m.contains(k)
-    }
-}
-
-/// Removes the byte string, reporting its value; false if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_ordered_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_ordered_bytesmap_remove(
-    map: *mut ExpanseOrderedBytesMap,
-    key: *const c_void,
-    len: usize,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
-            return false;
-        };
-        let Some(v) = m.remove(k) else {
-            return false;
-        };
-        put(old_out, v);
-        true
-    }
-}
-
-/// Writable value slot of the byte string, or null if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_ordered_bytesmap_insert`]. The returned slot pointer
-/// is valid until the next structural mutation of `map`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_ordered_bytesmap_slot(
-    map: *const ExpanseOrderedBytesMap,
-    key: *const c_void,
-    len: usize,
-) -> *mut u64 {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), bytes(key, len)) else {
-            return core::ptr::null_mut();
-        };
-        m.get_slot_ptr(k)
-            .map_or(core::ptr::null_mut(), core::ptr::NonNull::as_ptr)
-    }
-}
-
-/// Inserts the byte string with value 0 if absent and returns its slot.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_ordered_bytesmap_insert`]. The returned slot pointer
-/// is valid until the next structural mutation of `map`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_ordered_bytesmap_ins_slot(
-    map: *mut ExpanseOrderedBytesMap,
-    key: *const c_void,
-    len: usize,
-) -> *mut u64 {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
-            return core::ptr::null_mut();
-        };
-        m.ins_slot(k).as_ptr()
-    }
-}
+keyed_map!(
+    map: ExpanseOrderedBytesMap,
+    key: (key: *const c_void, len: usize) => bytes(key, len),
+    what: "byte string",
+    key_doc: "`key` readable for `len` bytes (null only when `len == 0`); embedded NULs are ordinary bytes",
+    contains_with: contains,
+    insert: expanse_ordered_bytesmap_insert,
+    get: expanse_ordered_bytesmap_get,
+    contains: expanse_ordered_bytesmap_contains,
+    remove: expanse_ordered_bytesmap_remove,
+    slot: expanse_ordered_bytesmap_slot,
+    ins_slot: expanse_ordered_bytesmap_ins_slot,
+);
 
 /// Status returned by `expanse_ordered_bytesmap_*` navigation functions.
 /// ABI: a C `enum` (int).

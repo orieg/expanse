@@ -39,6 +39,38 @@ unsafe fn set_err(pj: *mut JError, code: c_int) {
     }
 }
 
+/// The shared body of the four `*FreeArray` entry points. A null `pparray`
+/// sets `JU_ERRNO_NULLPPARRAY` and returns 0; an empty array returns 0;
+/// otherwise `release` takes the tree, reports the bytes freed and drops
+/// it, and the caller's word is nulled. Each entry point keeps its own
+/// byte count, which is what differs between them.
+///
+/// # Safety
+///
+/// `pparray` must be null or a valid pointer to the caller's array word,
+/// which is null or a `T` handle produced by these entry points; `pj` null
+/// or a valid `JError`.
+#[inline(always)]
+unsafe fn free_array<T>(
+    pparray: *mut *mut c_void,
+    pj: *mut JError,
+    release: impl FnOnce(Box<T>) -> Word,
+) -> Word {
+    // SAFETY: per this function's contract.
+    unsafe {
+        if pparray.is_null() {
+            set_err(pj, JU_ERRNO_NULLPPARRAY);
+            return 0;
+        }
+        if (*pparray).is_null() {
+            return 0;
+        }
+        let bytes = release(Box::from_raw((*pparray).cast::<T>()));
+        *pparray = null_mut();
+        bytes
+    }
+}
+
 /// Finds the smallest absent key `>= from`, using rank queries — shared by
 /// the four `*Empty` search families. `count_range` is inclusive.
 fn first_absent(
@@ -329,19 +361,11 @@ judy1_empty!(
 pub unsafe extern "C" fn Judy1FreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
     // SAFETY: forwarded C contract.
     unsafe {
-        if pparray.is_null() {
-            set_err(pj, JU_ERRNO_NULLPPARRAY);
-            return 0;
-        }
-        if (*pparray).is_null() {
-            return 0;
-        }
-        let mut boxed = Box::from_raw((*pparray).cast::<ExpanseSet>());
-        let bytes = boxed.mem_used() + size_of::<ExpanseSet>();
-        boxed.clear_plain();
-        drop(boxed);
-        *pparray = null_mut();
-        bytes as Word
+        free_array(pparray, pj, |mut boxed: Box<ExpanseSet>| {
+            let bytes = boxed.mem_used() + size_of::<ExpanseSet>();
+            boxed.clear_plain();
+            bytes as Word
+        })
     }
 }
 
@@ -620,19 +644,11 @@ judyl_empty!(
 pub unsafe extern "C" fn JudyLFreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
     // SAFETY: forwarded C contract.
     unsafe {
-        if pparray.is_null() {
-            set_err(pj, JU_ERRNO_NULLPPARRAY);
-            return 0;
-        }
-        if (*pparray).is_null() {
-            return 0;
-        }
-        let mut boxed = Box::from_raw((*pparray).cast::<ExpanseMap>());
-        let bytes = boxed.mem_used() + size_of::<ExpanseMap>();
-        boxed.clear_plain();
-        drop(boxed);
-        *pparray = null_mut();
-        bytes as Word
+        free_array(pparray, pj, |mut boxed: Box<ExpanseMap>| {
+            let bytes = boxed.mem_used() + size_of::<ExpanseMap>();
+            boxed.clear_plain();
+            bytes as Word
+        })
     }
 }
 
@@ -829,18 +845,9 @@ judysl_nav!(
 pub unsafe extern "C" fn JudySLFreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
     // SAFETY: forwarded C contract.
     unsafe {
-        if pparray.is_null() {
-            set_err(pj, JU_ERRNO_NULLPPARRAY);
-            return 0;
-        }
-        if (*pparray).is_null() {
-            return 0;
-        }
-        let mut boxed = Box::from_raw((*pparray).cast::<ExpanseStrMap>());
-        let bytes = boxed.clear_plain() + size_of::<ExpanseStrMap>() as u64;
-        drop(boxed);
-        *pparray = null_mut();
-        bytes as Word
+        free_array(pparray, pj, |mut boxed: Box<ExpanseStrMap>| {
+            (boxed.clear_plain() + size_of::<ExpanseStrMap>() as u64) as Word
+        })
     }
 }
 
@@ -953,17 +960,8 @@ pub unsafe extern "C" fn JudyHSDel(
 pub unsafe extern "C" fn JudyHSFreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
     // SAFETY: forwarded C contract.
     unsafe {
-        if pparray.is_null() {
-            set_err(pj, JU_ERRNO_NULLPPARRAY);
-            return 0;
-        }
-        if (*pparray).is_null() {
-            return 0;
-        }
-        let boxed = Box::from_raw((*pparray).cast::<ExpanseBytesMap>());
-        let bytes = boxed.mem_used() + size_of::<ExpanseBytesMap>();
-        drop(boxed);
-        *pparray = null_mut();
-        bytes as Word
+        free_array(pparray, pj, |boxed: Box<ExpanseBytesMap>| {
+            (boxed.mem_used() + size_of::<ExpanseBytesMap>()) as Word
+        })
     }
 }
