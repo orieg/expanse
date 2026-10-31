@@ -4008,8 +4008,8 @@ fn built_sync_path_strmap(dist: &str) -> (SyncExpanseStrMap, Vec<Vec<u8>>) {
 // Full ascending scan through a shared string map via with_locked (#1143).
 // Today's only route for an ordered scan on SyncExpanseStrMap: acquires the writer lock,
 // quiesces optimistic writers, and walks the single-threaded StrCursor.
-// Baseline for #1143; the optimistic batch cursor arm sync_strmap_scan will be added
-// in Stage 2 together with the code it measures.
+// Baseline for #1143, which `sync_strmap_scan` (the optimistic batch cursor) is
+// measured against.
 #[library_benchmark]
 #[bench::paths(args = ("paths",), setup = built_sync_path_strmap)]
 #[bench::paths_dense(args = ("paths_dense",), setup = built_sync_path_strmap)]
@@ -4077,6 +4077,31 @@ fn sync_strmap_scan_pointops(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
             sink ^= k.len() as u64 ^ v;
             n += 1;
             at = rd.next_after(black_box(tk(&k)));
+        }
+    }
+    assert_eq!(n, POP as u64, "the scan visits every entry once");
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Full ascending scan through a shared string map by the validated batch
+// cursor (#1143): `StrReader::cursor`, which copies up to 256 entries and 4 KiB
+// of key bytes per optimistic read and resumes by key between batches
+// (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.10). The arm §33.5
+// registers for P33.2; same setup, keys and ops count as
+// `sync_strmap_scan_locked`, its comparator.
+#[library_benchmark]
+#[bench::paths(args = ("paths",), setup = built_sync_path_strmap)]
+#[bench::paths_dense(args = ("paths_dense",), setup = built_sync_path_strmap)]
+fn sync_strmap_scan(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, _) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    {
+        let rd = map.reader();
+        let mut cur = rd.cursor();
+        while let Some((k, v)) = cur.next() {
+            sink ^= k.len() as u64 ^ v;
+            n += 1;
         }
     }
     assert_eq!(n, POP as u64, "the scan visits every entry once");
@@ -4714,6 +4739,7 @@ library_benchmark_group!(
         sync_strmap_scan_locked,
         sync_strmap_next_after_scan_locked,
         sync_strmap_scan_pointops,
+        sync_strmap_scan,
         sync_strmap_mem_used,
         sync_bytesmap_insert,
         sync_bytesmap_remove,

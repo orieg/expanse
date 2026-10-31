@@ -1925,6 +1925,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_strmap_mem_used` | `routes`, `short` | 4 |
 | `cost` | `sync_strmap_next_after_scan_locked` | `paths`, `paths_dense` | 50,000 |
 | `cost` | `sync_strmap_remove` | `routes` | 50,000 |
+| `cost` | `sync_strmap_scan` | `paths`, `paths_dense` | 50,000 |
 | `cost` | `sync_strmap_scan_locked` | `paths`, `paths_dense` | 50,000 |
 | `cost` | `sync_strmap_scan_pointops` | `paths`, `paths_dense` | 50,000 |
 | `cost` | `sync_strmap_update` | `routes` | 50,000 |
