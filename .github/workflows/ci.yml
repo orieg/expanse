@@ -62,6 +62,7 @@ jobs:
       tooling: ${{ steps.filter.outputs.tooling }}
       perf-tooling: ${{ steps.filter.outputs.perf-tooling }}
       concurrency-instrument: ${{ steps.filter.outputs.concurrency-instrument }}
+      ablation-plan: ${{ steps.filter.outputs.ablation-plan }}
       ycsb-concurrent-instrument: ${{ steps.filter.outputs.ycsb-concurrent-instrument }}
       visualizer: ${{ steps.filter.outputs.visualizer }}
       python: ${{ steps.filter.outputs.python }}
@@ -247,6 +248,11 @@ jobs:
             # the driver's own directory, so they are named here: a signature
             # change in any of the three breaks the instrument, and this is
             # the only job that would catch it.
+            # The script that plans every ablation-clippy configuration. A
+            # change to it compiles nothing, so it is outside `rust-src`, but
+            # the job it plans is the only place its plan is executed.
+            ablation-plan:
+              - 'scripts/check_ablation_clippy.py'
             concurrency-instrument:
               - 'docs/benchmarks/concurrency/scripts/writer_scaling.py'
               - 'crates/expanse/examples/writer_scaling.rs'
@@ -374,7 +380,7 @@ jobs:
     # filter lint does not read would run none of that filter's lanes.
     # `scripts/check_ci_filters.py` fails when a gated job reads a filter
     # this condition does not.
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || needs.detect-changes.outputs.concurrency-instrument == 'true' || needs.detect-changes.outputs.ycsb-concurrent-instrument == 'true' || needs.detect-changes.outputs.python == 'true' || needs.detect-changes.outputs.node == 'true' || needs.detect-changes.outputs.dotnet == 'true' || needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.integrations == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || needs.detect-changes.outputs.concurrency-instrument == 'true' || needs.detect-changes.outputs.ablation-plan == 'true' || needs.detect-changes.outputs.ycsb-concurrent-instrument == 'true' || needs.detect-changes.outputs.python == 'true' || needs.detect-changes.outputs.node == 'true' || needs.detect-changes.outputs.dotnet == 'true' || needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.integrations == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -528,6 +534,7 @@ jobs:
           python3 scripts/check_chart_themes.py --self-test
           python3 scripts/check_chart_layout.py --self-test
           python3 scripts/svg_helpers.py --self-test
+          python3 scripts/_common.py --self-test
           python3 scripts/check_bench_shapes.py --self-test
           # bench_pin.sh's refusal paths (no taskset, a pin that does not hold,
           # a mask including an E-core) run against a synthetic topology, so
@@ -682,7 +689,7 @@ jobs:
   ablation-clippy:
     name: Core / Ablation Features Clippy
     needs: [detect-changes, fast-lane]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|ablation-clippy|')
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.ablation-plan == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|ablation-clippy|')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
