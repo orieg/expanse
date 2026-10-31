@@ -5,343 +5,244 @@ using Microsoft.Win32.SafeHandles;
 namespace Expanse.Native;
 
 /// <summary>
-/// SafeHandle wrapping an unmanaged <c>expanse_set_t</c> pointer.
+/// Shared base of the libexpanse SafeHandles: an owned native pointer, invalid
+/// when zero or minus one, released through the container's <c>*_free</c>
+/// function. Only this assembly can derive from it.
 /// </summary>
-public sealed class SafeExpanseSetHandle : SafeHandleZeroOrMinusOneIsInvalid
+public abstract class ExpanseSafeHandle : SafeHandleZeroOrMinusOneIsInvalid
 {
-    public SafeExpanseSetHandle() : base(true) { }
+    /// <summary>An owning handle, set by the P/Invoke marshaller.</summary>
+    private protected ExpanseSafeHandle() : base(true) { }
 
-    public SafeExpanseSetHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    /// <summary>Wraps an existing native pointer.</summary>
+    private protected ExpanseSafeHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
     {
         SetHandle(handle);
     }
 
-    protected override bool ReleaseHandle()
+    /// <summary>Calls the container's <c>*_free</c> function on the pointer.</summary>
+    private protected abstract void Free(IntPtr handle);
+
+    /// <inheritdoc />
+    protected sealed override bool ReleaseHandle()
     {
-        NativeMethods.expanse_set_free(handle);
+        Free(handle);
         return true;
     }
+}
+
+/// <summary>
+/// SafeHandle wrapping an unmanaged <c>expanse_set_t</c> pointer.
+/// </summary>
+public sealed class SafeExpanseSetHandle : ExpanseSafeHandle
+{
+    public SafeExpanseSetHandle() { }
+
+    public SafeExpanseSetHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
+
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_set_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_map_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseMapHandle : ExpanseSafeHandle
 {
-    public SafeExpanseMapHandle() : base(true) { }
+    public SafeExpanseMapHandle() { }
 
-    public SafeExpanseMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseMapHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_map_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_map_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_strmap_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseStrMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseStrMapHandle : ExpanseSafeHandle
 {
-    public SafeExpanseStrMapHandle() : base(true) { }
+    public SafeExpanseStrMapHandle() { }
 
-    public SafeExpanseStrMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseStrMapHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_strmap_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_strmap_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_bytesmap_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseBytesMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseBytesMapHandle : ExpanseSafeHandle
 {
-    public SafeExpanseBytesMapHandle() : base(true) { }
+    public SafeExpanseBytesMapHandle() { }
 
-    public SafeExpanseBytesMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseBytesMapHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_bytesmap_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_bytesmap_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_ordered_bytesmap_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseOrderedBytesMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseOrderedBytesMapHandle : ExpanseSafeHandle
 {
-    public SafeExpanseOrderedBytesMapHandle() : base(true) { }
+    public SafeExpanseOrderedBytesMapHandle() { }
 
-    public SafeExpanseOrderedBytesMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseOrderedBytesMapHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_ordered_bytesmap_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_ordered_bytesmap_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>ExpanseBlobMap</c> pointer.
 /// </summary>
-public sealed class SafeExpanseBlobMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseBlobMapHandle : ExpanseSafeHandle
 {
-    public SafeExpanseBlobMapHandle() : base(true) { }
+    public SafeExpanseBlobMapHandle() { }
 
-    public SafeExpanseBlobMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseBlobMapHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_blob_map_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_blob_map_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_set_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncSetHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncSetHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncSetHandle() : base(true) { }
+    public SafeExpanseSyncSetHandle() { }
 
-    public SafeExpanseSyncSetHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncSetHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_set_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_set_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_set_reader_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncSetReaderHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncSetReaderHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncSetReaderHandle() : base(true) { }
+    public SafeExpanseSyncSetReaderHandle() { }
 
-    public SafeExpanseSyncSetReaderHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncSetReaderHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_set_reader_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_set_reader_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_map_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncMapHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncMapHandle() : base(true) { }
+    public SafeExpanseSyncMapHandle() { }
 
-    public SafeExpanseSyncMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncMapHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_map_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_map_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_map_reader_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncMapReaderHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncMapReaderHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncMapReaderHandle() : base(true) { }
+    public SafeExpanseSyncMapReaderHandle() { }
 
-    public SafeExpanseSyncMapReaderHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncMapReaderHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_map_reader_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_map_reader_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_strmap_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncStrMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncStrMapHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncStrMapHandle() : base(true) { }
+    public SafeExpanseSyncStrMapHandle() { }
 
-    public SafeExpanseSyncStrMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncStrMapHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_strmap_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_strmap_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_strmap_reader_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncStrMapReaderHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncStrMapReaderHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncStrMapReaderHandle() : base(true) { }
+    public SafeExpanseSyncStrMapReaderHandle() { }
 
-    public SafeExpanseSyncStrMapReaderHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncStrMapReaderHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_strmap_reader_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_strmap_reader_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_bytesmap_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncBytesMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncBytesMapHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncBytesMapHandle() : base(true) { }
+    public SafeExpanseSyncBytesMapHandle() { }
 
-    public SafeExpanseSyncBytesMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncBytesMapHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_bytesmap_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_bytesmap_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_bytesmap_reader_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncBytesMapReaderHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncBytesMapReaderHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncBytesMapReaderHandle() : base(true) { }
+    public SafeExpanseSyncBytesMapReaderHandle() { }
 
-    public SafeExpanseSyncBytesMapReaderHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncBytesMapReaderHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_bytesmap_reader_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_bytesmap_reader_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_ordered_bytesmap_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncOrderedBytesMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncOrderedBytesMapHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncOrderedBytesMapHandle() : base(true) { }
+    public SafeExpanseSyncOrderedBytesMapHandle() { }
 
-    public SafeExpanseSyncOrderedBytesMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncOrderedBytesMapHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_ordered_bytesmap_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_ordered_bytesmap_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_ordered_bytesmap_reader_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncOrderedBytesMapReaderHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncOrderedBytesMapReaderHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncOrderedBytesMapReaderHandle() : base(true) { }
+    public SafeExpanseSyncOrderedBytesMapReaderHandle() { }
 
-    public SafeExpanseSyncOrderedBytesMapReaderHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncOrderedBytesMapReaderHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_ordered_bytesmap_reader_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_ordered_bytesmap_reader_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_blob_map_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncBlobMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncBlobMapHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncBlobMapHandle() : base(true) { }
+    public SafeExpanseSyncBlobMapHandle() { }
 
-    public SafeExpanseSyncBlobMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncBlobMapHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_blob_map_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_blob_map_free(handle);
 }
 
 /// <summary>
 /// SafeHandle wrapping an unmanaged <c>expanse_sync_blob_map_reader_t</c> pointer.
 /// </summary>
-public sealed class SafeExpanseSyncBlobMapReaderHandle : SafeHandleZeroOrMinusOneIsInvalid
+public sealed class SafeExpanseSyncBlobMapReaderHandle : ExpanseSafeHandle
 {
-    public SafeExpanseSyncBlobMapReaderHandle() : base(true) { }
+    public SafeExpanseSyncBlobMapReaderHandle() { }
 
-    public SafeExpanseSyncBlobMapReaderHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
-    {
-        SetHandle(handle);
-    }
+    public SafeExpanseSyncBlobMapReaderHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
 
-    protected override bool ReleaseHandle()
-    {
-        NativeMethods.expanse_sync_blob_map_reader_free(handle);
-        return true;
-    }
+    private protected override void Free(IntPtr handle) => NativeMethods.expanse_sync_blob_map_reader_free(handle);
 }
