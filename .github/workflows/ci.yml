@@ -375,7 +375,12 @@ jobs:
     # `scripts/check_ci_filters.py` fails when a gated job reads a filter
     # this condition does not.
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || needs.detect-changes.outputs.concurrency-instrument == 'true' || needs.detect-changes.outputs.ycsb-concurrent-instrument == 'true' || needs.detect-changes.outputs.python == 'true' || needs.detect-changes.outputs.node == 'true' || needs.detect-changes.outputs.dotnet == 'true' || needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.integrations == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
-    runs-on: ubuntu-24.04
+    # TEMPORARY (Refs #1622): 26.04 evidence leg, removed before review.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     env:
       PR_BODY: ${{ github.event.pull_request.body }}
@@ -988,7 +993,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        os: [ubuntu-24.04, ubuntu-26.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
@@ -2711,6 +2716,8 @@ jobs:
           - { os: macos-latest, php-version: '8.3' }
           - { os: windows-latest, php-version: '8.2' }
           - { os: windows-latest, php-version: '8.3' }
+        include:
+          - { os: ubuntu-26.04, php-version: '8.4' }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
