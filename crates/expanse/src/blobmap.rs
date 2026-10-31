@@ -1237,6 +1237,12 @@ impl BlobArena {
     /// [`slot_word_value`] gives one (`hot_meta == 0`, and `<= 7` bytes or
     /// compressible), otherwise allocated in the arena returning an `ArenaMeta`
     /// slot.
+    // Consumers: the concurrent wrapper's optimistic writers (`sync`) and
+    // tests.
+    #[cfg(any(
+        test,
+        all(feature = "std", not(feature = "ablation-blob-serial-writers"))
+    ))]
     #[inline(always)]
     pub(crate) fn prepare_slot(
         &mut self,
@@ -1825,8 +1831,10 @@ impl ExpanseBlobMap {
         self.index.set_tree_pop(pop);
     }
 
+    // The concurrent wrapper calls `BlobArena::prepare_slot` directly; this
+    // forwarder serves the arena hold-time test.
+    #[cfg(test)]
     #[inline(always)]
-    #[allow(dead_code)]
     pub(crate) fn prepare_slot(
         &mut self,
         data: &[u8],

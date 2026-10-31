@@ -298,14 +298,11 @@ impl<const MAP: bool> RawIter<MAP> {
                     let (keys_buf, vals_buf) = if MAP {
                         let k = crate::mutate::immed_map_keys(&cur_edge, im);
                         let mut v = [0u64; 15];
-                        if n == 1 {
-                            v[0] = u64::from_le_bytes(cur_edge.imm_bytes());
-                        } else {
-                            let v_ptr = cur_edge.node_ptr().cast::<u64>();
-                            for (i, val) in v.iter_mut().enumerate().take(n as usize) {
-                                // SAFETY: live value array for n entries.
-                                *val = unsafe { *v_ptr.add(i) };
-                            }
+                        // `n >= 2` here: the single-key immediate returned above.
+                        let v_ptr = cur_edge.node_ptr().cast::<u64>();
+                        for (i, val) in v.iter_mut().enumerate().take(n as usize) {
+                            // SAFETY: live value array for n entries.
+                            *val = unsafe { *v_ptr.add(i) };
                         }
                         (k, v)
                     } else {

@@ -904,11 +904,6 @@ pub fn build_blobmap_with_writes(keys: &[u64], payload: &[u8], writes: usize) ->
     m
 }
 
-/// Builds the `ExpanseBlobMap` arm from `keys` in the order given.
-pub fn build_blobmap(keys: &[u64], payload: &[u8]) -> ExpanseBlobMap {
-    build_blobmap_with_writes(keys, payload, 0)
-}
-
 /// Builds the `BTreeMap` arm from `keys` in the order given.
 pub fn build_btreemap(keys: &[u64], payload: &[u8]) -> BTreeMap<u64, Box<[u8]>> {
     let mut m = BTreeMap::new();

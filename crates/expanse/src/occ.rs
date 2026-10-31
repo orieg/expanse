@@ -98,8 +98,8 @@ impl SeqVersion {
     ///
     /// The CAS is strong: this is a single attempt, not a retry loop, so a
     /// spurious weak-CAS failure would report an uncontended word as held.
+    #[cfg(all(test, feature = "std"))]
     #[inline]
-    #[allow(dead_code)]
     pub(crate) fn try_lock(&self) -> Result<u64, u64> {
         let cur = self.0.load(Ordering::Relaxed);
         if !cur.is_multiple_of(2) {
@@ -113,8 +113,8 @@ impl SeqVersion {
     ///
     /// If `modified` is true, advances to `old_v + 2` (`Release`).
     /// If `modified` is false, restores `old_v` so readers do not needlessly retry.
+    #[cfg(all(test, feature = "std"))]
     #[inline]
-    #[allow(dead_code)]
     pub(crate) fn unlock(&self, old_v: u64, modified: bool) {
         let cur = self.0.load(Ordering::Relaxed);
         debug_assert!(cur % 2 == 1, "unlock without lock");
@@ -601,8 +601,7 @@ pub(crate) fn version_unlock(v: &VersionCell, old_v: u32, modified: bool) {
 /// `NodeLock` strictly dereferences to raw `*mut N`, NEVER `&mut N`, ensuring
 /// that Stacked Borrows and Tree Borrows invariants are preserved while concurrent
 /// readers sample and load fields of `N`.
-#[cfg(feature = "std")]
-#[allow(dead_code)]
+#[cfg(all(test, feature = "std"))]
 pub(crate) struct NodeLock<'a, N> {
     ptr: *mut N,
     version: &'a VersionCell,
@@ -611,7 +610,7 @@ pub(crate) struct NodeLock<'a, N> {
     obsolete: core::cell::Cell<bool>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 #[allow(dead_code)]
 impl<'a, N> NodeLock<'a, N> {
     /// Attempts to lock `node` using its `VersionCell`.
@@ -703,7 +702,7 @@ impl<'a, N> NodeLock<'a, N> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 impl<N> core::ops::Deref for NodeLock<'_, N> {
     type Target = *mut N;
 
@@ -713,7 +712,7 @@ impl<N> core::ops::Deref for NodeLock<'_, N> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 impl<N> Drop for NodeLock<'_, N> {
     #[inline]
     fn drop(&mut self) {
@@ -726,7 +725,7 @@ impl<N> Drop for NodeLock<'_, N> {
 }
 
 /// A descriptor of an acquired lock along a root-to-leaf path.
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 #[derive(Debug)]
 pub(crate) enum LockedTarget<'a> {
     Tree(&'a SeqVersion, u64, bool),
@@ -742,15 +741,14 @@ pub(crate) enum LockedTarget<'a> {
 /// - On drop or [`Self::unlock_all`], held locks are released in LIFO order.
 ///   Modified nodes advance by 2 (`old_v + 2`), unmodified nodes restore `old_v`,
 ///   and obsolete nodes preserve [`OBSOLETE`].
-#[cfg(feature = "std")]
-#[allow(dead_code)]
+#[cfg(all(test, feature = "std"))]
 #[derive(Debug)]
 pub(crate) struct LockSet<'a> {
     entries: [Option<LockedTarget<'a>>; 4],
     len: usize,
 }
 
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 #[allow(dead_code)]
 impl<'a> LockSet<'a> {
     /// Creates an empty lock set.
@@ -861,7 +859,7 @@ impl<'a> LockSet<'a> {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 impl Drop for LockSet<'_> {
     fn drop(&mut self) {
         self.unlock_all();

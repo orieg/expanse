@@ -2104,10 +2104,8 @@ impl ExpanseStrMap {
     /// protocol — which today means the tests that pin "nothing bumps it".
     /// Reading the value needs no raw pointer, so it stays out of
     /// `unsafe` entirely.
-    // As its two siblings: the lib target has no caller until #929's write
-    // path lands, and the tests that pin the word are `cfg(test)`.
-    #[allow(dead_code)]
-    #[cfg(feature = "std")]
+    // As `root_cover_addr`: only the tests that pin the word read it.
+    #[cfg(all(test, feature = "std"))]
     #[inline(always)]
     pub(crate) fn root_cover(&self) -> Option<u32> {
         self.root.as_deref().map(|r| r.cover)

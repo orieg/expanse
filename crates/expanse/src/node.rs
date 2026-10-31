@@ -504,7 +504,7 @@ impl BranchHeader {
     /// # Safety
     ///
     /// `this` points to a live header; the caller validates the result.
-    #[cfg(feature = "std")]
+    #[cfg(all(test, feature = "std"))]
     #[inline(always)]
     #[must_use]
     pub(crate) unsafe fn find_at(this: *const Self, digit: u8) -> Option<usize> {

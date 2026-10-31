@@ -1090,7 +1090,6 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             // [`entry_value_atomic`], so the store goes through the same
             // view (#929). Relaxed, and the same instruction as a plain
             // store; the wrapper's version bracket is the release.
-            #[cfg(all(target_pointer_width = "64", feature = "std"))]
             // SAFETY: the slot is the live value word of an entry in an
             // existing bucket, 8-aligned, and valid until the next
             // structural mutation, which this call does not perform.
@@ -1098,11 +1097,6 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
                 core::sync::atomic::AtomicU64::from_ptr(slot.as_ptr())
                     .store(val, core::sync::atomic::Ordering::Relaxed);
             }
-            #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
-            // SAFETY: slot points to live entry within the existing bucket.
-            unsafe {
-                *slot.as_ptr() = val
-            };
         }
         prev
     }
