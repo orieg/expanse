@@ -320,7 +320,7 @@ pub(crate) struct InsertPathMap {
 }
 
 impl InsertPathMap {
-    pub const fn empty() -> Self {
+    pub(crate) const fn empty() -> Self {
         Self {
             prefix: u64::MAX,
             edges: [core::ptr::null_mut(); 8],
@@ -334,7 +334,7 @@ impl InsertPathMap {
     }
 
     #[inline(always)]
-    pub fn record_ancestor(&mut self, edge: *mut Edge, level: u8) {
+    pub(crate) fn record_ancestor(&mut self, edge: *mut Edge, level: u8) {
         if self.depth > 0 && self.depth < 8 {
             self.edges[self.depth] = edge;
             self.levels[self.depth] = level;
@@ -343,7 +343,7 @@ impl InsertPathMap {
     }
 
     #[inline(always)]
-    pub unsafe fn flush(&mut self) {
+    pub(crate) unsafe fn flush(&mut self) {
         if self.pending_pop > 0 {
             let delta = self.pending_pop as i64;
             self.pending_pop = 0;
@@ -363,7 +363,7 @@ impl InsertPathMap {
     }
 
     #[inline(always)]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         if self.depth != 0 {
             if self.pending_pop > 0 {
                 // SAFETY: flushing pending population before clearing path references.

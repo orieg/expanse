@@ -1097,7 +1097,7 @@ impl WriterTable {
 pub(crate) struct PaddedAtomicU32(pub(crate) core::sync::atomic::AtomicU32);
 
 impl PaddedAtomicU32 {
-    pub const fn new(val: u32) -> Self {
+    pub(crate) const fn new(val: u32) -> Self {
         Self(core::sync::atomic::AtomicU32::new(val))
     }
 }
@@ -1105,7 +1105,7 @@ impl PaddedAtomicU32 {
 pub(crate) struct DirtyDigits([PaddedAtomicU32; 8]);
 
 impl DirtyDigits {
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self([
             PaddedAtomicU32::new(0),
             PaddedAtomicU32::new(0),
@@ -1119,7 +1119,7 @@ impl DirtyDigits {
     }
 
     #[inline(always)]
-    pub fn mark_digit(&self, d: u8) {
+    pub(crate) fn mark_digit(&self, d: u8) {
         let word_idx = (d >> 5) as usize;
         let bit = 1u32 << (d & 31);
         if (self.0[word_idx]
@@ -1136,7 +1136,7 @@ impl DirtyDigits {
 
     #[inline(always)]
     #[cfg(test)]
-    pub fn is_dirty(&self) -> bool {
+    pub(crate) fn is_dirty(&self) -> bool {
         for word in &self.0 {
             if word.0.load(core::sync::atomic::Ordering::Relaxed) != 0 {
                 return true;
@@ -1159,7 +1159,7 @@ impl DirtyDigits {
 
     /// Atomically takes the dirty mask snapshot, clearing all words to 0.
     /// Returns true if any digit was dirty.
-    pub fn take(&self, mask: &mut [u32; 8]) -> bool {
+    pub(crate) fn take(&self, mask: &mut [u32; 8]) -> bool {
         let mut any = false;
         for (i, word) in mask.iter_mut().enumerate() {
             let val = self.0[i].0.swap(0, core::sync::atomic::Ordering::Relaxed);
@@ -3753,11 +3753,15 @@ struct AncestorFrame {
     edge_type: EdgeType,
     version_ptr: *const u32,
     version_snap: u32,
+    // Read only by the test-gated pop0 bump chain below; the descents
+    // still record them.
+    #[cfg_attr(not(test), allow(dead_code))]
     child_level: u8,
+    #[cfg_attr(not(test), allow(dead_code))]
     digit: u8,
 }
 
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 #[inline(always)]
 unsafe fn bump_edge_pop0(edge: *mut Edge, slot_level: u8, delta: i64) {
     // SAFETY: caller guarantees edge is an aligned, live pointer to an Edge inside a locked node.
@@ -3785,7 +3789,7 @@ unsafe fn bump_edge_pop0(edge: *mut Edge, slot_level: u8, delta: i64) {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", any(test, feature = "diag-entry")))]
 #[inline(always)]
 fn version_try_lock_timed(cell: &crate::occ::VersionCell) -> Result<(u32, u64), u32> {
     #[cfg(feature = "occ-stats")]
@@ -3821,17 +3825,15 @@ fn version_unlock_timed(cell: &crate::occ::VersionCell, old_v: u32, modified: bo
     );
 }
 
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-#[allow(dead_code)]
 enum BumpStatus {
     Ok,
     Obsolete,
 }
 
-#[cfg(feature = "std")]
+#[cfg(all(test, feature = "std"))]
 #[inline]
-#[allow(dead_code)]
 unsafe fn bump_ancestor_pop0(
     node: *mut u8,
     edge_type: EdgeType,
@@ -3934,16 +3936,14 @@ unsafe fn bump_ancestor_pop0(
 /// The budget is generous because exhausting it is a correctness event, not a
 /// latency one: a re-descent is at most 8 levels, so 64 attempts is ~512 node
 /// samples, still trivial beside the serialized path it avoids.
-#[cfg(feature = "std")]
-#[allow(dead_code)]
+#[cfg(all(test, feature = "std"))]
 const REDESCEND_MAX_ATTEMPTS: u32 = 64;
 
 /// Re-descends from `top_ptr` to find the active node covering `key` and bumps all
 /// not-yet-bumped edges on the current path per `ARCHITECTURE.md` §4.2 rule (a).
 ///
 /// Bounded by [`REDESCEND_MAX_ATTEMPTS`]; see its docs for what exhaustion means.
-#[cfg(feature = "std")]
-#[allow(dead_code)]
+#[cfg(all(test, feature = "std"))]
 unsafe fn redescend_and_bump(top_ptr: *mut Edge, key: Key, mut stop_level: u8, delta: i64) {
     crate::occ_stats::bump(crate::occ_stats::Stat::PopRedescends);
     let mut spins = 0u32;
@@ -4231,9 +4231,11 @@ unsafe fn redescend_and_bump(top_ptr: *mut Edge, key: Key, mut stop_level: u8, d
 
 /// Bumps ancestor edge `pop0` counts bottom-up. If any ancestor is obsolete,
 /// drops the attempt and re-descends from root per `ARCHITECTURE.md` §4.2 rule (a).
-#[cfg(feature = "std")]
+///
+/// No production path calls this chain yet, so it and its helpers compile for
+/// tests only; the caller that lands drops the `test` gate.
+#[cfg(all(test, feature = "std"))]
 #[inline]
-#[allow(dead_code)]
 unsafe fn bump_ancestor_chain(
     top_ptr: *mut Edge,
     key: Key,

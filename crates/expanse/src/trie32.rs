@@ -906,7 +906,7 @@ fn set_bitmap_edit_shared(a: &Arena, h: u32, bit: u8, set: bool) -> bool {
 /// One arena-owned node. Each variant is an independent heap allocation
 /// sized to the RFC's on-target byte layout, so [`Arena::bytes_in_use`]
 /// is an exact memory figure.
-pub enum NodeBox {
+pub(crate) enum NodeBox {
     L2(RawShared<BranchL2_32>),
     L6(RawShared<BranchL6_32>),
     B(RawShared<BranchB32Data>),
@@ -924,7 +924,7 @@ pub enum NodeBox {
 /// word, so the allocation, and [`Arena::bytes_in_use`], are the bytes a
 /// `Box<[u8]>` held (`leaf_backing_alignment_costs_no_bytes` derives this
 /// for every reachable leaf class).
-pub struct LeafBytes {
+pub(crate) struct LeafBytes {
     ptr: NonNull<u8>,
     len: usize,
 }
@@ -1006,7 +1006,7 @@ unsafe impl Sync for LeafBytes {}
 /// the published one. A `Box` would: under Stacked Borrows, reborrowing a
 /// `Box` mutably retags its whole allocation, invalidating any pointer
 /// derived from an earlier borrow of it.
-pub struct Raw<T: ?Sized>(NonNull<T>);
+pub(crate) struct Raw<T: ?Sized>(NonNull<T>);
 
 impl<T> Raw<[T]> {
     /// Takes ownership of a slice allocation `Box::into_raw` returned.
@@ -1065,7 +1065,7 @@ impl<T: ?Sized> Drop for Raw<T> {
 /// writer cannot form `&mut` to a published branch. It edits one through
 /// its raw address ([`Arena::l2_ptr`] and siblings) and the [`word`]
 /// stores concurrent readers load.
-pub struct RawShared<T>(Raw<T>);
+pub(crate) struct RawShared<T>(Raw<T>);
 
 impl<T> RawShared<T> {
     #[inline]
@@ -1411,7 +1411,7 @@ pub struct Arena {
 /// `BranchB32Data`/`LeafBitmapL32Data` replace their inner boxed subarrays
 /// in place during mutation, and those old boxes must outlive concurrent
 /// readers exactly like whole nodes do.
-pub enum Retired {
+pub(crate) enum Retired {
     /// A whole arena node.
     Node(NodeBox),
     /// A `BranchB32Data` edge subarray replaced during mutation.
