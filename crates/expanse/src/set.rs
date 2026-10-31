@@ -14,6 +14,7 @@ use crate::get;
 use crate::map::{by_mode, noting_root_rewrite};
 use crate::mutate;
 use crate::node::Edge;
+use crate::set32::{set_algebra_operators, set_len_identities};
 #[cfg(all(target_pointer_width = "64", feature = "std"))]
 use crate::sync::RootSnapshot;
 use crate::types::Key;
@@ -2341,26 +2342,7 @@ impl ExpanseSet {
         }
     }
 
-    /// Number of keys in the union (`|A ∪ B| = |A| + |B| − |A ∩ B|`), without
-    /// materializing the result.
-    #[must_use]
-    pub fn union_len(&self, other: &ExpanseSet) -> u64 {
-        self.len() + other.len() - self.intersection_len(other)
-    }
-
-    /// Number of keys in the difference (`|A \ B| = |A| − |A ∩ B|`), without
-    /// materializing the result.
-    #[must_use]
-    pub fn difference_len(&self, other: &ExpanseSet) -> u64 {
-        self.len() - self.intersection_len(other)
-    }
-
-    /// Number of keys in the symmetric difference
-    /// (`|A △ B| = |A| + |B| − 2·|A ∩ B|`), without materializing the result.
-    #[must_use]
-    pub fn symmetric_difference_len(&self, other: &ExpanseSet) -> u64 {
-        self.len() + other.len() - 2 * self.intersection_len(other)
-    }
+    set_len_identities!(ExpanseSet, u64);
 
     /// The set of keys present in **both** sets (`A ∩ B`).
     #[must_use]
@@ -2787,38 +2769,7 @@ fn merge_sorted(a: &ExpanseSet, b: &ExpanseSet, op: crate::algebra_build::Op) ->
     out
 }
 
-impl core::ops::BitAnd for &ExpanseSet {
-    type Output = ExpanseSet;
-    /// `A & B` — the intersection ([`ExpanseSet::intersection`]).
-    fn bitand(self, rhs: &ExpanseSet) -> ExpanseSet {
-        self.intersection(rhs)
-    }
-}
-
-impl core::ops::BitOr for &ExpanseSet {
-    type Output = ExpanseSet;
-    /// `A | B` — the union ([`ExpanseSet::union`]).
-    fn bitor(self, rhs: &ExpanseSet) -> ExpanseSet {
-        self.union(rhs)
-    }
-}
-
-impl core::ops::Sub for &ExpanseSet {
-    type Output = ExpanseSet;
-    /// `A - B` — the difference ([`ExpanseSet::difference`]).
-    fn sub(self, rhs: &ExpanseSet) -> ExpanseSet {
-        self.difference(rhs)
-    }
-}
-
-impl core::ops::BitXor for &ExpanseSet {
-    type Output = ExpanseSet;
-    /// `A ^ B` — the symmetric difference
-    /// ([`ExpanseSet::symmetric_difference`]).
-    fn bitxor(self, rhs: &ExpanseSet) -> ExpanseSet {
-        self.symmetric_difference(rhs)
-    }
-}
+set_algebra_operators!(ExpanseSet);
 
 impl Default for ExpanseSet {
     fn default() -> Self {
