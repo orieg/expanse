@@ -608,7 +608,7 @@ def strmap_predicted_callgrind_ratio(workload: str, avg_batch_size: int = PROJEC
 # holds nothing at or after the probe, a suffix that sorts below the probe with nothing
 # drained after it, and a child met in a level whose batch is still empty each end the
 # attempt with a validated restart by key (`ExpanseStrMap::scan_validated`), and the next
-# attempt starts with an empty read set. The sub-map drain (`sync_nav::drain_submap`) is
+# attempt starts with an empty read set. The sub-map drain (`sync_str_cursor::drain_submap`) is
 # the u64 batch drain (`sync_cursor.rs`, `drain_batch_in`) on a sub-map: it retains every
 # branch it samples, returns as soon as a branch child yielded entries, and stops at the
 # first child pointer it pushes. An exact continuation drains from the probe's chunk, finds

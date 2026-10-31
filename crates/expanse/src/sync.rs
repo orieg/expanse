@@ -14866,6 +14866,9 @@ impl From<ExpanseStrMap> for SyncExpanseStrMap {
 #[cfg(test)]
 mod str_deferred_dispatch_tests;
 
+#[cfg(test)]
+mod str_cursor_tests;
+
 /// The validated string lookup shared by [`StrReader`], [`OwnedStrReader`] and
 /// [`DetachedStrReader`] (#1194).
 ///
@@ -14986,6 +14989,8 @@ macro_rules! str_ordered_walk {
         })
     }};
 }
+
+pub use crate::sync_str_cursor::SyncStrMapCursor;
 
 /// A per-thread reader handle for [`SyncExpanseStrMap`].
 ///
@@ -15110,6 +15115,36 @@ impl StrReader<'_> {
     }
 }
 
+impl<'a> StrReader<'a> {
+    /// A validated batch cursor over every entry, in ascending order, that
+    /// does not exclude writers (#1143). See [`crate::sync_str_cursor::SyncStrMapCursor`].
+    #[must_use]
+    pub fn cursor(&self) -> crate::sync_str_cursor::SyncStrMapCursor<'a, '_> {
+        crate::sync_str_cursor::SyncStrMapCursor::new(self.map, &self.reader)
+    }
+
+    /// A validated batch cursor over the entries with keys in `[lo, hi)`:
+    /// `lo` inclusive, `hi` exclusive (#1143).
+    #[must_use]
+    pub fn range_cursor(
+        &self,
+        lo: &NulFreeStr,
+        hi: &NulFreeStr,
+    ) -> crate::sync_str_cursor::SyncStrMapCursor<'a, '_> {
+        crate::sync_str_cursor::SyncStrMapCursor::range(self.map, &self.reader, lo, hi)
+    }
+
+    /// A validated batch cursor over the entries whose keys start with
+    /// `prefix` (#1143). The empty prefix scans the whole map.
+    #[must_use]
+    pub fn prefix_cursor(
+        &self,
+        prefix: &NulFreeStr,
+    ) -> crate::sync_str_cursor::SyncStrMapCursor<'a, '_> {
+        crate::sync_str_cursor::SyncStrMapCursor::prefix(self.map, &self.reader, prefix)
+    }
+}
+
 /// A reader that **owns** its map handle instead of borrowing it.
 ///
 /// [`StrReader`] borrows, which makes it impossible to cache: a `#[pyclass]`,
@@ -15192,6 +15227,34 @@ impl OwnedStrReader {
     /// [`StrReader`].
     fn ordered(&self, seek: StrSeek<'_>) -> Option<(Vec<u8>, u64)> {
         str_ordered_walk!(self.map, &self.reader, seek)
+    }
+
+    /// A validated batch cursor over every entry, in ascending order, that
+    /// does not exclude writers (#1143). See [`crate::sync_str_cursor::SyncStrMapCursor`].
+    #[must_use]
+    pub fn cursor(&self) -> crate::sync_str_cursor::SyncStrMapCursor<'_, '_> {
+        crate::sync_str_cursor::SyncStrMapCursor::new(&self.map, &self.reader)
+    }
+
+    /// A validated batch cursor over the entries with keys in `[lo, hi)`:
+    /// `lo` inclusive, `hi` exclusive (#1143).
+    #[must_use]
+    pub fn range_cursor(
+        &self,
+        lo: &NulFreeStr,
+        hi: &NulFreeStr,
+    ) -> crate::sync_str_cursor::SyncStrMapCursor<'_, '_> {
+        crate::sync_str_cursor::SyncStrMapCursor::range(&self.map, &self.reader, lo, hi)
+    }
+
+    /// A validated batch cursor over the entries whose keys start with
+    /// `prefix` (#1143). The empty prefix scans the whole map.
+    #[must_use]
+    pub fn prefix_cursor(
+        &self,
+        prefix: &NulFreeStr,
+    ) -> crate::sync_str_cursor::SyncStrMapCursor<'_, '_> {
+        crate::sync_str_cursor::SyncStrMapCursor::prefix(&self.map, &self.reader, prefix)
     }
 }
 
@@ -15339,13 +15402,155 @@ impl DetachedStrReader {
     fn ordered(&self, map: &SyncExpanseStrMap, seek: StrSeek<'_>) -> Option<(Vec<u8>, u64)> {
         str_ordered_walk!(map, map.registered(&self.reader), seek)
     }
+
+    /// A validated batch cursor over every entry of `map`, in ascending
+    /// order (#1143). See [`crate::sync_str_cursor::SyncStrMapCursor`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any
+    /// node of `map` is read.
+    #[must_use]
+    pub fn cursor<'m>(
+        &self,
+        map: &'m SyncExpanseStrMap,
+    ) -> crate::sync_str_cursor::SyncStrMapCursor<'m, '_> {
+        crate::sync_str_cursor::SyncStrMapCursor::new(map, &self.reader)
+    }
+
+    /// A validated batch cursor over the entries of `map` with keys in
+    /// `[lo, hi)`: `lo` inclusive, `hi` exclusive (#1143).
+    ///
+    /// # Panics
+    ///
+    /// As [`Self::cursor`].
+    #[must_use]
+    pub fn range_cursor<'m>(
+        &self,
+        map: &'m SyncExpanseStrMap,
+        lo: &NulFreeStr,
+        hi: &NulFreeStr,
+    ) -> crate::sync_str_cursor::SyncStrMapCursor<'m, '_> {
+        crate::sync_str_cursor::SyncStrMapCursor::range(map, &self.reader, lo, hi)
+    }
+
+    /// A validated batch cursor over the entries of `map` whose keys start
+    /// with `prefix` (#1143).
+    ///
+    /// # Panics
+    ///
+    /// As [`Self::cursor`].
+    #[must_use]
+    pub fn prefix_cursor<'m>(
+        &self,
+        map: &'m SyncExpanseStrMap,
+        prefix: &NulFreeStr,
+    ) -> crate::sync_str_cursor::SyncStrMapCursor<'m, '_> {
+        crate::sync_str_cursor::SyncStrMapCursor::prefix(map, &self.reader, prefix)
+    }
 }
 
 /// Versions one validated string ordered read may retain before it falls
 /// back: the two-seek bound of `docs/benchmarks/concurrency/METHODOLOGY.md`
 /// §33.7.3 is 113 at depth 5 (`path_keys`) and 136 at depth 6, so 128 covers
-/// every depth up to 5 (§33.8.1). 128 × 16 B = 2 KiB of stack.
+/// every depth up to 5 (§33.8.1). 128 × 16 B = 2 KiB of stack. The batch
+/// cursor's attempt retains at most `8d + 6`, so the same capacity covers
+/// its paths up to depth 15 (§33.10.2).
 const STR_READ_SET_CAP: usize = 128;
+
+impl SyncExpanseStrMap {
+    /// Fills `batch` with the entries at or after `search`, below `hi` when
+    /// given: one batch of [`crate::sync_str_cursor::SyncStrMapCursor`]
+    /// (#1143). Returns `true` when nothing within the bound follows the
+    /// batch. `search` may be advanced by a validated restart.
+    ///
+    /// Each attempt pins, samples the tree word and runs
+    /// `ExpanseStrMap::scan_validated`. A restart moves `search` forward and
+    /// does not count as a retry; it cannot repeat forever, since every
+    /// restart key is above the probe it replaces. A failed validation
+    /// retries, a full read set that still validates falls back at once
+    /// (§33.7.4), and after `MAX_RETRIES` failures the batch is filled under
+    /// the writer lock.
+    pub(crate) fn fill_scan_batch(
+        &self,
+        reader: &Reader,
+        search: &mut Vec<u8>,
+        hi: Option<&[u8]>,
+        batch: &mut crate::sync_str_cursor::StrBatch,
+        prefix: &mut Vec<u8>,
+        restart: &mut Vec<u8>,
+    ) -> bool {
+        use crate::strmap::ScanEnd;
+        #[cfg(test)]
+        use crate::sync_str_cursor::test_hooks::{self as th, Count};
+        let shared = &self.shared;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
+        let mut retries = 0;
+        while retries < MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
+            #[cfg(test)]
+            th::count(Count::Attempts);
+            let _pin = reader.pin();
+            let snap = shared.version().sample();
+            let mut rs = crate::sync_nav::ReadSet::<STR_READ_SET_CAP>::new();
+            // SAFETY: pinned and freshly sampled, as in `get`; the walk
+            // validates every load it acts on.
+            let attempt = unsafe {
+                ExpanseStrMap::scan_validated(
+                    str_root_of(shared.published().load()),
+                    search,
+                    hi,
+                    shared.version(),
+                    snap,
+                    &mut rs,
+                    prefix,
+                    restart,
+                    batch,
+                )
+            };
+            #[cfg(test)]
+            th::add(Count::Samples, rs.len() as u64);
+            match attempt {
+                Ok(ScanEnd::Batch { last }) => return last,
+                Ok(ScanEnd::Exhausted) => return true,
+                Ok(ScanEnd::Restart) => core::mem::swap(search, restart),
+                // A full set that still validates, under a tree word that
+                // did not move, came from depth: every retry would overflow
+                // again.
+                Err(Retry)
+                    if rs.is_full()
+                        // SAFETY: still pinned; every entry was sampled
+                        // under the pin.
+                        && unsafe { rs.validate_all() }
+                        && shared.version().validate(snap) =>
+                {
+                    #[cfg(test)]
+                    th::count(Count::Overflows);
+                    break;
+                }
+                Err(Retry) => retries += 1,
+            }
+        }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+        #[cfg(test)]
+        th::count(Count::Fallbacks);
+        batch.clear();
+        shared.read_locked(|m| {
+            // SAFETY: `search` is the cursor's start, a key it returned
+            // followed by `0x01`, or a restart key; each is NUL-free.
+            let mut cur = m.cursor_at_or_after(unsafe { NulFreeStr::new_unchecked(search) });
+            while let Some((k, v)) = cur.next_entry() {
+                if hi.is_some_and(|h| k >= h) {
+                    return true;
+                }
+                if !batch.push(k, &[], &[], v) {
+                    return false;
+                }
+            }
+            true
+        })
+    }
+}
 
 /// An **unordered** byte-string map shareable across threads (issue
 /// #362 — the JudyHS member completing the Sync* family): one writer at
@@ -20164,6 +20369,53 @@ mod miri_ub_sites {
                         at = rd.prev_before(NulFreeStr::new(&k).expect("NUL-free"));
                         last_seen = Some(k);
                     }
+                });
+            });
+        });
+        assert_eq!(map.len(), 2 * KEYS);
+    }
+
+    /// The validated string batch cursor (#1143) under a writer: the keys
+    /// share their first chunk, so a scan descends into a child node,
+    /// drains it, copies suffix bytes and restarts past it, while the
+    /// writer inserts into that child. Every prefilled key is present
+    /// throughout, so every scan sees all of them, ascending.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn str_batch_cursor_reader_writer() {
+        fn scan_key(t: u64, i: u64) -> std::string::String {
+            std::format!("kkkkkkkk{t}-{i:04}")
+        }
+        let map = SyncExpanseStrMap::new();
+        for i in 0..KEYS {
+            assert_eq!(map.insert(nf(&scan_key(9, i)), i), None);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..KEYS {
+                    assert_eq!(map.insert(nf(&scan_key(0, i)), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                let rd = map.reader();
+                read_until(&done, || {
+                    let mut up: std::vec::Vec<std::vec::Vec<u8>> = std::vec::Vec::new();
+                    let mut cur = rd.cursor();
+                    while let Some((k, _)) = cur.next() {
+                        assert!(up.last().is_none_or(|p| p.as_slice() < k));
+                        up.push(k.to_vec());
+                    }
+                    for i in 0..KEYS {
+                        assert!(up.binary_search(&scan_key(9, i).into_bytes()).is_ok());
+                    }
+                    let mut cur = rd.prefix_cursor(nf("kkkkkkkk9"));
+                    let mut n = 0;
+                    while cur.next().is_some() {
+                        n += 1;
+                    }
+                    assert_eq!(n, KEYS);
                 });
             });
         });
