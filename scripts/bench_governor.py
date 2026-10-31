@@ -49,6 +49,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import gh_output
 from bench_host_guard import resolve_pin
 
 SYSFS = Path("/sys/devices/system/cpu")
@@ -97,17 +98,9 @@ def helper(*args: str) -> tuple[bool, str]:
     return r.returncode == 0, (r.stderr or r.stdout).strip()
 
 
-def _gh_output(**kv: str) -> None:
-    out = os.environ.get("GITHUB_OUTPUT")
-    if out:
-        with open(out, "a", encoding="utf-8") as fh:
-            for k, v in kv.items():
-                fh.write(f"{k}={v}\n")
-
-
 def fail(msg: str) -> int:
     print(f"::error::{msg}")
-    _gh_output(fail_reason="governor_unavailable")
+    gh_output(fail_reason="governor_unavailable")
     return 1
 
 

@@ -9,7 +9,7 @@ common, and the rest is that suite's own competitor palette, which is correct --
 What is NOT correct is the shared chrome silently diverging. Background, border,
 grid, axis, divider, every text class and their dark-mode overrides are the same
 design system in all eight, and a change landing in one copy is invisible in the
-other four.
+other seven.
 
 This gate takes the drift-prevention half of that problem without the rewrite.
 Consolidating the eight into one module was considered and rejected: the SVGs
@@ -37,6 +37,9 @@ import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import git_toplevel
 
 THEME_GLOB = "docs/benchmarks/*/scripts/theme.py"
 
@@ -188,8 +191,7 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
-    root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                               capture_output=True, text=True, check=True).stdout.strip())
+    root = git_toplevel()
     errors, warnings = check(root)
     shared = 0
     for w in warnings:

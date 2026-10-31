@@ -10,7 +10,9 @@ and `ablation-str-serial-writers` both failing `clippy -D warnings` on `main`.
 
 The plan is derived from the tree, never enumerated by hand:
 
-- **Features**: every `ablation-*` feature of `crates/expanse/Cargo.toml`.
+- **Features**: every `ablation-*` and `advance-*` feature of
+  `crates/expanse/Cargo.toml`. The `advance-*` interval variants are built by
+  no other CI job.
 - **Retired names**: a feature with a single-feature `compile_error!` guard in
   `crates/expanse/src/lib.rs` (§2.7 item 2). Each is checked to still fail, with
   a diagnostic naming the feature (AGENTS.md §5, string-gated negative
@@ -50,7 +52,10 @@ CARGO_TOML = CRATE / "Cargo.toml"
 LIB_RS = CRATE / "src" / "lib.rs"
 SRC = CRATE / "src"
 PACKAGE = "expanse-trie"
-PREFIX = "ablation-"
+# The diagnostic feature families the plan builds. `advance-*` (the epoch-advance
+# interval variants) is built by no other CI job, so without it here an item
+# left dead under `advance-never` failed nowhere (#1371).
+PREFIXES = ("ablation-", "advance-")
 
 _FEATURE = re.compile(r'feature\s*=\s*"([^"]+)"')
 _CFG_OPEN = re.compile(r"#!?\[cfg(?:_attr)?\(")
@@ -58,7 +63,8 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def ablation_features(cargo_toml: str) -> list[str]:
-    """The `ablation-*` keys of the `[features]` table, in declaration order."""
+    """The `ablation-*` and `advance-*` keys of the `[features]` table, in
+    declaration order."""
     out, in_features = [], False
     for line in cargo_toml.splitlines():
         stripped = line.strip()
@@ -68,7 +74,7 @@ def ablation_features(cargo_toml: str) -> list[str]:
         if not in_features or stripped.startswith("#"):
             continue
         m = re.match(r"([A-Za-z0-9_-]+)\s*=", stripped)
-        if m and m.group(1).startswith(PREFIX):
+        if m and m.group(1).startswith(PREFIXES):
             out.append(m.group(1))
     return out
 
@@ -130,7 +136,7 @@ def plan(cargo_toml: str, lib_rs: str, sources: list[str]):
     plan: a parser that silently found nothing would pass every tree."""
     features = ablation_features(cargo_toml)
     if not features:
-        raise ValueError(f"no {PREFIX}* features found in {CARGO_TOML}")
+        raise ValueError(f"no {'/'.join(p + '*' for p in PREFIXES)} features found in {CARGO_TOML}")
     guards = compile_error_guards(lib_rs)
     retired = sorted({g[0] for g in guards if len(g) == 1 and g[0] in features})
     exclusive = sorted({tuple(g) for g in guards if len(g) == 2})
@@ -217,10 +223,12 @@ def self_test() -> int:
         '[package]\nname = "x"\n[features]\ndefault = ["std"]\n'
         '# ablation-commented = []\nablation-a = []\nablation-b = []\n'
         'ablation-c = []\nablation-old = []\nablation-x = []\nother = []\n'
+        'advance-p = []\nadvance-q = []\n'
         '[dependencies]\nablation-dep = "1"\n'
     )
     check("feature table", ablation_features(toml),
-          ["ablation-a", "ablation-b", "ablation-c", "ablation-old", "ablation-x"])
+          ["ablation-a", "ablation-b", "ablation-c", "ablation-old", "ablation-x",
+           "advance-p", "advance-q"])
     lib = (
         '#[cfg(not(any(target_pointer_width = "64")))]\ncompile_error!("w");\n'
         '#[cfg(feature = "ablation-old")]\ncompile_error!("ablation-old is retired");\n'
@@ -234,14 +242,18 @@ def self_test() -> int:
         '#[cfg(all(not(feature = "ablation-a"),\n  not(feature = "ablation-c")))]\nfn f() {}\n',
         '#[cfg_attr(all(feature = "ablation-b", feature = "ablation-c"), allow(x))]\n',
         '#[cfg(feature = "ablation-x")]\nfn g() {}\n',
+        '#[cfg(all(feature = "advance-p", not(feature = "advance-q")))]\nconst P: u32 = 1;\n',
     ]
     configs, retired, exclusive = plan(toml, lib, srcs)
     check("retired", retired, ["ablation-old"])
     check("exclusive", exclusive, [("ablation-a", "ablation-b")])
-    # a-c and b-c join {a, b, c}; x stands alone; {a, b} and {a, b, c} are excluded.
+    # a-c and b-c join {a, b, c}; x stands alone; {a, b} and {a, b, c} are
+    # excluded; the two advance-* features are named together, so they pair.
     check("configs", configs, [
         ("ablation-a",), ("ablation-b",), ("ablation-c",), ("ablation-x",),
+        ("advance-p",), ("advance-q",),
         ("ablation-a", "ablation-c"), ("ablation-b", "ablation-c"),
+        ("advance-p", "advance-q"),
     ])
     # The retired-name check read CI's coloured cargo output as unnamed (#1286's
     # first run): the line began with an escape code, not `error:`.
@@ -264,6 +276,10 @@ def self_test() -> int:
         ("ablation-str-serial-writers",),
         ("ablation-blob-serial-writers", "ablation-str-serial-writers"),
         ("ablation-blob-shared-arena", "ablation-bytes-serial-writers"),
+        # Built by no other job (#1371); `sync.rs` names the two together.
+        ("advance-every-4096",),
+        ("advance-never",),
+        ("advance-every-4096", "advance-never"),
     ]:
         if tuple(sorted(must)) not in {tuple(sorted(c)) for c in configs}:
             fails.append(f"live plan is missing {must}")

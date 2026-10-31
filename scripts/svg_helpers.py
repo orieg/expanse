@@ -5,9 +5,9 @@
 `scripts/generate_asset_svgs.py`. The copies below were byte-for-byte equal in
 behaviour, and every generated SVG stays byte-identical after sharing them.
 
-Not shared on purpose: the `esc` in `hot_comparison` and `masstree_comparison`
-coerces its argument with `str(s)` first, which accepts non-string cells. This
-`esc` does not, so those two keep their own copy.
+`esc` coerces its argument with `str()` first. The `hot_comparison` and
+`masstree_comparison` copies did, and pass non-string cells; for a string the
+coercion is the identity, so the other generators' output is unchanged.
 
 A generator under `docs/benchmarks/<suite>/scripts/` imports this module with
 the same `sys.path.insert(0, <repo>/scripts)` line the other generators use for
@@ -24,9 +24,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
-def esc(s: str) -> str:
-    """Escape `&`, `<` and `>` for SVG text content (str input only)."""
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+def esc(s: object) -> str:
+    """Escape `&`, `<` and `>` in `str(s)` for SVG text content."""
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def save_svg(filepath: Path, content: str) -> None:
@@ -49,6 +49,10 @@ def _self_test() -> int:
     # `&` is escaped first, so an existing entity is escaped, not preserved.
     assert esc("&lt;") == "&amp;lt;"
     assert esc("plain") == "plain"
+    # Non-string cells are coerced, as the hot_comparison and
+    # masstree_comparison generators require.
+    assert esc(3) == "3"
+    assert esc(1.5) == "1.5"
     with tempfile.TemporaryDirectory() as d:
         ok = Path(d) / "ok.svg"
         save_svg(ok, '<svg xmlns="http://www.w3.org/2000/svg"/>')

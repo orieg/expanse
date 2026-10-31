@@ -155,6 +155,7 @@ python3 docs/benchmarks/concurrency/scripts/host_guard_sensitivity.py --self-tes
 python3 scripts/bench_governor.py --self-test
 python3 scripts/check_bench_shapes.py --self-test
 python3 scripts/svg_helpers.py --self-test
+python3 scripts/_common.py --self-test
 python3 scripts/check_bench_pin.py --self-test
 python3 scripts/bench_bindings.py --self-test
 python3 scripts/check_public_api.py --self-test

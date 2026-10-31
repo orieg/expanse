@@ -70,6 +70,14 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# `sanitize` is the holder line fit for a workflow output or a markdown code
+# fence: the owner record is written by whoever holds the lock, so its text
+# reaches a public comment only through it -- one line, a closed character set
+# (no backtick, so it cannot end a fence), bounded length.
+from _common import gh_output
+from _common import output_value as sanitize
+
 EX_HELD = 75
 EX_CONFIG = 78
 HELD_ENV = "EXPANSE_BENCH_LOCK_HELD"
@@ -77,23 +85,10 @@ HELD_ENV = "EXPANSE_BENCH_LOCK_HELD"
 # runner between its `mkdir` and its `printf`; one older than this is a leftover.
 MIRROR_GRACE_S = 5.0
 POLL_S = 0.5
-_UNSAFE = re.compile(r"[^A-Za-z0-9_.:=/ +\[\]-]")
 
 
 class LockConfigError(Exception):
     """The lock file exists in a form this process must not use."""
-
-
-def sanitize(text: str, limit: int = 300) -> str:
-    """A holder line fit for a workflow output or a markdown code fence.
-
-    The owner record is written by whoever holds the lock, so its text reaches
-    a public comment only through this: one line, a closed character set (no
-    backtick, so it cannot end a fence), bounded length.
-    """
-    stripped = text.strip()
-    line = stripped.splitlines()[0] if stripped else ""
-    return _UNSAFE.sub("?", line)[:limit] or "unknown"
 
 
 # The lock a host shares between its runner's service account and human
@@ -276,15 +271,6 @@ def _die_with_parent() -> None:
         os.write(2, f"::warning::bench_lock: the command will not be stopped if the lock holder dies ({exc})\n".encode())
 
 
-def _gh_output(**kv: str) -> None:
-    out = os.environ.get("GITHUB_OUTPUT")
-    if not out:
-        return
-    with open(out, "a", encoding="utf-8") as fh:
-        for k, v in kv.items():
-            fh.write(f"{k}={sanitize(v)}\n")
-
-
 def run_locked(suite: str, wait_s: float, cmd: list[str], github_output: bool) -> int:
     if os.environ.get(HELD_ENV):
         # An enclosing runner already holds the host (a workflow step that
@@ -295,12 +281,12 @@ def run_locked(suite: str, wait_s: float, cmd: list[str], github_output: bool) -
     except LockConfigError as exc:
         print(f"::error::refusing to start: the benchmark lock is unusable: {exc}", file=sys.stderr)
         if github_output:
-            _gh_output(fail_reason="lock_unusable", lock_owner=str(exc))
+            gh_output(fail_reason="lock_unusable", lock_owner=str(exc))
         return EX_CONFIG
     if isinstance(got, str):
         print(f"::error::refusing to start: the benchmark lock stayed held for {wait_s:g}s by: {got}", file=sys.stderr)
         if github_output:
-            _gh_output(fail_reason="lock_held", lock_owner=got)
+            gh_output(fail_reason="lock_held", lock_owner=got)
         return EX_HELD
     fd, mirror = got
     env = dict(os.environ, **{HELD_ENV: str(lock_path())})

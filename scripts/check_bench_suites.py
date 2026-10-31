@@ -29,9 +29,11 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import git_toplevel
 
 MANIFEST = ".github/bench-suites.json"
 WORKFLOW = ".github/workflows/bench_baremetal.yml"
@@ -873,9 +875,7 @@ def main() -> int:
     if args.check_output:
         root = Path(__file__).resolve().parent.parent
         return check_output(root, args.check_output[0], Path(args.check_output[1]))
-    root = Path(
-        subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
-    )
+    root = git_toplevel()
     return run(root, args.write)
 
 

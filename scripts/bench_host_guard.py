@@ -137,6 +137,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bench_provenance as bp
+from _common import gh_output
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9_.:+-]")
 
@@ -911,14 +912,6 @@ def suite_needs_huge_pages(manifest: Path, suite: str) -> bool:
 # --------------------------------------------------------------------------
 # commands
 # --------------------------------------------------------------------------
-def _gh_output(**kv: str) -> None:
-    out = os.environ.get("GITHUB_OUTPUT")
-    if out:
-        with open(out, "a", encoding="utf-8") as fh:
-            for k, v in kv.items():
-                fh.write(f"{k}={v}\n")
-
-
 def _with_cgroups(proc: Path, a: dict) -> dict:
     for o in a["offenders"]:
         o["cgroup"] = cgroup_id(proc, o["pid"])
@@ -933,7 +926,7 @@ def cmd_check(args, proc: Path, sys_root: Path = Path("/sys")) -> int:
         except (OSError, ValueError, KeyError, TypeError) as exc:
             print(f"::error::refusing to start: cannot tell whether suite {args.suite!r} needs huge pages: {exc!r}")
             if args.github_output:
-                _gh_output(fail_reason="bad_descriptor")
+                gh_output(fail_reason="bad_descriptor")
             return 1
     pin = bp.expand_cpu_list(args.pin_cpus) if args.pin_cpus else resolve_pin()
     deadline = time.monotonic() + args.wait
@@ -1024,7 +1017,7 @@ def finish_check(args, proc: Path, sys_root: Path, pin: list[int], history: list
     for w in hp_why:
         print(f"::error::refusing to start: the host cannot supply 2 MiB pages: {w}")
     if args.github_output:
-        _gh_output(fail_reason="host_busy" if not ok else "no_huge_pages")
+        gh_output(fail_reason="host_busy" if not ok else "no_huge_pages")
     return 1
 
 

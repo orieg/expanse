@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import repo_root as get_repo_root
 
 import bench_baseline  # noqa: E402
 import bench_provenance as bp  # noqa: E402
@@ -57,11 +58,6 @@ import bench_windowed  # noqa: E402
 HARNESS_EXAMPLE = "bench_lookup_compare"
 HARNESS_PACKAGE = "expanse-trie"
 LOAD_ISSUE = 1214
-
-
-def get_repo_root() -> Path:
-    """Returns the repository root directory."""
-    return Path(__file__).resolve().parent.parent
 
 
 def harness_env(target_cpu: Optional[str], base: Optional[Dict[str, str]] = None) -> Dict[str, str]:

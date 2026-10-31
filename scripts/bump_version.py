@@ -32,15 +32,12 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import repo_root as get_repo_root
+
 SEMVER_REGEX = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
 )
-
-
-def get_repo_root() -> Path:
-    """Returns the repository root directory."""
-    script_dir = Path(__file__).resolve().parent
-    return script_dir.parent
 
 
 def validate_semver(version: str) -> bool:
