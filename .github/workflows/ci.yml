@@ -389,7 +389,28 @@ jobs:
           toolchain: stable
           components: clippy, rustfmt
 
+      # The ext-php-rs build script runs bindgen, which takes its builtin
+      # include directory from the clang on PATH but loads the newest
+      # libclang it finds. ubuntu-26.04 ships clang 21 as `clang` beside
+      # libclang 20, 21 and 22; libclang 22 fails on clang 21's xmmintrin.h.
+      # Pin the libclang that belongs to the clang on PATH.
+      - name: Point bindgen at the libclang of the clang on PATH
+        run: |
+          clang_bin=$(readlink -f "$(command -v clang)")
+          libdir=$(readlink -f "$(dirname "$clang_bin")/../lib")
+          ls "$libdir"/libclang*.so* > /dev/null 2>&1 \
+            || { echo "::error::no libclang beside $clang_bin in $libdir"; exit 1; }
+          echo "clang: $clang_bin; LIBCLANG_PATH=$libdir"
+          echo "LIBCLANG_PATH=$libdir" >> "$GITHUB_ENV"
+
+      # rust-cache keys on the runner OS, not the image, and the build scripts
+      # of pyo3 and ext-php-rs probe the image's Python and PHP without
+      # rerunning when those change, so a target restored from another image
+      # keeps that image's probe results. `ImageOS` (`ubuntu24`, `ubuntu26`)
+      # in the key scopes the cache to the image.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          env-vars: ImageOS
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
@@ -981,7 +1002,14 @@ jobs:
         with:
           toolchain: stable
 
+      # pyo3's build script records the Python it found and does not rerun
+      # when the image's Python changes: a target cached on ubuntu-24.04
+      # (Python 3.12) linked `expanse-py` with `-lpython3.12` on ubuntu-26.04,
+      # whose Python is 3.14. `ImageOS` in the key scopes the cache to the
+      # image, as in `lint`.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          env-vars: ImageOS
 
       - name: Build
         run: cargo build --workspace --exclude expanse-php
@@ -2740,6 +2768,18 @@ jobs:
       # uses the vectorcall calling convention, a nightly-only feature) and a
       # PHP build from windows.php.net, where this job has stable Rust and
       # setup-php's build. The FFI and fallback runs above still cover Windows.
+      # Same libclang pin as `lint`, which says why; macOS's clang is Apple's,
+      # with one libclang, so the pin is Linux-only.
+      - name: Point bindgen at the libclang of the clang on PATH
+        if: runner.os == 'Linux'
+        run: |
+          clang_bin=$(readlink -f "$(command -v clang)")
+          libdir=$(readlink -f "$(dirname "$clang_bin")/../lib")
+          ls "$libdir"/libclang*.so* > /dev/null 2>&1 \
+            || { echo "::error::no libclang beside $clang_bin in $libdir"; exit 1; }
+          echo "clang: $clang_bin; LIBCLANG_PATH=$libdir"
+          echo "LIBCLANG_PATH=$libdir" >> "$GITHUB_ENV"
+
       - name: Build native PHP extension
         if: runner.os != 'Windows'
         run: cargo build --release -p expanse-php
