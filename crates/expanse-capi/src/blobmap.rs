@@ -50,6 +50,17 @@ pub extern "C" fn expanse_blob_map_new(chunk_size: usize) -> *mut ExpanseBlobMap
     Box::into_raw(Box::new(map))
 }
 
+// `_new` takes a chunk size, so only the shared accessors come from the
+// macro; `_free` also releases every arena chunk and `_clear` frees them.
+crate::modern::container!(
+    ExpanseBlobMap,
+    expanse_blob_map_free,
+    expanse_blob_map_len,
+    expanse_blob_map_mem_used,
+    expanse_blob_map_clear,
+    "blob map"
+);
+
 /// Creates a new empty `ExpanseBlobMap` whose arena capacity cap is
 /// `max_capacity` bytes of allocated chunks (#1300). `chunk_size == 0` selects
 /// the default 2 MiB chunk and `max_capacity == 0` the default 1 GiB cap;
@@ -244,19 +255,6 @@ pub unsafe extern "C" fn expanse_blob_map_arena_stats(
         );
     }
     ExpanseBlobStatus::Ok
-}
-
-/// Frees an `ExpanseBlobMap` and all associated arena memory.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle returned by `expanse_blob_map_new`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_blob_map_free(map: *mut ExpanseBlobMap) {
-    if !map.is_null() {
-        // SAFETY: map was allocated with Box::into_raw in expanse_blob_map_new.
-        drop(unsafe { Box::from_raw(map) });
-    }
 }
 
 /// Inserts a key-blob pair with 32-bit hot metadata. Returns `true` on success.
@@ -492,41 +490,6 @@ pub unsafe extern "C" fn expanse_blob_map_compact(map: *mut ExpanseBlobMap) -> b
         return false;
     };
     map_ref.compact().is_ok()
-}
-
-/// Returns the number of entries in the map.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_blob_map_len(map: *const ExpanseBlobMap) -> u64 {
-    // SAFETY: map is null or points to a live ExpanseBlobMap per caller contract.
-    unsafe { map.as_ref() }.map_or(0, ExpanseBlobMap::len)
-}
-
-/// Returns the total heap bytes used by the map and arena.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_blob_map_mem_used(map: *const ExpanseBlobMap) -> usize {
-    // SAFETY: map is null or points to a live ExpanseBlobMap per caller contract.
-    unsafe { map.as_ref() }.map_or(0, ExpanseBlobMap::mem_used)
-}
-
-/// Clears all entries and frees all arena slabs.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_blob_map_clear(map: *mut ExpanseBlobMap) {
-    // SAFETY: map is null or points to a live ExpanseBlobMap per caller contract.
-    if let Some(map_ref) = unsafe { map.as_mut() } {
-        map_ref.clear();
-    }
 }
 
 /// Returns `true` if `key` is present in the map.

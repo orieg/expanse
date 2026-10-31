@@ -66,24 +66,152 @@ const _: fn() = || {
     assert_send::<SyncBlobMapReader>();
 };
 
-/// Creates an empty concurrent set.
-#[unsafe(no_mangle)]
-pub extern "C" fn expanse_sync_set_new() -> *mut SyncExpanseSet {
-    Box::into_raw(Box::new(SyncExpanseSet::new()))
+/// Generates the handle, size and reader-registration entry points of one
+/// shared container: `_new` (when it takes no argument), `_free`, `_len`,
+/// `_mem_used` (when listed), `_mem_held`, `_shrink_to_fit`, `_reader_new`
+/// and `_reader_free`. Every one returns 0 or null, or does nothing, for a
+/// null handle.
+macro_rules! sync_surface {
+    (
+        container: $Map:ty,
+        handle: $h:ident,
+        what: $what:expr,
+        $(new: $new:ident,)?
+        free: $free:ident,
+        len: $len:ident,
+        $(mem_used: $mem_used:ident,)?
+        mem_held: $mem_held:ident,
+        shrink_to_fit: $shrink:ident,
+        reader: $Reader:ident($RustReader:ident),
+        reader_new: $reader_new:ident,
+        reader_free: $reader_free:ident $(,)?
+    ) => {
+        $(
+            #[doc = concat!("Creates an empty concurrent ", $what, ".")]
+            #[unsafe(no_mangle)]
+            pub extern "C" fn $new() -> *mut $Map {
+                Box::into_raw(Box::new(<$Map>::new()))
+            }
+        )?
+
+        #[doc = concat!("Frees a concurrent ", $what, ". All readers must be freed first.")]
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("`", stringify!($h), "` must be null or come from the matching `_new`, with")]
+        /// no live reader and no call on it in progress.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $free($h: *mut $Map) {
+            if !$h.is_null() {
+                // SAFETY: handle per contract.
+                drop(unsafe { Box::from_raw($h) });
+            }
+        }
+
+        /// Number of entries; 0 for a null handle.
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("`", stringify!($h), "` must be null or a live handle.")]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $len($h: *const $Map) -> u64 {
+            // SAFETY: null or live handle per contract.
+            unsafe { $h.as_ref() }.map_or(0, <$Map>::len)
+        }
+
+        $(
+            #[doc = concat!("Heap bytes used by the ", $what, ", read with writers excluded")]
+            #[doc = concat!("([`", stringify!($Map), "::mem_used`]); 0 for a null handle.")]
+            ///
+            /// # Safety
+            ///
+            #[doc = concat!("`", stringify!($h), "` must be null or a live handle.")]
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn $mem_used($h: *const $Map) -> usize {
+                // SAFETY: null or live handle per contract.
+                unsafe { $h.as_ref() }.map_or(0, <$Map>::mem_used)
+            }
+        )?
+
+        #[doc = concat!("Heap bytes the ", $what, " holds from the global allocator: its own share")]
+        /// plus the blocks its epoch collector holds for reuse or is waiting
+        #[doc = concat!("to reclaim ([`", stringify!($Map), "::mem_held`]); 0 for a null handle.")]
+        /// Writers wait for it.
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("`", stringify!($h), "` must be null or a live handle.")]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $mem_held($h: *const $Map) -> usize {
+            // SAFETY: null or live handle per contract.
+            unsafe { $h.as_ref() }.map_or(0, <$Map>::mem_held)
+        }
+
+        #[doc = concat!("Returns the freed blocks the ", $what, "'s epoch collector keeps for reuse")]
+        #[doc = concat!("to the global allocator and returns the bytes released ([`", stringify!($Map), "::shrink_to_fit`]);")]
+        /// 0 for a null handle. Runs beside readers and writers without
+        /// excluding either.
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("`", stringify!($h), "` must be null or a live handle.")]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $shrink($h: *const $Map) -> usize {
+            // SAFETY: null or live handle per contract.
+            unsafe { $h.as_ref() }.map_or(0, <$Map>::shrink_to_fit)
+        }
+
+        #[doc = concat!("Registers a reader handle for this thread. Free it before the ", $what, ".")]
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("`", stringify!($h), "` must be null or a live handle that outlives the reader.")]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $reader_new($h: *const $Map) -> *mut $Reader {
+            // SAFETY: null or live handle per contract.
+            let Some(c) = (unsafe { $h.as_ref() }) else {
+                return core::ptr::null_mut();
+            };
+            // SAFETY: lifetime extension only — the reader borrows the
+            // container, and the header's contract requires freeing the
+            // reader before its container (documented in expanse.h).
+            let reader: $RustReader<'static> = unsafe { core::mem::transmute(c.reader()) };
+            Box::into_raw(Box::new($Reader(reader)))
+        }
+
+        /// Frees a reader handle.
+        ///
+        /// May be called from a thread other than the one that created the
+        /// reader, once no call on it is in progress (`include/expanse.h`).
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("`reader` must come from `", stringify!($reader_new), "`, unused after,")]
+        #[doc = concat!("with no call on it in progress on any thread, and its ", $what, " still")]
+        /// alive.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $reader_free(reader: *mut $Reader) {
+            if !reader.is_null() {
+                // SAFETY: handle per contract.
+                drop(unsafe { Box::from_raw(reader) });
+            }
+        }
+    };
 }
 
-/// Frees a concurrent set. All readers must be freed first.
-///
-/// # Safety
-///
-/// `set` must come from `expanse_sync_set_new`, with no live readers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_free(set: *mut SyncExpanseSet) {
-    if !set.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(set) });
-    }
-}
+sync_surface!(
+    container: SyncExpanseSet,
+    handle: set,
+    what: "set",
+    new: expanse_sync_set_new,
+    free: expanse_sync_set_free,
+    len: expanse_sync_set_len,
+    mem_held: expanse_sync_set_mem_held,
+    shrink_to_fit: expanse_sync_set_shrink_to_fit,
+    reader: SyncSetReader(SetReader),
+    reader_new: expanse_sync_set_reader_new,
+    reader_free: expanse_sync_set_reader_free,
+);
 
 /// Inserts `key`; true if newly inserted. Serializes with other writers.
 ///
@@ -119,83 +247,6 @@ pub unsafe extern "C" fn expanse_sync_set_contains(set: *const SyncExpanseSet, k
     unsafe { set.as_ref() }.is_some_and(|s| s.contains(key))
 }
 
-/// Number of keys.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_sync_set_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_len(set: *const SyncExpanseSet) -> u64 {
-    // SAFETY: null or live handle per contract.
-    unsafe { set.as_ref() }.map_or(0, SyncExpanseSet::len)
-}
-
-/// Heap bytes the set holds from the global allocator: its tree's own share
-/// plus the blocks its epoch collector holds for reuse or is waiting to
-/// reclaim ([`SyncExpanseSet::mem_held`]); 0 for a null handle. Writers wait
-/// for it.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_sync_set_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_mem_held(set: *const SyncExpanseSet) -> usize {
-    // SAFETY: null or live handle per contract.
-    unsafe { set.as_ref() }.map_or(0, SyncExpanseSet::mem_held)
-}
-
-/// Returns the freed blocks the set's epoch collector keeps for reuse to the
-/// global allocator and returns the bytes released
-/// ([`SyncExpanseSet::shrink_to_fit`]); 0 for a null handle. Runs beside
-/// readers and writers without excluding either.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_sync_set_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_shrink_to_fit(set: *const SyncExpanseSet) -> usize {
-    // SAFETY: null or live handle per contract.
-    unsafe { set.as_ref() }.map_or(0, SyncExpanseSet::shrink_to_fit)
-}
-
-/// Registers a reader handle for this thread. Free it before the set.
-///
-/// # Safety
-///
-/// `set` must be null or a live handle that outlives the reader.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_reader_new(
-    set: *const SyncExpanseSet,
-) -> *mut SyncSetReader {
-    // SAFETY: null or live handle per contract; the reader's borrow is
-    // extended to 'static, which the caller upholds by freeing the
-    // reader first (documented in expanse.h).
-    let Some(s) = (unsafe { set.as_ref() }) else {
-        return core::ptr::null_mut();
-    };
-    // SAFETY: lifetime extension only — the reader borrows `set`, and
-    // the header's contract requires freeing the reader before its set.
-    let reader: SetReader<'static> = unsafe { core::mem::transmute(s.reader()) };
-    Box::into_raw(Box::new(SyncSetReader(reader)))
-}
-
-/// Frees a reader handle.
-///
-/// May be called from a thread other than the one that created the reader,
-/// once no call on it is in progress (`include/expanse.h`).
-///
-/// # Safety
-///
-/// `reader` must come from `expanse_sync_set_reader_new`, unused after,
-/// with no call on it in progress on any thread, and its set still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_reader_free(reader: *mut SyncSetReader) {
-    if !reader.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(reader) });
-    }
-}
-
 /// Optimistic membership test through a registered reader.
 ///
 /// # Safety
@@ -210,24 +261,20 @@ pub unsafe extern "C" fn expanse_sync_set_reader_contains(
     unsafe { reader.as_ref() }.is_some_and(|r| r.0.contains(key))
 }
 
-/// Creates an empty concurrent map.
-#[unsafe(no_mangle)]
-pub extern "C" fn expanse_sync_map_new() -> *mut SyncExpanseMap {
-    Box::into_raw(Box::new(SyncExpanseMap::new()))
-}
-
-/// Frees a concurrent map. All readers must be freed first.
-///
-/// # Safety
-///
-/// `map` must come from `expanse_sync_map_new`, with no live readers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_free(map: *mut SyncExpanseMap) {
-    if !map.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(map) });
-    }
-}
+sync_surface!(
+    container: SyncExpanseMap,
+    handle: map,
+    what: "map",
+    new: expanse_sync_map_new,
+    free: expanse_sync_map_free,
+    len: expanse_sync_map_len,
+    mem_used: expanse_sync_map_mem_used,
+    mem_held: expanse_sync_map_mem_held,
+    shrink_to_fit: expanse_sync_map_shrink_to_fit,
+    reader: SyncMapReader(MapReader),
+    reader_new: expanse_sync_map_reader_new,
+    reader_free: expanse_sync_map_reader_free,
+);
 
 /// Stores `key -> value` (return convention as [`expanse_map_insert`]).
 ///
@@ -372,93 +419,6 @@ pub unsafe extern "C" fn expanse_sync_map_get_or_insert(
     }
 }
 
-/// Number of entries.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_len(map: *const SyncExpanseMap) -> u64 {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::len)
-}
-
-/// Heap bytes used by the map's nodes and leaves, read with writers excluded
-/// ([`SyncExpanseMap::mem_used`]); 0 for a null handle, as
-/// [`expanse_sync_map_len`].
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_mem_used(map: *const SyncExpanseMap) -> usize {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::mem_used)
-}
-
-/// Heap bytes the map holds from the global allocator: its tree's own share
-/// plus the blocks its epoch collector holds for reuse or is waiting to
-/// reclaim ([`SyncExpanseMap::mem_held`]); 0 for a null handle, as
-/// [`expanse_sync_map_mem_used`]. Writers wait for it.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_mem_held(map: *const SyncExpanseMap) -> usize {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::mem_held)
-}
-
-/// Returns the freed blocks the map's epoch collector keeps for reuse to the
-/// global allocator and returns the bytes released
-/// ([`SyncExpanseMap::shrink_to_fit`]); 0 for a null handle. Runs beside
-/// readers and writers without excluding either.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_shrink_to_fit(map: *const SyncExpanseMap) -> usize {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::shrink_to_fit)
-}
-
-/// Registers a reader handle for this thread. Free it before the map.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle that outlives the reader.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_reader_new(
-    map: *const SyncExpanseMap,
-) -> *mut SyncMapReader {
-    // SAFETY: as in expanse_sync_set_reader_new.
-    let Some(m) = (unsafe { map.as_ref() }) else {
-        return core::ptr::null_mut();
-    };
-    // SAFETY: lifetime extension only (see expanse_sync_set_reader_new).
-    let reader: MapReader<'static> = unsafe { core::mem::transmute(m.reader()) };
-    Box::into_raw(Box::new(SyncMapReader(reader)))
-}
-
-/// Frees a reader handle.
-///
-/// May be called from a thread other than the one that created the reader,
-/// once no call on it is in progress (`include/expanse.h`).
-///
-/// # Safety
-///
-/// `reader` must come from `expanse_sync_map_reader_new`, unused after,
-/// with no call on it in progress on any thread, and its map still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_reader_free(reader: *mut SyncMapReader) {
-    if !reader.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(reader) });
-    }
-}
-
 /// Optimistic lookup through a registered reader.
 ///
 /// # Safety
@@ -542,79 +502,47 @@ pub unsafe extern "C" fn expanse_sync_map_reader_last(
     unsafe { put_entry(found, key_out, value_out) }
 }
 
-/// Smallest entry with key `>= key`, through a registered reader.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_sync_map_reader_first`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_reader_next_at_or_after(
-    reader: *const SyncMapReader,
-    key: u64,
-    key_out: *mut u64,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: null or live reader per contract.
-    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.next_at_or_after(key));
-    // SAFETY: out-pointers null or writable per contract.
-    unsafe { put_entry(found, key_out, value_out) }
-}
+map_nav!(
+    /// Smallest entry with key `>= key`, through a registered reader.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`expanse_sync_map_reader_first`].
+    handle: reader: SyncMapReader, |r| r.0,
+    expanse_sync_map_reader_next_at_or_after, next_at_or_after
+);
 
-/// Smallest entry with key `> key`, through a registered reader; false for
+map_nav!(
+    /// Smallest entry with key `> key`, through a registered reader; false for
 /// `key == u64::MAX`.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_sync_map_reader_first`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_reader_next_after(
-    reader: *const SyncMapReader,
-    key: u64,
-    key_out: *mut u64,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: null or live reader per contract.
-    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.next_after(key));
-    // SAFETY: out-pointers null or writable per contract.
-    unsafe { put_entry(found, key_out, value_out) }
-}
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`expanse_sync_map_reader_first`].
+    handle: reader: SyncMapReader, |r| r.0,
+    expanse_sync_map_reader_next_after, next_after
+);
 
-/// Largest entry with key `<= key`, through a registered reader.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_sync_map_reader_first`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_reader_prev_at_or_before(
-    reader: *const SyncMapReader,
-    key: u64,
-    key_out: *mut u64,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: null or live reader per contract.
-    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.prev_at_or_before(key));
-    // SAFETY: out-pointers null or writable per contract.
-    unsafe { put_entry(found, key_out, value_out) }
-}
+map_nav!(
+    /// Largest entry with key `<= key`, through a registered reader.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`expanse_sync_map_reader_first`].
+    handle: reader: SyncMapReader, |r| r.0,
+    expanse_sync_map_reader_prev_at_or_before, prev_at_or_before
+);
 
-/// Largest entry with key `< key`, through a registered reader; false for
+map_nav!(
+    /// Largest entry with key `< key`, through a registered reader; false for
 /// `key == 0`.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_sync_map_reader_first`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_reader_prev_before(
-    reader: *const SyncMapReader,
-    key: u64,
-    key_out: *mut u64,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: null or live reader per contract.
-    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.prev_before(key));
-    // SAFETY: out-pointers null or writable per contract.
-    unsafe { put_entry(found, key_out, value_out) }
-}
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`expanse_sync_map_reader_first`].
+    handle: reader: SyncMapReader, |r| r.0,
+    expanse_sync_map_reader_prev_before, prev_before
+);
 
 // ---- The shared string map (#1538) ----
 //
@@ -623,25 +551,20 @@ pub unsafe extern "C" fn expanse_sync_map_reader_prev_before(
 // handle, returning false or 0 and writing nothing. A C string cannot carry an
 // interior NUL, so no key is refused for its content.
 
-/// Creates an empty concurrent string map.
-#[unsafe(no_mangle)]
-pub extern "C" fn expanse_sync_strmap_new() -> *mut SyncExpanseStrMap {
-    Box::into_raw(Box::new(SyncExpanseStrMap::new()))
-}
-
-/// Frees a concurrent string map. All readers must be freed first.
-///
-/// # Safety
-///
-/// `map` must come from `expanse_sync_strmap_new`, with no live readers and
-/// no call on it in progress.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_strmap_free(map: *mut SyncExpanseStrMap) {
-    if !map.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(map) });
-    }
-}
+sync_surface!(
+    container: SyncExpanseStrMap,
+    handle: map,
+    what: "string map",
+    new: expanse_sync_strmap_new,
+    free: expanse_sync_strmap_free,
+    len: expanse_sync_strmap_len,
+    mem_used: expanse_sync_strmap_mem_used,
+    mem_held: expanse_sync_strmap_mem_held,
+    shrink_to_fit: expanse_sync_strmap_shrink_to_fit,
+    reader: SyncStrMapReader(StrReader),
+    reader_new: expanse_sync_strmap_reader_new,
+    reader_free: expanse_sync_strmap_reader_free,
+);
 
 /// Stores `key -> value` (return convention as [`expanse_sync_map_insert`]).
 ///
@@ -736,94 +659,6 @@ pub unsafe extern "C" fn expanse_sync_strmap_remove(
     // SAFETY: `old_out` null or writable per contract.
     unsafe { put(old_out, v) };
     true
-}
-
-/// Number of keys.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_strmap_len(map: *const SyncExpanseStrMap) -> u64 {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseStrMap::len)
-}
-
-/// Heap bytes used by the map, read with writers excluded
-/// ([`SyncExpanseStrMap::mem_used`]); 0 for a null handle.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_strmap_mem_used(map: *const SyncExpanseStrMap) -> usize {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseStrMap::mem_used)
-}
-
-/// Heap bytes the map holds from the global allocator: its tree's own share
-/// plus the blocks its epoch collector holds for reuse or is waiting to
-/// reclaim ([`SyncExpanseStrMap::mem_held`]); 0 for a null handle. Writers
-/// wait for it.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_strmap_mem_held(map: *const SyncExpanseStrMap) -> usize {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseStrMap::mem_held)
-}
-
-/// Returns the freed blocks the map's epoch collector keeps for reuse to the
-/// global allocator and returns the bytes released
-/// ([`SyncExpanseStrMap::shrink_to_fit`]); 0 for a null handle. Runs beside
-/// readers and writers without excluding either.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_strmap_shrink_to_fit(map: *const SyncExpanseStrMap) -> usize {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseStrMap::shrink_to_fit)
-}
-
-/// Registers a reader handle for this thread. Free it before the map.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle that outlives the reader.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_strmap_reader_new(
-    map: *const SyncExpanseStrMap,
-) -> *mut SyncStrMapReader {
-    // SAFETY: null or live handle per contract.
-    let Some(m) = (unsafe { map.as_ref() }) else {
-        return core::ptr::null_mut();
-    };
-    // SAFETY: lifetime extension only (see expanse_sync_set_reader_new): the
-    // reader borrows `map`, and the header's contract requires freeing the
-    // reader before its map.
-    let reader: StrReader<'static> = unsafe { core::mem::transmute(m.reader()) };
-    Box::into_raw(Box::new(SyncStrMapReader(reader)))
-}
-
-/// Frees a reader handle.
-///
-/// May be called from a thread other than the one that created the reader,
-/// once no call on it is in progress (`include/expanse.h`).
-///
-/// # Safety
-///
-/// `reader` must come from `expanse_sync_strmap_reader_new`, unused after,
-/// with no call on it in progress on any thread, and its map still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_strmap_reader_free(reader: *mut SyncStrMapReader) {
-    if !reader.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(reader) });
-    }
 }
 
 /// Optimistic lookup through a registered reader.
@@ -1036,26 +871,20 @@ macro_rules! sync_bytes_family {
         reader_get: $reader_get:ident,
         reader_contains: $reader_contains:ident $(,)?
     ) => {
-        #[doc = concat!("Creates an empty concurrent ", $what, ".")]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn $new() -> *mut $Map {
-            Box::into_raw(Box::new(<$Map>::new()))
-        }
-
-        #[doc = concat!("Frees a concurrent ", $what, ". All readers must be freed first.")]
-        ///
-        /// # Safety
-        ///
-        #[doc = concat!("`map` must come from `", stringify!($new), "`, with no live readers")]
-        /// and no call on it in progress.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $free(map: *mut $Map) {
-            if !map.is_null() {
-                // SAFETY: handle per contract.
-                drop(unsafe { Box::from_raw(map) });
-            }
-        }
-
+        sync_surface!(
+            container: $Map,
+            handle: map,
+            what: $what,
+            new: $new,
+            free: $free,
+            len: $len,
+            mem_used: $mem_used,
+            mem_held: $mem_held,
+            shrink_to_fit: $shrink,
+            reader: $Reader($RustReader),
+            reader_new: $reader_new,
+            reader_free: $reader_free,
+        );
         /// Stores `key -> value` (return convention as [`expanse_sync_map_insert`]).
         ///
         /// # Safety
@@ -1157,92 +986,6 @@ macro_rules! sync_bytes_family {
             // SAFETY: `old_out` null or writable per contract.
             unsafe { put(old_out, v) };
             true
-        }
-
-        /// Number of keys; 0 for a null handle.
-        ///
-        /// # Safety
-        ///
-        /// `map` must be null or a live handle.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $len(map: *const $Map) -> u64 {
-            // SAFETY: null or live handle per contract.
-            unsafe { map.as_ref() }.map_or(0, <$Map>::len)
-        }
-
-        /// Heap bytes used by the map, read with writers excluded; 0 for a
-        /// null handle.
-        ///
-        /// # Safety
-        ///
-        /// `map` must be null or a live handle.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $mem_used(map: *const $Map) -> usize {
-            // SAFETY: null or live handle per contract.
-            unsafe { map.as_ref() }.map_or(0, <$Map>::mem_used)
-        }
-
-        /// Heap bytes the map holds from the global allocator: its tree's own
-        /// share plus the blocks its epoch collector holds for reuse or is
-        /// waiting to reclaim; 0 for a null handle. Writers wait for it.
-        ///
-        /// # Safety
-        ///
-        /// `map` must be null or a live handle.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $mem_held(map: *const $Map) -> usize {
-            // SAFETY: null or live handle per contract.
-            unsafe { map.as_ref() }.map_or(0, <$Map>::mem_held)
-        }
-
-        /// Returns the freed blocks the map's epoch collector keeps for reuse
-        /// to the global allocator and returns the bytes released; 0 for a
-        /// null handle. Runs beside readers and writers without excluding
-        /// either.
-        ///
-        /// # Safety
-        ///
-        /// `map` must be null or a live handle.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $shrink(map: *const $Map) -> usize {
-            // SAFETY: null or live handle per contract.
-            unsafe { map.as_ref() }.map_or(0, <$Map>::shrink_to_fit)
-        }
-
-        /// Registers a reader handle for this thread. Free it before the map.
-        ///
-        /// # Safety
-        ///
-        /// `map` must be null or a live handle that outlives the reader.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $reader_new(map: *const $Map) -> *mut $Reader {
-            // SAFETY: null or live handle per contract.
-            let Some(m) = (unsafe { map.as_ref() }) else {
-                return core::ptr::null_mut();
-            };
-            // SAFETY: lifetime extension only (see expanse_sync_set_reader_new):
-            // the reader borrows `map`, and the header's contract requires
-            // freeing the reader before its map.
-            let reader: $RustReader<'static> = unsafe { core::mem::transmute(m.reader()) };
-            Box::into_raw(Box::new($Reader(reader)))
-        }
-
-        /// Frees a reader handle.
-        ///
-        /// May be called from a thread other than the one that created the
-        /// reader, once no call on it is in progress (`include/expanse.h`).
-        ///
-        /// # Safety
-        ///
-        #[doc = concat!("`reader` must come from `", stringify!($reader_new), "`, unused after,")]
-        /// with no call on it in progress on any thread, and its map still
-        /// alive.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $reader_free(reader: *mut $Reader) {
-            if !reader.is_null() {
-                // SAFETY: handle per contract.
-                drop(unsafe { Box::from_raw(reader) });
-            }
         }
 
         /// Optimistic lookup through a registered reader.
@@ -1620,19 +1363,20 @@ pub extern "C" fn expanse_sync_blob_map_new_with_capacity(
     ))
 }
 
-/// Frees a shared blob map. All readers must be freed first.
-///
-/// # Safety
-///
-/// `map` must be null or come from `expanse_sync_blob_map_new*`, with no
-/// live reader and no call on it in progress.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_blob_map_free(map: *mut SyncExpanseBlobMap) {
-    if !map.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(map) });
-    }
-}
+// `_new` takes a chunk size and `_mem_used` waits for a running compaction,
+// so both are written out above and below; the rest is the shared surface.
+sync_surface!(
+    container: SyncExpanseBlobMap,
+    handle: map,
+    what: "blob map",
+    free: expanse_sync_blob_map_free,
+    len: expanse_sync_blob_map_len,
+    mem_held: expanse_sync_blob_map_mem_held,
+    shrink_to_fit: expanse_sync_blob_map_shrink_to_fit,
+    reader: SyncBlobMapReader(BlobReader),
+    reader_new: expanse_sync_blob_map_reader_new,
+    reader_free: expanse_sync_blob_map_reader_free,
+);
 
 /// Stores `key -> data` with 24-bit hot metadata, replacing any value.
 /// Returns `Ok`, the refusal (`MetaOverflow`, `AllocationFailed`,
@@ -1788,17 +1532,6 @@ pub unsafe extern "C" fn expanse_sync_blob_map_contains(
     unsafe { map.as_ref() }.is_some_and(|m| m.contains_key(key))
 }
 
-/// Number of entries; 0 for a null handle.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_blob_map_len(map: *const SyncExpanseBlobMap) -> u64 {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::len)
-}
-
 /// Heap bytes used by the index and the arena, read with writers excluded:
 /// it waits for a running compaction, and writers wait for it. 0 for a null
 /// handle.
@@ -1825,34 +1558,6 @@ pub unsafe extern "C" fn expanse_sync_blob_map_mem_used_estimate(
 ) -> usize {
     // SAFETY: null or live handle per contract.
     unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::mem_used_estimate)
-}
-
-/// Heap bytes the map holds from the global allocator, its epoch collector's
-/// share included; waits as [`expanse_sync_blob_map_mem_used`] does. 0 for a
-/// null handle.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_blob_map_mem_held(map: *const SyncExpanseBlobMap) -> usize {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::mem_held)
-}
-
-/// Returns the freed index blocks the map's epoch collector keeps for reuse
-/// to the global allocator and returns the bytes released; 0 for a null
-/// handle. Runs beside readers and writers without excluding either.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_blob_map_shrink_to_fit(
-    map: *const SyncExpanseBlobMap,
-) -> usize {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::shrink_to_fit)
 }
 
 /// Turns the reclaim at the capacity cap on (the default) or off; a null
@@ -1890,43 +1595,6 @@ pub unsafe extern "C" fn expanse_sync_blob_map_compact(
     match m.compact() {
         Ok(_) => ExpanseBlobStatus::Ok,
         Err(e) => e.into(),
-    }
-}
-
-/// Registers a reader handle for this thread. Free it before the map.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle that outlives the reader.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_blob_map_reader_new(
-    map: *const SyncExpanseBlobMap,
-) -> *mut SyncBlobMapReader {
-    // SAFETY: null or live handle per contract.
-    let Some(m) = (unsafe { map.as_ref() }) else {
-        return core::ptr::null_mut();
-    };
-    // SAFETY: lifetime extension only (see expanse_sync_set_reader_new): the
-    // reader borrows `map`, and the header's contract requires freeing the
-    // reader before its map.
-    let reader: BlobReader<'static> = unsafe { core::mem::transmute(m.reader()) };
-    Box::into_raw(Box::new(SyncBlobMapReader(reader)))
-}
-
-/// Frees a reader handle.
-///
-/// May be called from a thread other than the one that created the reader,
-/// once no call on it is in progress (`include/expanse.h`).
-///
-/// # Safety
-///
-/// `reader` must come from `expanse_sync_blob_map_reader_new`, unused after,
-/// with no call on it in progress on any thread, and its map still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_blob_map_reader_free(reader: *mut SyncBlobMapReader) {
-    if !reader.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(reader) });
     }
 }
 

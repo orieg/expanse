@@ -98,6 +98,9 @@ pub extern "C" fn expanse_version() -> *const c_char {
 
 /// Generates the `_new`/`_free` pair plus the shared accessors for a
 /// single-threaded container type.
+///
+/// The second form omits `_new`, for a container whose constructor takes
+/// arguments (`expanse_blob_map_new`) and is written by hand.
 macro_rules! container {
     ($rust:ty, $new:ident, $free:ident, $len:ident, $mem:ident, $clear:ident, $what:literal) => {
         #[doc = concat!("Creates an empty ", $what, ".")]
@@ -106,6 +109,9 @@ macro_rules! container {
             Box::into_raw(Box::new(<$rust>::new()))
         }
 
+        $crate::modern::container!($rust, $free, $len, $mem, $clear, $what);
+    };
+    ($rust:ty, $free:ident, $len:ident, $mem:ident, $clear:ident, $what:literal) => {
         #[doc = concat!("Frees a ", $what, " and everything in it. Null is a no-op.")]
         ///
         /// # Safety
@@ -155,6 +161,8 @@ macro_rules! container {
         }
     };
 }
+// Path-scoped so `blobmap.rs`, declared before this module, can reach it.
+pub(crate) use container;
 
 /// Emits the `_mem_held` / `_shrink_to_fit` pair for a container. Both
 /// widths' engine types expose `mem_held` and `shrink_to_fit` (on the
@@ -192,6 +200,53 @@ macro_rules! reclaim {
         }
     };
 }
+
+/// Generates a map navigation entry point returning `bool` + key/value.
+///
+/// The short form emits an `expanse_map_*` call on an `ExpanseMap` handle.
+/// The long form takes the doc attributes, the handle's parameter name and
+/// type, and the projection from the handle to the engine value, so the
+/// concurrent reader's calls (`expanse_sync_map_reader_*`) share this body.
+macro_rules! map_nav {
+    ($name:ident, $method:ident, $doc:literal) => {
+        $crate::modern::map_nav!(
+            #[doc = $doc]
+            ///
+            /// # Safety
+            ///
+            /// `map` must be null or a live handle; the out-pointers null or
+            /// writable.
+            handle: map: ExpanseMap, |m| m,
+            $name, $method
+        );
+    };
+    (
+        $(#[$attr:meta])*
+        handle: $h:ident: $H:ty, |$b:ident| $proj:expr,
+        $name:ident, $method:ident
+    ) => {
+        $(#[$attr])*
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name(
+            $h: *const $H,
+            key: $crate::modern::CWord,
+            key_out: *mut $crate::modern::CWord,
+            value_out: *mut $crate::modern::CWord,
+        ) -> bool {
+            // SAFETY: null or live handle per contract.
+            let Some((k, v)) = (unsafe { $h.as_ref() }).and_then(|$b| $proj.$method(key)) else {
+                return false;
+            };
+            // SAFETY: out-pointers null or writable per contract.
+            unsafe {
+                $crate::modern::put(key_out, k);
+                $crate::modern::put(value_out, v);
+            }
+            true
+        }
+    };
+}
+pub(crate) use map_nav;
 
 // The byte-string, string and concurrent containers exist only on 64-bit
 // targets, so their entry points live in a width-gated child module
@@ -775,36 +830,6 @@ pub unsafe extern "C" fn expanse_map_slot(map: *mut ExpanseMap, key: CWord) -> *
 pub unsafe extern "C" fn expanse_map_ins_slot(map: *mut ExpanseMap, key: CWord) -> *mut CWord {
     // SAFETY: null or live handle per contract.
     unsafe { map.as_mut() }.map_or(core::ptr::null_mut(), |m| m.ins_slot_plain(key).as_ptr())
-}
-
-/// Generates a map navigation entry point returning `bool` + key/value.
-macro_rules! map_nav {
-    ($name:ident, $method:ident, $doc:literal) => {
-        #[doc = $doc]
-        ///
-        /// # Safety
-        ///
-        /// `map` must be null or a live handle; the out-pointers null or
-        /// writable.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(
-            map: *const ExpanseMap,
-            key: CWord,
-            key_out: *mut CWord,
-            value_out: *mut CWord,
-        ) -> bool {
-            // SAFETY: null or live handle per contract.
-            let Some((k, v)) = (unsafe { map.as_ref() }).and_then(|m| m.$method(key)) else {
-                return false;
-            };
-            // SAFETY: out-pointers null or writable per contract.
-            unsafe {
-                put(key_out, k);
-                put(value_out, v);
-            }
-            true
-        }
-    };
 }
 
 map_nav!(
