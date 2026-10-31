@@ -679,19 +679,35 @@ pub(crate) fn linear_insert_slot_l3(
 /// `set::tests::warm_insert_path_across_a_move` and its map twin pin both: the
 /// recorded levels on every run, and under Miri that no flush dereferences the
 /// stale root-slot entry.
-#[derive(Clone, Copy)]
-pub(crate) struct InsertPath {
+///
+/// Generic over the level-1 bitmap leaf `L` it caches, the one field in
+/// which the set and map engines differ: [`InsertPath`] caches a
+/// `LeafBitmap1`, `mutate_map::InsertPathMap` a `LeafBitmapL`.
+pub(crate) struct InsertPathOf<L> {
     pub prefix: u64,
     pub edges: [*mut Edge; 8],
     pub levels: [u8; 8],
     pub depth: usize,
-    pub leaf: *mut LeafBitmap1,
+    pub leaf: *mut L,
     pub leaf1: *mut u8,
     pub terminal_pop: u16,
     pub pending_pop: usize,
 }
 
-impl InsertPath {
+// Written out rather than derived: a derive would bound both on `L: Copy`,
+// and the cache copies raw pointers to `L`, never an `L`.
+impl<L> Clone for InsertPathOf<L> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<L> Copy for InsertPathOf<L> {}
+
+/// The set engine's descent cache.
+pub(crate) type InsertPath = InsertPathOf<LeafBitmap1>;
+
+impl<L> InsertPathOf<L> {
     pub(crate) const fn empty() -> Self {
         Self {
             prefix: u64::MAX,
@@ -799,7 +815,7 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool, const NESTED: bool>(
 /// # Safety
 /// Caller guarantees that `ancestors[..anc_depth]` were initialized during branch descent.
 #[inline(always)]
-unsafe fn valid_ancestors(
+pub(crate) unsafe fn valid_ancestors(
     ancestors: &[core::mem::MaybeUninit<(*mut Edge, u8)>; 8],
     anc_depth: usize,
 ) -> &[(*mut Edge, u8)] {
