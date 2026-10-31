@@ -1,0 +1,56 @@
+# TEMPORARY (Refs #1622): diagnose the ubuntu-26.04 failures on both images.
+# Removed before the pull request is marked ready.
+name: TMP ubuntu-26.04 diagnostics
+
+on:
+  push:
+    branches: [fix/1622-ubuntu-2604]
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    name: diag (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+      - name: Image facts
+        run: |
+          set -x
+          ls -d /usr/lib/llvm-* || true
+          which clang; clang --version || true
+          ls -l /usr/bin/clang* | head -20 || true
+          ls -l /usr/lib/x86_64-linux-gnu/libclang* || true
+          ls /usr/lib/llvm-*/lib/libclang*.so* || true
+          php-config --version; php-config --includes
+          which python3; python3 --version
+          python3 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'), sysconfig.get_config_var('LDLIBRARY'), sysconfig.get_config_var('Py_ENABLE_SHARED'))"
+          ls -l /usr/lib/x86_64-linux-gnu/libpython* || true
+          gcc --version | head -1
+      - name: expanse-php check, default libclang
+        continue-on-error: true
+        run: cargo check -p expanse-php 2>&1 | tail -30
+        shell: bash -o pipefail {0}
+      - name: expanse-php check, LIBCLANG_PATH matching the clang on PATH
+        continue-on-error: true
+        shell: bash -o pipefail {0}
+        run: |
+          major=$(clang --version | sed -n 's/.*clang version \([0-9]*\).*/\1/p' | head -1)
+          echo "clang major: $major"
+          export LIBCLANG_PATH=/usr/lib/llvm-$major/lib
+          touch crates/expanse-php/Cargo.toml
+          cargo clean -p ext-php-rs
+          cargo check -p expanse-php -vv 2>&1 | grep -i "libclang\|clang\|error" | tail -30
+      - name: expanse-py test build, image python
+        continue-on-error: true
+        shell: bash -o pipefail {0}
+        run: cargo test -p expanse-py --no-run 2>&1 | tail -15
