@@ -88,17 +88,9 @@ fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &expanse_trie::strmap::NulFreeStr {
     unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(bytes.as_ref()) }
 }
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// Population per arm. Well above `ROOT_LEAF_CAP`, small enough that
 /// callgrind (~50x slowdown) stays practical.

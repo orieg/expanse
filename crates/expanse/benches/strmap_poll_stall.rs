@@ -77,20 +77,9 @@ const HIST_MAX_NS: u64 = 60_000_000_000;
 const SHORT_SEED: u64 = 0x0DDB_1A5E_5EED_0730;
 const ALNUM: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-struct XorShift(u64);
-impl XorShift {
-    fn new(seed: u64) -> Self {
-        Self(seed | 1)
-    }
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// Writer `w`'s stream seed: `seed` and `w` through SplitMix64's finaliser
 /// (Steele, Lea & Flood, "Fast Splittable Pseudorandom Number Generators",
@@ -129,7 +118,7 @@ fn short_key(rng: &mut XorShift, buf: &mut Vec<u8>) {
 /// prefill's stream. Two indices can draw one key; the prefill records how
 /// many did (`prefill_collisions`).
 fn indexed_short_key(i: u64, buf: &mut Vec<u8>) {
-    let mut rng = XorShift::new(writer_seed(SHORT_SEED, i));
+    let mut rng = XorShift::odd(writer_seed(SHORT_SEED, i));
     short_key(&mut rng, buf);
 }
 
@@ -416,7 +405,7 @@ fn writer_loop(
 ) -> Ops {
     let mut ops = Ops::new();
     let mut buf = Vec::with_capacity(40);
-    let mut rng = XorShift::new(writer_seed(seed, w));
+    let mut rng = XorShift::odd(writer_seed(seed, w));
     let mut k = 0u64;
     let c0 = thread_cpu_ns();
     while !stop.load(Ordering::Relaxed) {

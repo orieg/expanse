@@ -31,81 +31,11 @@ use expanse_trie::set::ExpanseSet;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hint::black_box;
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
-
-struct KeyGen<'a> {
-    dist: &'a str,
-    rng: XorShift,
-    i: u64,
-    base: u64,
-}
-
-impl<'a> KeyGen<'a> {
-    fn new(dist: &'a str, seed: u64) -> Self {
-        Self::with_offset(dist, seed, 0)
-    }
-
-    fn with_offset(dist: &'a str, seed: u64, offset: u64) -> Self {
-        Self {
-            dist,
-            rng: XorShift(seed),
-            i: offset,
-            base: 0,
-        }
-    }
-
-    fn next(&mut self) -> u64 {
-        let k = match self.dist {
-            "sequential" => self.i,
-            "random" => self.rng.next(),
-            "clustered" => {
-                if self.i.is_multiple_of(256) {
-                    self.base = self.rng.next() & !0xFF;
-                }
-                self.base + (self.i % 256)
-            }
-            "sparse" => self.i << 40,
-            _ => unreachable!(),
-        };
-        self.i += 1;
-        k
-    }
-}
-
-/// The TESTING.md key-distribution classes.
-fn keys(dist: &str, n: usize) -> Vec<u64> {
-    let mut g = KeyGen::new(dist, 0x0DDB_1A5E_5EED_0001);
-    (0..n).map(|_| g.next()).collect()
-}
-
-/// `n` distinct keys that are absent from `present`, drawn from the same
-/// generator as the population and rejected on membership (AGENTS.md §8.6).
-fn generate_miss_keys(dist: &str, present: &HashSet<u64>, n: usize, seed: u64) -> Vec<u64> {
-    let mut g = KeyGen::with_offset(dist, seed, present.len() as u64);
-    let mut seen: HashSet<u64> = HashSet::with_capacity(n * 2);
-    let mut out = Vec::with_capacity(n);
-    let budget = n.saturating_mul(64).saturating_add(1024);
-    for _ in 0..budget {
-        if out.len() == n {
-            return out;
-        }
-        let c = g.next();
-        if !present.contains(&c) && seen.insert(c) {
-            out.push(c);
-        }
-    }
-    panic!("{dist}: could not draw {n} distinct absent keys within budget");
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+// The TESTING.md key-distribution classes from the shared seed, and absent
+// keys drawn from the same generator resumed at offset >= N (AGENTS.md §8.6).
+use workload_common::{XorShift, keys, miss_keys as generate_miss_keys};
 
 /// Probe sets: present keys (hits) and realistic absent keys (misses).
 fn probes(dist: &str, keys: &[u64]) -> (Vec<u64>, Vec<u64>) {

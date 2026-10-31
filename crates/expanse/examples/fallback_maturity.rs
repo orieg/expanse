@@ -55,22 +55,9 @@
 use expanse_trie::occ_stats::{self, Stat};
 use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet};
 
-/// XorShift64, the generator the comparative suites use. Replicated here rather
-/// than imported because `expanse-hot-bench` cannot build without the HOT
-/// submodule and this probe has nothing to do with HOT; the seed below is the
-/// shared constant and must not diverge from it.
-struct XorShift(u64);
-
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "../benches/workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// The suites' shared seed (`expanse_hot_bench::workload::XorShift::SEED`,
 /// and `keyspace_density.rs`).

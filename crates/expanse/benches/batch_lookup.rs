@@ -61,19 +61,9 @@ use expanse_trie::set::ExpanseSet;
 use std::collections::HashSet;
 use std::hint::black_box;
 
-/// XorShift64 with the seeds `compare.rs` uses, so the two harnesses build
-/// the same populations and probe sets (AGENTS.md §8.3).
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 fn random_keys(n: usize) -> Vec<u64> {
     let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);

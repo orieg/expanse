@@ -156,17 +156,9 @@ fn reset_peak() {
     PEAK.store(live(), Ordering::Relaxed);
 }
 
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "../benches/workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// The seed every committed random cell in this repository draws from.
 const SEED: u64 = 0x0DDB_1A5E_5EED_0001;

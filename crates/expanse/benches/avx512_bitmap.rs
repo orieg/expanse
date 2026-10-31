@@ -104,27 +104,19 @@ const REGIMES: &[Regime] = &[
     },
 ];
 
-fn xorshift(s: &mut u64) -> u64 {
-    *s ^= *s << 13;
-    *s ^= *s >> 7;
-    *s ^= *s << 17;
-    *s
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// Bitmap leaves exist because a subexpanse is *dense*, so the words are filled
 /// from a PRNG (~50% set) rather than left sparse. Cardinality cost is
 /// data-independent on all three arms, but the density keeps the fixture honest
 /// about what a real leaf holds.
 fn build(n: usize, seed: u64) -> Vec<Bitmap256> {
-    let mut s = seed;
+    let mut s = XorShift(seed);
     (0..n)
         .map(|_| Bitmap256 {
-            words: [
-                xorshift(&mut s),
-                xorshift(&mut s),
-                xorshift(&mut s),
-                xorshift(&mut s),
-            ],
+            words: [s.next(), s.next(), s.next(), s.next()],
         })
         .collect()
 }
@@ -133,9 +125,9 @@ fn build(n: usize, seed: u64) -> Vec<Bitmap256> {
 /// each index is only known once the previous one has been loaded.
 fn build_chase(n: usize, seed: u64) -> Vec<u32> {
     let mut order: Vec<u32> = (0..n as u32).collect();
-    let mut s = seed;
+    let mut s = XorShift(seed);
     for i in (1..n).rev() {
-        let j = (xorshift(&mut s) % (i as u64 + 1)) as usize;
+        let j = (s.next() % (i as u64 + 1)) as usize;
         order.swap(i, j);
     }
     // next[order[k]] = order[k+1] — one Hamiltonian cycle over the buffer.

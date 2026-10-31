@@ -71,23 +71,15 @@ unsafe impl GlobalAlloc for CountingAlloc {
 #[global_allocator]
 static ALLOC: CountingAlloc = CountingAlloc;
 
-/// The house PRNG: same kernel and seed as `bytes_per_key.rs`, so the 32-bit
-/// and 64-bit censuses agree on what "uniform random" means. This generator
-/// *defines* the sparse-random density constant in
-/// `scripts/embedded_envelope.py` -- swapping it silently would change the
-/// constant without changing the code it claims to measure (AGENTS.md
-/// §8.10.2), so it must not be replaced without re-measuring.
-struct XorShift(u64);
-impl XorShift {
-    fn next_u32(&mut self) -> u32 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x as u32
-    }
-}
+// The house PRNG: same kernel and seed as `bytes_per_key.rs`, so the 32-bit
+// and 64-bit censuses agree on what "uniform random" means. This generator
+// *defines* the sparse-random density constant in
+// `scripts/embedded_envelope.py`, so its `next_u32` draws are pinned by
+// `tests/test_workload_common.rs`: it must not change without re-measuring
+// (AGENTS.md §8.10.2).
+#[path = "../benches/workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 /// Measures, prints and enforces one arm. The guard is printed beside the
 /// figure so `scripts/perf_report.py` reads the ceiling this harness actually

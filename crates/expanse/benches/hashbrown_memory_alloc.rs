@@ -51,23 +51,12 @@ unsafe impl GlobalAlloc for TrackingAlloc {
 #[global_allocator]
 static GLOBAL: TrackingAlloc = TrackingAlloc;
 
-struct XorShift64(u64);
-impl XorShift64 {
-    fn new(seed: u64) -> Self {
-        Self(if seed == 0 { 0xFEEDBEEF_12345678 } else { seed })
-    }
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 fn measure_mem_random(pop: usize) -> (f64, f64, f64) {
-    let mut rng = XorShift64::new(0xABCD_1234_5678_EF01);
+    let mut rng = XorShift::nonzero_or(0xABCD_1234_5678_EF01, 0xFEED_BEEF_1234_5678);
     let mut keys = Vec::with_capacity(pop);
     for _ in 0..pop {
         keys.push(rng.next());

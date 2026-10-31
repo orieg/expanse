@@ -32,21 +32,9 @@ use std::hint::black_box;
 use std::sync::Barrier;
 use std::time::Instant;
 
-/// The suite PRNG (`examples/bytes_per_key.rs`).
-struct XorShift(u64);
-impl XorShift {
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-    fn unit(&mut self) -> f64 {
-        (self.next() >> 11) as f64 / (1u64 << 53) as f64
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 const SEED: u64 = 0x0DDB_1A5E_5EED_0001;
 
 /// YCSB's Zipfian generator (Gray et al., "Quickly generating billion-record

@@ -66,24 +66,9 @@ const STREAM_SEED: u64 = 0x5EED_C001_1234_5678;
 const SHUFFLE_SEED: u64 = 0x5EED_0F0F_1005_0002;
 const THETA: f64 = 0.99;
 
-struct XorShift64(u64);
-impl XorShift64 {
-    fn new(seed: u64) -> Self {
-        Self(if seed == 0 {
-            0x1A2B_3C4D_5E6F_7081
-        } else {
-            seed
-        })
-    }
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 #[derive(Copy, Clone)]
 enum Op {
@@ -100,7 +85,7 @@ fn generate_workload_ops(
     dataset_size: usize,
     seed: u64,
 ) -> Vec<Op> {
-    let mut rng = XorShift64::new(seed);
+    let mut rng = XorShift::nonzero_or(seed, 0x1A2B_3C4D_5E6F_7081);
     let mut next_insert_key = dataset_size as u64 + 1;
     let zipf = Zipf::new(dataset_size as u64, THETA).unwrap();
     // Seeded (#374): the Zipfian stream must be reproducible run-to-run.
@@ -173,7 +158,7 @@ fn build_keys(n: usize, order: &str) -> Vec<u64> {
     match order {
         "sorted" => {}
         "shuffled" => {
-            let mut rng = XorShift64::new(SHUFFLE_SEED);
+            let mut rng = XorShift::nonzero_or(SHUFFLE_SEED, 0x1A2B_3C4D_5E6F_7081);
             for i in (1..keys.len()).rev() {
                 let j = (rng.next() % (i as u64 + 1)) as usize;
                 keys.swap(i, j);

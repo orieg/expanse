@@ -27,24 +27,9 @@ use hdrhistogram::Histogram;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-struct XorShift64(u64);
-impl XorShift64 {
-    fn new(seed: u64) -> Self {
-        Self(if seed == 0 {
-            0x4D5E_6F70_8192_A3B4
-        } else {
-            seed
-        })
-    }
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-}
+#[path = "workload_common/mod.rs"]
+mod workload_common;
+use workload_common::XorShift;
 
 fn measure_growth_latency<F: FnMut(u64, u64)>(mut insert_fn: F, keys: &[u64]) -> Histogram<u64> {
     // 3 significant figures, tracking up to 10 seconds (10_000_000_000 ns)
@@ -120,7 +105,7 @@ fn main() {
     let round = round_arg(&args);
 
     let num_keys = if quick { 100_000 } else { 1_000_000 };
-    let mut rng = XorShift64::new(0xCAFE_BABE_0123_4567);
+    let mut rng = XorShift::nonzero_or(0xCAFE_BABE_0123_4567, 0x4D5E_6F70_8192_A3B4);
     let mut keys = Vec::with_capacity(num_keys);
     for _ in 0..num_keys {
         keys.push(rng.next());
