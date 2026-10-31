@@ -67,22 +67,41 @@ def encode_key_nul_free(tokens: List[int]) -> bytes:
     return bytes(buf)
 
 
-def compute_bca_ci(values: List[float]) -> Tuple[float, float]:
-    """Computes BCa 95% bootstrap confidence interval over sample measurements."""
+# The construction behind each published interval, recorded beside it as
+# `<prefix>ci_method` (AGENTS.md 8.1: a degraded estimator is labelled in the
+# artifact, never silent). This harness uses scipy's BCa, not
+# `scripts/bca_bootstrap.py`; moving it there would change the published
+# intervals, so the estimator stays and its fallbacks are named instead.
+CI_METHOD_SCIPY_BCA = "scipy_bca"
+CI_METHOD_SCIPY_PERCENTILE = "scipy_percentile_fallback"
+CI_METHOD_DEGENERATE = "degenerate"
+
+
+def compute_bca_ci(values: List[float]) -> Tuple[float, float, str]:
+    """BCa 95% bootstrap interval of the mean, and the construction that produced it.
+
+    scipy's BCa first; if it raises, the percentile interval, labelled as a
+    fallback; with fewer than three values or both failing, the point interval
+    `[mean, mean]`, labelled degenerate. Every fallback also prints a warning.
+    """
     if len(values) < 3:
         m = float(np.mean(values)) if values else 0.0
-        return m, m
+        print(f"::warning::bench_draft_quality: {len(values)} value(s); interval is the degenerate point [{m}, {m}]")
+        return m, m, CI_METHOD_DEGENERATE
     data = (np.array(values),)
     try:
         res = bootstrap(data, np.mean, confidence_level=0.95, n_resamples=1000, method="BCa")
-        return float(res.confidence_interval.low), float(res.confidence_interval.high)
-    except Exception:
+        return float(res.confidence_interval.low), float(res.confidence_interval.high), CI_METHOD_SCIPY_BCA
+    except Exception as bca_exc:
         try:
             res = bootstrap(data, np.mean, confidence_level=0.95, n_resamples=1000, method="percentile")
-            return float(res.confidence_interval.low), float(res.confidence_interval.high)
-        except Exception:
+            print(f"::warning::bench_draft_quality: scipy BCa failed ({bca_exc!r}); interval is the percentile fallback")
+            return float(res.confidence_interval.low), float(res.confidence_interval.high), CI_METHOD_SCIPY_PERCENTILE
+        except Exception as pct_exc:
             m = float(np.mean(values))
-            return m, m
+            print(f"::warning::bench_draft_quality: scipy BCa ({bca_exc!r}) and percentile ({pct_exc!r}) both "
+                  f"failed; interval is the degenerate point [{m}, {m}]")
+            return m, m, CI_METHOD_DEGENERATE
 
 
 class ExpanseLongestSuffixMatcher:
@@ -392,11 +411,14 @@ def run_benchmark():
 
             per_arm_task_alphas[arm_name] = task_alphas
             macro_alpha = float(np.mean(task_alphas)) if task_alphas else micro_alpha
-            ci_low, ci_high = compute_bca_ci(task_alphas) if task_alphas else (macro_alpha, macro_alpha)
+            ci_low, ci_high, ci_method = (
+                compute_bca_ci(task_alphas) if task_alphas else (macro_alpha, macro_alpha, CI_METHOD_DEGENERATE)
+            )
 
             workload_res[arm_name] = {
                 "macro_acceptance_length_alpha": round(macro_alpha, 3),
                 "bca_95_ci": [round(ci_low, 3), round(ci_high, 3)],
+                "bca_95_ci_method": ci_method,
                 "micro_stream_alpha": round(micro_alpha, 3),
                 "num_tasks_evaluated": len(task_alphas),
                 "speculation_steps": micro_steps,
@@ -419,10 +441,14 @@ def run_benchmark():
         paired_gains = [((e - b) / (1.0 + b)) * 100.0 for e, b in zip(exp_task_alphas, base_task_alphas)]
 
         mean_delta_alpha = float(np.mean(paired_deltas)) if paired_deltas else 0.0
-        delta_ci_low, delta_ci_high = compute_bca_ci(paired_deltas) if paired_deltas else (0.0, 0.0)
+        delta_ci_low, delta_ci_high, delta_ci_method = (
+            compute_bca_ci(paired_deltas) if paired_deltas else (0.0, 0.0, CI_METHOD_DEGENERATE)
+        )
 
         mean_ceiling_gain_pct = float(np.mean(paired_gains)) if paired_gains else 0.0
-        gain_ci_low, gain_ci_high = compute_bca_ci(paired_gains) if paired_gains else (0.0, 0.0)
+        gain_ci_low, gain_ci_high, gain_ci_method = (
+            compute_bca_ci(paired_gains) if paired_gains else (0.0, 0.0, CI_METHOD_DEGENERATE)
+        )
 
         base_macro = workload_res[base_arm]["macro_acceptance_length_alpha"]
         exp_macro = workload_res[exp_arm]["macro_acceptance_length_alpha"]
@@ -452,8 +478,10 @@ def run_benchmark():
             "sorted_window_macro_alpha": sa_macro,
             "paired_delta_alpha": round(mean_delta_alpha, 3),
             "paired_delta_alpha_bca_95_ci": [round(delta_ci_low, 3), round(delta_ci_high, 3)],
+            "paired_delta_alpha_bca_95_ci_method": delta_ci_method,
             "tok_per_sec_ceiling_gain_pct": round(mean_ceiling_gain_pct, 2),
             "paired_ceiling_gain_bca_95_ci": [round(gain_ci_low, 2), round(gain_ci_high, 2)],
+            "paired_ceiling_gain_bca_95_ci_method": gain_ci_method,
             "theoretical_tok_per_sec_ceiling": speedup_ceiling,
             "gate_floor_pct": floor_pct,
             "verdict": verdict,
