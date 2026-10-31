@@ -1,5 +1,6 @@
 mod blobmap;
 mod bytesmap;
+mod fallback;
 mod map;
 mod set;
 mod strmap;

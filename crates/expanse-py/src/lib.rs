@@ -5,6 +5,10 @@
 
 #![warn(missing_docs)]
 
+// Declared first: `vec_iter!` is textually scoped to the modules after it.
+#[macro_use]
+mod iter;
+
 pub mod blobmap;
 pub mod buffer;
 pub mod bytesmap;

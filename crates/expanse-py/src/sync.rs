@@ -746,188 +746,32 @@ impl Default for SyncExpanseSet {
     }
 }
 
-/// Key iterator for [`SyncExpanseMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct SyncExpanseMapKeyIter {
-    pub(crate) keys: Vec<u64>,
-    pub(crate) index: usize,
+vec_iter! {
+    /// Key iterator for [`SyncExpanseMap`].
+    SyncExpanseMapKeyIter { keys: Vec<u64> }
 }
 
-#[pymethods]
-impl SyncExpanseMapKeyIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next key.
-    pub fn __next__(&mut self) -> Option<u64> {
-        if self.index < self.keys.len() {
-            let item = self.keys[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining key count.
-    pub fn __len__(&self) -> usize {
-        self.keys.len().saturating_sub(self.index)
-    }
+vec_iter! {
+    /// Value iterator for [`SyncExpanseMap`].
+    SyncExpanseMapValueIter { values: Vec<u64> }
 }
 
-/// Value iterator for [`SyncExpanseMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct SyncExpanseMapValueIter {
-    pub(crate) values: Vec<u64>,
-    pub(crate) index: usize,
+vec_iter! {
+    /// Item iterator for [`SyncExpanseMap`].
+    SyncExpanseMapItemIter { items: Vec<(u64, u64)> }
 }
 
-#[pymethods]
-impl SyncExpanseMapValueIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next value.
-    pub fn __next__(&mut self) -> Option<u64> {
-        if self.index < self.values.len() {
-            let item = self.values[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining value count.
-    pub fn __len__(&self) -> usize {
-        self.values.len().saturating_sub(self.index)
-    }
+vec_iter! {
+    /// Range iterator for [`SyncExpanseMap`].
+    SyncExpanseMapRangeIter { items: Vec<(u64, u64)> }
 }
 
-/// Item iterator for [`SyncExpanseMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct SyncExpanseMapItemIter {
-    pub(crate) items: Vec<(u64, u64)>,
-    pub(crate) index: usize,
+vec_iter! {
+    /// Key iterator for [`SyncExpanseSet`].
+    SyncExpanseSetIter { items: Vec<u64> }
 }
 
-#[pymethods]
-impl SyncExpanseMapItemIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next `(key, value)` pair.
-    pub fn __next__(&mut self) -> Option<(u64, u64)> {
-        if self.index < self.items.len() {
-            let item = self.items[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining item count.
-    pub fn __len__(&self) -> usize {
-        self.items.len().saturating_sub(self.index)
-    }
-}
-
-/// Range iterator for [`SyncExpanseMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct SyncExpanseMapRangeIter {
-    pub(crate) items: Vec<(u64, u64)>,
-    pub(crate) index: usize,
-}
-
-#[pymethods]
-impl SyncExpanseMapRangeIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next `(key, value)` pair in range.
-    pub fn __next__(&mut self) -> Option<(u64, u64)> {
-        if self.index < self.items.len() {
-            let item = self.items[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining item count in range.
-    pub fn __len__(&self) -> usize {
-        self.items.len().saturating_sub(self.index)
-    }
-}
-
-/// Key iterator for [`SyncExpanseSet`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct SyncExpanseSetIter {
-    pub(crate) items: Vec<u64>,
-    pub(crate) index: usize,
-}
-
-#[pymethods]
-impl SyncExpanseSetIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next element.
-    pub fn __next__(&mut self) -> Option<u64> {
-        if self.index < self.items.len() {
-            let item = self.items[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining element count.
-    pub fn __len__(&self) -> usize {
-        self.items.len().saturating_sub(self.index)
-    }
-}
-
-/// Range iterator for [`SyncExpanseSet`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct SyncExpanseSetRangeIter {
-    pub(crate) items: Vec<u64>,
-    pub(crate) index: usize,
-}
-
-#[pymethods]
-impl SyncExpanseSetRangeIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns the next element in range.
-    pub fn __next__(&mut self) -> Option<u64> {
-        if self.index < self.items.len() {
-            let item = self.items[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining element count in range.
-    pub fn __len__(&self) -> usize {
-        self.items.len().saturating_sub(self.index)
-    }
+vec_iter! {
+    /// Range iterator for [`SyncExpanseSet`].
+    SyncExpanseSetRangeIter { items: Vec<u64> }
 }

@@ -397,97 +397,21 @@ impl Default for ExpanseStrMap {
     }
 }
 
-/// Key iterator for [`ExpanseStrMap`].
-///
-/// Keys are stored as raw bytes and yielded as `str` (valid UTF-8) or `bytes` (otherwise).
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseStrMapKeyIter {
-    pub(crate) keys: Vec<Vec<u8>>,
-    pub(crate) index: usize,
+vec_iter! {
+    /// Key iterator for [`ExpanseStrMap`].
+    ///
+    /// Keys are stored as raw bytes and yielded as `str` (valid UTF-8) or `bytes` (otherwise).
+    ExpanseStrMapKeyIter { keys: Vec<Vec<u8>> }
+    yields<'py> Py<PyAny> = |py, key| key_to_py(py, key)
 }
 
-#[pymethods]
-impl ExpanseStrMapKeyIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns next key (`str` for UTF-8 keys, `bytes` otherwise).
-    pub fn __next__(&mut self, py: Python<'_>) -> Option<Py<PyAny>> {
-        if self.index < self.keys.len() {
-            let item = key_to_py(py, &self.keys[self.index]);
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining key count.
-    pub fn __len__(&self) -> usize {
-        self.keys.len().saturating_sub(self.index)
-    }
+vec_iter! {
+    /// Value iterator for [`ExpanseStrMap`].
+    ExpanseStrMapValueIter { values: Vec<u64> }
 }
 
-/// Value iterator for [`ExpanseStrMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseStrMapValueIter {
-    pub(crate) values: Vec<u64>,
-    pub(crate) index: usize,
-}
-
-#[pymethods]
-impl ExpanseStrMapValueIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns next value.
-    pub fn __next__(&mut self) -> Option<u64> {
-        if self.index < self.values.len() {
-            let item = self.values[self.index];
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining value count.
-    pub fn __len__(&self) -> usize {
-        self.values.len().saturating_sub(self.index)
-    }
-}
-
-/// Item iterator for [`ExpanseStrMap`].
-#[pyclass(unsendable, module = "expanse_trie._expanse")]
-pub struct ExpanseStrMapItemIter {
-    pub(crate) items: Vec<(String, u64)>,
-    pub(crate) index: usize,
-}
-
-#[pymethods]
-impl ExpanseStrMapItemIter {
-    /// Returns the iterator instance.
-    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
-        slf
-    }
-
-    /// Returns next `(key, value)` pair.
-    pub fn __next__(&mut self) -> Option<(String, u64)> {
-        if self.index < self.items.len() {
-            let item = self.items[self.index].clone();
-            self.index += 1;
-            Some(item)
-        } else {
-            None
-        }
-    }
-
-    /// Returns remaining item count.
-    pub fn __len__(&self) -> usize {
-        self.items.len().saturating_sub(self.index)
-    }
+vec_iter! {
+    /// Item iterator for [`ExpanseStrMap`].
+    ExpanseStrMapItemIter { items: Vec<(String, u64)> }
+    yields<'py> (String, u64) = |_py, item| item.clone()
 }

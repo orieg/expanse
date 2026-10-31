@@ -231,33 +231,33 @@ impl Default for WasmBTreeMap32 {
     }
 }
 
+/// The map behind [`WasmExpanseMap`]: the engine on 64-bit targets, the
+/// `BTreeMap` adapter on 32-bit ones (see [`crate::fallback`]).
 #[cfg(target_pointer_width = "64")]
-use expanse_trie::map::ExpanseMap;
+type Map64 = expanse_trie::map::ExpanseMap;
+#[cfg(not(target_pointer_width = "64"))]
+type Map64 = crate::fallback::BTreeMap64;
+
+/// A `(key, value)` entry as the two-element JS array the navigation methods return.
+fn entry_array((key, value): (u64, u64)) -> Array {
+    let arr = Array::new();
+    arr.push(&JsValue::from(key));
+    arr.push(&JsValue::from(value));
+    arr
+}
 
 /// 64-bit Map Wrapper (ExpanseMap on wasm64 / 64-bit targets, BTreeMap fallback on 32-bit).
 #[wasm_bindgen]
 pub struct WasmExpanseMap {
-    #[cfg(target_pointer_width = "64")]
-    inner: ExpanseMap,
-    #[cfg(not(target_pointer_width = "64"))]
-    inner: BTreeMap<u64, u64>,
+    inner: Map64,
 }
 
 #[wasm_bindgen]
 impl WasmExpanseMap {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        #[cfg(target_pointer_width = "64")]
-        {
-            Self {
-                inner: ExpanseMap::new(),
-            }
-        }
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            Self {
-                inner: BTreeMap::new(),
-            }
+        Self {
+            inner: Map64::new(),
         }
     }
 
@@ -266,47 +266,19 @@ impl WasmExpanseMap {
     }
 
     pub fn get(&self, key: u64) -> Option<u64> {
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.inner.get(key)
-        }
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            self.inner.get(&key).copied()
-        }
+        self.inner.get(key)
     }
 
     pub fn delete(&mut self, key: u64) -> bool {
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.inner.remove(key).is_some()
-        }
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            self.inner.remove(&key).is_some()
-        }
+        self.inner.remove(key).is_some()
     }
 
     pub fn contains(&self, key: u64) -> bool {
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.inner.contains_key(key)
-        }
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            self.inner.contains_key(&key)
-        }
+        self.inner.contains_key(key)
     }
 
     pub fn size(&self) -> u64 {
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.inner.len()
-        }
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            self.inner.len() as u64
-        }
+        self.inner.len()
     }
 
     pub fn clear(&mut self) {
@@ -314,97 +286,21 @@ impl WasmExpanseMap {
     }
 
     pub fn first(&self) -> Option<Array> {
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.inner.first().map(|(k, v)| {
-                let arr = Array::new();
-                arr.push(&JsValue::from(k));
-                arr.push(&JsValue::from(v));
-                arr
-            })
-        }
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            self.inner.iter().next().map(|(&k, &v)| {
-                let arr = Array::new();
-                arr.push(&JsValue::from(k));
-                arr.push(&JsValue::from(v));
-                arr
-            })
-        }
+        self.inner.first().map(entry_array)
     }
 
     pub fn last(&self) -> Option<Array> {
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.inner.last().map(|(k, v)| {
-                let arr = Array::new();
-                arr.push(&JsValue::from(k));
-                arr.push(&JsValue::from(v));
-                arr
-            })
-        }
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            self.inner.iter().next_back().map(|(&k, &v)| {
-                let arr = Array::new();
-                arr.push(&JsValue::from(k));
-                arr.push(&JsValue::from(v));
-                arr
-            })
-        }
+        self.inner.last().map(entry_array)
     }
 
     #[wasm_bindgen(js_name = next)]
     pub fn next_after(&self, key: u64) -> Option<Array> {
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.inner.next_after(key).map(|(k, v)| {
-                let arr = Array::new();
-                arr.push(&JsValue::from(k));
-                arr.push(&JsValue::from(v));
-                arr
-            })
-        }
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            use std::ops::Bound::Excluded;
-            self.inner
-                .range((Excluded(key), std::ops::Bound::Unbounded))
-                .next()
-                .map(|(&k, &v)| {
-                    let arr = Array::new();
-                    arr.push(&JsValue::from(k));
-                    arr.push(&JsValue::from(v));
-                    arr
-                })
-        }
+        self.inner.next_after(key).map(entry_array)
     }
 
     #[wasm_bindgen(js_name = prev)]
     pub fn prev_before(&self, key: u64) -> Option<Array> {
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.inner.prev_before(key).map(|(k, v)| {
-                let arr = Array::new();
-                arr.push(&JsValue::from(k));
-                arr.push(&JsValue::from(v));
-                arr
-            })
-        }
-        #[cfg(not(target_pointer_width = "64"))]
-        {
-            use std::ops::Bound::Excluded;
-            self.inner
-                .range((std::ops::Bound::Unbounded, Excluded(key)))
-                .next_back()
-                .map(|(&k, &v)| {
-                    let arr = Array::new();
-                    arr.push(&JsValue::from(k));
-                    arr.push(&JsValue::from(v));
-                    arr
-                })
-        }
+        self.inner.prev_before(key).map(entry_array)
     }
 }
 
