@@ -77,7 +77,9 @@ def decide(classified: list[tuple[dict, str]]) -> tuple[str, str]:
         return "pass", f"{ident} is a full run and concluded success"
     return "fail", (
         f"the latest full ci.yml run on this commit, {ident}, concluded "
-        f"{run.get('conclusion')!r}. Fix it or re-run it to success, then re-run the release"
+        f"{run.get('conclusion')!r}. Nothing is built or published yet. If the failure is a flake, re-run that "
+        f"run's failed jobs (`gh run rerun {run.get('id')} --failed`) and, once it succeeds, use 'Re-run failed "
+        f"jobs' on this release run; if it is a real failure, fix it on main and release the next version"
     )
 
 
@@ -133,12 +135,16 @@ def on_branch(repo: str, sha: str, branch: str) -> int:
     try:
         status = json.loads(_gh(["api", f"repos/{repo}/compare/{sha}...{branch}"])).get("status")
     except (RuntimeError, json.JSONDecodeError) as exc:
-        print(f"::error::cannot compare {sha} with {branch} ({exc}) -- failing closed. Check network connectivity or GitHub API status, then re-run")
+        print(f"::error::cannot compare {sha} with {branch} ({exc}) -- failing closed: the question is open, "
+              f"not answered no. Check https://www.githubstatus.com and the token's `contents: read`, then use "
+              f"'Re-run failed jobs' on this release run")
         return 1
     if not reached_from(status):
         print(f"::error::{sha} is not on {branch} (compare status {status!r}): a release is cut "
-              f"from a commit of {branch}, never from a side branch or a stale checkout. "
-              f"Fast-forward or merge {branch} to include {sha}, or check out {branch} and re-cut the release")
+              f"from a commit of {branch}, never from a side branch or a stale checkout. Nothing is built or "
+              f"published yet, and this tag cannot be moved: merge the change to {branch}, then tag the "
+              f"{branch} commit with scripts/tag_release.py (which tags origin/{branch} by default) under the "
+              f"next version")
         return 1
     print(f"release gate for {sha}: on {branch} ({status})")
     return 0
@@ -152,7 +158,8 @@ def gate(repo: str, sha: str, dispatch_ref: str | None, deadline_s: float, poll_
             verdict, detail = decide(fetch(repo, sha))
         except (RuntimeError, json.JSONDecodeError, KeyError) as exc:
             print(f"::error::cannot read the ci.yml runs of {sha} ({exc}) -- failing closed. "
-                  f"Check network connectivity or GH_TOKEN permissions, then re-run the release")
+                  f"Check https://www.githubstatus.com and that GH_TOKEN has `actions: read`, then use "
+                  f"'Re-run failed jobs' on this release run")
             return 1
         print(f"release gate for {sha}: {verdict} -- {detail}")
         if verdict == "pass":
@@ -162,14 +169,16 @@ def gate(repo: str, sha: str, dispatch_ref: str | None, deadline_s: float, poll_
             return 1
         if verdict == "dispatch" and not dispatched:
             if not dispatch_ref:
-                print(f"::error::{detail}; no --dispatch-ref to start one on. Run "
-                      f"`gh workflow run {WORKFLOW} --ref <branch-or-tag>` and re-run the release")
+                print(f"::error::{detail}; no --dispatch-ref to start one on. Start one with "
+                      f"`gh workflow run {WORKFLOW} --ref <the tag>`, wait for it to succeed, then use "
+                      f"'Re-run failed jobs' on this release run")
                 return 1
             try:
                 _gh(["workflow", "run", WORKFLOW, "--repo", repo, "--ref", dispatch_ref])
             except RuntimeError as exc:
-                print(f"::error::could not dispatch {WORKFLOW} on {dispatch_ref} ({exc}). "
-                      f"Dispatch manually with `gh workflow run {WORKFLOW} --ref {dispatch_ref}` and re-run the release")
+                print(f"::error::could not dispatch {WORKFLOW} on {dispatch_ref} ({exc}). Dispatch it by hand "
+                      f"with `gh workflow run {WORKFLOW} --ref {dispatch_ref}`, wait for it to succeed, then use "
+                      f"'Re-run failed jobs' on this release run")
                 return 1
             dispatched = True
             print(f"::notice::dispatched a full {WORKFLOW} run on {dispatch_ref} for {sha}")
@@ -177,7 +186,9 @@ def gate(repo: str, sha: str, dispatch_ref: str | None, deadline_s: float, poll_
             hint = (f" The run dispatched on {dispatch_ref!r} never appeared for {sha}: "
                     "the ref may have moved to another commit.") if dispatched else ""
             print(f"::error::timed out waiting for a full {WORKFLOW} run on {sha} ({detail}).{hint} "
-                  f"Check GitHub Actions workflow status or increase --deadline-minutes, then re-run the release")
+                  f"Nothing is built or published yet. Let the {WORKFLOW} run finish (a busy runner pool is the "
+                  f"usual cause), then use 'Re-run failed jobs' on this release run: it finds that run and "
+                  f"does not dispatch another")
             return 1
         time.sleep(poll_s)
 
@@ -334,7 +345,8 @@ def main() -> int:
     if args.self_test:
         return self_test()
     if not args.repo or not args.sha:
-        print("::error::--repo and --sha are required", file=sys.stderr)
+        print("::error::--repo and --sha are required: pass --repo OWNER/NAME and --sha <commit>, "
+              "as release.yml does", file=sys.stderr)
         return 1
     if args.require_ancestor_of:
         rc = on_branch(args.repo, args.sha, args.require_ancestor_of)

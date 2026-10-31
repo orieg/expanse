@@ -30,7 +30,13 @@ Three further properties are about what a job can leak or pull in:
   5. **The compiler is pinned, and write jobs are observed.** No step asks for
      a toolchain channel (`stable`); each takes `env.RELEASE_TOOLCHAIN`, which
      is an exact version. Every job with a `write` permission or the `release`
-     environment starts with `step-security/harden-runner`.
+     environment starts with `step-security/harden-runner`. In `release.yml`
+     and `python.yml` alike, every runner image is an exact label (never
+     `*-latest`, matrix rows included), every `setup-node`, `setup-java`,
+     `setup-dotnet`, `setup-python` and `setup-ruby` version is an exact
+     X.Y.Z, every `cargo install` carries `--locked` and an exact version,
+     and `maturin-action` gets an exact `maturin-version` equal to the
+     maturin pin of `.github/requirements/python-bindings.in`.
 
 And four are about the gate itself:
 
@@ -57,6 +63,10 @@ And four are about the gate itself:
      must appear in the workflow, so an argument cannot be dropped and a
      check cannot be swapped for `true` without this failing. The workflow's
      default permission is read-only, and a manual run cannot publish.
+ 11. **The curated notes are checked by the gate.** `release_notes.py` runs in
+     `release-gate` and nowhere else, which hands its file to `github-release`
+     as the `curated-notes` artifact: a stable tag without notes fails before
+     any build.
 
 Run:  check_release_workflow.py [--workflow FILE]
       check_release_workflow.py --self-test
@@ -247,6 +257,35 @@ def supply_chain_problems(workflow: dict) -> list[str]:
             if not first.startswith("step-security/harden-runner@"):
                 out.append(f"`{name}` holds a write permission or the release environment "
                            f"and does not start with harden-runner")
+    return out + floating_problems(workflow, "release.yml")
+
+
+NOTES_SCRIPT = "scripts/release_notes.py"
+NOTES_ARTIFACT = "curated-notes"
+
+
+def notes_problems(workflow: dict) -> list[str]:
+    """The curated-notes check runs in `release-gate`, and the release job takes its file.
+
+    The notes read only the tag, so a stable tag without them fails before
+    anything is built; the release job downloads what the gate checked
+    instead of reading the tag a second time.
+    """
+    out: list[str] = []
+    jobs = workflow.get("jobs") or {}
+    sites = sorted(name for name, job in jobs.items() for st in job.get("steps") or []
+                   if NOTES_SCRIPT in str(st.get("run", "")))
+    if sites != ["release-gate"]:
+        out.append(f"{NOTES_SCRIPT} runs in {sites or 'no job'}, not in `release-gate` alone: "
+                   f"a tag without notes would fail only after the builds")
+    gate = (jobs.get("release-gate") or {}).get("steps") or []
+    if not any(st.get("uses", "").startswith("actions/upload-artifact@")
+               and (st.get("with") or {}).get("name") == NOTES_ARTIFACT for st in gate):
+        out.append(f"`release-gate` does not upload the `{NOTES_ARTIFACT}` artifact")
+    release = (jobs.get("github-release") or {}).get("steps") or []
+    if not any(st.get("uses", "").startswith("actions/download-artifact@")
+               and (st.get("with") or {}).get("name") == NOTES_ARTIFACT for st in release):
+        out.append(f"`github-release` does not download the `{NOTES_ARTIFACT}` artifact the gate checked")
     return out
 
 
@@ -279,6 +318,131 @@ def python_pin_problems(workflow: dict, where: str = "python.yml") -> list[str]:
                 toolchain = (step.get("with") or {}).get("toolchain")
                 if toolchain is not None and toolchain != TOOLCHAIN_REF:
                     out.append(f"{prefix}`{name}`: step `{label}` installs toolchain {toolchain!r}, not RELEASE_TOOLCHAIN")
+    out += floating_problems(workflow, where)
+    out += maturin_lockstep_problems(workflow, where, maturin_requirement_pin())
+    return out
+
+
+# --- inputs that resolve to whatever is current on the day -------------------
+# A runner label such as `ubuntu-latest` moves to a new image without a change
+# here, and a setup action given `22` or `3.11` installs the newest patch it
+# finds. Each is held to an exact form, in release.yml and python.yml alike.
+EXACT_IMAGE_RE = re.compile(r"^(?:ubuntu-\d+\.\d+(?:-arm)?|macos-\d+(?:-[a-z]+)?|windows-\d{4}(?:-[a-z0-9]+)?)$")
+SETUP_VERSION_INPUTS = {
+    "actions/setup-node@": "node-version",
+    "actions/setup-java@": "java-version",
+    "actions/setup-dotnet@": "dotnet-version",
+    "actions/setup-python@": "python-version",
+    "ruby/setup-ruby@": "ruby-version",
+}
+MATURIN_ACTION = "PyO3/maturin-action@"
+EXACT_MATURIN_RE = re.compile(r"^v\d+\.\d+\.\d+$")
+MATRIX_REF_RE = re.compile(r"^\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}$")
+ENV_REF_RE = re.compile(r"^\$\{\{\s*env\.([A-Za-z0-9_]+)\s*\}\}$")
+CARGO_INSTALL_RE = re.compile(r"(?<![\w:/.\"'-])cargo install\b")
+CARGO_INSTALL_VERSION_RE = re.compile(r"(?:--version[ =]\d+\.\d+\.\d+(?!\S)|\S@\d+\.\d+\.\d+(?!\S))")
+
+
+def matrix_values(matrix: dict, key: str) -> list:
+    """Every value `matrix.<key>` takes: the matrix's own list, then its `include` rows."""
+    if not isinstance(matrix, dict):
+        return []
+    own = matrix.get(key)
+    values = list(own) if isinstance(own, list) else ([] if own is None else [own])
+    for row in matrix.get("include") or []:
+        if isinstance(row, dict) and key in row:
+            values.append(row[key])
+    return values
+
+
+def resolve(value, job: dict, workflow: dict) -> list[str] | None:
+    """The literal values a `matrix.X` or `env.X` reference stands for; None if it cannot be read."""
+    text = str(value).strip()
+    found = MATRIX_REF_RE.match(text)
+    if found:
+        values = matrix_values((job.get("strategy") or {}).get("matrix") or {}, found.group(1))
+        return [str(v) for v in values] or None
+    found = ENV_REF_RE.match(text)
+    if found:
+        for env in (job.get("env") or {}, workflow.get("env") or {}):
+            if found.group(1) in env:
+                return [str(env[found.group(1)])]
+        return None
+    return None if "${{" in text else [text]
+
+
+def floating_problems(workflow: dict, where: str) -> list[str]:
+    """Runner images, setup-action versions, maturin and `cargo install` are exact."""
+    out: list[str] = []
+    prefix = f"{where}: "
+    for name, job in sorted((workflow.get("jobs") or {}).items()):
+        runs_on = job.get("runs-on")
+        if runs_on is not None:
+            images = resolve(runs_on, job, workflow) if isinstance(runs_on, str) else None
+            if images is None:
+                out.append(f"{prefix}`{name}`: runs-on {runs_on!r} cannot be read as an image label")
+            for image in images or []:
+                if not EXACT_IMAGE_RE.match(image):
+                    out.append(f"{prefix}`{name}`: runs on `{image}`, not an exact runner image "
+                               f"(ubuntu-24.04, macos-26, windows-2025-vs2026, ...)")
+        for step in job.get("steps") or []:
+            uses = step.get("uses", "")
+            label = step.get("name") or uses
+            with_ = step.get("with") or {}
+            for action, key in SETUP_VERSION_INPUTS.items():
+                if not uses.startswith(action):
+                    continue
+                if key not in with_:
+                    out.append(f"{prefix}`{name}`: step `{label}` has no `{key}`, so the action picks one")
+                    continue
+                values = resolve(with_[key], job, workflow)
+                if values is None:
+                    out.append(f"{prefix}`{name}`: step `{label}` sets `{key}: {with_[key]}`, which cannot be read")
+                for v in values or []:
+                    if not EXACT_VERSION_RE.match(v):
+                        out.append(f"{prefix}`{name}`: step `{label}` sets `{key}: {v}`, not an exact X.Y.Z version")
+            if uses.startswith(MATURIN_ACTION):
+                values = resolve(with_["maturin-version"], job, workflow) if "maturin-version" in with_ else None
+                if not values:
+                    out.append(f"{prefix}`{name}`: step `{label}` has no readable `maturin-version`, so the action "
+                               f"resolves the newest maturin in pyproject.toml's range")
+                for v in values or []:
+                    if not EXACT_MATURIN_RE.match(v):
+                        out.append(f"{prefix}`{name}`: step `{label}` sets `maturin-version: {v}`, not an exact vX.Y.Z")
+            body = step.get("run")
+            if isinstance(body, str):
+                for line in body.splitlines():
+                    code = line.strip()
+                    if not code or code.startswith(("#", "echo ", "printf ")) or not CARGO_INSTALL_RE.search(code):
+                        continue
+                    if "--locked" not in code or not CARGO_INSTALL_VERSION_RE.search(code):
+                        out.append(f"{prefix}`{name}`: `cargo install` without `--locked` and an exact "
+                                   f"`--version X.Y.Z` (or `crate@X.Y.Z`): {code}")
+    return out
+
+
+def maturin_requirement_pin(root: Path | None = None) -> str | None:
+    """The `maturin==X.Y.Z` pin of `.github/requirements/python-bindings.in`, or None."""
+    path = (root or Path(__file__).resolve().parent.parent) / ".github" / "requirements" / "python-bindings.in"
+    if not path.is_file():
+        return None
+    pin = requirement_pins(path.read_text(encoding="utf-8")).get("maturin")
+    return ".".join(map(str, pin)) if pin else None
+
+
+def maturin_lockstep_problems(workflow: dict, where: str, pin: str | None) -> list[str]:
+    """The maturin that builds the wheels is the one the test job builds with."""
+    out: list[str] = []
+    for name, job in sorted((workflow.get("jobs") or {}).items()):
+        for step in job.get("steps") or []:
+            if not step.get("uses", "").startswith(MATURIN_ACTION):
+                continue
+            for v in resolve((step.get("with") or {}).get("maturin-version", ""), job, workflow) or []:
+                if pin is None:
+                    out.append(f"{where}: `{name}` builds with maturin {v}, and python-bindings.in pins no maturin")
+                elif v.lstrip("v") != pin:
+                    out.append(f"{where}: `{name}` builds with maturin {v}, but python-bindings.in pins "
+                               f"maturin=={pin}; move them together")
     return out
 
 
@@ -567,11 +731,15 @@ def python_versions(value) -> list[tuple[int, ...]]:
 
 
 def matrix_python_floor(workflow: dict) -> tuple[int, ...] | None:
-    """The oldest `python-version` in any job matrix of `workflow`, or None."""
+    """The oldest `python-version` in any job matrix of `workflow`, or None.
+
+    Read from the matrix's own `python-version` list and from its `include`
+    rows, which is where a matrix pinning a patch release per OS lists it.
+    """
     versions: list[tuple[int, ...]] = []
     for job in (workflow.get("jobs") or {}).values():
         matrix = ((job.get("strategy") or {}).get("matrix") or {})
-        versions += python_versions(matrix.get("python-version"))
+        versions += python_versions(matrix_values(matrix, "python-version"))
     return min(versions) if versions else None
 
 
@@ -727,7 +895,7 @@ def publish_command_problems(workflow: dict) -> list[str]:
 def problems(workflow: dict, text: str | None = None) -> list[str]:
     jobs = workflow.get("jobs", {})
     out: list[str] = supply_chain_problems(workflow) + gate_problems(workflow, text) + toolchain_problems(workflow, text)
-    out += publish_command_problems(workflow)
+    out += publish_command_problems(workflow) + notes_problems(workflow)
     missing = [r for r in ("github-release", "smoke", "promote", "verify-registries") if r not in jobs]
     if missing:
         return out + [f"job `{r}` is missing" for r in missing]
@@ -938,6 +1106,75 @@ def self_test() -> int:
     check_wf("a read-only job gaining a write permission",
               lambda w: w["jobs"]["smoke"]["permissions"].__setitem__("contents", "write"),
               "`smoke` holds a write permission")
+
+    # --- floating inputs: runner images, setup versions, cargo install ------
+    def matrix_row(w, job: str, k: int) -> dict:
+        return w["jobs"][job]["strategy"]["matrix"]["include"][k]
+
+    check_wf("a job on ubuntu-latest",
+             lambda w: w["jobs"]["publish-npm"].__setitem__("runs-on", "ubuntu-latest"),
+             "`publish-npm`: runs on `ubuntu-latest`, not an exact runner image")
+    check_wf("a matrix row on macos-latest",
+             lambda w: matrix_row(w, "build-release-artifacts", 4).__setitem__("os", "macos-latest"),
+             "`build-release-artifacts`: runs on `macos-latest`")
+    check_wf("a matrix row on windows-latest",
+             lambda w: matrix_row(w, "smoke", 2).__setitem__("os", "windows-latest"),
+             "`smoke`: runs on `windows-latest`")
+    check_wf("runs-on naming a matrix key no row sets",
+             lambda w: w["jobs"]["smoke"].__setitem__("runs-on", "${{ matrix.runner }}"),
+             "cannot be read as an image label")
+    for job, prefix, key, value in (
+        ("publish-npm", "actions/setup-node@", "node-version", "22"),
+        ("package-maven", "actions/setup-java@", "java-version", "22"),
+        ("package-nuget", "actions/setup-dotnet@", "dotnet-version", "8.0.x"),
+        ("publish-gem", "ruby/setup-ruby@", "ruby-version", "3.3"),
+        ("release-gate", "actions/setup-python@", "python-version", "3.11"),
+    ):
+        check_wf(f"{key} {value} in {job}",
+                 lambda w, j=job, p=prefix, k=key, v=value: step_of(w, j, p)["with"].__setitem__(k, v),
+                 f"sets `{key}: {value}`, not an exact X.Y.Z version")
+    check_wf("setup-node with no node-version",
+             lambda w: step_of(w, "build-npm", "actions/setup-node@")["with"].pop("node-version"),
+             "has no `node-version`, so the action picks one")
+    for label, command in (("without --locked", "cargo install cargo-cyclonedx --version 0.5.9"),
+                           ("without a version", "cargo install --locked cargo-cyclonedx"),
+                           ("with a version range", "cargo install --locked cargo-cyclonedx --version ^0.5")):
+        check_wf(f"cargo install {label}",
+                 lambda w, c=command: w["jobs"]["github-release"]["steps"].insert(3, {"name": "Install", "run": c}),
+                 "`cargo install` without `--locked` and an exact")
+    for command in ("cargo install --locked cargo-cyclonedx --version 0.5.9",
+                    "cargo install --locked --version=0.5.9 cargo-cyclonedx",
+                    "cargo install --locked cargo-cyclonedx@0.5.9",
+                    "echo cargo install anything"):
+        fixture = {"jobs": {"a": {"runs-on": "ubuntu-24.04", "steps": [{"run": command}]}}}
+        if floating_problems(fixture, "x.yml"):
+            failures.append(f"a pinned `{command}` was reported: {floating_problems(fixture, 'x.yml')}")
+    for image in ("ubuntu-24.04", "ubuntu-24.04-arm", "macos-26", "macos-15-intel", "windows-2025-vs2026"):
+        if floating_problems({"jobs": {"a": {"runs-on": image}}}, "x.yml"):
+            failures.append(f"the exact image {image} was reported")
+
+    # --- the curated notes are checked in the gate ---------------------------
+    def notes_back_in_release(w):
+        gate = w["jobs"]["release-gate"]["steps"]
+        k = next(i for i, st in enumerate(gate) if NOTES_SCRIPT in str(st.get("run", "")))
+        w["jobs"]["github-release"]["steps"].insert(3, gate.pop(k))
+
+    check_wf("the curated-notes check moved back after the builds", notes_back_in_release,
+             f"{NOTES_SCRIPT} runs in ['github-release'], not in `release-gate` alone")
+    check_wf("the curated-notes check run twice",
+             lambda w: w["jobs"]["github-release"]["steps"].insert(
+                 3, {"name": "Notes", "run": f'python3 {NOTES_SCRIPT} --tag "$T" --out n.md'}),
+             f"{NOTES_SCRIPT} runs in ['github-release', 'release-gate']")
+    check_wf("the gate no longer handing the notes on",
+             lambda w: w["jobs"]["release-gate"]["steps"].remove(
+                 next(st for st in w["jobs"]["release-gate"]["steps"]
+                      if (st.get("with") or {}).get("name") == NOTES_ARTIFACT)),
+             f"`release-gate` does not upload the `{NOTES_ARTIFACT}` artifact")
+    check_wf("the release job no longer taking the checked notes",
+             lambda w: w["jobs"]["github-release"]["steps"].remove(
+                 next(st for st in w["jobs"]["github-release"]["steps"]
+                      if (st.get("with") or {}).get("name") == NOTES_ARTIFACT)),
+             f"`github-release` does not download the `{NOTES_ARTIFACT}` artifact")
 
     # --- the gate rules -----------------------------------------------------
     guard = real["jobs"]["publish-crates"]["if"]
@@ -1158,6 +1395,42 @@ def self_test() -> int:
     check_py("RELEASE_TOOLCHAIN set to a channel in python.yml",
              lambda w: w["env"].__setitem__("RELEASE_TOOLCHAIN", "stable"),
              "not an exact version")
+    if python_pin_problems(copy.deepcopy(real_py), "python.yml"):
+        failures.append(f"the real python.yml has pin problems: {python_pin_problems(real_py, 'python.yml')}")
+
+    def py_row(w, job: str, k: int) -> dict:
+        return w["jobs"][job]["strategy"]["matrix"]["include"][k]
+
+    check_py("a python.yml test row on macos-latest",
+             lambda w: py_row(w, "test", 2).__setitem__("os", "macos-latest"),
+             "`test`: runs on `macos-latest`, not an exact runner image")
+    check_py("a python.yml wheel row on windows-latest",
+             lambda w: py_row(w, "wheels", 4).__setitem__("os", "windows-latest"),
+             "`wheels`: runs on `windows-latest`")
+    check_py("a python.yml job on ubuntu-latest",
+             lambda w: w["jobs"]["sdist"].__setitem__("runs-on", "ubuntu-latest"),
+             "`sdist`: runs on `ubuntu-latest`")
+    check_py("a minor-only Python in a python.yml test row",
+             lambda w: py_row(w, "test", 0).__setitem__("python-version", "3.10"),
+             "`test`: step `Set up Python ${{ matrix.python-version }}` sets `python-version: 3.10`, not an exact")
+    check_py("a minor-only Python in a python.yml wheel row",
+             lambda w: py_row(w, "wheels", 0).__setitem__("python", "3.10"),
+             "`wheels`: step `Set up Python` sets `python-version: 3.10`, not an exact")
+    check_py("a minor-only Python in the sdist job",
+             lambda w: step_of(w, "sdist", "actions/setup-python@")["with"].__setitem__("python-version", "3.10"),
+             "`sdist`: step `Set up Python` sets `python-version: 3.10`")
+    check_py("maturin left to resolve its newest release",
+             lambda w: w["env"].__setitem__("MATURIN_VERSION", "latest"),
+             "sets `maturin-version: latest`, not an exact vX.Y.Z")
+    check_py("a maturin-action step with no maturin-version",
+             lambda w: step_of(w, "sdist", "PyO3/maturin-action@")["with"].pop("maturin-version"),
+             "`sdist`: step `Build sdist via maturin-action` has no readable `maturin-version`")
+    check_py("wheels built with another maturin than the test job",
+             lambda w: w["env"].__setitem__("MATURIN_VERSION", "v1.16.0"),
+             "builds with maturin v1.16.0, but python-bindings.in pins maturin==1.15.0")
+    check_py("a cargo install in python.yml",
+             lambda w: w["jobs"]["test"]["steps"].insert(1, {"run": "cargo install maturin"}),
+             "`cargo install` without `--locked`")
 
     # --- every workflow and composite action: pinned by commit ---------------
     all_found, _ = all_pin_problems()
@@ -1261,8 +1534,8 @@ def self_test() -> int:
     MAIN = PYTHON_BINDINGS_MAIN
     pair = ((req_dir / f"{MAIN}.in").read_text(encoding="utf-8"), (req_dir / f"{MAIN}.txt").read_text(encoding="utf-8"))
     floor = matrix_python_floor(real_py)
-    if floor != (3, 10):
-        failures.append(f"the Python floor read from python.yml is {floor}, not (3, 10)")
+    if floor is None or floor[:2] != (3, 10):
+        failures.append(f"the Python floor read from python.yml is {floor}, not 3.10.x")
     got = all_requirements_problems()
     if got:
         failures.append(f"the real python-bindings requirements have problems: {got}")
@@ -1316,8 +1589,11 @@ def self_test() -> int:
             failures.append(f"{label}: not reported (got {got})")
 
     main_file = ".github/requirements/python-bindings.txt"
-    site_check("python.yml with a 3.9 row", "python.yml", 'python-version: ["3.10", "3.12"]',
-               'python-version: ["3.9", "3.10", "3.12"]', "tests Python 3.9, which the main requirements file")
+    site_check("python.yml with a 3.9 row", "python.yml", '- { os: ubuntu-24.04, python-version: "3.10.22" }',
+               '- { os: ubuntu-24.04, python-version: "3.9.25" }', "tests Python 3.9.25, which the main requirements file")
+    if matrix_python_floor({"jobs": {"a": {"strategy": {"matrix": {"include": [
+            {"os": "x", "python-version": "3.12.1"}, {"os": "y", "python-version": "3.10.4"}]}}}}}) != (3, 10, 4):
+        failures.append("matrix_python_floor does not read the matrix's include rows")
     site_check("python.yml selecting a file by the matrix value", "python.yml", f"-r {main_file}",
                f"-r ${{{{ matrix.python-version == '3.10' && '{main_file}' || '{main_file}' }}}}",
                "chooses the requirements file by the matrix value")
@@ -1359,6 +1635,8 @@ def main() -> int:
           f"every job is behind the gate; {len(CALL_SITES)} call sites are as written; "
           f"actions are pinned by commit in release.yml, python.yml and {n_files - len(PIN_COVERED_ELSEWHERE)} "
           f"other workflow/action files, checkouts drop the token, the toolchain is exact; "
+          f"runner images, setup-action versions, cargo install and maturin are exact in release.yml and python.yml; "
+          f"the curated notes are checked in release-gate; "
           f"global tools use pinned versions, pip installs carry --require-hashes, cargo build carries --locked, "
           f"token permissions are read-only unless listed, python-bindings.txt resolves the expected set and respects the matrix Python floor")
     return 0

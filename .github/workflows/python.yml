@@ -38,7 +38,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # The compiler, as in release.yml: an exact version, never a channel.
   RELEASE_TOOLCHAIN: "1.99.0"
+  # The maturin that builds the published wheels and sdist. maturin-action
+  # otherwise resolves the newest release matching pyproject.toml's range on
+  # the day. Equal to the maturin pin in .github/requirements/python-bindings.in,
+  # which the test job builds with; scripts/check_release_workflow.py holds both.
+  MATURIN_VERSION: "v1.15.0"
 
 # Minimal default; the publish-pypi job elevates id-token itself.
 permissions:
@@ -49,9 +55,18 @@ jobs:
     name: Test Python Bindings (${{ matrix.os }}, Py ${{ matrix.python-version }})
     strategy:
       fail-fast: false
+      # Exact images and interpreters: the ones `macos-latest`, `windows-latest`
+      # and the minor-only versions resolved to in the v0.16.0 release dispatch
+      # (run 40257579245). setup-python's builds differ per OS, so the patch
+      # release is listed per row.
       matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
-        python-version: ["3.10", "3.12"]
+        include:
+          - { os: ubuntu-24.04, python-version: "3.10.22" }
+          - { os: ubuntu-24.04, python-version: "3.12.15" }
+          - { os: macos-26, python-version: "3.10.11" }
+          - { os: macos-26, python-version: "3.12.10" }
+          - { os: windows-2025-vs2026, python-version: "3.10.11" }
+          - { os: windows-2025-vs2026, python-version: "3.12.10" }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -91,18 +106,24 @@ jobs:
       max-parallel: 4
       matrix:
         include:
+          # Images and interpreters as resolved in run 40257579245.
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             manylinux: auto
+            python: "3.10.22"
           - os: ubuntu-24.04
             target: aarch64-unknown-linux-gnu
             manylinux: auto
-          - os: macos-latest
+            python: "3.10.22"
+          - os: macos-26
             target: aarch64-apple-darwin
-          - os: macos-latest
+            python: "3.10.11"
+          - os: macos-26
             target: x86_64-apple-darwin
-          - os: windows-latest
+            python: "3.10.11"
+          - os: windows-2025-vs2026
             target: x86_64-pc-windows-msvc
+            python: "3.10.11"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -114,11 +135,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.10"
+          python-version: ${{ matrix.python }}
 
       - name: Build wheels via maturin-action
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
+          maturin-version: ${{ env.MATURIN_VERSION }}
           target: ${{ matrix.target }}
           args: -m crates/expanse-py/Cargo.toml --release --out dist --find-interpreter
           manylinux: ${{ matrix.manylinux }}
@@ -144,11 +166,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.10"
+          python-version: "3.10.22"  # as resolved in run 40257579245
 
       - name: Build sdist via maturin-action
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
+          maturin-version: ${{ env.MATURIN_VERSION }}
           command: sdist
           args: --out dist
 
