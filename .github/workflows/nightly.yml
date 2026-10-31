@@ -53,7 +53,7 @@ jobs:
           toolchain: nightly
           components: miri
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # Lib shards select tests by exact name from the module map in
       # scripts/check_miri_shards.py (libtest filters are substring matches:
@@ -160,7 +160,7 @@ jobs:
         with:
           toolchain: nightly
           components: rust-src
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Verify ThreadSanitizer canary catches unsuppressed races (negative control)
         run: |
           cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test tsan_canary > canary.log 2>&1 || true
@@ -289,7 +289,7 @@ jobs:
         with:
           toolchain: nightly-2026-09-05
           components: miri
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Every Sync* UB site is in the state the manifest records
         run: python3 scripts/miri_ub_sites.py --check --shard ${{ matrix.shard }}/14
 
@@ -383,7 +383,7 @@ jobs:
           # wasm32 target for the nightly wasm-pack build of crates/expanse-wasm
           targets: wasm32-unknown-unknown
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # Go, Java 22+, and .NET toolchains for the go/java/dotnet bindings benchmark
       # runners in scripts/bench_bindings.py (#304) — without these, bench_bindings.py
@@ -413,7 +413,7 @@ jobs:
           node-version: 22
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
@@ -634,7 +634,7 @@ jobs:
         with:
           toolchain: nightly
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Restore fuzz corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
