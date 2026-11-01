@@ -2,10 +2,13 @@
 //! `docs/benchmarks/concurrency/METHODOLOGY.md` §33.3 G33.1, G33.5, G33.6
 //! and §33.10).
 //!
-//! Tests whose names start with `tier1_` are small enough for the per-pull
-//! request Miri filter (AGENTS.md §5) and cover every route of the walk: the
-//! exact descent, the drain of a root leaf and of a tree, suffix copies, the
-//! three restarts, the end bound, the spill buffer and the locked fallback.
+//! The tests whose names start with `tier1_` run in the per-pull-request
+//! Miri filter (AGENTS.md §5), whose shard has little time to spare, so they
+//! are the small ones that between them reach every route of the walk: the
+//! exact descent, the drain of a root leaf and of a tree with branches,
+//! suffix copies, the restarts, the end bound, the spill buffer, a holder
+//! check and a cover check. The rest run under Miri in the nightly `lib-sync`
+//! shard.
 
 use super::*;
 use crate::sync_str_cursor::test_hooks::{self as th, Control, Count, Site};
@@ -255,7 +258,7 @@ fn tier1_prefix_scan_at_the_boundaries() {
 
 /// `[lo, hi)` for every pair of boundary probes.
 #[test]
-fn tier1_range_scan_at_the_boundaries() {
+fn range_scan_at_the_boundaries() {
     let keys = boundary_keys();
     let (map, model) = build(&keys);
     let rd = map.reader();
@@ -287,7 +290,7 @@ fn tier1_range_scan_at_the_boundaries() {
 /// chunks, so a scan descends, restarts into a child, passes a suffix below
 /// the probe and ends a batch at a child.
 #[test]
-fn tier1_scan_crosses_levels_and_suffixes() {
+fn scan_crosses_levels_and_suffixes() {
     let mut keys = Vec::new();
     for a in [&b"aaaaaaaa"[..], b"aaaaaaab", b"bbbbbbbb"] {
         for t in [&b""[..], b"\x01", b"M", b"MM", b"MN", b"Z", b"ZZZZZZZZZ"] {
@@ -338,6 +341,25 @@ fn tier1_oversized_key_is_a_batch_of_one() {
     );
     assert_eq!(cur.next().map(|(k, _)| k.to_vec()), Some(long));
     assert_eq!(cur.next().map(|(k, _)| k.to_vec()), Some(b"mz".to_vec()));
+}
+
+/// A root sub-map in tree state (more than `ROOT_LEAF_CAP` keys, with
+/// branches under it), scanned whole, in a range that ends inside it, and
+/// from a seek: the drain's branch arms and its end-bound stop.
+#[test]
+fn tier1_tree_state_drain() {
+    let keys = wide_keys(80);
+    let (map, model) = build(&keys);
+    let rd = map.reader();
+    assert_eq!(drain(rd.cursor()), model_range(&model, b"", None));
+    let (lo, hi) = (&keys[20], &keys[50]);
+    assert_eq!(
+        drain(rd.range_cursor(nf(lo), nf(hi))),
+        model_range(&model, lo, Some(hi))
+    );
+    let mut cur = rd.cursor();
+    let got = cur.advance_to(nf(&keys[60])).map(|(k, v)| (k.to_vec(), v));
+    assert_eq!(got, Some((keys[60].clone(), model[&keys[60]])));
 }
 
 // ---- The three defects of the map cursor (#1382, #1385) --------------------
@@ -395,7 +417,7 @@ fn bounded_probe(controls: &[Control]) -> ([u64; 7], [u64; 7], usize) {
 }
 
 #[test]
-fn tier1_bounded_scan_does_not_walk_past_end() {
+fn bounded_scan_does_not_walk_past_end() {
     let (empty, one, len) = bounded_probe(&[]);
     assert!(
         len > 2 * STR_BATCH_CAP || cfg!(miri),
@@ -430,7 +452,7 @@ fn bounded_scan_that_walks_past_end_overflows_its_read_set() {
 /// current entry at every position, batch edges included, and a target
 /// below the range's start does not leave the range.
 #[test]
-fn tier1_advance_to_never_rewinds() {
+fn advance_to_never_rewinds() {
     let keys = wide_keys(if cfg!(miri) { 320 } else { 2_000 });
     let (map, model) = build(&keys);
     let rd = map.reader();
@@ -455,7 +477,7 @@ fn tier1_advance_to_never_rewinds() {
 /// A seek to or past the end bound exhausts the cursor: nothing buffered
 /// stays readable, and a later seek below it does not revive it.
 #[test]
-fn tier1_advance_to_past_end_exhausts() {
+fn advance_to_past_end_exhausts() {
     let keys: Vec<Vec<u8>> = (1..=100u32)
         .map(|i| format!("k{i:03}").into_bytes())
         .collect();
@@ -479,7 +501,7 @@ fn tier1_advance_to_past_end_exhausts() {
 
 /// `next` and `advance_to` interleaved, against the model.
 #[test]
-fn tier1_advance_to_interleaved_with_next() {
+fn advance_to_interleaved_with_next() {
     let keys = wide_keys(if cfg!(miri) { 320 } else { 3_000 });
     let (map, model) = build(&keys);
     let rd = map.reader();
@@ -624,7 +646,7 @@ fn park_final(controls: &[Control]) -> (Entries, [u64; 7]) {
 }
 
 #[test]
-fn tier1_park_insert_into_the_drained_level_before_validation() {
+fn park_insert_into_the_drained_level_before_validation() {
     let (got, c) = park_final(&[]);
     assert!(
         got.iter().any(|(k, v)| k == b"key011" && *v == 99),
@@ -634,7 +656,7 @@ fn tier1_park_insert_into_the_drained_level_before_validation() {
 }
 
 #[test]
-fn tier1_park_without_final_validation_returns_the_stale_batch() {
+fn park_without_final_validation_returns_the_stale_batch() {
     let (got, _) = park_final(&[Control::SkipFinalValidation]);
     assert!(!got.iter().any(|(k, _)| k == b"key011"), "{got:?}");
 }
@@ -693,7 +715,7 @@ fn tier1_park_restart_past_a_level_that_changed() {
 }
 
 #[test]
-fn tier1_park_restart_without_validation_skips_the_level() {
+fn park_restart_without_validation_skips_the_level() {
     let (got, _) = park_restart(&[Control::SkipFinalValidation]);
     assert_eq!(got.first(), Some(&(b"bbbbbbbbM".to_vec(), 2)), "{got:?}");
 }
@@ -727,7 +749,7 @@ fn tier1_park_suffix_split_retries_before_the_dereference() {
 }
 
 #[test]
-fn tier1_park_suffix_split_without_the_holder_check_reads_a_retired_suffix() {
+fn park_suffix_split_without_the_holder_check_reads_a_retired_suffix() {
     let (got, c) = park_suffix_split(&[Control::SkipHolderCheck]);
     // The final validation still catches the change; the control shows the
     // dereference the holder check exists to prevent.
@@ -769,7 +791,7 @@ fn tier1_park_pruned_child_is_retried() {
 }
 
 #[test]
-fn tier1_park_pruned_child_without_the_cover_check_returns_removed_keys() {
+fn park_pruned_child_without_the_cover_check_returns_removed_keys() {
     let (got, c) = park_prune(&[Control::SkipCoverCheck, Control::SkipFinalValidation]);
     assert_eq!(
         got,
