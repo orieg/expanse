@@ -13,13 +13,17 @@
 //! # Protocol
 //!
 //! One batch is one attempt of `ExpanseStrMap::scan_validated`
-//! (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.10): it descends the
-//! probe's exact continuations, drains one `StrNode` sub-map, copies each key
-//! and value into the batch, and validates every version it sampled, and the
-//! tree word, before the batch is used. A level with nothing to copy ends the
-//! attempt with a validated restart by key, so one attempt retains at most
+//! (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.10 and §33.11): it
+//! descends the probe's exact continuations, drains `StrNode` sub-maps,
+//! entering each child it meets and climbing back to the parent's next chunk
+//! when a level runs out, copies each key and value into the batch, and
+//! validates every version it sampled, and the tree word, before the batch is
+//! used. The exact descent and the first drained level retain at most
 //! `8d + 6` versions at path depth `d`
-//! (`scripts/str_cursor_bounds.py::str_cursor_drain_attempt_read_set_bound`).
+//! (`scripts/str_cursor_bounds.py::str_cursor_drain_attempt_read_set_bound`),
+//! and every later drain runs only when the read set has room for its worst
+//! case; a drain refused while the batch is empty ends the attempt with a
+//! validated restart by key.
 //! A failed validation retries; after `MAX_RETRIES` failures, or at once when
 //! a full read set still validates (a path too deep for it, §33.7.4), the batch
 //! is filled under the writer lock by the single-threaded [`StrCursor`].
@@ -72,6 +76,8 @@ pub(crate) struct StrBatch {
     pub(crate) count: usize,
     /// The `(chunk, value)` pairs one sub-map drain collects.
     pub(crate) pairs: [(u64, u64); STR_BATCH_CAP],
+    /// The levels the attempt holds, root first (§33.11.2).
+    pub(crate) levels: Vec<crate::strmap::ScanLevel>,
     /// The key of a batch of one whose key does not fit the arena.
     spill: Vec<u8>,
 }
@@ -84,6 +90,7 @@ impl StrBatch {
             entries: [(0, 0, 0); STR_BATCH_CAP],
             count: 0,
             pairs: [(0, 0); STR_BATCH_CAP],
+            levels: Vec::new(),
             spill: Vec::new(),
         })
     }
@@ -153,6 +160,10 @@ pub(crate) struct SubDrain<'b> {
     /// The pair last pushed ends the drain: the caller descends into it or
     /// stops at it, so nothing after it is needed.
     pub(crate) stopped: bool,
+    /// The drain returned after a branch child yielded (one sibling
+    /// descent, §33.10.2), so entries of the sub-map may follow its last
+    /// pair.
+    pub(crate) cut: bool,
 }
 
 impl SubDrain<'_> {
@@ -185,11 +196,15 @@ impl SubDrain<'_> {
     /// After a child of a branch was drained from `before` pairs: whether
     /// the branch stops walking its siblings.
     #[inline(always)]
-    fn ends_branch(&self, before: usize, child: &Edge) -> bool {
+    fn ends_branch(&mut self, before: usize, child: &Edge) -> bool {
         if self.count > before {
+            if self.full() || self.past_end {
+                return true;
+            }
             // A child that yielded ends the walk when it is a branch, which
             // keeps the read set to one sibling descent (§33.10.2).
-            return self.full() || self.past_end || is_branch_edge(child);
+            self.cut = is_branch_edge(child);
+            return self.cut;
         }
         #[cfg(test)]
         if test_hooks::control(test_hooks::Control::WalkPastEnd) {
@@ -826,6 +841,12 @@ pub(crate) mod test_hooks {
         SkipFinalValidation,
         /// The drain's branch loops keep walking siblings past the end bound.
         WalkPastEnd,
+        /// Drains after an attempt's first drained level run without
+        /// checking the read set's room (§33.11.2 item 4).
+        SkipAdmission,
+        /// Every drain after an attempt's first drained level is refused,
+        /// as when the read set has no room left.
+        RefuseAdmission,
     }
 
     /// Per-thread event counts, indexed by discriminant.
@@ -835,6 +856,8 @@ pub(crate) mod test_hooks {
         Attempts,
         /// Attempts that ended with a validated restart.
         Restarts,
+        /// Climbs from a level that ran out to its parent, within an attempt.
+        Climbs,
         /// Batches filled under the writer lock.
         Fallbacks,
         /// Fallbacks taken at once on a full read set that validated.
@@ -847,7 +870,7 @@ pub(crate) mod test_hooks {
         Samples,
     }
 
-    const COUNTS: usize = 7;
+    const COUNTS: usize = 8;
 
     /// The write armed at a site.
     type Armed = Option<(Site, Box<dyn FnOnce()>)>;

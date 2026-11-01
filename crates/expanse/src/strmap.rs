@@ -956,6 +956,32 @@ pub(crate) enum ScanEnd {
     Restart,
 }
 
+/// One level the scan walk holds within an attempt (§33.11.2): what a
+/// resumed drain of it needs.
+#[cfg(feature = "std")]
+#[derive(Clone, Copy)]
+pub(crate) struct ScanLevel {
+    /// The level's cover word.
+    cover: *const u32,
+    /// The cover's version when the level was entered.
+    csnap: u32,
+    /// The sub-map root state, copied under `csnap` and validated against it.
+    msnap: crate::sync::RootSnapshot,
+    /// The path to this level equals the end bound's first bytes.
+    tied: bool,
+}
+
+/// Read-set room a scan attempt needs to enter a child after its first
+/// drained level: the child's cover and one sub-map drain
+/// (`scripts/str_cursor_bounds.py::str_nested_drain_costs`).
+#[cfg(feature = "std")]
+const NESTED_ENTER_COST: usize = 1 + NESTED_RESUME_COST;
+
+/// Read-set room a scan attempt needs to resume a level it holds: one
+/// sub-map drain (`submap_drain_read_set_branches`, 13).
+#[cfg(feature = "std")]
+const NESTED_RESUME_COST: usize = 13;
+
 /// True when `mid ++ tail` sorts below `h`, byte-lexicographically.
 #[cfg(feature = "std")]
 #[inline]
@@ -2787,20 +2813,24 @@ impl ExpanseStrMap {
     }
 
     /// One attempt of the validated batch cursor's walk (#1143 part 2,
-    /// `docs/benchmarks/concurrency/METHODOLOGY.md` §33.10): fills `batch`
-    /// with the entries at or after `start`, below `hi` when given, in
-    /// ascending order.
+    /// `docs/benchmarks/concurrency/METHODOLOGY.md` §33.10 and §33.11): fills
+    /// `batch` with the entries at or after `start`, below `hi` when given,
+    /// in ascending order.
     ///
-    /// The walk descends `start`'s exact continuations, then drains one
-    /// `StrNode` sub-map with `sync_str_cursor::drain_submap` and copies each
-    /// entry's key into the batch. It never unwinds. A level that holds
-    /// nothing at or after `start`, a suffix below `start` with nothing
-    /// drained after it, and a child met while the batch is empty end the
-    /// attempt with [`ScanEnd::Restart`] and the next key to try in
-    /// `restart`: everything between `start` and it was absent at the
-    /// instant the final validation holds, so the caller starts over from it
-    /// with an empty read set. That keeps one attempt's read set to
-    /// `scripts/str_cursor_bounds.py::str_cursor_drain_attempt_read_set_bound`.
+    /// The walk descends `start`'s exact continuations, then drains `StrNode`
+    /// sub-maps with `sync_str_cursor::drain_submap` and copies each entry's
+    /// key into the batch. It enters each child it meets, resumes a level
+    /// whose drain stopped inside its sub-map, and climbs from a level that
+    /// ran out to its parent's next chunk, holding the levels on the path in
+    /// `batch.levels`. After the first drained level, a drain runs only when
+    /// the read set has room for its worst case, so an attempt retains at
+    /// most `CAP` versions at every depth the first drained level fits
+    /// (`scripts/str_cursor_bounds.py::str_cursor_nested_attempt_read_set_bound`).
+    /// A drain refused while the batch is empty ends the attempt with
+    /// [`ScanEnd::Restart`] and the key it would have started from in
+    /// `restart`: everything between `start` and it was absent at the instant
+    /// the final validation holds, so the caller starts over from it with an
+    /// empty read set.
     ///
     /// Memory safety follows [`Self::ordered_validated`]: a sub-map's root
     /// state is read only after the cover it was copied under validates, and
@@ -2849,60 +2879,127 @@ impl ExpanseStrMap {
 
         batch.clear();
         prefix.clear();
+        batch.levels.clear();
         let Some(mut node) = root.map(|p| p.as_ptr().cast::<StrNode>().cast_const()) else {
             return finish(ScanEnd::Exhausted, rs);
         };
-        let mut off = 0usize;
-        // The path so far equals `hi`'s first `off` bytes, so `hi` bounds
-        // the chunks of this level.
+        // A refused drain ends the attempt: a batch with entries resumes
+        // from its last key, and an empty one restarts at the key the drain
+        // would have started from, `prefix` followed by chunk `from`
+        // (§33.11.2 item 4).
+        let refuse = |from: u64,
+                      prefix: &[u8],
+                      batch: &crate::sync_str_cursor::StrBatch,
+                      restart: &mut Vec<u8>,
+                      rs: &crate::sync_nav::ReadSet<CAP>| {
+            if batch.count > 0 {
+                return finish(ScanEnd::Batch { last: false }, rs);
+            }
+            restart.clear();
+            restart.extend_from_slice(prefix);
+            let fb = from.to_be_bytes();
+            let len = CHUNK - (from.trailing_zeros() / 8) as usize;
+            restart.extend_from_slice(&fb[..len]);
+            #[cfg(test)]
+            th::count(Count::Restarts);
+            finish(ScanEnd::Restart, rs)
+        };
+        // The path so far equals `hi`'s first bytes, so `hi` bounds the
+        // chunks of the level `node` names.
         let mut tied = hi.is_some();
+        // The next drain starts at the probe's chunk of its level: true down
+        // the exact descent, false once the walk left the probe's path.
+        let mut probe = true;
+        // Drains run unadmitted until the first level that does not continue
+        // the probe exactly has drained (§33.10.2); every later one is
+        // admitted against the read set's room (§33.11.2 item 4).
+        let mut admit = false;
+        // `node` names a level to enter; otherwise the top of `batch.levels`
+        // is drained again from `from`.
+        let mut entering = true;
+        let mut from = 0u64;
+        #[cfg(test)]
+        let (unadmitted, refused) = (
+            th::control(Control::SkipAdmission),
+            th::control(Control::RefuseAdmission),
+        );
+        #[cfg(not(test))]
+        let (unadmitted, refused) = (false, false);
         // A child pointer ends a drain: the walk descends into it or stops.
         let stop = |chunk: u64, v: u64| !is_terminal(chunk) && !is_suffix_ptr(v);
         loop {
-            // SAFETY: `node` is the published root or a child whose holder
-            // validated after its pointer was loaded; EBR-live under the pin.
-            let cover: *const u32 = unsafe { &raw const (*node).cover };
-            // SAFETY: the live node's cover word.
-            let csnap = unsafe { rs.sample(cover)? };
-            // SAFETY: a by-value copy, checked against the cover below.
-            let msnap = unsafe { MapCore::occ_snapshot_of(&raw const (*node).map) };
-            #[cfg(test)]
-            th::at(Site::LevelEntry);
-            // SAFETY: the live node's cover word.
-            let held = node_validate(unsafe { version_cell(cover) }, csnap);
-            #[cfg(test)]
-            let skip = th::control(Control::SkipCoverCheck);
-            #[cfg(not(test))]
-            let skip = false;
-            if !skip && !held {
-                return Err(Retry);
+            let off = if entering {
+                batch.levels.len()
+            } else {
+                batch.levels.len() - 1
+            } * CHUNK;
+            if entering {
+                if admit && (refused || !unadmitted && rs.len() + NESTED_ENTER_COST > CAP) {
+                    return refuse(0, prefix, batch, restart, rs);
+                }
+                // SAFETY: `node` is the published root or a child whose
+                // holder validated after its pointer was loaded; EBR-live
+                // under the pin.
+                let cover: *const u32 = unsafe { &raw const (*node).cover };
+                // SAFETY: the live node's cover word.
+                let csnap = unsafe { rs.sample(cover)? };
+                // SAFETY: a by-value copy, checked against the cover below.
+                let msnap = unsafe { MapCore::occ_snapshot_of(&raw const (*node).map) };
+                #[cfg(test)]
+                th::at(Site::LevelEntry);
+                // SAFETY: the live node's cover word.
+                let held = node_validate(unsafe { version_cell(cover) }, csnap);
+                #[cfg(test)]
+                let skip = th::control(Control::SkipCoverCheck);
+                #[cfg(not(test))]
+                let skip = false;
+                if !skip && !held {
+                    return Err(Retry);
+                }
+                #[cfg(test)]
+                if !held {
+                    th::count(Count::UnvalidatedDerefs);
+                }
+                batch.levels.push(ScanLevel {
+                    cover,
+                    csnap,
+                    msnap,
+                    tied,
+                });
+                from = if probe { chunk_at(start, off).0 } else { 0 };
+                entering = false;
+            } else if admit && (refused || !unadmitted && rs.len() + NESTED_RESUME_COST > CAP) {
+                return refuse(from, prefix, batch, restart, rs);
             }
-            #[cfg(test)]
-            if !held {
-                th::count(Count::UnvalidatedDerefs);
-            }
+            let ScanLevel {
+                cover,
+                csnap,
+                msnap,
+                tied: level_tied,
+            } = batch.levels[batch.levels.len() - 1];
 
-            let (target, _) = chunk_at(start, off);
             let end_chunk = match hi {
-                Some(h) if tied => chunk_at(h, off).0,
+                Some(h) if level_tied => chunk_at(h, off).0,
                 _ => u64::MAX,
             };
-            let from = rs.len();
+            let mark = rs.len();
             let mut d = crate::sync_str_cursor::SubDrain {
                 buf: &mut batch.pairs,
                 count: 0,
                 end_chunk,
                 past_end: false,
                 stopped: false,
+                cut: false,
             };
             // SAFETY: the root state was copied under `cover` and validated
-            // against it just above, under the caller's pin.
+            // against it when the level was entered, the cover stays in the
+            // read set, and the caller's pin is held throughout.
             unsafe {
-                crate::sync_str_cursor::drain_submap(
-                    msnap, target, cover, csnap, rs, &mut d, &stop,
-                )?;
+                crate::sync_str_cursor::drain_submap(msnap, from, cover, csnap, rs, &mut d, &stop)?;
             }
             let (n, past_end) = (d.count, d.past_end);
+            // More of this sub-map may follow the pairs drained.
+            let more = d.stopped || d.cut || n == d.buf.len();
             #[cfg(test)]
             th::at(Site::Drained);
             if batch.pairs[..n].iter().any(|&(c, _)| !is_terminal(c)) {
@@ -2910,7 +3007,7 @@ impl ExpanseStrMap {
                 // the cover and every branch the drain sampled.
                 // SAFETY: the live cover; entries sampled under the pin.
                 let held = node_validate(unsafe { version_cell(cover) }, csnap)
-                    && unsafe { rs.validate_from(from) };
+                    && unsafe { rs.validate_from(mark) };
                 #[cfg(test)]
                 let skip = th::control(Control::SkipHolderCheck);
                 #[cfg(not(test))]
@@ -2927,14 +3024,14 @@ impl ExpanseStrMap {
             }
 
             let mut first = 0;
-            if n > 0 && batch.pairs[0].0 == target && !is_terminal(target) {
+            if probe && n > 0 && batch.pairs[0].0 == from && !is_terminal(from) {
                 let v = batch.pairs[0].1;
                 if !is_suffix_ptr(v) {
                     // An exact continuation: the probe goes on below it.
-                    prefix.extend_from_slice(&target.to_be_bytes());
-                    tied = tied && target == end_chunk;
+                    prefix.extend_from_slice(&from.to_be_bytes());
+                    tied = level_tied && from == end_chunk;
                     node = unpack_child(v).cast_const();
-                    off += CHUNK;
+                    entering = true;
                     continue;
                 }
                 // SAFETY: the holder validated after the pointer was loaded.
@@ -2944,7 +3041,10 @@ impl ExpanseStrMap {
                     first = 1;
                 }
             }
+            probe = false;
+            admit = true;
 
+            let mut child = None;
             for j in first..n {
                 let (chunk, v) = batch.pairs[j];
                 let cb = chunk.to_be_bytes();
@@ -2969,20 +3069,12 @@ impl ExpanseStrMap {
                         )
                     }
                 } else {
-                    // A child: the batch ends before it, or, while it is
-                    // empty, the next attempt descends into it by key.
-                    if batch.count > 0 {
-                        return finish(ScanEnd::Batch { last: false }, rs);
-                    }
-                    restart.clear();
-                    restart.extend_from_slice(prefix);
-                    restart.extend_from_slice(&cb);
-                    #[cfg(test)]
-                    th::count(Count::Restarts);
-                    return finish(ScanEnd::Restart, rs);
+                    // A child, the drain's last pair: the walk enters it.
+                    child = Some((chunk, v));
+                    break;
                 };
                 if let Some(h) = hi
-                    && tied
+                    && level_tied
                     && chunk == end_chunk
                     && !concat_below(mid, tail, &h[off.min(h.len())..])
                 {
@@ -2997,35 +3089,51 @@ impl ExpanseStrMap {
                     return finish(ScanEnd::Batch { last: false }, rs);
                 }
             }
-            if batch.count > 0 {
-                return finish(ScanEnd::Batch { last: past_end }, rs);
+            if let Some((chunk, v)) = child {
+                prefix.extend_from_slice(&chunk.to_be_bytes());
+                tied = level_tied && chunk == end_chunk;
+                node = unpack_child(v).cast_const();
+                entering = true;
+                // The parent resumes after the child once it has run out.
+                continue;
             }
             if past_end {
-                return finish(ScanEnd::Exhausted, rs);
-            }
-            // Nothing copied from this level.
-            restart.clear();
-            restart.extend_from_slice(prefix);
-            let next_chunk = if n > 0 { target.checked_add(1) } else { None };
-            if let Some(t) = next_chunk {
-                // Only a suffix below the probe: the next chunk of this level.
-                let tb = t.to_be_bytes();
-                let len = CHUNK - (t.trailing_zeros() / 8) as usize;
-                restart.extend_from_slice(&tb[..len]);
-            } else {
-                // Nothing at or after the probe here: past every key under
-                // this level's prefix, which at the root is past every key.
-                while restart.last() == Some(&0xFF) {
-                    restart.pop();
-                }
-                let Some(b) = restart.last_mut() else {
-                    return finish(ScanEnd::Exhausted, rs);
+                let end = if batch.count > 0 {
+                    ScanEnd::Batch { last: true }
+                } else {
+                    ScanEnd::Exhausted
                 };
-                *b += 1;
+                return finish(end, rs);
             }
-            #[cfg(test)]
-            th::count(Count::Restarts);
-            return finish(ScanEnd::Restart, rs);
+            if more && let Some(next) = batch.pairs[n - 1].0.checked_add(1) {
+                // The drain stopped inside its sub-map: resume this level.
+                from = next;
+                continue;
+            }
+            // This level ran out: climb to the first ancestor with a chunk
+            // after the child the walk came from.
+            loop {
+                batch.levels.pop();
+                if batch.levels.is_empty() {
+                    // Past the root: the scan is over.
+                    let end = if batch.count > 0 {
+                        ScanEnd::Batch { last: true }
+                    } else {
+                        ScanEnd::Exhausted
+                    };
+                    return finish(end, rs);
+                }
+                let at = (batch.levels.len() - 1) * CHUNK;
+                let mut cb = [0u8; CHUNK];
+                cb.copy_from_slice(&prefix[at..at + CHUNK]);
+                prefix.truncate(at);
+                #[cfg(test)]
+                th::count(Count::Climbs);
+                if let Some(next) = u64::from_be_bytes(cb).checked_add(1) {
+                    from = next;
+                    break;
+                }
+            }
         }
     }
 
