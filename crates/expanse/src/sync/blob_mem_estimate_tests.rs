@@ -295,3 +295,157 @@ fn estimate_polled_beside_writers_and_compactions() {
     assert_quiet_equal(&m);
     assert_eq!(m.len(), span);
 }
+
+#[track_caller]
+fn assert_quiet_held_equal(m: &SyncExpanseBlobMap) -> usize {
+    let exact = m.mem_held();
+    assert_eq!(
+        m.mem_held_estimate(),
+        exact,
+        "on a quiet map the held estimate is the exact held figure"
+    );
+    exact
+}
+
+/// `mem_held_estimate` (#1565) equals `mem_held` with nothing in flight:
+/// empty, loaded, after removals and a compaction that leave blocks with the
+/// collector, after reusing freed blocks, after `shrink_to_fit`, and after a
+/// clear.
+#[test]
+fn quiet_held_estimate_equals_mem_held() {
+    let m = SyncExpanseBlobMap::with_chunk_size(4096);
+    assert_eq!(assert_quiet_held_equal(&m), 0);
+    let keys: u64 = if cfg!(miri) { 96 } else { 2000 };
+    for k in 0..keys {
+        m.insert(k, &payload(k, 0), 0).unwrap();
+    }
+    assert!(assert_quiet_held_equal(&m) >= m.mem_used());
+    for k in 0..keys / 2 {
+        assert!(m.remove(k));
+    }
+    m.compact().expect("compaction");
+    assert!(
+        assert_quiet_held_equal(&m) > m.mem_used(),
+        "the removals and the compaction left blocks with the collector"
+    );
+    for k in 0..keys / 4 {
+        m.insert(k, &payload(k, 1), 0).unwrap();
+    }
+    assert_quiet_held_equal(&m);
+    m.shrink_to_fit();
+    assert_quiet_held_equal(&m);
+    m.clear();
+    assert_quiet_held_equal(&m);
+}
+
+/// Runs a compaction held where its copy has finished and its index rewrite
+/// has not started, holding the fallback mutex, the closed writer gate and
+/// the writer mutex. While it is held, `read` runs on another thread for up
+/// to `wait`. Returns what `read` returned if it finished within `wait`,
+/// `None` otherwise. Either way the compaction is then released and the
+/// reader joined, so no assertion unwinds through the held locks.
+fn read_while_compaction_held(
+    m: &Arc<SyncExpanseBlobMap>,
+    read: fn(&SyncExpanseBlobMap) -> usize,
+    wait: Duration,
+) -> Option<usize> {
+    type Late = Option<std::thread::JoinHandle<usize>>;
+    let during = Arc::new(Mutex::new(None));
+    let late: Arc<Mutex<Late>> = Arc::new(Mutex::new(None));
+    let held = Arc::new(AtomicBool::new(false));
+    {
+        let (m, during, late, held) = (
+            Arc::clone(m),
+            Arc::clone(&during),
+            Arc::clone(&late),
+            Arc::clone(&held),
+        );
+        crate::blobmap::COPIED_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                // The compaction holds what `mem_held` needs first.
+                assert!(
+                    m.shared.fallback_mutex.try_lock().is_err(),
+                    "the held compaction owns the fallback mutex"
+                );
+                let m2 = Arc::clone(&m);
+                let reader = std::thread::spawn(move || read(&m2));
+                let deadline = Instant::now() + wait;
+                while !reader.is_finished() && Instant::now() < deadline {
+                    std::thread::yield_now();
+                }
+                if reader.is_finished() {
+                    *during.lock().unwrap() = Some(reader.join().expect("the reader panicked"));
+                } else {
+                    // Joined once the compaction has released its locks.
+                    *late.lock().unwrap() = Some(reader);
+                }
+                held.store(true, Ordering::Release);
+            }));
+        });
+    }
+    m.compact().expect("compaction");
+    crate::blobmap::COPIED_HOOK.with(|h| h.borrow_mut().take());
+    assert!(
+        held.load(Ordering::Acquire),
+        "the compaction must reach the copy"
+    );
+    let reader = late.lock().unwrap().take();
+    if let Some(reader) = reader {
+        join_by_deadline(reader, "the reader did not return after the compaction");
+    }
+    during.lock().unwrap().take()
+}
+
+/// A map whose collector holds freed index blocks and whose arena holds
+/// dead chunks for a compaction to drop.
+fn held_map() -> Arc<SyncExpanseBlobMap> {
+    const LIVE: u64 = 48;
+    let m = Arc::new(SyncExpanseBlobMap::with_chunk_size(4096));
+    for round in 0..4 {
+        for k in 0..LIVE {
+            m.insert(k, &payload(k, round), 1).unwrap();
+        }
+    }
+    for k in LIVE / 2..LIVE {
+        assert!(m.remove(k));
+    }
+    assert!(m.shared.published().is_tree());
+    m
+}
+
+/// The done-when test of #1565: `mem_held_estimate` returns while a
+/// compaction is held between its halves. Its map term is then the figure
+/// from before the compaction (`mem_used_estimate`'s bound), so it is at
+/// least that.
+#[test]
+fn held_estimate_returns_while_a_compaction_is_held_between_its_halves() {
+    let m = held_map();
+    let used_before = m.mem_used();
+    assert!(
+        assert_quiet_held_equal(&m) > used_before,
+        "the collector holds blocks"
+    );
+    let during = read_while_compaction_held(&m, SyncExpanseBlobMap::mem_held_estimate, DEADLINE)
+        .expect("mem_held_estimate did not return while the compaction was held");
+    assert!(
+        during >= used_before,
+        "estimate {during} below the map's own pre-compaction share {used_before}"
+    );
+    assert_quiet_held_equal(&m);
+}
+
+/// Negative control for the test above: the same probe, given the blocking
+/// `mem_held`, reports that it did not return while the compaction was
+/// held. The done-when test asserts on that probe, so it fails if
+/// `mem_held_estimate` takes the blocking path.
+#[test]
+fn held_probe_reports_the_blocking_mem_held() {
+    let m = held_map();
+    let during =
+        read_while_compaction_held(&m, SyncExpanseBlobMap::mem_held, Duration::from_millis(500));
+    assert_eq!(
+        during, None,
+        "mem_held returned while the compaction held the writer locks"
+    );
+    assert_quiet_held_equal(&m);
+}

@@ -40,6 +40,8 @@ use core::sync::atomic::{AtomicBool, AtomicUsize};
 use core::sync::atomic::{AtomicU64, Ordering, fence};
 #[cfg(all(not(loom), feature = "std"))]
 use std::sync::Mutex;
+#[cfg(feature = "std")]
+use std::sync::TryLockError;
 
 #[cfg(loom)]
 use loom::sync::Mutex;
@@ -1625,6 +1627,13 @@ pub(crate) struct PaddedRetained(pub(crate) AtomicUsize);
 #[repr(align(64))]
 struct PaddedFreelists([Mutex<FreeListHead>; NUM_CLASSES]);
 
+/// Rows of freelists `Collector::free_list_rows` yields: one per stripe, or
+/// the single shared row under the ablation.
+#[cfg(all(feature = "std", not(feature = "ablation-unstriped-freelist")))]
+const FREE_LIST_ROWS: usize = NUM_FREELIST_STRIPES;
+#[cfg(all(feature = "std", feature = "ablation-unstriped-freelist"))]
+const FREE_LIST_ROWS: usize = 1;
+
 // Thread-exit slot recycling tracking mask (Refs #568).
 // When a thread calls `writer_slot()`, it claims the lowest free bit in this mask
 // via CAS and registers a thread-local `SlotRegistration` whose `Drop` implementation
@@ -1910,6 +1919,12 @@ pub struct Collector {
     carried_blocks: AtomicUsize,
     /// Their bytes, counted in `retained_bytes()` until they are freed.
     carried_bytes: AtomicUsize,
+    /// Each freelist row's byte total as of the last walk that read every
+    /// list in it (#1565). Written only by the cold accounting walks
+    /// (`free_list_bytes`, `free_list_bytes_estimate`) and by a release, and
+    /// read only by the estimate, for a row whose lists it could not lock.
+    /// No pop, push, retire or reclaim touches it.
+    free_list_seen: [AtomicUsize; FREE_LIST_ROWS],
     /// The per-call budget a `collector-census` test may lower.
     #[cfg(feature = "collector-census")]
     free_budget: AtomicUsize,
@@ -1948,6 +1963,7 @@ impl Collector {
             carry: Carry(core::cell::UnsafeCell::new(Vec::new())),
             carried_blocks: AtomicUsize::new(0),
             carried_bytes: AtomicUsize::new(0),
+            free_list_seen: core::array::from_fn(|_| AtomicUsize::new(0)),
             #[cfg(feature = "collector-census")]
             free_budget: AtomicUsize::new(UNCLASSED_FREE_BUDGET),
             #[cfg(feature = "collector-census")]
@@ -2573,19 +2589,61 @@ impl Collector {
 
     /// Bytes on the freelists: blocks past their grace period, kept for
     /// reuse by this collector's trees. Walks each list under its stripe's
-    /// lock, so writers popping the same class wait for the walk.
+    /// lock, so writers popping the same class wait for the walk, and the
+    /// walk waits for any list another thread holds.
     pub(crate) fn free_list_bytes(&self) -> usize {
+        self.walk_free_lists::<true>()
+    }
+
+    /// [`Self::free_list_bytes`] without the wait (#1565): each list is
+    /// taken with `try_lock`, never `lock`, so the call returns whatever
+    /// other threads hold. A row (one writer stripe's lists) whose every
+    /// list it locked is counted as walked, and that total is kept as the
+    /// row's last known figure; a row with a list it could not lock is
+    /// counted at its last known figure instead: the total from the most
+    /// recent walk, blocking or not, that read every list in it, zero after
+    /// a release emptied it, and zero if no walk ever completed it. Adds
+    /// nothing to any pop, push, retire or reclaim. A writer popping a list
+    /// the walk holds still waits for that list's walk, as with
+    /// [`Self::free_list_bytes`].
+    pub(crate) fn free_list_bytes_estimate(&self) -> usize {
+        self.walk_free_lists::<false>()
+    }
+
+    /// The freelist walk. `BLOCKING` takes each list's lock; otherwise a
+    /// list another thread holds is skipped and its row is read from
+    /// `free_list_seen`.
+    fn walk_free_lists<const BLOCKING: bool>(&self) -> usize {
         let mut sum = 0;
-        for row in self.free_list_rows() {
+        for (row, seen) in self.free_list_rows().zip(&self.free_list_seen) {
+            let mut row_sum = 0;
+            let mut complete = true;
             for (class, &(bytes, _)) in CLASS_SPECS.iter().enumerate() {
-                let head = row[class].lock().expect("freelist poisoned");
+                let head = if BLOCKING {
+                    row[class].lock().expect("freelist poisoned")
+                } else {
+                    match row[class].try_lock() {
+                        Ok(head) => head,
+                        Err(TryLockError::WouldBlock) => {
+                            complete = false;
+                            continue;
+                        }
+                        Err(TryLockError::Poisoned(_)) => panic!("freelist poisoned"),
+                    }
+                };
                 let mut cur = head.0;
                 while !cur.is_null() {
-                    sum += bytes;
+                    row_sum += bytes;
                     // SAFETY: a freelist entry is a free block of this class
                     // with `next` written; the lock keeps it on the list.
                     cur = unsafe { (*cur).next };
                 }
+            }
+            if complete {
+                seen.store(row_sum, Ordering::Relaxed);
+                sum += row_sum;
+            } else {
+                sum += seen.load(Ordering::Relaxed);
             }
         }
         sum
@@ -2607,7 +2665,9 @@ impl Collector {
     /// counted as a release.
     fn release_free_lists_as<const DRAIN: bool>(&self) -> usize {
         let mut released = 0;
-        for row in self.free_list_rows() {
+        for (row, seen) in self.free_list_rows().zip(&self.free_list_seen) {
+            // The row is emptied below; its last known total goes with it.
+            seen.store(0, Ordering::Relaxed);
             for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
                 let mut head = row[class].lock().expect("freelist poisoned");
                 let mut cur = head.0;
@@ -3834,6 +3894,61 @@ mod tests {
         } else {
             NUM_FREELIST_STRIPES
         }
+    }
+
+    /// #1565: the non-blocking freelist walk equals the blocking one when no
+    /// list is held, never waits for a held list, and counts a row with a
+    /// held list at that row's last known total: the last whole walk's
+    /// figure, or zero after a release.
+    #[test]
+    fn free_list_estimate_skips_a_held_list_and_reads_the_last_known_total() {
+        const SLOT: usize = 5;
+        std::thread::spawn(|| {
+            set_writer_slot(SLOT);
+            let classed = class_for(64, TEST_ALIGN).expect("(64, 16) is a size class");
+            let stripe = census_stripe(SLOT);
+            let c = Arc::new(Collector::new());
+            // SAFETY: fresh `(64, 16)` global allocations, never published.
+            unsafe {
+                c.retire(alloc_test_block(64), 64, TEST_ALIGN);
+                c.retire(alloc_test_block(64), 64, TEST_ALIGN);
+            }
+            c.try_advance();
+            c.try_advance();
+            assert_eq!(c.free_list_bytes(), 128);
+            assert_eq!(c.free_list_bytes_estimate(), 128);
+
+            // One block leaves the list after the last walk: the true figure
+            // is 64, the row's last known total still 128.
+            let popped = c.pop_freelist(classed);
+            assert!(!popped.is_null());
+            {
+                let _held = c.reclaim_freelist(stripe, classed).lock().unwrap();
+                assert_eq!(
+                    c.free_list_bytes_estimate(),
+                    128,
+                    "a row with a held list is counted at its last known total"
+                );
+            }
+            assert_eq!(c.free_list_bytes_estimate(), 64, "walked again once free");
+            let layout = Layout::from_size_align(64, TEST_ALIGN).unwrap();
+            // SAFETY: `popped` is a `(64, 16)` block this test allocated, off
+            // every list and referenced nowhere else.
+            unsafe { dealloc(popped, layout) };
+
+            assert_eq!(c.release_free_lists(), 64);
+            {
+                let _held = c.reclaim_freelist(stripe, classed).lock().unwrap();
+                assert_eq!(
+                    c.free_list_bytes_estimate(),
+                    0,
+                    "a release resets the row's last known total"
+                );
+            }
+            c.drain();
+        })
+        .join()
+        .unwrap();
     }
 
     /// #1310: a census places each block by size class, by stripe, and by

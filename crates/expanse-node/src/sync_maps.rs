@@ -749,10 +749,18 @@ impl SyncExpanseBlobMap {
     // abi-parity: expanse_sync_blob_map_mem_held
     /// Heap bytes the map holds from the global allocator, including the blocks its
     /// epoch collector keeps for reuse or is waiting to reclaim. Read with writers excluded;
-    /// waits for a running compaction and makes writers wait, and has no non-blocking form.
+    /// waits for a running compaction and makes writers wait; poll with `memHeldEstimate()`.
     #[napi]
     pub fn mem_held(&self) -> BigInt {
         BigInt::from(self.inner.mem_held() as u64)
+    }
+
+    // abi-parity: expanse_sync_blob_map_mem_held_estimate
+    /// A bounded-cost estimate of `memHeld()` that takes no map lock and waits for nothing;
+    /// it may lag a running compaction or a busy collector freelist.
+    #[napi]
+    pub fn mem_held_estimate(&self) -> BigInt {
+        BigInt::from(self.inner.mem_held_estimate() as u64)
     }
 
     // abi-parity: expanse_sync_blob_map_shrink_to_fit

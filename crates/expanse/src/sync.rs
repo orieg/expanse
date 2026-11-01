@@ -2427,6 +2427,14 @@ impl<T: SharedTree> Shared<T> {
         self.collector.free_list_bytes() + self.collector.retained_bytes()
     }
 
+    /// [`Self::collector_held`] without waiting for any freelist lock
+    /// another thread holds (`Collector::free_list_bytes_estimate`). Out of
+    /// line: a cold accounting path.
+    #[inline(never)]
+    fn collector_held_estimate(&self) -> usize {
+        self.collector.free_list_bytes_estimate() + self.collector.retained_bytes()
+    }
+
     /// Returns the collector's freelists to the global allocator; the bytes
     /// released (see `Collector::release_free_lists`).
     #[inline(never)]
@@ -13158,12 +13166,47 @@ impl SyncExpanseBlobMap {
     /// their capacity, whatever part of them is live. Compare this, not
     /// `mem_used`, with resident memory. Writers wait for it, and it waits
     /// for any running compaction, as [`Self::mem_used`] does, so it does not
-    /// belong in a hot loop. It has no unlocked form: the collector's
-    /// freelists are counted by walking each under its lock.
-    /// [`Self::mem_used_estimate`] gives the map's own share without waiting.
+    /// belong in a hot loop. [`Self::mem_held_estimate`] is the form that
+    /// waits for nothing.
     #[must_use]
     pub fn mem_held(&self) -> usize {
         self.shared.read_locked(ExpanseBlobMap::mem_used) + self.shared.collector_held()
+    }
+
+    /// [`Self::mem_held`] without the wait: [`Self::mem_used_estimate`] plus
+    /// what the epoch collector holds, read without waiting for any lock.
+    ///
+    /// It takes none of the map's locks, does not close the writer gate and
+    /// never waits for a collector lock, so it returns while a compaction
+    /// runs and makes no writer wait for the map. The collector's retired
+    /// bytes are read from its per-stripe counters. Its freelists are walked
+    /// one list at a time with `try_lock`: a writer that pops from a list
+    /// while the walk holds it waits for that one list's walk, as it does
+    /// beside [`Self::mem_held`]. No insert, removal, retire or reclaim does
+    /// any work for it.
+    ///
+    /// **How far it can be from [`Self::mem_held`].**
+    /// - With nothing in flight on the map or its collector the two are
+    ///   equal.
+    /// - The map's share is [`Self::mem_used_estimate`], with the bounds that
+    ///   method documents.
+    /// - The freelists are kept per writer stripe. A stripe with a list some
+    ///   other thread holds when the walk reaches it (a writer popping or
+    ///   pushing, a reclaim, a release, a concurrent [`Self::mem_held`]) is
+    ///   counted at its last known total: the total from the most recent
+    ///   walk by either method that read all of that stripe's lists, zero
+    ///   after [`Self::shrink_to_fit`] emptied it, and zero if no walk has
+    ///   read it whole. Every other stripe is counted as walked.
+    /// - The freelist and retired terms are not read at one instant: a block
+    ///   reclaimed from the retired bins onto a freelist during the call can
+    ///   be counted in both terms or in neither.
+    ///
+    /// With the diagnostic `ablation-unsharded-alloc` feature,
+    /// [`Self::mem_used_estimate`] is [`Self::mem_used`], so this waits as
+    /// that does.
+    #[must_use]
+    pub fn mem_held_estimate(&self) -> usize {
+        self.mem_used_estimate() + self.shared.collector_held_estimate()
     }
 
     /// Returns the freed index blocks the blob map's epoch collector keeps

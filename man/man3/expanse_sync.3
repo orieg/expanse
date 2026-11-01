@@ -60,6 +60,7 @@ expanse_sync_blob_map_remove, expanse_sync_blob_map_get_into, \
 expanse_sync_blob_map_get_meta, expanse_sync_blob_map_contains, \
 expanse_sync_blob_map_len, expanse_sync_blob_map_mem_used, \
 expanse_sync_blob_map_mem_used_estimate, expanse_sync_blob_map_mem_held, \
+expanse_sync_blob_map_mem_held_estimate, \
 expanse_sync_blob_map_shrink_to_fit, \
 expanse_sync_blob_map_set_reclaim_at_cap, expanse_sync_blob_map_compact, \
 expanse_sync_blob_map_reader_new, expanse_sync_blob_map_reader_free, \
@@ -481,6 +482,9 @@ expanse_sync_blob_map_get_or_insert \
 .BI "    const expanse_sync_blob_map_t *" map ");"
 .br
 .BI "size_t expanse_sync_blob_map_mem_held("
+.BI "    const expanse_sync_blob_map_t *" map ");"
+.br
+.BI "size_t expanse_sync_blob_map_mem_held_estimate("
 .BI "    const expanse_sync_blob_map_t *" map ");"
 .br
 .BI "size_t expanse_sync_blob_map_shrink_to_fit("
@@ -972,6 +976,10 @@ and
 exclude writers and wait for a running compaction;
 .B expanse_sync_blob_map_mem_used_estimate
 takes no lock.
+.B expanse_sync_blob_map_mem_held_estimate
+is that estimate plus what the epoch collector holds, read without waiting
+for any lock: a freelist stripe another thread holds when the walk reaches
+it is counted at its total from the last walk that read it whole.
 .B expanse_sync_blob_map_compact
 returns
 .BR EXPANSE_BLOB_OK ,

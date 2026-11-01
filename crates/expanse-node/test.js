@@ -1104,6 +1104,7 @@ test('SyncExpanseBlobMap point operations across payload sizes', () => {
   assert(m.memUsed() > 0n);
   assert(m.memUsedEstimate() > 0n);
   assert(m.memHeld() >= 0n);
+  assert.strictEqual(m.memHeldEstimate(), m.memHeld());
   m.shrinkToFit();
   m.clear();
   assert.strictEqual(m.size(), 0n);

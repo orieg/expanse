@@ -695,6 +695,7 @@ public class ExpanseSyncSharedMapsTests
         Assert.True(map.MemoryUsed > 0);
         Assert.True(map.MemoryUsedEstimate > 0);
         Assert.True(map.MemoryHeld > 0);
+        Assert.Equal(map.MemoryHeld, map.MemoryHeldEstimate);
         Assert.Equal(map.MemoryHeld - map.ShrinkToFit(), map.MemoryHeld);
         Assert.Equal(ExpanseBlobStatus.Ok, map.Compact());
         Assert.Equal(mid, map.GetBytes(2));

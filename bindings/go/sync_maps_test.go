@@ -874,6 +874,9 @@ func TestSyncBlobMapPointOps(t *testing.T) {
 	if m.MemoryUsed() == 0 || m.MemoryUsedEstimate() == 0 || m.MemoryHeld() < m.MemoryUsed() {
 		t.Fatalf("memory accounting: used %d est %d held %d", m.MemoryUsed(), m.MemoryUsedEstimate(), m.MemoryHeld())
 	}
+	if est, held := m.MemoryHeldEstimate(), m.MemoryHeld(); est != held {
+		t.Fatalf("quiet held estimate %d != held %d", est, held)
+	}
 	m.ShrinkToFit()
 	if err := m.Compact(); err != nil {
 		t.Fatalf("Compact: %v", err)

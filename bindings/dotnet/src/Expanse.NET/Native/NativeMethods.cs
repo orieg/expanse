@@ -907,6 +907,9 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_mem_held")]
     public static extern nuint expanse_sync_blob_map_mem_held(SafeExpanseSyncBlobMapHandle map);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_mem_held_estimate")]
+    public static extern nuint expanse_sync_blob_map_mem_held_estimate(SafeExpanseSyncBlobMapHandle map);
+
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_shrink_to_fit")]
     public static extern nuint expanse_sync_blob_map_shrink_to_fit(SafeExpanseSyncBlobMapHandle map);
 

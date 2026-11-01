@@ -482,11 +482,11 @@ thirty-eight entry points.
 `expanse_sync_blob_map_t` is the C handle of `SyncExpanseBlobMap`, and
 `expanse_sync_blob_map_reader_t` wraps the borrowed `BlobReader`
 (`crates/expanse-capi/src/modern_sync.rs`, `include/expanse.h`,
-`expanse_sync(3)`, #1538). Twenty-three entry points: `_new(chunk_size)`,
+`expanse_sync(3)`, #1538). Twenty-four entry points: `_new(chunk_size)`,
 `_new_with_capacity(chunk_size, max_capacity)`, `_free`, `_insert`, `_remove`,
 `_get_into`, `_get_meta`, `_contains`, `_len`, `_mem_used`,
-`_mem_used_estimate`, `_mem_held`, `_shrink_to_fit`, `_set_reclaim_at_cap`,
-`_compact`, `_reader_new`, `_reader_free`, `_reader_get_into`,
+`_mem_used_estimate`, `_mem_held`, `_mem_held_estimate`, `_shrink_to_fit`,
+`_set_reclaim_at_cap`, `_compact`, `_reader_new`, `_reader_free`, `_reader_get_into`,
 `_reader_get_meta`, `_reader_contains`, and the
 [read-modify-write](#shared-map-read-modify-write-_compare_exchange-_get_or_insert) `_compare_exchange`,
 `_compare_exchange_meta` and `_get_or_insert`.
@@ -536,7 +536,8 @@ thirty-eight entry points.
   single-threaded `expanse_blob_map_*` surface too. The header states it, and
   `crates/expanse-capi/tests/test_sync_blobmap_capi.rs` pins it.
 - **Memory.** `_mem_used` and `_mem_held` exclude writers and wait for a
-  running compaction; `_mem_used_estimate` takes no lock. `_compact` and
+  running compaction; `_mem_used_estimate` and `_mem_held_estimate` take no
+  map lock and wait for none of the collector's (#1565). `_compact` and
   `_set_reclaim_at_cap` are the Rust methods; since the shared surface hands
   out no view, a compaction invalidates nothing a C caller holds.
 - **Tests.** `crates/expanse-capi/tests/test_sync_blobmap_capi.rs`: return
