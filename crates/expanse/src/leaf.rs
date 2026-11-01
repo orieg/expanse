@@ -32,17 +32,8 @@ use crate::types::Key;
 #[inline]
 #[must_use]
 pub const fn cap_class(pop: usize) -> usize {
-    if pop <= 2 {
-        pop
-    } else if pop <= 16 {
-        (pop + 3) & !3
-    } else if pop <= 24 {
-        24
-    } else if pop <= 32 {
-        32
-    } else {
-        (pop + 3) & !3
-    }
+    // One definition of the ladder for both engines (`trie32` uses it too).
+    crate::common::cap_class(pop)
 }
 
 /// The diagnostic `ablation-leaf-class-10` ladder (#1257): the default ladder

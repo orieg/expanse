@@ -26,6 +26,82 @@ use std::collections::BinaryHeap;
 use crate::trie32::{self, Arena};
 use crate::types32::{Edge32, Key32};
 
+/// The three cardinality identities over `intersection_len`, as inherent
+/// methods of a set type whose `len` returns `$n`. Shared by `ExpanseSet`
+/// and `ExpanseSet32`, which compute `intersection_len` differently and
+/// derive the other three the same way.
+macro_rules! set_len_identities {
+    ($set:ident, $n:ty) => {
+        /// Number of keys in the union (`|A ∪ B| = |A| + |B| − |A ∩ B|`),
+        /// without materializing the result.
+        #[must_use]
+        pub fn union_len(&self, other: &$set) -> $n {
+            self.len() + other.len() - self.intersection_len(other)
+        }
+
+        /// Number of keys in the difference (`|A \ B| = |A| − |A ∩ B|`),
+        /// without materializing the result.
+        #[must_use]
+        pub fn difference_len(&self, other: &$set) -> $n {
+            self.len() - self.intersection_len(other)
+        }
+
+        /// Number of keys in the symmetric difference
+        /// (`|A △ B| = |A| + |B| − 2·|A ∩ B|`), without materializing the result.
+        #[must_use]
+        pub fn symmetric_difference_len(&self, other: &$set) -> $n {
+            self.len() + other.len() - 2 * self.intersection_len(other)
+        }
+    };
+}
+
+/// `&A & &B`, `|`, `-` and `^` for a set type, forwarding to its
+/// `intersection`, `union`, `difference` and `symmetric_difference`.
+macro_rules! set_algebra_operators {
+    ($set:ident) => {
+        impl core::ops::BitAnd for &$set {
+            type Output = $set;
+            #[doc = concat!("`A & B` — the intersection ([`", stringify!($set), "::intersection`]).")]
+            fn bitand(self, rhs: &$set) -> $set {
+                self.intersection(rhs)
+            }
+        }
+
+        impl core::ops::BitOr for &$set {
+            type Output = $set;
+            #[doc = concat!("`A | B` — the union ([`", stringify!($set), "::union`]).")]
+            fn bitor(self, rhs: &$set) -> $set {
+                self.union(rhs)
+            }
+        }
+
+        impl core::ops::Sub for &$set {
+            type Output = $set;
+            #[doc = concat!("`A - B` — the difference ([`", stringify!($set), "::difference`]).")]
+            fn sub(self, rhs: &$set) -> $set {
+                self.difference(rhs)
+            }
+        }
+
+        impl core::ops::BitXor for &$set {
+            type Output = $set;
+            #[doc = concat!(
+                "`A ^ B` — the symmetric difference ([`",
+                stringify!($set),
+                "::symmetric_difference`])."
+            )]
+            fn bitxor(self, rhs: &$set) -> $set {
+                self.symmetric_difference(rhs)
+            }
+        }
+    };
+}
+
+// Defined here because this module compiles on every target width; `set`
+// (64-bit only) imports both.
+#[cfg(target_pointer_width = "64")]
+pub(crate) use {set_algebra_operators, set_len_identities};
+
 /// An ordered set of 32-bit integer keys backed by a digital trie.
 pub struct ExpanseSet32 {
     /// Node arena backing the trie (byte-exact memory accounting).
@@ -638,24 +714,7 @@ impl ExpanseSet32 {
         count
     }
 
-    /// Number of keys in the union (`|A ∪ B| = |A| + |B| − |A ∩ B|`).
-    #[must_use]
-    pub fn union_len(&self, other: &ExpanseSet32) -> usize {
-        self.len() + other.len() - self.intersection_len(other)
-    }
-
-    /// Number of keys in the difference (`|A \ B| = |A| − |A ∩ B|`).
-    #[must_use]
-    pub fn difference_len(&self, other: &ExpanseSet32) -> usize {
-        self.len() - self.intersection_len(other)
-    }
-
-    /// Number of keys in the symmetric difference
-    /// (`|A △ B| = |A| + |B| − 2·|A ∩ B|`).
-    #[must_use]
-    pub fn symmetric_difference_len(&self, other: &ExpanseSet32) -> usize {
-        self.len() + other.len() - 2 * self.intersection_len(other)
-    }
+    set_len_identities!(ExpanseSet32, usize);
 
     /// The set of keys present in **both** sets (`A ∩ B`).
     #[must_use]
@@ -1033,38 +1092,7 @@ impl ExpanseSet32 {
     }
 }
 
-impl core::ops::BitAnd for &ExpanseSet32 {
-    type Output = ExpanseSet32;
-    /// `A & B` — the intersection ([`ExpanseSet32::intersection`]).
-    fn bitand(self, rhs: &ExpanseSet32) -> ExpanseSet32 {
-        self.intersection(rhs)
-    }
-}
-
-impl core::ops::BitOr for &ExpanseSet32 {
-    type Output = ExpanseSet32;
-    /// `A | B` — the union ([`ExpanseSet32::union`]).
-    fn bitor(self, rhs: &ExpanseSet32) -> ExpanseSet32 {
-        self.union(rhs)
-    }
-}
-
-impl core::ops::Sub for &ExpanseSet32 {
-    type Output = ExpanseSet32;
-    /// `A - B` — the difference ([`ExpanseSet32::difference`]).
-    fn sub(self, rhs: &ExpanseSet32) -> ExpanseSet32 {
-        self.difference(rhs)
-    }
-}
-
-impl core::ops::BitXor for &ExpanseSet32 {
-    type Output = ExpanseSet32;
-    /// `A ^ B` — the symmetric difference
-    /// ([`ExpanseSet32::symmetric_difference`]).
-    fn bitxor(self, rhs: &ExpanseSet32) -> ExpanseSet32 {
-        self.symmetric_difference(rhs)
-    }
-}
+set_algebra_operators!(ExpanseSet32);
 
 impl Default for ExpanseSet32 {
     #[inline]

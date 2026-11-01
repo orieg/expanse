@@ -256,8 +256,13 @@ macro_rules! noting_root_rewrite {
     }};
 }
 
-/// See `set::by_mode`: the three sharing modes an engine call is
-/// monomorphized for, decided once per operation.
+/// The three sharing modes an engine call is monomorphized for (#568 PR 3):
+/// unshared; shared with the engine covering the root (`SyncExpanseSet`,
+/// `SyncExpanseMap`: brief per-node brackets); shared with the wrapper
+/// holding the tree word for the whole operation (the string, bytes and
+/// blob wrappers' inner trees: nested brackets, the protocol their readers
+/// are built for). Decided once per operation, exactly where the runtime
+/// dispatch always sat, so the unshared path pays one load and one branch.
 macro_rules! by_mode {
     ($alloc:expr, $obj:ident . $field:ident . $method:ident $args:tt) => {
         if $alloc.occ_enabled() {
@@ -319,6 +324,9 @@ macro_rules! by_mode {
         }
     };
 }
+
+// One definition for the set and map engines (`set.rs` imports both).
+pub(crate) use {by_mode, noting_root_rewrite};
 
 /// The tree arm of insert, per sharing mode: the engine call and a plain
 /// bump of `tree_pop` (on a shared tree the covered write folds it into the

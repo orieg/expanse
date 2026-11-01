@@ -22,8 +22,8 @@ use crate::mutate::{
     decode_value, divergence_level, downgrade_b_to_l7, downgrade_l7_to_l3, downgrade_u_to_b,
     free_branch_node, key_low, linear_insert_slot, linear_insert_slot_l3, linear_remove_slot,
     map_immed_max, read_packed, restore_decode, split_skip, sub_edges_size, sub_vals_size,
-    upgrade_b_to_u, upgrade_l3_to_l7, upgrade_l7_to_b, wrap_skip_level, write_decode, write_packed,
-    write_packed_fixed,
+    upgrade_b_to_u, upgrade_l3_to_l7, upgrade_l7_to_b, valid_ancestors, wrap_skip_level,
+    write_decode, write_packed, write_packed_fixed,
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmapL};
 use crate::occ::Cover;
@@ -54,6 +54,10 @@ pub(crate) unsafe fn read_packed_fixed(keys_ptr: *const u8, slot: usize, kb: u8)
     }
 }
 
+/// The map engine's copy of `mutate::leaf_locate_fixed`. It stays a separate
+/// definition: with one shared definition, the release object's
+/// `mutate::insert_with_path_flat` (the set insert path) compiles to a
+/// different register allocation (Refs #1368).
 #[inline(always)]
 pub(crate) unsafe fn leaf_locate_fixed(
     keys_ptr: *const u8,
@@ -304,81 +308,10 @@ pub(crate) fn build_map_leaf<const OCC: bool>(
 /// Tracks the descent path of edges from the root to the active leaf
 /// for fast multi-level sequential bypass.
 ///
-/// Same entries as `mutate::InsertPath`, under the same contract: the
-/// root-slot entry may dangle once the map moves and is never dereferenced,
-/// by the two invariants stated there.
-#[derive(Clone, Copy)]
-pub(crate) struct InsertPathMap {
-    pub prefix: u64,
-    pub edges: [*mut Edge; 8],
-    pub levels: [u8; 8],
-    pub depth: usize,
-    pub leaf: *mut LeafBitmapL,
-    pub leaf1: *mut u8,
-    pub terminal_pop: u16,
-    pub pending_pop: usize,
-}
-
-impl InsertPathMap {
-    pub(crate) const fn empty() -> Self {
-        Self {
-            prefix: u64::MAX,
-            edges: [core::ptr::null_mut(); 8],
-            levels: [0; 8],
-            depth: 0,
-            leaf: core::ptr::null_mut(),
-            leaf1: core::ptr::null_mut(),
-            terminal_pop: 0,
-            pending_pop: 0,
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn record_ancestor(&mut self, edge: *mut Edge, level: u8) {
-        if self.depth > 0 && self.depth < 8 {
-            self.edges[self.depth] = edge;
-            self.levels[self.depth] = level;
-            self.depth += 1;
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) unsafe fn flush(&mut self) {
-        if self.pending_pop > 0 {
-            let delta = self.pending_pop as i64;
-            self.pending_pop = 0;
-            for i in 1..self.depth {
-                // SAFETY: `bump_pop0` dereferences an entry only below level 8,
-                // and every such entry is an edge slot inside a live trie node
-                // while the cache is warm. The root-slot entry is not valid to
-                // dereference (it came from a borrow of the tree's owner, which
-                // may since have moved or been reborrowed) but is always
-                // recorded at level 8, where `bump_pop0` is a no-op; the two
-                // invariants behind that are stated on `mutate::InsertPath`.
-                unsafe {
-                    crate::mutate::bump_pop0(self.edges[i], self.levels[i], delta);
-                }
-            }
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn clear(&mut self) {
-        if self.depth != 0 {
-            if self.pending_pop > 0 {
-                // SAFETY: flushing pending population before clearing path references.
-                unsafe {
-                    self.flush();
-                }
-            }
-            self.prefix = u64::MAX;
-            self.depth = 0;
-            self.leaf = core::ptr::null_mut();
-            self.leaf1 = core::ptr::null_mut();
-            self.terminal_pop = 0;
-        }
-    }
-}
+/// `mutate::InsertPathOf` caching a `LeafBitmapL`, under the same contract:
+/// the root-slot entry may dangle once the map moves and is never
+/// dereferenced, by the two invariants stated there.
+pub(crate) type InsertPathMap = crate::mutate::InsertPathOf<LeafBitmapL>;
 
 /// Inserts `key → val` in the subtree at `edge`. Returns the previously
 /// stored value (`None` if the key is new) and a **writable pointer to
@@ -435,20 +368,6 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool, con
         // SAFETY: forwarded contract.
         unsafe { map_insert_with_path_flat::<KEEP>(a, edge as *mut Edge, key, val, level, path) }
     }
-}
-
-/// Slices the initialized prefix of the ancestor stack.
-///
-/// # Safety
-/// Caller guarantees that `ancestors[..anc_depth]` were initialized during branch descent.
-#[inline(always)]
-unsafe fn valid_ancestors(
-    ancestors: &[core::mem::MaybeUninit<(*mut Edge, u8)>; 8],
-    anc_depth: usize,
-) -> &[(*mut Edge, u8)] {
-    debug_assert!(anc_depth <= 8);
-    // SAFETY: caller guarantees ancestors[..anc_depth] were initialized during branch descent.
-    unsafe { core::slice::from_raw_parts(ancestors.as_ptr().cast::<(*mut Edge, u8)>(), anc_depth) }
 }
 
 /// Iterative flat descent without function recursion or version checks for single-threaded maps.

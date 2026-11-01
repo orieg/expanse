@@ -11,8 +11,10 @@ use crate::alloc::NodeAlloc;
 #[cfg(feature = "std")]
 use crate::bits::shared_word;
 use crate::get;
+use crate::map::{by_mode, noting_root_rewrite};
 use crate::mutate;
 use crate::node::Edge;
+use crate::set32::{set_algebra_operators, set_len_identities};
 #[cfg(all(target_pointer_width = "64", feature = "std"))]
 use crate::sync::RootSnapshot;
 use crate::types::Key;
@@ -24,26 +26,6 @@ use core_alloc::format;
 use core_alloc::string::String;
 #[cfg(not(feature = "std"))]
 use core_alloc::vec::Vec;
-
-/// Evaluates `$op` with `$this` bound to `$m`, and counts a root-state
-/// change (diagnostic builds only). A macro rather than a method taking a
-/// closure: the plain insert and remove bodies then reach their callers
-/// through `#[inline(always)]` functions alone, and never through a closure
-/// call whose inlining LLVM decides by heuristic, a decision that moves with
-/// the size of unrelated code in the crate (Refs #1086).
-macro_rules! noting_root_rewrite {
-    ($this:expr, $m:ident => $op:expr) => {{
-        let $m = $this;
-        #[cfg(feature = "occ-stats")]
-        let before = $m.root_fingerprint();
-        let r = $op;
-        #[cfg(feature = "occ-stats")]
-        if $m.root_fingerprint() != before {
-            crate::occ_stats::note_root_rewrite();
-        }
-        r
-    }};
-}
 
 pub use crate::types::ROOT_LEAF_CAP;
 
@@ -101,74 +83,6 @@ unsafe impl Send for ExpanseSet {}
 // this marker trait yet.
 #[cfg(feature = "std")]
 unsafe impl crate::occ::OlcEngine for ExpanseSet {}
-
-/// The three sharing modes an engine call is monomorphized for (#568 PR 3):
-/// unshared; shared with the engine covering the root (`SyncExpanseSet`,
-/// `SyncExpanseMap`: brief per-node brackets); shared with the wrapper
-/// holding the tree word for the whole operation (the string, bytes and
-/// blob wrappers' inner trees: nested brackets, the protocol their readers
-/// are built for). Decided once per operation, exactly where the runtime
-/// dispatch always sat, so the unshared path pays one load and one branch.
-macro_rules! by_mode {
-    ($alloc:expr, $obj:ident . $field:ident . $method:ident $args:tt) => {
-        if $alloc.occ_enabled() {
-            if $alloc.engine_covers_root() {
-                $obj.$field.$method::<true, false> $args
-            } else {
-                $obj.$field.$method::<true, true> $args
-            }
-        } else {
-            $obj.$field.$method::<false, false> $args
-        }
-    };
-    ($alloc:expr, 1 $obj:ident . $field:ident . $method:ident $args:tt) => {
-        if $alloc.occ_enabled() {
-            $obj.$field.$method::<true> $args
-        } else {
-            $obj.$field.$method::<false> $args
-        }
-    };
-    ($alloc:expr, $obj:ident . $method:ident $args:tt) => {
-        if $alloc.occ_enabled() {
-            if $alloc.engine_covers_root() {
-                $obj.$method::<true, false> $args
-            } else {
-                $obj.$method::<true, true> $args
-            }
-        } else {
-            $obj.$method::<false, false> $args
-        }
-    };
-    ($alloc:expr, 1 $obj:ident . $method:ident $args:tt) => {
-        if $alloc.occ_enabled() {
-            $obj.$method::<true> $args
-        } else {
-            $obj.$method::<false> $args
-        }
-    };
-    ($alloc:expr, $call:ident::<$k:literal> $args:tt) => {
-        if $alloc.occ_enabled() {
-            if $alloc.engine_covers_root() {
-                $call::<$k, true, false> $args
-            } else {
-                $call::<$k, true, true> $args
-            }
-        } else {
-            $call::<$k, false, false> $args
-        }
-    };
-    ($alloc:expr, $call:ident $args:tt) => {
-        if $alloc.occ_enabled() {
-            if $alloc.engine_covers_root() {
-                $call::<true, false> $args
-            } else {
-                $call::<true, true> $args
-            }
-        } else {
-            $call::<false, false> $args
-        }
-    };
-}
 
 /// The tree arm of insert, per sharing mode: the engine call and a plain
 /// bump of `tree_pop` (on a shared tree the covered write folds it into the
@@ -2428,26 +2342,7 @@ impl ExpanseSet {
         }
     }
 
-    /// Number of keys in the union (`|A ∪ B| = |A| + |B| − |A ∩ B|`), without
-    /// materializing the result.
-    #[must_use]
-    pub fn union_len(&self, other: &ExpanseSet) -> u64 {
-        self.len() + other.len() - self.intersection_len(other)
-    }
-
-    /// Number of keys in the difference (`|A \ B| = |A| − |A ∩ B|`), without
-    /// materializing the result.
-    #[must_use]
-    pub fn difference_len(&self, other: &ExpanseSet) -> u64 {
-        self.len() - self.intersection_len(other)
-    }
-
-    /// Number of keys in the symmetric difference
-    /// (`|A △ B| = |A| + |B| − 2·|A ∩ B|`), without materializing the result.
-    #[must_use]
-    pub fn symmetric_difference_len(&self, other: &ExpanseSet) -> u64 {
-        self.len() + other.len() - 2 * self.intersection_len(other)
-    }
+    set_len_identities!(ExpanseSet, u64);
 
     /// The set of keys present in **both** sets (`A ∩ B`).
     #[must_use]
@@ -2874,38 +2769,7 @@ fn merge_sorted(a: &ExpanseSet, b: &ExpanseSet, op: crate::algebra_build::Op) ->
     out
 }
 
-impl core::ops::BitAnd for &ExpanseSet {
-    type Output = ExpanseSet;
-    /// `A & B` — the intersection ([`ExpanseSet::intersection`]).
-    fn bitand(self, rhs: &ExpanseSet) -> ExpanseSet {
-        self.intersection(rhs)
-    }
-}
-
-impl core::ops::BitOr for &ExpanseSet {
-    type Output = ExpanseSet;
-    /// `A | B` — the union ([`ExpanseSet::union`]).
-    fn bitor(self, rhs: &ExpanseSet) -> ExpanseSet {
-        self.union(rhs)
-    }
-}
-
-impl core::ops::Sub for &ExpanseSet {
-    type Output = ExpanseSet;
-    /// `A - B` — the difference ([`ExpanseSet::difference`]).
-    fn sub(self, rhs: &ExpanseSet) -> ExpanseSet {
-        self.difference(rhs)
-    }
-}
-
-impl core::ops::BitXor for &ExpanseSet {
-    type Output = ExpanseSet;
-    /// `A ^ B` — the symmetric difference
-    /// ([`ExpanseSet::symmetric_difference`]).
-    fn bitxor(self, rhs: &ExpanseSet) -> ExpanseSet {
-        self.symmetric_difference(rhs)
-    }
-}
+set_algebra_operators!(ExpanseSet);
 
 impl Default for ExpanseSet {
     fn default() -> Self {

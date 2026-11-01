@@ -102,6 +102,7 @@ pub mod bytesmap;
 pub mod census;
 #[cfg(target_pointer_width = "64")]
 pub mod codec;
+mod common;
 #[cfg(target_pointer_width = "64")]
 pub mod cursor;
 #[cfg(target_pointer_width = "64")]
