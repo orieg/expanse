@@ -2997,6 +2997,11 @@ impl ExpanseStrMap {
             unsafe {
                 crate::sync_str_cursor::drain_submap(msnap, from, cover, csnap, rs, &mut d, &stop)?;
             }
+            // Admission charges a drain `NESTED_RESUME_COST` versions.
+            debug_assert!(
+                rs.len() - mark <= NESTED_RESUME_COST,
+                "a sub-map drain exceeded its admission cost"
+            );
             let (n, past_end) = (d.count, d.past_end);
             // More of this sub-map may follow the pairs drained.
             let more = d.stopped || d.cut || n == d.buf.len();

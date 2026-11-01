@@ -15556,7 +15556,17 @@ impl SyncExpanseStrMap {
             match attempt {
                 Ok(ScanEnd::Batch { last }) => return last,
                 Ok(ScanEnd::Exhausted) => return true,
-                Ok(ScanEnd::Restart) => core::mem::swap(search, restart),
+                Ok(ScanEnd::Restart) => {
+                    // The fallback below reads `search` as NUL-free, and
+                    // the loop ends only because every restart moves
+                    // forward.
+                    debug_assert!(!restart.contains(&0), "restart key holds a NUL");
+                    debug_assert!(
+                        restart.as_slice() > search.as_slice(),
+                        "restart key does not advance"
+                    );
+                    core::mem::swap(search, restart);
+                }
                 // A full set that still validates, under a tree word that
                 // did not move, came from depth: every retry would overflow
                 // again.
