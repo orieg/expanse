@@ -721,6 +721,15 @@ SYNC_STRMAP_SCAN_MEASURED_A2: dict[str, dict[str, int | str]] = {
 }
 SYNC_STRMAP_SCAN_MEASURED_A2_SOURCE: str = "CI run 41261111168, commit a66b0774af41d031747f2032dc8ce0ca050ab0e4"
 
+# `sync_strmap_scan` under A3 (§33.11), with its comparator, from the `instruction-counts` job
+# of the pull request that adds A3. Both arms count 50,000 keys.
+SYNC_STRMAP_SCAN_MEASURED_A3: dict[str, dict[str, int | str]] = {
+    "paths": {"cursor": 19_865_856, "locked": 9_155_807},
+    "paths_dense": {"cursor": 35_285_613, "locked": 13_644_696},
+}
+SYNC_STRMAP_SCAN_MEASURED_A3_SOURCE: str = "CI run 41335458877, commit 86690edf875cd3719e069b18df26efd8b49f440e"
+SYNC_STRMAP_SCAN_KEYS: int = 50_000
+
 
 def str_nested_drain_costs() -> tuple[int, int]:
     """Worst-case versions one admitted drain adds: (entering a child, resuming a level).
@@ -782,6 +791,38 @@ def sync_strmap_scan_ratio_a2(workload: str) -> float:
         raise ValueError(f"Unknown workload: {workload}")
     row = SYNC_STRMAP_SCAN_MEASURED_A2[workload]
     return int(row["cursor"]) / int(row["locked"])
+
+
+def sync_strmap_scan_ratio_a3(workload: str) -> float:
+    """Measured ratio of `sync_strmap_scan` to `sync_strmap_scan_locked` under A3 (§33.11).
+
+    Raises:
+        ValueError: On an unknown workload.
+    """
+    if workload not in SYNC_STRMAP_SCAN_MEASURED_A3:
+        raise ValueError(f"Unknown workload: {workload}")
+    row = SYNC_STRMAP_SCAN_MEASURED_A3[workload]
+    return int(row["cursor"]) / int(row["locked"])
+
+
+def sync_strmap_scan_excess_per_key_a3(workload: str) -> tuple[float, float]:
+    """Cursor instructions per key above the locked walk under A3, and what P33.2 allows.
+
+    The excess is `(cursor - locked) / keys`; the allowance is `(ceiling - 1) * locked / keys`,
+    with the ceiling of `TARGET_CALLGRIND_RATIOS`.
+
+    Returns:
+        (measured excess per key, excess per key the 1.15 ceiling allows).
+
+    Raises:
+        ValueError: On an unknown workload.
+    """
+    if workload not in SYNC_STRMAP_SCAN_MEASURED_A3:
+        raise ValueError(f"Unknown workload: {workload}")
+    row = SYNC_STRMAP_SCAN_MEASURED_A3[workload]
+    cursor, locked = int(row["cursor"]), int(row["locked"])
+    allowed = (TARGET_CALLGRIND_RATIOS[workload] - 1.0) * locked / SYNC_STRMAP_SCAN_KEYS
+    return (cursor - locked) / SYNC_STRMAP_SCAN_KEYS, allowed
 
 
 class TestStrCursorBounds(unittest.TestCase):
@@ -855,6 +896,27 @@ class TestStrCursorBounds(unittest.TestCase):
         self.assertIn("41261111168", SYNC_STRMAP_SCAN_MEASURED_A2_SOURCE)
         with self.assertRaises(ValueError):
             sync_strmap_scan_ratio_a2("uniform")
+
+    def test_a3_measured_ratios_pinned(self) -> None:
+        """The refuted P33.2 ratios under A3, from the counts of CI run 41335458877."""
+        self.assertAlmostEqual(sync_strmap_scan_ratio_a3("paths"), 2.1698, places=4)
+        self.assertAlmostEqual(sync_strmap_scan_ratio_a3("paths_dense"), 2.5860, places=4)
+        for wl in SYNC_STRMAP_SCAN_MEASURED_A3:
+            self.assertGreater(sync_strmap_scan_ratio_a3(wl), TARGET_CALLGRIND_RATIOS[wl])
+            # A3 measured fewer instructions than A2 on the same comparator.
+            self.assertLess(sync_strmap_scan_ratio_a3(wl), sync_strmap_scan_ratio_a2(wl))
+            self.assertEqual(SYNC_STRMAP_SCAN_MEASURED_A3[wl]["locked"], SYNC_STRMAP_SCAN_MEASURED_A2[wl]["locked"])
+        self.assertIn("41335458877", SYNC_STRMAP_SCAN_MEASURED_A3_SOURCE)
+        excess, allowed = sync_strmap_scan_excess_per_key_a3("paths")
+        self.assertAlmostEqual(excess, 214.2010, places=4)
+        self.assertAlmostEqual(allowed, 27.4674, places=4)
+        excess, allowed = sync_strmap_scan_excess_per_key_a3("paths_dense")
+        self.assertAlmostEqual(excess, 432.8183, places=4)
+        self.assertAlmostEqual(allowed, 40.9341, places=4)
+        with self.assertRaises(ValueError):
+            sync_strmap_scan_ratio_a3("uniform")
+        with self.assertRaises(ValueError):
+            sync_strmap_scan_excess_per_key_a3("uniform")
 
     def test_str_chunk_count(self) -> None:
         """Pin chunk counts for key lengths."""
@@ -1111,6 +1173,12 @@ def report() -> None:
     print(f"     (drains, children) admitted at least, worst case, d = 1..5: {nested}")
     for wl in SYNC_STRMAP_SCAN_MEASURED_A2:
         print(f"     A2 measured {wl}: ratio {sync_strmap_scan_ratio_a2(wl):.3f} ({SYNC_STRMAP_SCAN_MEASURED_A2_SOURCE})")
+    for wl in SYNC_STRMAP_SCAN_MEASURED_A3:
+        excess, allowed = sync_strmap_scan_excess_per_key_a3(wl)
+        print(
+            f"     A3 measured {wl}: ratio {sync_strmap_scan_ratio_a3(wl):.3f}, excess {excess:.1f} ins/key "
+            f"(ceiling allows {allowed:.1f}) ({SYNC_STRMAP_SCAN_MEASURED_A3_SOURCE})"
+        )
     p = str_read_set_policy()
     print(
         f"   Single StrNode: {p['single_node_max']} (one seek, fits cap) / {p['single_node_max_two_seek']} (two seeks, exceeds cap)"
