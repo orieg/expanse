@@ -696,6 +696,94 @@ def str_cursor_max_depth_within_cap(cap: int) -> int:
 STR_READ_SET_CAP: int = 128
 
 
+# ---------------------------------------------------------------------------
+# Amendment A3 (§33.11): one attempt drains into child sub-maps while the read set has room
+# ---------------------------------------------------------------------------
+#
+# The attempt of §33.10 ends at the first child sub-map it meets: the batch closes when it
+# holds entries, and otherwise the attempt restarts from the root at the child's prefix. On
+# `sync_strmap_scan` that left the cursor at 2.96x and 8.79x the locked walk (P33.2 REFUTED,
+# `SYNC_STRMAP_SCAN_MEASURED_A2`). A3 keeps the exact descent of §33.10 as it is and, once the
+# first level is drained, descends into each child it meets and climbs back to the parent's
+# next chunk within the same attempt. Every drain after the exact descent is admitted only
+# when the read set has room for its worst case, so no attempt grows past the read set.
+
+# Worst case one drain adds after the exact descent: a child's cover plus one sub-map drain
+# when the walk enters a child, the drain alone when it resumes a level it already holds.
+STR_NESTED_ENTER_COST: int = COVER + 13
+STR_NESTED_RESUME_COST: int = 13
+
+# `sync_strmap_scan` under the attempt shape of §33.10 (the A2 cursor), with its comparator,
+# from the `instruction-counts` job of the pull request that added it.
+SYNC_STRMAP_SCAN_MEASURED_A2: dict[str, dict[str, int | str]] = {
+    "paths": {"cursor": 27_070_424, "locked": 9_155_807},
+    "paths_dense": {"cursor": 119_969_631, "locked": 13_644_696},
+}
+SYNC_STRMAP_SCAN_MEASURED_A2_SOURCE: str = "CI run 41261111168, commit a66b0774af41d031747f2032dc8ce0ca050ab0e4"
+
+
+def str_nested_drain_costs() -> tuple[int, int]:
+    """Worst-case versions one admitted drain adds: (entering a child, resuming a level).
+
+    The child's cover is one version and one sub-map drain at most
+    `submap_drain_read_set_branches()`; resuming a level re-drains a sub-map whose cover is
+    already in the set.
+    """
+    drain = submap_drain_read_set_branches()
+    return COVER + drain, drain
+
+
+def str_cursor_nested_attempt_read_set_bound(depth: int, cap: int) -> int:
+    """Maximum versions one A3 attempt retains at path depth `depth` with a set of `cap`.
+
+    The exact descent and the first drained level retain at most
+    `str_cursor_drain_attempt_read_set_bound(depth)` as in §33.10. Each later drain is
+    admitted only when the set's length plus its worst case is at most `cap`, so the attempt
+    ends at `cap` at most. A first drain deeper than `cap` overflows as before (§33.7.4).
+
+    Raises:
+        ValueError: On depth < 1 or cap < 1.
+    """
+    if cap < 1:
+        raise ValueError(f"cap must be >= 1, got {cap}")
+    return max(str_cursor_drain_attempt_read_set_bound(depth), cap)
+
+
+def str_cursor_min_admitted_drains(depth: int, cap: int) -> tuple[int, int]:
+    """Drains and child sub-maps an A3 attempt admits at least, after its first drained level.
+
+    Worst case: the exact descent and first drained level retain `8 * depth + 6`, every later
+    drain retains its worst case, and the room left is `cap - (8 * depth + 6)`. A drain of
+    either kind costs at most `STR_NESTED_ENTER_COST`, so at least `room // 14` drains are
+    admitted. A drain stops at the first child it pushes, so every child entered costs an
+    entry and then a resume of its parent: at least `room // (14 + 13)` children are entered.
+    Both are zero when the first drained level leaves no room.
+
+    Returns:
+        (drains admitted at least, children entered at least).
+
+    Raises:
+        ValueError: On depth < 1 or cap < 1.
+    """
+    if cap < 1:
+        raise ValueError(f"cap must be >= 1, got {cap}")
+    room = max(cap - str_cursor_drain_attempt_read_set_bound(depth), 0)
+    enter, resume = str_nested_drain_costs()
+    return room // enter, room // (enter + resume)
+
+
+def sync_strmap_scan_ratio_a2(workload: str) -> float:
+    """Measured ratio of `sync_strmap_scan` to `sync_strmap_scan_locked` under §33.10.
+
+    Raises:
+        ValueError: On an unknown workload.
+    """
+    if workload not in SYNC_STRMAP_SCAN_MEASURED_A2:
+        raise ValueError(f"Unknown workload: {workload}")
+    row = SYNC_STRMAP_SCAN_MEASURED_A2[workload]
+    return int(row["cursor"]) / int(row["locked"])
+
+
 class TestStrCursorBounds(unittest.TestCase):
     """Unit tests pinning mathematical bounds and invariants."""
 
@@ -736,6 +824,37 @@ class TestStrCursorBounds(unittest.TestCase):
         self.assertEqual(str_cursor_max_depth_within_cap(14), 1)
         with self.assertRaises(ValueError):
             str_cursor_max_depth_within_cap(13)
+
+    def test_nested_attempt_bound_reference_values(self) -> None:
+        """A3: admission keeps every attempt to the set; depth 5 admits >= 5 drains, >= 3 children."""
+        self.assertEqual(str_nested_drain_costs(), (14, 13))
+        self.assertEqual(str_nested_drain_costs(), (STR_NESTED_ENTER_COST, STR_NESTED_RESUME_COST))
+        for d in range(1, 16):
+            self.assertEqual(str_cursor_nested_attempt_read_set_bound(d, STR_READ_SET_CAP), STR_READ_SET_CAP)
+        # Past depth 15 the first drained level alone exceeds the set, as under §33.10.
+        self.assertEqual(str_cursor_nested_attempt_read_set_bound(16, STR_READ_SET_CAP), 134)
+        # Depth 5: room 128 - 46 = 82, so 82 // 14 = 5 drains and 82 // 27 = 3 children.
+        self.assertEqual(str_cursor_min_admitted_drains(5, STR_READ_SET_CAP), (5, 3))
+        self.assertEqual(
+            [str_cursor_min_admitted_drains(d, STR_READ_SET_CAP) for d in range(1, 6)],
+            [(8, 4), (7, 3), (7, 3), (6, 3), (5, 3)],
+        )
+        self.assertEqual(str_cursor_min_admitted_drains(15, STR_READ_SET_CAP), (0, 0))
+        self.assertEqual(str_cursor_min_admitted_drains(16, STR_READ_SET_CAP), (0, 0))
+        with self.assertRaises(ValueError):
+            str_cursor_nested_attempt_read_set_bound(1, 0)
+        with self.assertRaises(ValueError):
+            str_cursor_min_admitted_drains(0, STR_READ_SET_CAP)
+
+    def test_a2_measured_ratios_pinned(self) -> None:
+        """The refuted P33.2 ratios under §33.10, from the counts of CI run 41261111168."""
+        self.assertAlmostEqual(sync_strmap_scan_ratio_a2("paths"), 2.9566, places=4)
+        self.assertAlmostEqual(sync_strmap_scan_ratio_a2("paths_dense"), 8.7924, places=4)
+        for wl in SYNC_STRMAP_SCAN_MEASURED_A2:
+            self.assertGreater(sync_strmap_scan_ratio_a2(wl), TARGET_CALLGRIND_RATIOS[wl])
+        self.assertIn("41261111168", SYNC_STRMAP_SCAN_MEASURED_A2_SOURCE)
+        with self.assertRaises(ValueError):
+            sync_strmap_scan_ratio_a2("uniform")
 
     def test_str_chunk_count(self) -> None:
         """Pin chunk counts for key lengths."""
@@ -987,6 +1106,11 @@ def report() -> None:
     print(f"   batch cursor as built (one sub-map drain per attempt, restart by key): worst {built}")
     print(f"     leaf-state ancestors {built_leaf}; sub-map drain {submap_drain_read_set_branches()} branches")
     print(f"     read set of {STR_READ_SET_CAP} covers depth <= {str_cursor_max_depth_within_cap(STR_READ_SET_CAP)}")
+    nested = [str_cursor_min_admitted_drains(d, STR_READ_SET_CAP) for d in range(1, 6)]
+    print(f"   A3 (drain into children while the set has room): every attempt <= {STR_READ_SET_CAP} for depth <= 15;")
+    print(f"     (drains, children) admitted at least, worst case, d = 1..5: {nested}")
+    for wl in SYNC_STRMAP_SCAN_MEASURED_A2:
+        print(f"     A2 measured {wl}: ratio {sync_strmap_scan_ratio_a2(wl):.3f} ({SYNC_STRMAP_SCAN_MEASURED_A2_SOURCE})")
     p = str_read_set_policy()
     print(
         f"   Single StrNode: {p['single_node_max']} (one seek, fits cap) / {p['single_node_max_two_seek']} (two seeks, exceeds cap)"
