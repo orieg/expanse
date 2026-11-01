@@ -2485,13 +2485,16 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::DetachedSetRea
 pub struct expanse_trie::sync::DetachedStrReader
 impl expanse_trie::sync::DetachedStrReader
 pub fn expanse_trie::sync::DetachedStrReader::contains(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> bool
+pub fn expanse_trie::sync::DetachedStrReader::cursor<'m>(&self, &'m expanse_trie::sync::SyncExpanseStrMap) -> expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, '_>
 pub fn expanse_trie::sync::DetachedStrReader::first(&self, &expanse_trie::sync::SyncExpanseStrMap) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
 pub fn expanse_trie::sync::DetachedStrReader::get(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::DetachedStrReader::last(&self, &expanse_trie::sync::SyncExpanseStrMap) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
 pub fn expanse_trie::sync::DetachedStrReader::next_after(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
 pub fn expanse_trie::sync::DetachedStrReader::next_at_or_after(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::DetachedStrReader::prefix_cursor<'m>(&self, &'m expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, '_>
 pub fn expanse_trie::sync::DetachedStrReader::prev_at_or_before(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
 pub fn expanse_trie::sync::DetachedStrReader::prev_before(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::DetachedStrReader::range_cursor<'m>(&self, &'m expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, '_>
 impl core::marker::Freeze for expanse_trie::sync::DetachedStrReader
 impl core::marker::Send for expanse_trie::sync::DetachedStrReader
 impl !core::marker::Sync for expanse_trie::sync::DetachedStrReader
@@ -2620,13 +2623,16 @@ impl !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OwnedSetReade
 pub struct expanse_trie::sync::OwnedStrReader
 impl expanse_trie::sync::OwnedStrReader
 pub fn expanse_trie::sync::OwnedStrReader::contains(&self, &expanse_trie::strmap::NulFreeStr) -> bool
+pub fn expanse_trie::sync::OwnedStrReader::cursor(&self) -> expanse_trie::sync_str_cursor::SyncStrMapCursor<'_, '_>
 pub fn expanse_trie::sync::OwnedStrReader::first(&self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
 pub fn expanse_trie::sync::OwnedStrReader::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::OwnedStrReader::last(&self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
 pub fn expanse_trie::sync::OwnedStrReader::next_after(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
 pub fn expanse_trie::sync::OwnedStrReader::next_at_or_after(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::OwnedStrReader::prefix_cursor(&self, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::sync_str_cursor::SyncStrMapCursor<'_, '_>
 pub fn expanse_trie::sync::OwnedStrReader::prev_at_or_before(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
 pub fn expanse_trie::sync::OwnedStrReader::prev_before(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::OwnedStrReader::range_cursor(&self, &expanse_trie::strmap::NulFreeStr, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::sync_str_cursor::SyncStrMapCursor<'_, '_>
 impl core::marker::Freeze for expanse_trie::sync::OwnedStrReader
 impl core::marker::Send for expanse_trie::sync::OwnedStrReader
 impl !core::marker::Sync for expanse_trie::sync::OwnedStrReader
@@ -2677,6 +2683,10 @@ pub fn expanse_trie::sync::StrReader<'_>::next_after(&self, &expanse_trie::strma
 pub fn expanse_trie::sync::StrReader<'_>::next_at_or_after(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
 pub fn expanse_trie::sync::StrReader<'_>::prev_at_or_before(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
 pub fn expanse_trie::sync::StrReader<'_>::prev_before(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+impl<'a> expanse_trie::sync::StrReader<'a>
+pub fn expanse_trie::sync::StrReader<'a>::cursor(&self) -> expanse_trie::sync_str_cursor::SyncStrMapCursor<'a, '_>
+pub fn expanse_trie::sync::StrReader<'a>::prefix_cursor(&self, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::sync_str_cursor::SyncStrMapCursor<'a, '_>
+pub fn expanse_trie::sync::StrReader<'a>::range_cursor(&self, &expanse_trie::strmap::NulFreeStr, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::sync_str_cursor::SyncStrMapCursor<'a, '_>
 impl<'a> core::marker::Freeze for expanse_trie::sync::StrReader<'a>
 impl<'a> core::marker::Send for expanse_trie::sync::StrReader<'a>
 impl<'a> !core::marker::Sync for expanse_trie::sync::StrReader<'a>
@@ -2929,6 +2939,22 @@ impl<'m, 'r> core::marker::Unpin for expanse_trie::sync_cursor::SyncMapCursor<'m
 impl<'m, 'r> core::marker::UnsafeUnpin for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
 impl<'m, 'r> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
 impl<'m, 'r> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+pub struct expanse_trie::sync::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::advance_to(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(&[u8], u64)>
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::current(&mut self) -> core::option::Option<(&[u8], u64)>
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::end_bound(&self) -> core::option::Option<&[u8]>
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::new(&'m expanse_trie::sync::SyncExpanseStrMap, &'r expanse_trie::occ::Reader) -> Self
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::next(&mut self) -> core::option::Option<(&[u8], u64)>
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::prefix(&'m expanse_trie::sync::SyncExpanseStrMap, &'r expanse_trie::occ::Reader, &expanse_trie::strmap::NulFreeStr) -> Self
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::range(&'m expanse_trie::sync::SyncExpanseStrMap, &'r expanse_trie::occ::Reader, &expanse_trie::strmap::NulFreeStr, &expanse_trie::strmap::NulFreeStr) -> Self
+impl<'m, 'r> core::marker::Freeze for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> !core::marker::Send for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> !core::marker::Sync for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> core::marker::Unpin for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> core::marker::UnsafeUnpin for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
 pub mod expanse_trie::sync32
 pub enum expanse_trie::sync32::WriteError
 pub expanse_trie::sync32::WriteError::ArenaFull
@@ -3057,6 +3083,25 @@ impl<'m, 'r> core::marker::UnsafeUnpin for expanse_trie::sync_cursor::SyncMapCur
 impl<'m, 'r> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
 impl<'m, 'r> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
 pub const expanse_trie::sync_cursor::BATCH_CAP: usize
+pub mod expanse_trie::sync_str_cursor
+pub struct expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::advance_to(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(&[u8], u64)>
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::current(&mut self) -> core::option::Option<(&[u8], u64)>
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::end_bound(&self) -> core::option::Option<&[u8]>
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::new(&'m expanse_trie::sync::SyncExpanseStrMap, &'r expanse_trie::occ::Reader) -> Self
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::next(&mut self) -> core::option::Option<(&[u8], u64)>
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::prefix(&'m expanse_trie::sync::SyncExpanseStrMap, &'r expanse_trie::occ::Reader, &expanse_trie::strmap::NulFreeStr) -> Self
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::range(&'m expanse_trie::sync::SyncExpanseStrMap, &'r expanse_trie::occ::Reader, &expanse_trie::strmap::NulFreeStr, &expanse_trie::strmap::NulFreeStr) -> Self
+impl<'m, 'r> core::marker::Freeze for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> !core::marker::Send for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> !core::marker::Sync for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> core::marker::Unpin for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> core::marker::UnsafeUnpin for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+impl<'m, 'r> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
+pub const expanse_trie::sync_str_cursor::STR_BATCH_CAP: usize
+pub const expanse_trie::sync_str_cursor::STR_KEY_ARENA: usize
 pub mod expanse_trie::types
 pub enum expanse_trie::types::EdgeTag
 pub expanse_trie::types::EdgeTag::Immed(expanse_trie::types::ImmedType)

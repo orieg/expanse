@@ -599,8 +599,143 @@ def strmap_predicted_callgrind_ratio(workload: str, avg_batch_size: int = PROJEC
     return (base + overhead) / base
 
 
+# ---------------------------------------------------------------------------
+# The batch cursor as built (#1143 part 2): one sub-map drain per attempt
+# ---------------------------------------------------------------------------
+#
+# `SyncStrMapCursor` fills a batch by one attempt that descends the probe's exact
+# continuations and then drains one `StrNode` sub-map. It never unwinds: a level that
+# holds nothing at or after the probe, a suffix that sorts below the probe with nothing
+# drained after it, and a child met in a level whose batch is still empty each end the
+# attempt with a validated restart by key (`ExpanseStrMap::scan_validated`), and the next
+# attempt starts with an empty read set. The sub-map drain (`sync_str_cursor::drain_submap`) is
+# the u64 batch drain (`sync_cursor.rs`, `drain_batch_in`) on a sub-map: it retains every
+# branch it samples, returns as soon as a branch child yielded entries, and stops at the
+# first child pointer it pushes. An exact continuation drains from the probe's chunk, finds
+# it first and stops there, so an ancestor level retains its cover and the descent path.
+
+
+def enumerate_submap_drain_read_sets() -> list[tuple[str, int]]:
+    """Every shape of one sub-map drain, with the branch versions it retains.
+
+    A drain starts at the top branch (level 8) and follows the probe's path. Either the
+    path's own terminal yields (no backtrack), or the first child below the branch at
+    level `l` yields nothing and the next live sibling does (one backtrack at `l`; later
+    siblings descend with remainder 0 and a non-empty subtree always yields). Either way
+    the entries come from a terminal under a bottom branch X at level `lx`; the drain then
+    walks X's later siblings, which are terminals (nothing sampled) or one branch Y at
+    level `lx - 1`, whose descent to its first terminal crosses at most `lx - 2` branches,
+    and returns once Y yielded. Every count is the maximum, all levels present.
+
+    Returns:
+        List of (shape label, branch versions retained).
+    """
+    top, low = olc_bounds.BRANCH_TOP_LEVEL, olc_bounds.BRANCH_MIN_LEVEL
+    shapes: list[tuple[str, int]] = []
+    for lx in range(low, top + 1):
+        path = top - lx + 1
+        cont = lx - low
+        shapes.append((f"no backtrack, X at {lx}", path + cont))
+    for lvl in range(low, top + 1):
+        path = top - lvl + 1
+        failed = lvl - low
+        for lx in range(low, lvl + 1):
+            sibling = lvl - lx
+            cont = lx - low
+            shapes.append((f"backtrack at {lvl}, X at {lx}", path + failed + sibling + cont))
+    return shapes
+
+
+def submap_drain_read_set_branches() -> int:
+    """Maximum branch versions one sub-map drain retains (cover not counted): 13.
+
+    The enumeration's maximum equals `olc_bounds.max_ordered_read_set_branches()`: the
+    walk past X's siblings adds `lx - 2`, which is exactly the descent the sibling search
+    of `next_in` would have made below a backtrack at `lx`.
+    """
+    return max(n for _, n in enumerate_submap_drain_read_sets())
+
+
+def str_cursor_drain_attempt_read_set_bound(depth: int, ancestors_leaf_state: bool = False) -> int:
+    """Maximum versions one batch-cursor attempt retains, as `SyncStrMapCursor` runs it.
+
+    `depth - 1` ancestor levels, each its cover plus an exact descent of at most
+    `MAX_BRANCH_DEPTH` branches (cover only when the ancestor is a sub-map in leaf state),
+    then the drained level: its cover plus one sub-map drain. The closed form is
+    `8 * depth + 6`, the `one_seek` row of `str_cursor_attempt_read_set_bound`; the
+    attempt reaches it because the drain replaces both seeks of a level.
+
+    Raises:
+        ValueError: On depth < 1.
+    """
+    if depth < 1:
+        raise ValueError(f"depth must be >= 1, got {depth}")
+    ancestor = COVER if ancestors_leaf_state else COVER + MAX_BRANCH_DEPTH
+    return (depth - 1) * ancestor + COVER + submap_drain_read_set_branches()
+
+
+def str_cursor_max_depth_within_cap(cap: int) -> int:
+    """Deepest `StrNode` path whose worst-case attempt fits a read set of `cap` entries.
+
+    A deeper path can overflow; the cursor classifies a full set that still validates as a
+    depth overflow and fills that batch under the writer lock (§33.7.4).
+
+    Raises:
+        ValueError: On a cap below the depth-1 bound.
+    """
+    if cap < str_cursor_drain_attempt_read_set_bound(1):
+        raise ValueError(f"cap {cap} is below the depth-1 attempt bound")
+    d = 1
+    while str_cursor_drain_attempt_read_set_bound(d + 1) <= cap:
+        d += 1
+    return d
+
+
+# The read set the cursor's attempts use: `STR_READ_SET_CAP` in `crates/expanse/src/sync.rs`,
+# shared with the point ops.
+STR_READ_SET_CAP: int = 128
+
+
 class TestStrCursorBounds(unittest.TestCase):
     """Unit tests pinning mathematical bounds and invariants."""
+
+    def test_submap_drain_bound_reference_values(self) -> None:
+        """One sub-map drain retains at most 13 branches, the ordered-read maximum."""
+        shapes = enumerate_submap_drain_read_sets()
+        self.assertEqual(submap_drain_read_set_branches(), 13)
+        self.assertEqual(submap_drain_read_set_branches(), olc_bounds.max_ordered_read_set_branches())
+        # Without a backtrack every shape is the full path of 7 branches.
+        self.assertEqual({n for label, n in shapes if label.startswith("no backtrack")}, {7})
+        # With one, each backtrack level reproduces `ordered_read_set_branches`.
+        for lvl in range(olc_bounds.BRANCH_MIN_LEVEL, olc_bounds.BRANCH_TOP_LEVEL + 1):
+            worst = max(n for label, n in shapes if label.startswith(f"backtrack at {lvl},"))
+            self.assertEqual(worst, olc_bounds.ordered_read_set_branches(lvl))
+
+    def test_cursor_drain_attempt_bound_reference_values(self) -> None:
+        """Pin the attempt bound as built: 8d + 6, leaf-state ancestors d + 13."""
+        depths = range(1, 6)
+        worst = [str_cursor_drain_attempt_read_set_bound(d) for d in depths]
+        leaf = [str_cursor_drain_attempt_read_set_bound(d, True) for d in depths]
+        self.assertEqual(worst, [14, 22, 30, 38, 46])
+        self.assertEqual(leaf, [14, 15, 16, 17, 18])
+        # It is the one-seek row of the pre-registered attempt table (§33.7.3).
+        self.assertEqual(worst, [str_cursor_attempt_read_set_bound(d, ASSUME_ONE_SEEK) for d in depths])
+        self.assertEqual(leaf, [str_cursor_attempt_read_set_bound(d, ASSUME_ONE_SEEK, True) for d in depths])
+        for d in range(1, 20):
+            self.assertEqual(str_cursor_drain_attempt_read_set_bound(d), 8 * d + 6)
+        with self.assertRaises(ValueError):
+            str_cursor_drain_attempt_read_set_bound(0)
+
+    def test_cursor_depth_covered_by_the_read_set(self) -> None:
+        """128 entries cover every path of depth <= 15: 126 <= 128 < 134."""
+        self.assertEqual(str_cursor_max_depth_within_cap(STR_READ_SET_CAP), 15)
+        self.assertEqual(str_cursor_drain_attempt_read_set_bound(15), 126)
+        self.assertEqual(str_cursor_drain_attempt_read_set_bound(16), 134)
+        # `paths` keys are depth 5 (§33.7.2): 46 worst case, 18 with leaf-state ancestors.
+        self.assertLessEqual(str_cursor_drain_attempt_read_set_bound(5), STR_READ_SET_CAP)
+        self.assertEqual(str_cursor_max_depth_within_cap(14), 1)
+        with self.assertRaises(ValueError):
+            str_cursor_max_depth_within_cap(13)
 
     def test_str_chunk_count(self) -> None:
         """Pin chunk counts for key lengths."""
@@ -847,6 +982,11 @@ def report() -> None:
         leaf = [str_cursor_attempt_read_set_bound(d, assumption, True) for d in range(1, 6)]
         print(f"     {assumption:<34}  worst {worst}")
         print(f"     {'':<34}  leaf-state ancestors (projected, not counted on a built map) {leaf}")
+    built = [str_cursor_drain_attempt_read_set_bound(d) for d in range(1, 6)]
+    built_leaf = [str_cursor_drain_attempt_read_set_bound(d, True) for d in range(1, 6)]
+    print(f"   batch cursor as built (one sub-map drain per attempt, restart by key): worst {built}")
+    print(f"     leaf-state ancestors {built_leaf}; sub-map drain {submap_drain_read_set_branches()} branches")
+    print(f"     read set of {STR_READ_SET_CAP} covers depth <= {str_cursor_max_depth_within_cap(STR_READ_SET_CAP)}")
     p = str_read_set_policy()
     print(
         f"   Single StrNode: {p['single_node_max']} (one seek, fits cap) / {p['single_node_max_two_seek']} (two seeks, exceeds cap)"

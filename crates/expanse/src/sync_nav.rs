@@ -268,7 +268,7 @@ impl<const CAP: usize> ReadSet<CAP> {
 /// The version that covers an edge copy and the payload behind it: the tree
 /// version for the top edge, the holding branch's otherwise.
 #[derive(Clone, Copy)]
-enum Holder<'a> {
+pub(crate) enum Holder<'a> {
     Tree(&'a SeqVersion, u64),
     Node(*const u32, u32),
 }
@@ -277,7 +277,7 @@ impl Holder<'_> {
     /// True while the holder is unchanged, so pointers loaded under it are
     /// EBR-live and consistent with each other.
     #[inline(always)]
-    fn ok(self) -> bool {
+    pub(crate) fn ok(self) -> bool {
         match self {
             Holder::Tree(v, s) => v.validate(s),
             // SAFETY: the holding node is EBR-live for the reader's pin.
@@ -299,7 +299,7 @@ fn compose(d: u8, rem: u64, level: u8) -> u64 {
 ///
 /// `edge` references an EBR-live `BranchL3` (`is_l3`) or `BranchL7`.
 #[inline(always)]
-unsafe fn linear_branch_version(edge: &Edge, is_l3: bool) -> *const u32 {
+pub(crate) unsafe fn linear_branch_version(edge: &Edge, is_l3: bool) -> *const u32 {
     let node = edge.node_ptr();
     // SAFETY: EBR-live node per contract; field projections only.
     unsafe {
@@ -321,7 +321,7 @@ unsafe fn linear_branch_version(edge: &Edge, is_l3: bool) -> *const u32 {
 ///
 /// `edge` references an EBR-live `BranchL3` (`is_l3`) or `BranchL7`.
 #[inline(always)]
-unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (u8, usize, [u8; 8], *const Edge) {
+pub(crate) unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (u8, usize, [u8; 8], *const Edge) {
     let node = edge.node_ptr();
     // SAFETY: EBR-live node per contract; field projections, and the
     // header's meta and digit words loaded atomically (#1086).
@@ -351,7 +351,7 @@ unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (u8, usize, [u8; 8], *const
 /// A skipping node's position against `suffix`: `Less` and `Greater` when the
 /// whole node sits above or below it, otherwise the suffix inside the node.
 #[inline(always)]
-fn skip_cmp(
+pub(crate) fn skip_cmp(
     edge: &Edge,
     node_level: u8,
     level: u8,
@@ -1228,7 +1228,11 @@ fn backtrack<const CAP: usize>(rs: &mut ReadSet<CAP>, mark: usize) {
 ///
 /// `node` is an EBR-live `BranchB` whose version `here` names.
 #[inline(always)]
-unsafe fn branch_b_child(node: *const BranchB, bd: u8, here: Holder<'_>) -> Result<Edge, Retry> {
+pub(crate) unsafe fn branch_b_child(
+    node: *const BranchB,
+    bd: u8,
+    here: Holder<'_>,
+) -> Result<Edge, Retry> {
     // SAFETY: live node per contract.
     let (rank, sub) = unsafe {
         (
@@ -1331,7 +1335,7 @@ unsafe fn bitmap_leaf<const MAP: bool>(
 /// `edge` is a validated map-immediate copy; a multi-key one names a live
 /// value array of its key count.
 #[inline(always)]
-unsafe fn immed_value(edge: &Edge, im: crate::types::ImmedType, slot: usize) -> u64 {
+pub(crate) unsafe fn immed_value(edge: &Edge, im: crate::types::ImmedType, slot: usize) -> u64 {
     if im.key_count() == 1 {
         u64::from_le_bytes(edge.imm_bytes())
     } else {
@@ -1514,6 +1518,99 @@ mod loom_tests {
     #[should_panic(expected = "never the successor")]
     fn loom_str_ordered_read_hand_over_hand_is_not_enough() {
         model(true);
+    }
+
+    /// The string batch cursor's restart by key (#1143, §33.10.1) on the
+    /// real [`ReadSet`]. A scan reads level C, finds nothing to copy, and
+    /// restarts past C into level S. The writer rebuilds C under C's bracket:
+    /// its one key `K0` is cleared and written back, as a node rebuild
+    /// leaves a moment where a reader of the half-written node sees C
+    /// empty. `K0` is present for the whole scan, so the scan must return
+    /// it. The restart is taken only after C's version validates; without
+    /// that check (`validate_restart` off) the scan can skip C.
+    fn scan(
+        c_v: &Arc<VersionCell>,
+        c_key: &AtomicU64,
+        s_v: &Arc<VersionCell>,
+        s_key: &AtomicU64,
+        validate_restart: bool,
+    ) -> std::vec::Vec<u64> {
+        let mut out = std::vec::Vec::new();
+        // The attempt at C, retried until it validates: a sample of an odd
+        // version is a writer inside its bracket.
+        loop {
+            let mut rs = ReadSet::<1>::new();
+            // SAFETY: the cell outlives the scan; under loom the read set
+            // casts the pointer back to it.
+            if unsafe { rs.sample(cover(c_v)) }.is_err() {
+                loom::thread::yield_now();
+                continue;
+            }
+            let x = c_key.load(Ordering::Relaxed);
+            // SAFETY: as above.
+            if !validate_restart || unsafe { rs.validate_all() } {
+                if x != 0 {
+                    out.push(x);
+                }
+                break;
+            }
+            loom::thread::yield_now();
+        }
+        // The next attempt starts by key past C, with an empty read set.
+        loop {
+            let mut rs = ReadSet::<1>::new();
+            // SAFETY: as above.
+            if unsafe { rs.sample(cover(s_v)) }.is_err() {
+                loom::thread::yield_now();
+                continue;
+            }
+            let y = s_key.load(Ordering::Relaxed);
+            // SAFETY: as above.
+            if unsafe { rs.validate_all() } {
+                out.push(y);
+                return out;
+            }
+            loom::thread::yield_now();
+        }
+    }
+
+    const K0: u64 = 0x10;
+    const S0: u64 = 0x30;
+
+    fn scan_model(validate_restart: bool) {
+        loom::model(move || {
+            let (c_v, s_v) = (Arc::new(VersionCell::new(0)), Arc::new(VersionCell::new(0)));
+            let (c_key, s_key) = (Arc::new(AtomicU64::new(K0)), Arc::new(AtomicU64::new(S0)));
+            let writer = {
+                let (c_v, c_key) = (Arc::clone(&c_v), Arc::clone(&c_key));
+                loom::thread::spawn(move || {
+                    version_begin(&c_v);
+                    c_key.store(0, Ordering::Relaxed);
+                    c_key.store(K0, Ordering::Relaxed);
+                    version_end(&c_v);
+                })
+            };
+            let got = scan(&c_v, &c_key, &s_v, &s_key, validate_restart);
+            assert_eq!(
+                got,
+                [K0, S0],
+                "the scan skipped a key present throughout it"
+            );
+            writer.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn loom_str_cursor_restart_validates_the_level_it_passes() {
+        scan_model(true);
+    }
+
+    /// The negative control: a restart taken without validating the level
+    /// it passes can skip `K0`.
+    #[test]
+    #[should_panic(expected = "skipped a key present throughout")]
+    fn loom_str_cursor_restart_without_validation_skips_a_present_key() {
+        scan_model(false);
     }
 
     /// The linear-branch arm of `next_in` (#900) on the real [`ReadSet`]: a

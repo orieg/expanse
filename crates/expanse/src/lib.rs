@@ -144,6 +144,8 @@ pub mod sync;
 pub mod sync_cursor;
 #[cfg(all(target_pointer_width = "64", feature = "std"))]
 mod sync_nav;
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+pub mod sync_str_cursor;
 #[cfg(target_pointer_width = "64")]
 pub mod types;
 #[cfg(target_pointer_width = "64")]

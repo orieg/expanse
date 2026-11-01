@@ -939,6 +939,35 @@ pub(crate) struct StrLevel {
     rs_mark: usize,
 }
 
+/// What one attempt of [`ExpanseStrMap::scan_validated`] ended with.
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScanEnd {
+    /// The batch holds entries; `last` when nothing within the bound follows
+    /// them.
+    Batch {
+        /// No entry within the bound follows the batch.
+        last: bool,
+    },
+    /// Nothing at or after the probe within the bound.
+    Exhausted,
+    /// Nothing copied, and nothing between the probe and the restart key:
+    /// the next attempt starts there.
+    Restart,
+}
+
+/// True when `mid ++ tail` sorts below `h`, byte-lexicographically.
+#[cfg(feature = "std")]
+#[inline]
+fn concat_below(mid: &[u8], tail: &[u8], h: &[u8]) -> bool {
+    let m = mid.len().min(h.len());
+    match mid[..m].cmp(&h[..m]) {
+        core::cmp::Ordering::Equal if m < mid.len() => false,
+        core::cmp::Ordering::Equal => tail < &h[m..],
+        o => o.is_lt(),
+    }
+}
+
 /// The question a validated ordered read asks
 /// ([`ExpanseStrMap::ordered_validated`], #1143).
 #[cfg(feature = "std")]
@@ -2754,6 +2783,249 @@ impl ExpanseStrMap {
             }
             node = unpack_child(v);
             off += CHUNK;
+        }
+    }
+
+    /// One attempt of the validated batch cursor's walk (#1143 part 2,
+    /// `docs/benchmarks/concurrency/METHODOLOGY.md` §33.10): fills `batch`
+    /// with the entries at or after `start`, below `hi` when given, in
+    /// ascending order.
+    ///
+    /// The walk descends `start`'s exact continuations, then drains one
+    /// `StrNode` sub-map with `sync_str_cursor::drain_submap` and copies each
+    /// entry's key into the batch. It never unwinds. A level that holds
+    /// nothing at or after `start`, a suffix below `start` with nothing
+    /// drained after it, and a child met while the batch is empty end the
+    /// attempt with [`ScanEnd::Restart`] and the next key to try in
+    /// `restart`: everything between `start` and it was absent at the
+    /// instant the final validation holds, so the caller starts over from it
+    /// with an empty read set. That keeps one attempt's read set to
+    /// `scripts/str_cursor_bounds.py::str_cursor_drain_attempt_read_set_bound`.
+    ///
+    /// Memory safety follows [`Self::ordered_validated`]: a sub-map's root
+    /// state is read only after the cover it was copied under validates, and
+    /// a suffix or child pointer is dereferenced only after the cover and the
+    /// branches the level's drain sampled validate. Suffix bytes are copied
+    /// into the batch, never borrowed past the call, and every outcome is
+    /// returned only after the whole read set and the tree word validate.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::get_validated`].
+    #[cfg(feature = "std")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) unsafe fn scan_validated<const CAP: usize>(
+        root: Option<NonNull<u8>>,
+        start: &[u8],
+        hi: Option<&[u8]>,
+        ver: &crate::occ::SeqVersion,
+        snap: u64,
+        rs: &mut crate::sync_nav::ReadSet<CAP>,
+        prefix: &mut Vec<u8>,
+        restart: &mut Vec<u8>,
+        batch: &mut crate::sync_str_cursor::StrBatch,
+    ) -> Result<ScanEnd, crate::sync::Retry> {
+        use crate::occ::{node_validate, version_cell};
+        use crate::sync::Retry;
+        #[cfg(test)]
+        use crate::sync_str_cursor::test_hooks::{self as th, Control, Count, Site};
+
+        let finish = |end: ScanEnd, rs: &crate::sync_nav::ReadSet<CAP>| {
+            #[cfg(test)]
+            th::at(Site::Final);
+            #[cfg(test)]
+            let skip = th::control(Control::SkipFinalValidation);
+            #[cfg(not(test))]
+            let skip = false;
+            // Every outcome, a restart included, is returned only after this
+            // check: a restart asserts that nothing lay between `start` and
+            // the restart key, which the read set is what establishes.
+            // SAFETY: same pin as every sample.
+            if (!skip && !unsafe { rs.validate_all() }) || !ver.validate(snap) {
+                return Err(Retry);
+            }
+            Ok(end)
+        };
+
+        batch.clear();
+        prefix.clear();
+        let Some(mut node) = root.map(|p| p.as_ptr().cast::<StrNode>().cast_const()) else {
+            return finish(ScanEnd::Exhausted, rs);
+        };
+        let mut off = 0usize;
+        // The path so far equals `hi`'s first `off` bytes, so `hi` bounds
+        // the chunks of this level.
+        let mut tied = hi.is_some();
+        // A child pointer ends a drain: the walk descends into it or stops.
+        let stop = |chunk: u64, v: u64| !is_terminal(chunk) && !is_suffix_ptr(v);
+        loop {
+            // SAFETY: `node` is the published root or a child whose holder
+            // validated after its pointer was loaded; EBR-live under the pin.
+            let cover: *const u32 = unsafe { &raw const (*node).cover };
+            // SAFETY: the live node's cover word.
+            let csnap = unsafe { rs.sample(cover)? };
+            // SAFETY: a by-value copy, checked against the cover below.
+            let msnap = unsafe { MapCore::occ_snapshot_of(&raw const (*node).map) };
+            #[cfg(test)]
+            th::at(Site::LevelEntry);
+            // SAFETY: the live node's cover word.
+            let held = node_validate(unsafe { version_cell(cover) }, csnap);
+            #[cfg(test)]
+            let skip = th::control(Control::SkipCoverCheck);
+            #[cfg(not(test))]
+            let skip = false;
+            if !skip && !held {
+                return Err(Retry);
+            }
+            #[cfg(test)]
+            if !held {
+                th::count(Count::UnvalidatedDerefs);
+            }
+
+            let (target, _) = chunk_at(start, off);
+            let end_chunk = match hi {
+                Some(h) if tied => chunk_at(h, off).0,
+                _ => u64::MAX,
+            };
+            let from = rs.len();
+            let mut d = crate::sync_str_cursor::SubDrain {
+                buf: &mut batch.pairs,
+                count: 0,
+                end_chunk,
+                past_end: false,
+                stopped: false,
+            };
+            // SAFETY: the root state was copied under `cover` and validated
+            // against it just above, under the caller's pin.
+            unsafe {
+                crate::sync_str_cursor::drain_submap(
+                    msnap, target, cover, csnap, rs, &mut d, &stop,
+                )?;
+            }
+            let (n, past_end) = (d.count, d.past_end);
+            #[cfg(test)]
+            th::at(Site::Drained);
+            if batch.pairs[..n].iter().any(|&(c, _)| !is_terminal(c)) {
+                // The holder check before any pointer value is dereferenced:
+                // the cover and every branch the drain sampled.
+                // SAFETY: the live cover; entries sampled under the pin.
+                let held = node_validate(unsafe { version_cell(cover) }, csnap)
+                    && unsafe { rs.validate_from(from) };
+                #[cfg(test)]
+                let skip = th::control(Control::SkipHolderCheck);
+                #[cfg(not(test))]
+                let skip = false;
+                if !skip && !held {
+                    #[cfg(test)]
+                    th::count(Count::HolderRetries);
+                    return Err(Retry);
+                }
+                #[cfg(test)]
+                if !held {
+                    th::count(Count::UnvalidatedDerefs);
+                }
+            }
+
+            let mut first = 0;
+            if n > 0 && batch.pairs[0].0 == target && !is_terminal(target) {
+                let v = batch.pairs[0].1;
+                if !is_suffix_ptr(v) {
+                    // An exact continuation: the probe goes on below it.
+                    prefix.extend_from_slice(&target.to_be_bytes());
+                    tied = tied && target == end_chunk;
+                    node = unpack_child(v).cast_const();
+                    off += CHUNK;
+                    continue;
+                }
+                // SAFETY: the holder validated after the pointer was loaded.
+                let bytes = unsafe { suffix_bytes(unpack_suffix(v)) };
+                if &start[off + CHUNK..] > bytes {
+                    // The suffix sorts below the probe.
+                    first = 1;
+                }
+            }
+
+            for j in first..n {
+                let (chunk, v) = batch.pairs[j];
+                let cb = chunk.to_be_bytes();
+                let (mid, tail, value): (&[u8], &[u8], u64) = if is_terminal(chunk) {
+                    let len = CHUNK - (chunk.trailing_zeros() / 8) as usize;
+                    (&cb[..len], &[], v)
+                } else if is_suffix_ptr(v) {
+                    let sfx: *const StrSuffix = unpack_suffix(v);
+                    // SAFETY: the holder validated after the pointer was
+                    // loaded, so `sfx` was published then, and EBR keeps it
+                    // mapped under the pin; its header and bytes are
+                    // write-once. The value word may race a T3, which moves
+                    // the cover the final validation checks. Both reads
+                    // project from the raw pointer.
+                    unsafe {
+                        (
+                            &cb[..],
+                            suffix_bytes(sfx),
+                            crate::bits::shared_word::load::<true>(
+                                (&raw const (*sfx).value).cast_mut(),
+                            ),
+                        )
+                    }
+                } else {
+                    // A child: the batch ends before it, or, while it is
+                    // empty, the next attempt descends into it by key.
+                    if batch.count > 0 {
+                        return finish(ScanEnd::Batch { last: false }, rs);
+                    }
+                    restart.clear();
+                    restart.extend_from_slice(prefix);
+                    restart.extend_from_slice(&cb);
+                    #[cfg(test)]
+                    th::count(Count::Restarts);
+                    return finish(ScanEnd::Restart, rs);
+                };
+                if let Some(h) = hi
+                    && tied
+                    && chunk == end_chunk
+                    && !concat_below(mid, tail, &h[off.min(h.len())..])
+                {
+                    let end = if batch.count > 0 {
+                        ScanEnd::Batch { last: true }
+                    } else {
+                        ScanEnd::Exhausted
+                    };
+                    return finish(end, rs);
+                }
+                if !batch.push(prefix, mid, tail, value) {
+                    return finish(ScanEnd::Batch { last: false }, rs);
+                }
+            }
+            if batch.count > 0 {
+                return finish(ScanEnd::Batch { last: past_end }, rs);
+            }
+            if past_end {
+                return finish(ScanEnd::Exhausted, rs);
+            }
+            // Nothing copied from this level.
+            restart.clear();
+            restart.extend_from_slice(prefix);
+            let next_chunk = if n > 0 { target.checked_add(1) } else { None };
+            if let Some(t) = next_chunk {
+                // Only a suffix below the probe: the next chunk of this level.
+                let tb = t.to_be_bytes();
+                let len = CHUNK - (t.trailing_zeros() / 8) as usize;
+                restart.extend_from_slice(&tb[..len]);
+            } else {
+                // Nothing at or after the probe here: past every key under
+                // this level's prefix, which at the root is past every key.
+                while restart.last() == Some(&0xFF) {
+                    restart.pop();
+                }
+                let Some(b) = restart.last_mut() else {
+                    return finish(ScanEnd::Exhausted, rs);
+                };
+                *b += 1;
+            }
+            #[cfg(test)]
+            th::count(Count::Restarts);
+            return finish(ScanEnd::Restart, rs);
         }
     }
 
