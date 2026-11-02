@@ -235,7 +235,7 @@ pub struct PhpExpanseStrMap {
 fn nul_free(key: &str) -> PhpResult<&expanse_trie::strmap::NulFreeStr> {
     let bytes = key.as_bytes();
     if bytes.contains(&0) {
-        return Err(PhpException::default(
+        return Err(PhpException::from_message(
             "NUL bytes ('\\0') are not allowed in ExpanseStrMap keys".into(),
         ));
     }

@@ -868,9 +868,16 @@ pub(crate) mod test_hooks {
         UnvalidatedDerefs,
         /// Versions retained, summed over every attempt.
         Samples,
+        /// Sub-map drains other than a level's first, within an attempt.
+        Resumes,
+        /// Pairs written to the scratch by drains, summed over every drain.
+        DrainedPairs,
+        /// Drained pairs the walk took in order: copied, or entered as a child.
+        ConsumedPairs,
     }
 
-    const COUNTS: usize = 8;
+    /// Number of [`Count`] kinds.
+    pub(crate) const COUNTS: usize = 11;
 
     /// The write armed at a site.
     type Armed = Option<(Site, Box<dyn FnOnce()>)>;

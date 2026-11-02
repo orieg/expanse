@@ -2933,6 +2933,8 @@ impl ExpanseStrMap {
             } else {
                 batch.levels.len() - 1
             } * CHUNK;
+            #[cfg(test)]
+            let resumed = !entering;
             if entering {
                 if admit && (refused || !unadmitted && rs.len() + NESTED_ENTER_COST > CAP) {
                     return refuse(0, prefix, batch, restart, rs);
@@ -2971,6 +2973,10 @@ impl ExpanseStrMap {
             } else if admit && (refused || !unadmitted && rs.len() + NESTED_RESUME_COST > CAP) {
                 return refuse(from, prefix, batch, restart, rs);
             }
+            #[cfg(test)]
+            if resumed {
+                th::count(Count::Resumes);
+            }
             let ScanLevel {
                 cover,
                 csnap,
@@ -3003,6 +3009,8 @@ impl ExpanseStrMap {
                 "a sub-map drain exceeded its admission cost"
             );
             let (n, past_end) = (d.count, d.past_end);
+            #[cfg(test)]
+            th::add(Count::DrainedPairs, n as u64);
             // More of this sub-map may follow the pairs drained.
             let more = d.stopped || d.cut || n == d.buf.len();
             #[cfg(test)]
@@ -3052,6 +3060,8 @@ impl ExpanseStrMap {
             let mut child = None;
             for j in first..n {
                 let (chunk, v) = batch.pairs[j];
+                #[cfg(test)]
+                th::count(Count::ConsumedPairs);
                 let cb = chunk.to_be_bytes();
                 let (mid, tail, value): (&[u8], &[u8], u64) = if is_terminal(chunk) {
                     let len = CHUNK - (chunk.trailing_zeros() / 8) as usize;
