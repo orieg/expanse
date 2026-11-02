@@ -5065,6 +5065,38 @@ What the ranking supports:
 - **Refuter.** **REFUTED** if either ratio exceeds 1.63.
 - **Relation to P33.2.** P33.6 is a new prediction with its own derivation, not P33.2 with a moved bound (AGENTS.md §8.19). P33.2 stays REFUTED for §33.10 and A3, and an amendment that meets 1.63 is reported as "P33.6 met; P33.2 refuted", never as P33.2 met. P33.1 applies to that amendment unchanged.
 
+### 33.13 Amendment A4 to §33 — a drained level keeps its pairs past a child, and P33.7 (appended 2026-11-01, after #1640 and before any engine code of A4; §33.1 to §33.12 are not edited)
+
+§33.12.2 left the growth of the drain group on `paths_dense` unresolved. This section records what the drains count and fixes a third attempt shape and its predictions before the code that adds it. Where it differs from §33.11.2, this section stands. P33.2 and its ceiling of 1.15 (target), P33.6 and its ceiling of 1.63 (target), P33.1, P33.3, the cells, the void conditions and gates G33.1 to G33.6 do not change. Refs #1143.
+
+#### 33.13.1 What the drains count
+
+An A3 drain stops at the first child pointer it pushes (§33.11.2 item 3). The walk enters the child, drains it, climbs back when it runs out, and drains the parent again from the chunk after the child, which descends the parent's sub-map from its top edge to that chunk. `Count::Resumes` counts the drains of a level other than its first. A single-threaded full scan of each benchmark key set on the A3 engine takes 1,435 on `paths` and 13,336 on `paths_dense`, against 1,182 and 13,199 climbs (measured: `sync::str_cursor_tests::bench_key_sets_scan_in_few_attempts`, which pins both exactly at the commit that adds the counter; `scripts/str_cursor_bounds.py::STR_CURSOR_A3_RESUMES`).
+
+A diagnostic build at commit `7049c4ad` counted why each drain stopped. Like the profile of §33.11.1 it is not a committed artifact, and nothing below is gated on it. Of the 29,749 drains on `paths_dense`, 16,316 stopped at a child pointer, 13,288 reached the end of their sub-map and 145 returned after one sibling descent. The 13,958 drains of a sub-map in tree state sampled 4.0 versions each on average, for 2.25 pairs per drain over all drains, and their call count equals the one in the profile of §33.12.1. On `paths_dense` the drain group's growth therefore comes from re-descending a parent once per child it holds, not from the one-sibling-descent stop that §33.12.2 named as a candidate.
+
+#### 33.13.2 The attempt shape
+
+1. While the walk follows the probe (the exact descent and the attempt's first drained level), a drain stops at its first child pointer, as under A3. These drains keep the bound of §33.10.2.
+2. Every later drain continues past the child pointers it meets. It stops only where an A3 drain also stops for a reason other than a child: at the end bound, after one sibling descent, or when its buffer is full. The pairs it collected become the level's pending pairs. The walk takes them in order: it copies a terminal or a suffix, and on a child it enters the child. When a child runs out, the walk climbs to the parent and continues with the parent's pending pairs, without a drain. A level is drained again only when its pending pairs ran out and its last drain stopped inside its sub-map.
+3. The batch's scratch of 256 pairs (§33.10.3) holds the pending pairs of every level on the path, one region per level, stacked from the root. A drain takes at most as many pairs as fit above the top region, and at most 256 less the batch's entries and every level's pending pairs. When that second room is zero, the batch ends and resumes from its last key. It then holds at least one entry, because every ancestor of the level being drained has consumed the child pair it descended through. When the first room is zero and the second is not, the regions are compacted to remove consumed pairs.
+4. A drain's holder check, a level entry's cover check and the final validation are those of §33.11.2. Admission is too: entering a child costs 14 versions and resuming a level by a drain 13. Resuming from pending pairs reads no node and costs 0 (`str_a4_drain_costs`).
+
+The pending pairs were loaded by a drain whose samples stay in the read set until the final validation. Every pointer among them is dereferenced after the holder check that followed that drain, and EBR keeps it mapped under the pin. A batch is still one attempt, and it describes one instant.
+
+#### 33.13.3 The bound
+
+Drains of item 1 retain what they retained under A3, and every later drain is admitted as under A3. So an attempt still retains at most 128 versions at every depth $d \le 15$ (`str_cursor_nested_attempt_read_set_bound`), and §33.11.3 stands unchanged. A4 removes samples and adds none.
+
+#### 33.13.4 Predictions, each with its refuter
+
+- **P33.6** (§33.12.3) is evaluated on the pull request that adds A4, by its `instruction-counts` job: at most 1.63× (target) on each cell. **REFUTED** if either ratio exceeds 1.63. The projection is that `paths` stays refuted. The ceiling equals the ratio with the whole drain, pass and handoff excess removed (pinned by `test_p33_6_ceiling_leaves_no_drain_excess_on_paths`). A4 removes only the re-descents, and on `paths` the resumed drains number 1,435 for 50,000 keys. The projection does not decide `paths_dense`.
+- **P33.7 — resumed drains (deterministic).** A single-threaded full scan of each benchmark key set takes at most 2,667 resumed drains on `paths_dense` (20% of A3's 13,336) and at most 1,435 on `paths` (no increase). **REFUTED** if either count is exceeded. The ceilings are frozen in `TARGET_P33_7_RESUME_SHARE` (`str_cursor_a4_resume_ceiling`). `paths` is held only to not increasing: every attempt's first drained level still stops at its first child (item 1), and a `paths` scan takes 575 attempts (§33.11.5). The instrument is the same unit test, reading `Count::Resumes`.
+- **P33.5** (§33.11.4) applies unchanged: no restart, and at least 32 and 16 keys per attempt.
+- **P33.1** applies unchanged: the plain string arms move by at most 0.1%. A4 changes only the shared-tree scan.
+
+P33.3 has not run for A3 or A4, so nothing here claims a gain under writers.
+
 ## 34. Pre-registration for #1280 Item 1 — cause of the four-thread peak in `SyncExpanseBlobMap` (appended 2026-10-04, locked before any run of the builds or instruments below)
 
 > **Section numbering note:** Section 33 was claimed by PR #1373 (A6, thread-local freelist allocation stripe) which merged. This pre-registration uses §34 (peak) and §35 (split).
