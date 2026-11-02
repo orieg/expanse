@@ -16,7 +16,7 @@ name = "expanse_php"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-ext-php-rs = "0.15"
+ext-php-rs = "0.16"
 expanse-trie = { version = "0.17.0", path = "../expanse" }
 
 [lints]
