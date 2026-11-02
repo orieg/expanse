@@ -421,6 +421,12 @@ def floating_problems(workflow: dict, where: str) -> list[str]:
     return out
 
 
+def next_patch(version: str) -> str:
+    """`version` with its last component incremented: `1.16.0` -> `1.16.1`."""
+    parts = version.split(".")
+    return ".".join(parts[:-1] + [str(int(parts[-1]) + 1)])
+
+
 def maturin_requirement_pin(root: Path | None = None) -> str | None:
     """The `maturin==X.Y.Z` pin of `.github/requirements/python-bindings.in`, or None."""
     path = (root or Path(__file__).resolve().parent.parent) / ".github" / "requirements" / "python-bindings.in"
@@ -1425,9 +1431,13 @@ def self_test() -> int:
     check_py("a maturin-action step with no maturin-version",
              lambda w: step_of(w, "sdist", "PyO3/maturin-action@")["with"].pop("maturin-version"),
              "`sdist`: step `Build sdist via maturin-action` has no readable `maturin-version`")
+    # The probes below read the live pins and move them one patch release, so
+    # a dependency bump of maturin or pytest leaves them meaningful.
+    real_maturin = maturin_requirement_pin()
+    other_maturin = next_patch(real_maturin) if real_maturin else "0.0.1"
     check_py("wheels built with another maturin than the test job",
-             lambda w: w["env"].__setitem__("MATURIN_VERSION", "v1.16.0"),
-             "builds with maturin v1.16.0, but python-bindings.in pins maturin==1.15.0")
+             lambda w: w["env"].__setitem__("MATURIN_VERSION", f"v{other_maturin}"),
+             f"builds with maturin v{other_maturin}, but python-bindings.in pins maturin=={real_maturin}")
     check_py("a cargo install in python.yml",
              lambda w: w["jobs"]["test"]["steps"].insert(1, {"run": "cargo install maturin"}),
              "`cargo install` without `--locked`")
@@ -1543,6 +1553,8 @@ def self_test() -> int:
     def drop_pin(text: str, name: str) -> str:
         return "\n".join(l for l in text.splitlines() if not l.startswith(f"{name}==")) + "\n"
 
+    real_pytest = ".".join(map(str, requirement_pins(pair[0]).get("pytest", ())))
+
     def swap(old: str, new: str) -> tuple[str, str]:
         return pair[0].replace(old, new), pair[1].replace(old, new)
 
@@ -1558,13 +1570,14 @@ def self_test() -> int:
          "unexpected ['zipp']"),
         ("tomli no longer listed in the .in", drop_pin(pair[0], "tomli"), pair[1],
          MAIN_PYTHON_FLOOR, "does not list `tomli`"),
-        ("a pin moved in the .in only", pair[0].replace("maturin==1.15.0", "maturin==1.16.0"),
-         pair[1], MAIN_PYTHON_FLOOR, "pins maturin==1.16.0 but python-bindings.txt has 1.15.0"),
+        ("a pin moved in the .in only",
+         pair[0].replace(f"maturin=={real_maturin}", f"maturin=={other_maturin}"), pair[1],
+         MAIN_PYTHON_FLOOR, f"pins maturin=={other_maturin} but python-bindings.txt has {real_maturin}"),
         ("pytest 9 on a file that served Python 3.9", pair[0], pair[1], (3, 9),
          "which needs Python 3.10+, but the file serves Python 3.9"),
-        ("pytest back at the vulnerable 8.3.5", *swap("pytest==9.1.1", "pytest==8.3.5"),
+        ("pytest back at the vulnerable 8.3.5", *swap(f"pytest=={real_pytest}", "pytest==8.3.5"),
          MAIN_PYTHON_FLOOR, "below 9.0.3, the first release that fixes GHSA-6w46-j5rx-g56g"),
-        ("pytest 9.0.2, one release before the fix", *swap("pytest==9.1.1", "pytest==9.0.2"),
+        ("pytest 9.0.2, one release before the fix", *swap(f"pytest=={real_pytest}", "pytest==9.0.2"),
          MAIN_PYTHON_FLOOR, "below 9.0.3"),
         ("no matrix in python.yml", pair[0], pair[1], None, "Python floor"),
     ):
