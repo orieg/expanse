@@ -5028,6 +5028,43 @@ The exact descent and the first drained level retain at most $8d + 6$ versions (
 
 What is left is not the attempt count. The cursor spends 214.2 instructions per key above the locked walk on `paths` and 432.8 on `paths_dense`, where the ceiling allows 27.5 and 40.9 (derived: `sync_strmap_scan_excess_per_key_a3`). The hand estimate of §33.7.6 put the whole cursor overhead at ~4.4 instructions per key (projected), so the measured excess is about 49 and 98 times that estimate (derived: 214.2 / 4.4 and 432.8 / 4.4); the estimate is not a usable model of this cursor. Which mechanisms make up the excess (the per-key copy into the batch, the drain's two stages, the re-descent of a resumed drain from its sub-map's top edge) is unmeasured; a per-function Callgrind ranking of both arms precedes any further amendment (AGENTS.md §6). P33.3 has not run for this shape, so nothing here claims a gain under writers.
 
+### 33.12 Where the A3 cursor's excess goes, and P33.6 (appended 2026-11-02, after #1636 and before any engine code of a further amendment; §33.1 to §33.11 are not edited)
+
+§33.11.5 left the mechanisms behind the excess unmeasured. This section records a per-function profile of both scan arms and registers one new prediction derived from it. P33.2 and its ceiling of 1.15 (target) are not edited and are not re-evaluated here. Refs #1143.
+
+#### 33.12.1 The instrument
+
+Callgrind on x86_64 at commit `93913eca`, the code #1636 merged (artifact: `results/callgrind_1143_str_cursor_profile_93913eca.json`, with its harness source, container, toolchain and commands). It is a development box, not the reference host. The counts are deterministic, so no load snapshot applies (§8.17). The two scan functions are the bodies of `sync_strmap_scan` and `sync_strmap_scan_locked` over the same `path_keys` generator, and collection covers the scan function only.
+
+Each profile also carries about 72 instructions per key of glibc heap consolidation (`malloc_consolidate`, `unlink_chunk`), run inside the scan's first allocation because of the heap state the harness's setup leaves. It is the same in both arms and is not engine work, so it is excluded from every figure below. With it excluded, the four arm totals agree with CI run 41335458877 within 1% (pinned by `test_profile_groups_match_the_artifact`).
+
+#### 33.12.2 The ranking
+
+Every (source file, symbol) row of the profile belongs to one group, by the rule `str_cursor_profile_group` states and the artifact repeats. A symbol's rows are split by the source file its inlined bodies come from, so validation code inlined into the drain is counted as validation. Instructions per key (measured: artifact above, commit `93913eca`; derived per key by `str_cursor_excess_per_key`):
+
+| Group | `paths` locked | `paths` cursor | `paths` excess | `paths_dense` locked | `paths_dense` cursor | `paths_dense` excess |
+|:---|---:|---:|---:|---:|---:|---:|
+| Key copy into the batch (cursor: `StrBatch::push` and its `memcpy`; locked: `push_chunk_suffix`, `push_terminal`) | 39.3 | 110.2 | 70.9 | 30.8 | 110.1 | 79.3 |
+| Drain, second classification pass and batch handoff (cursor: `drain_in` and `SyncStrMapCursor::current`, into which `scan_validated` and `fill_scan_batch` inline; locked: `Walk::next`, `sibling`, `descend_from`) | 133.6 | 231.2 | 97.6 | 231.3 | 491.2 | 259.9 |
+| Validation (cursor rows from `sync_nav.rs` and the atomic loads) | — | 22.3 | 22.3 | — | 70.6 | 70.6 |
+| Caller loop | 9.0 | 30.0 | 21.0 | 9.0 | 30.0 | 21.0 |
+| **Total** | 181.9 | 393.7 | 211.8 | 271.1 | 701.9 | 430.8 |
+
+What the ranking supports:
+
+- **Validation is not the main cost.** On `paths` it is 22.3 of the 211.8 instructions per key.
+- **The key copy is a third of the `paths` excess and cannot close the gap alone.** `StrBatch::push` calls `memcpy` three times per key to copy the whole key, where the locked walk appends only the chunks that changed. With the copy excess removed and nothing else changed, the ratio is 1.77 on `paths` and 2.30 on `paths_dense` (derived: `str_cursor_ratio_without_key_copy`), against a ceiling of 1.15.
+- **On `paths_dense` the drain, pass and handoff group dominates**, at 259.9 of 430.8. Validation also grows, from 22.3 to 70.6. Which drain mechanisms make up that growth is not resolved by this profile; resumed drains re-descending from their sub-map's top edge, and child entry, are candidates (unmeasured).
+
+#### 33.12.3 Pre-registration P33.6 — the copy-out ceiling
+
+- **Statement.** The next amendment to the batch cursor brings `sync_strmap_scan` to at most **1.63×** `sync_strmap_scan_locked` (target) on each of `paths` and `paths_dense`.
+- **Derivation.** It is the ratio a cursor would retire if its drain, second pass and handoff cost no more than the locked walk's traversal, while its key copy, caller loop and validation stayed as measured: (locked + key-copy excess + caller-loop excess + validation) / locked, which gives 1.6278 on `paths` and 1.6305 on `paths_dense` (derived: `str_cursor_copy_out_ceiling`). It is frozen at both values rounded half up to two places (`TARGET_P33_6_RATIOS`).
+- **What the ceiling assumes.** It keeps the copy-out costs as measured, so an amendment that also cuts the copy, the caller loop or the validation can finish below it. It is not a floor: it says what removing only the drain, pass and handoff excess would give, not what is attainable.
+- **Instrument.** The `instruction-counts` job on the pull request that adds the amendment, as for P33.2. This profile is the derivation's input, never its evidence: the prediction is evaluated on that pull request's own run.
+- **Refuter.** **REFUTED** if either ratio exceeds 1.63.
+- **Relation to P33.2.** P33.6 is a new prediction with its own derivation, not P33.2 with a moved bound (AGENTS.md §8.19). P33.2 stays REFUTED for §33.10 and A3, and an amendment that meets 1.63 is reported as "P33.6 met; P33.2 refuted", never as P33.2 met. P33.1 applies to that amendment unchanged.
+
 ## 34. Pre-registration for #1280 Item 1 — cause of the four-thread peak in `SyncExpanseBlobMap` (appended 2026-10-04, locked before any run of the builds or instruments below)
 
 > **Section numbering note:** Section 33 was claimed by PR #1373 (A6, thread-local freelist allocation stripe) which merged. This pre-registration uses §34 (peak) and §35 (split).

@@ -86,6 +86,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -825,6 +826,137 @@ def sync_strmap_scan_excess_per_key_a3(workload: str) -> tuple[float, float]:
     return (cursor - locked) / SYNC_STRMAP_SCAN_KEYS, allowed
 
 
+# ---------------------------------------------------------------------------
+# Section 33.12: where the A3 cursor's excess per key goes, and P33.6
+# ---------------------------------------------------------------------------
+#
+# A per-function Callgrind profile of the two scan arms at 93913eca on x86_64
+# (`docs/benchmarks/concurrency/results/callgrind_1143_str_cursor_profile_93913eca.json`)
+# splits each arm's Ir into mechanism groups. The group sums are pinned here and
+# checked against the artifact by the self-test; the functions below read only
+# these constants.
+
+STR_CURSOR_PROFILE_ARTIFACT: str = "docs/benchmarks/concurrency/results/callgrind_1143_str_cursor_profile_93913eca.json"
+STR_CURSOR_PROFILE_KEYS: int = 50_000
+STR_CURSOR_PROFILE_GROUPS_IR: dict[str, dict[str, int]] = {
+    "paths/locked": {"consumer": 450_634, "harness_heap": 3_601_540, "key_build": 1_964_628, "walk": 6_678_158},
+    "paths/cursor": {
+        "consumer": 1_500_086,
+        "drain_pass_handoff": 11_559_323,
+        "harness_heap": 3_603_331,
+        "key_copy": 5_510_486,
+        "validation": 1_113_381,
+    },
+    "paths_dense/locked": {"consumer": 450_634, "harness_heap": 3_601_763, "key_build": 1_539_033, "walk": 11_564_658},
+    "paths_dense/cursor": {
+        "consumer": 1_500_086,
+        "drain_pass_handoff": 24_559_735,
+        "harness_heap": 3_602_274,
+        "key_copy": 5_505_344,
+        "validation": 3_530_778,
+    },
+}
+
+# P33.6 (section 33.12.3), frozen before any run of the amendment it judges: the
+# ceiling on `sync_strmap_scan` / `sync_strmap_scan_locked`, per cell (target).
+TARGET_P33_6_RATIOS: dict[str, float] = {"paths": 1.63, "paths_dense": 1.63}
+
+_HEAP_SYMBOLS = frozenset({"malloc_consolidate", "unlink_chunk.isra.0", "_int_malloc", "_int_free", "malloc", "free"})
+
+
+def str_cursor_profile_group(arm: str, source_file: str, symbol: str) -> str:
+    """Mechanism group of one (source file, symbol) row of the section 33.12 profile.
+
+    The rule the artifact's `groups.description` states, in order: glibc malloc
+    rows are `harness_heap`. In the locked arm, `strmap::push_*` is `key_build`,
+    `scanprof::*` is `consumer`, and the rest is `walk`. In the cursor arm,
+    `StrBatch::push` and `__memcpy_*` are `key_copy`, `scanprof::*` is
+    `consumer`, rows from `sync_nav.rs` or core `sync/atomic.rs` are
+    `validation`, and the rest is `drain_pass_handoff`.
+
+    Raises:
+        ValueError: On an arm other than 'locked' or 'cursor'.
+    """
+    if arm not in ("locked", "cursor"):
+        raise ValueError(f"Unknown arm: {arm}")
+    if symbol in _HEAP_SYMBOLS or source_file.startswith("./malloc/"):
+        return "harness_heap"
+    if symbol.startswith("scanprof::"):
+        return "consumer"
+    if arm == "locked":
+        return "key_build" if symbol.startswith("strmap::push_") else "walk"
+    if symbol.startswith("<sync_str_cursor::StrBatch>::push") or symbol.startswith("__memcpy"):
+        return "key_copy"
+    if source_file.endswith("sync_nav.rs") or source_file.endswith("sync/atomic.rs"):
+        return "validation"
+    return "drain_pass_handoff"
+
+
+def str_cursor_profile_engine_ir(profile: str) -> int:
+    """An arm's Ir with the harness heap group excluded (section 33.12.1).
+
+    Raises:
+        ValueError: On an unknown profile.
+    """
+    if profile not in STR_CURSOR_PROFILE_GROUPS_IR:
+        raise ValueError(f"Unknown profile: {profile}")
+    g = STR_CURSOR_PROFILE_GROUPS_IR[profile]
+    return sum(n for name, n in g.items() if name != "harness_heap")
+
+
+def str_cursor_excess_per_key(workload: str) -> dict[str, float]:
+    """Instructions per key by which the cursor exceeds the locked walk, by mechanism.
+
+    `key_copy` is the cursor's copy into the batch minus the locked walk's
+    incremental key build; `consumer` is the difference of the two caller loops;
+    `validation` is the cursor's alone (the locked walk validates nothing);
+    `drain_pass_handoff` is the cursor's drain, second classification pass and
+    batch handoff minus the locked walk's traversal. The four sum to the total.
+
+    Raises:
+        ValueError: On an unknown workload.
+    """
+    if f"{workload}/cursor" not in STR_CURSOR_PROFILE_GROUPS_IR:
+        raise ValueError(f"Unknown workload: {workload}")
+    c = STR_CURSOR_PROFILE_GROUPS_IR[f"{workload}/cursor"]
+    lk = STR_CURSOR_PROFILE_GROUPS_IR[f"{workload}/locked"]
+    k = STR_CURSOR_PROFILE_KEYS
+    return {
+        "key_copy": (c["key_copy"] - lk["key_build"]) / k,
+        "consumer": (c["consumer"] - lk["consumer"]) / k,
+        "validation": c["validation"] / k,
+        "drain_pass_handoff": (c["drain_pass_handoff"] - lk["walk"]) / k,
+    }
+
+
+def str_cursor_copy_out_ceiling(workload: str) -> float:
+    """The P33.6 derivation: the ratio left when only the copy-out costs remain.
+
+    A cursor whose drain, classification and handoff cost no more than the
+    locked walk's traversal, and which keeps the key copy, the caller loop and
+    the validation as measured, retires `locked + key_copy + consumer +
+    validation` per key (section 33.12.2). Returns that over `locked`.
+
+    Raises:
+        ValueError: On an unknown workload.
+    """
+    e = str_cursor_excess_per_key(workload)
+    locked = str_cursor_profile_engine_ir(f"{workload}/locked") / STR_CURSOR_PROFILE_KEYS
+    return (locked + e["key_copy"] + e["consumer"] + e["validation"]) / locked
+
+
+def str_cursor_ratio_without_key_copy(workload: str) -> float:
+    """The profiled ratio with the key-copy excess removed and nothing else changed.
+
+    Raises:
+        ValueError: On an unknown workload.
+    """
+    e = str_cursor_excess_per_key(workload)
+    locked = str_cursor_profile_engine_ir(f"{workload}/locked")
+    cursor = str_cursor_profile_engine_ir(f"{workload}/cursor")
+    return (cursor - e["key_copy"] * STR_CURSOR_PROFILE_KEYS) / locked
+
+
 class TestStrCursorBounds(unittest.TestCase):
     """Unit tests pinning mathematical bounds and invariants."""
 
@@ -917,6 +1049,58 @@ class TestStrCursorBounds(unittest.TestCase):
             sync_strmap_scan_ratio_a3("uniform")
         with self.assertRaises(ValueError):
             sync_strmap_scan_excess_per_key_a3("uniform")
+
+    def test_profile_groups_match_the_artifact(self) -> None:
+        """The pinned group sums equal the artifact's, recomputed from its rows by the stated rule."""
+        import json
+
+        path = Path(__file__).resolve().parent.parent / STR_CURSOR_PROFILE_ARTIFACT
+        art = json.loads(path.read_text())
+        self.assertEqual(set(art["profiles"]), set(STR_CURSOR_PROFILE_GROUPS_IR))
+        for name, prof in art["profiles"].items():
+            arm = name.split("/")[1]
+            recomputed: dict[str, int] = {}
+            for row in prof["rows"]:
+                g = str_cursor_profile_group(arm, row["source_file"], row["symbol"])
+                recomputed[g] = recomputed.get(g, 0) + row["ir"]
+            self.assertEqual(recomputed, STR_CURSOR_PROFILE_GROUPS_IR[name])
+            self.assertEqual(prof["groups_ir"], STR_CURSOR_PROFILE_GROUPS_IR[name])
+            self.assertEqual(sum(recomputed.values()), prof["total_ir"])
+        # Without the harness heap the profile agrees with CI within 1% on every arm.
+        for name, ci in art["ci_cross_check"]["ci_ir"].items():
+            self.assertLess(abs(str_cursor_profile_engine_ir(name) / ci - 1.0), 0.01)
+
+    def test_profile_excess_and_p33_6_pinned(self) -> None:
+        """Section 33.12: the excess by mechanism, and the P33.6 ceiling it derives."""
+        e = str_cursor_excess_per_key("paths")
+        self.assertAlmostEqual(e["key_copy"], 70.91716, places=5)
+        self.assertAlmostEqual(e["consumer"], 20.98904, places=5)
+        self.assertAlmostEqual(e["validation"], 22.26762, places=5)
+        self.assertAlmostEqual(e["drain_pass_handoff"], 97.62330, places=5)
+        e = str_cursor_excess_per_key("paths_dense")
+        self.assertAlmostEqual(e["key_copy"], 79.32622, places=5)
+        self.assertAlmostEqual(e["drain_pass_handoff"], 259.90154, places=5)
+        self.assertAlmostEqual(e["validation"], 70.61556, places=5)
+        # The four groups account for the whole engine excess.
+        for wl in ("paths", "paths_dense"):
+            total = (
+                str_cursor_profile_engine_ir(f"{wl}/cursor") - str_cursor_profile_engine_ir(f"{wl}/locked")
+            ) / STR_CURSOR_PROFILE_KEYS
+            self.assertAlmostEqual(sum(str_cursor_excess_per_key(wl).values()), total, places=9)
+        self.assertAlmostEqual(str_cursor_copy_out_ceiling("paths"), 1.62778, places=5)
+        self.assertAlmostEqual(str_cursor_copy_out_ceiling("paths_dense"), 1.63054, places=5)
+        self.assertAlmostEqual(str_cursor_ratio_without_key_copy("paths"), 1.77463, places=5)
+        # The frozen ceiling is the derivation rounded half-up to two places, below the A3 ratios
+        # and above the 1.15 ceiling of P33.2, which it does not replace.
+        for wl in ("paths", "paths_dense"):
+            derived = str_cursor_copy_out_ceiling(wl)
+            self.assertEqual(TARGET_P33_6_RATIOS[wl], math.floor(derived * 100 + 0.5) / 100)
+            self.assertLess(TARGET_P33_6_RATIOS[wl], sync_strmap_scan_ratio_a3(wl))
+            self.assertGreater(TARGET_P33_6_RATIOS[wl], TARGET_CALLGRIND_RATIOS[wl])
+        with self.assertRaises(ValueError):
+            str_cursor_excess_per_key("uniform")
+        with self.assertRaises(ValueError):
+            str_cursor_profile_group("other", "", "")
 
     def test_str_chunk_count(self) -> None:
         """Pin chunk counts for key lengths."""
@@ -1179,6 +1363,10 @@ def report() -> None:
             f"     A3 measured {wl}: ratio {sync_strmap_scan_ratio_a3(wl):.3f}, excess {excess:.1f} ins/key "
             f"(ceiling allows {allowed:.1f}) ({SYNC_STRMAP_SCAN_MEASURED_A3_SOURCE})"
         )
+    for wl in ("paths", "paths_dense"):
+        e = str_cursor_excess_per_key(wl)
+        parts = ", ".join(f"{k} {v:.1f}" for k, v in e.items())
+        print(f"     section 33.12 {wl}: excess per key {parts}; P33.6 derives {str_cursor_copy_out_ceiling(wl):.4f}")
     p = str_read_set_policy()
     print(
         f"   Single StrNode: {p['single_node_max']} (one seek, fits cap) / {p['single_node_max_two_seek']} (two seeks, exceeds cap)"

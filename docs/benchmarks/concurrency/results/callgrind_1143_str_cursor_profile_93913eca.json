@@ -1,0 +1,3245 @@
+{
+ "suite": "concurrency",
+ "issue": "#1143",
+ "question": "which mechanisms make up the instructions per key by which sync_strmap_scan (the string batch cursor, METHODOLOGY section 33.11) exceeds sync_strmap_scan_locked after A3; the input of section 33.12",
+ "metric": "Callgrind retired instructions (Ir), exact integers, no interval (AGENTS.md section 8.4)",
+ "commit": "93913eca",
+ "provenance": {
+  "measured_commit": "93913eca5ac15a051b00b0e03b11a1ee600af00b",
+  "date": "2026-11-02",
+  "host": "development box, 72-core x86_64 (NOT the reference host; no bench lock taken, no wall-clock claim is made from this artifact)",
+  "container_image": "rust:1.99 (Debian GNU/Linux 13 trixie, glibc 2.41-12+deb13u4)",
+  "toolchain": "rustc 1.99.0 (b940084d7 2026-09-28) / cargo 1.99.0 (5f94df478 2026-08-27) / valgrind-3.24.0",
+  "source": "git archive 93913eca into a scratch tree plus one scratch crate, `scanprof` (source under `harness.source`), added to the workspace members. The engine is unmodified. The crate is NOT committed",
+  "build_profile": "bench profile (lto = thin, codegen-units = 1, as CI) plus CARGO_PROFILE_BENCH_DEBUG=1 for annotation",
+  "container": "docker run --rm -v <tree>:/w rust:1.99",
+  "commands": [
+   "cargo build --profile bench -p scanprof",
+   "valgrind --tool=callgrind --toggle-collect='scanprof::scan_*' --callgrind-out-file=cg.<workload>.<arm>.out <target>/release/scanprof <workload> <arm>",
+   "callgrind_annotate --inclusive=no --threshold=100 --auto=yes --context=0 cg.<workload>.<arm>.out"
+  ],
+  "not_the_reference_host": "measured on a development box; Callgrind counts are deterministic, so AGENTS.md section 8.17's load-snapshot requirement does not apply and none was taken",
+  "provenance_gate": "the file name is outside scripts/check_bench_provenance.py's ARTIFACT_GLOBS, as callgrind_929_bytes_price_0b08dd5b.json is: a deterministic Ir artifact has no rounds, no estimator and no interval"
+ },
+ "harness": {
+  "relation_to_ci": "the two scan functions are the bodies of `sync_strmap_scan` and `sync_strmap_scan_locked` in crates/expanse/benches/instructions.rs, over the same key generator (`path_keys`, 50,000 keys, same seed); collection is toggled on the scan function only, as iai-callgrind measures the benchmark function only",
+  "harness_heap": "each profile carries about 3.6 M Ir of glibc malloc_consolidate and unlink_chunk, run inside the scan's first allocation because of the heap state this harness's setup leaves. It is the same in both arms and is not engine work; it is reported as the group `harness_heap` and excluded from every per-key figure. With it excluded the per-key totals agree with CI run 41335458877 (commit 86690edf, the same engine code) within 1%: see `ci_cross_check`",
+  "source": "use expanse_trie::sync::SyncExpanseStrMap;\nuse std::hint::black_box;\nconst POP: usize = 50_000;\nfn tk(b: &[u8]) -> &expanse_trie::strmap::NulFreeStr {\n    unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(b) }\n}\nstruct XorShift(u64);\nimpl XorShift { fn next(&mut self) -> u64 { let mut x = self.0; x ^= x << 13; x ^= x >> 7; x ^= x << 17; self.0 = x; x } }\nfn path_keys(dense: bool) -> Vec<Vec<u8>> {\n    let mut rng = XorShift(0x5A71_C1A0_0000_0001);\n    let mut seen = std::collections::HashSet::with_capacity(POP);\n    let mut out = Vec::with_capacity(POP);\n    while out.len() < POP {\n        let r = rng.next();\n        let id = if dense { let bucket = (r >> 28) % 52_428 * 20; (bucket << 28) | (r & 0xFFF_FFFF) } else { r & 0xFFFF_FFFF_FFFF };\n        if seen.insert(id) { out.push(format!(\"https://example.com/api/v2/objects/{id:012x}\").into_bytes()); }\n    }\n    out\n}\n#[inline(never)]\nfn scan_locked(map: &SyncExpanseStrMap) -> u64 {\n    let (mut n, mut sink) = (0u64, 0u64);\n    map.with_locked(|m| { let mut cur = m.cursor(); while let Some((k, slot)) = cur.next() { sink ^= k.len() as u64 ^ unsafe { slot.as_ptr().read() }; n += 1; } });\n    assert_eq!(n, POP as u64); sink\n}\n#[inline(never)]\nfn scan_cursor(map: &SyncExpanseStrMap) -> u64 {\n    let (mut n, mut sink) = (0u64, 0u64);\n    { let rd = map.reader(); let mut cur = rd.cursor(); while let Some((k, v)) = cur.next() { sink ^= k.len() as u64 ^ v; n += 1; } }\n    assert_eq!(n, POP as u64); sink\n}\nfn main() {\n    let a: Vec<String> = std::env::args().collect();\n    let dense = a[1] == \"paths_dense\";\n    let map = SyncExpanseStrMap::new();\n    for (i, k) in path_keys(dense).iter().enumerate() { map.insert(tk(k), i as u64); }\n    let r = match a[2].as_str() { \"locked\" => scan_locked(&map), \"cursor\" => scan_cursor(&map), _ => 0 };\n    black_box(r);\n    std::mem::forget(map);\n}\n"
+ },
+ "ci_cross_check": {
+  "source": "CI run 41335458877, commit 86690edf875cd3719e069b18df26efd8b49f440e, instruction-counts job",
+  "ci_ir": {
+   "paths/locked": 9155807,
+   "paths/cursor": 19865856,
+   "paths_dense/locked": 13644696,
+   "paths_dense/cursor": 35285613
+  }
+ },
+ "groups": {
+  "description": "each (source file, symbol) row is assigned to one group; a symbol's rows are split by the source file its inlined bodies come from. Rule, in order: glibc malloc rows -> harness_heap; locked arm: strmap::push_* -> key_build, scanprof::* -> consumer, the rest (Walk::next, sibling, descend_from and what they inline) -> walk; cursor arm: StrBatch::push and __memcpy_* -> key_copy, scanprof::* -> consumer, rows from sync_nav.rs or core sync/atomic.rs -> validation, the rest (drain_in, the inlined SyncStrMapCursor::current with scan_validated and fill_scan_batch, decode_value) -> drain_pass_handoff",
+  "implementation": "the grouping is recomputed from `profiles.*.rows` by scripts/str_cursor_bounds.py (`str_cursor_profile_groups`), whose self-test checks it against `profiles.*.groups_ir`"
+ },
+ "profiles": {
+  "paths/locked": {
+   "total_ir": 12694960,
+   "groups_ir": {
+    "consumer": 450634,
+    "harness_heap": 3601540,
+    "key_build": 1964628,
+    "walk": 6678158
+   },
+   "rows": [
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 2797396
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "malloc_consolidate",
+     "ir": 2449669
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 1191026
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "unlink_chunk.isra.0",
+     "ir": 1149812
+    },
+    {
+     "source_file": "crates/expanse/src/iter.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 993617
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 480320
+    },
+    {
+     "source_file": "crates/expanse/src/cursor.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 476390
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 428301
+    },
+    {
+     "source_file": "crates/scanprof/src/main.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 300030
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 292911
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 238205
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 190576
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 156885
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 150016
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 116539
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 100770
+    },
+    {
+     "source_file": "library/core/src/mem/mod.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 100002
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 95282
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 95282
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 95282
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 79266
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 70601
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 67433
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 64863
+    },
+    {
+     "source_file": "crates/scanprof/src/main.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 47640
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 46495
+    },
+    {
+     "source_file": "crates/expanse/src/map.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 38012
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 33132
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 32320
+    },
+    {
+     "source_file": "crates/expanse/src/map.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 27441
+    },
+    {
+     "source_file": "library/core/src/slice/mod.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 26115
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "strmap::push_terminal",
+     "ir": 25949
+    },
+    {
+     "source_file": "crates/expanse/src/iter.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 25535
+    },
+    {
+     "source_file": "crates/expanse/src/map.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 22170
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 19134
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 17036
+    },
+    {
+     "source_file": "library/core/src/slice/mod.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 12552
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "strmap::push_terminal",
+     "ir": 11795
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 10583
+    },
+    {
+     "source_file": "crates/expanse/src/cursor.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 10529
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 10520
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 9588
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "strmap::push_terminal",
+     "ir": 9436
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "strmap::push_terminal",
+     "ir": 9436
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 8021
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 7212
+    },
+    {
+     "source_file": "library/core/src/bool.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 7131
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 7075
+    },
+    {
+     "source_file": "library/core/src/convert/num.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 4248
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 4163
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 3828
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 2520
+    },
+    {
+     "source_file": "library/core/src/hint.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 2434
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 2365
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "strmap::push_terminal",
+     "ir": 2359
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 2292
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 1999
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 1214
+    },
+    {
+     "source_file": "crates/scanprof/src/main.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 1169
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 1146
+    },
+    {
+     "source_file": "./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S",
+     "symbol": "__memcpy_avx_unaligned_erms",
+     "ir": 1026
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "mutate::immed_map_keys",
+     "ir": 987
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 903
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_malloc",
+     "ir": 886
+    },
+    {
+     "source_file": "crates/expanse/src/nav.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 548
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 350
+    },
+    {
+     "source_file": "library/core/src/num/int_macros.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 320
+    },
+    {
+     "source_file": "./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S",
+     "symbol": "__memset_avx2_unaligned_erms",
+     "ir": 306
+    },
+    {
+     "source_file": "library/core/src/slice/mod.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 270
+    },
+    {
+     "source_file": "crates/expanse/src/types.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 270
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_realloc",
+     "ir": 264
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "realloc",
+     "ir": 253
+    },
+    {
+     "source_file": "library/core/src/iter/range.rs",
+     "symbol": "mutate::immed_map_keys",
+     "ir": 218
+    },
+    {
+     "source_file": "library/core/src/iter/range.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 199
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "mutate::immed_map_keys",
+     "ir": 192
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 172
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "free",
+     "ir": 170
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 147
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 122
+    },
+    {
+     "source_file": "library/core/src/convert/num.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 121
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/take.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 119
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "malloc",
+     "ir": 117
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 109
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_merge_chunk",
+     "ir": 96
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_chunk",
+     "ir": 95
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 92
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 91
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 80
+    },
+    {
+     "source_file": "crates/expanse/src/leaf.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 78
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "mutate::immed_map_keys",
+     "ir": 65
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<sync::ShardedTreePop>::flush_and_set",
+     "ir": 65
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_maybe_consolidate.part.0",
+     "ir": 64
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 64
+    },
+    {
+     "source_file": "crates/expanse/src/types.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 64
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_create_chunk",
+     "ir": 58
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 56
+    },
+    {
+     "source_file": "crates/expanse/src/leaf.rs",
+     "symbol": "leaf::locate",
+     "ir": 49
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "mutate::immed_map_keys",
+     "ir": 48
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 42
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 40
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "<bits::Bitmap256>::next_set",
+     "ir": 39
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::StrFrame>>::grow_one",
+     "ir": 36
+    },
+    {
+     "source_file": "library/core/src/slice/iter/macros.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 33
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 31
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 29
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 28
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 28
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 26
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 25
+    },
+    {
+     "source_file": "library/core/src/slice/mod.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 22
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "realloc",
+     "ir": 21
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVec<(usize, cursor::RawCursor<true>)>>::grow_one",
+     "ir": 18
+    },
+    {
+     "source_file": "crates/expanse/src/sync.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 17
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 16
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 16
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 16
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 14
+    },
+    {
+     "source_file": "library/alloc/src/alloc.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 13
+    },
+    {
+     "source_file": "crates/expanse/src/map.rs",
+     "symbol": "<map::MapCore>::leaf_entry",
+     "ir": 13
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "alloc_perturb",
+     "ir": 12
+    },
+    {
+     "source_file": "library/core/src/convert/num.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 12
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/take.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 12
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 12
+    },
+    {
+     "source_file": "library/std/src/panicking.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 11
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 10
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "leaf::locate",
+     "ir": 10
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 10
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "free",
+     "ir": 9
+    },
+    {
+     "source_file": "./malloc/../string/bits/string_fortified.h",
+     "symbol": "_int_realloc",
+     "ir": 8
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 8
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 8
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "malloc",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::StrFrame>>::grow_one",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/enumerate.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::StrFrame>>::grow_one",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/slice/iter/macros.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 6
+    },
+    {
+     "source_file": "library/std/src/sys/sync/mutex/futex.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 6
+    },
+    {
+     "source_file": "crates/scanprof/src/main.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 6
+    },
+    {
+     "source_file": "library/std/src/sync/poison.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 5
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 4
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "leaf::locate",
+     "ir": 4
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 4
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "leaf::locate",
+     "ir": 4
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 4
+    },
+    {
+     "source_file": "crates/expanse/src/types.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 4
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVec<(usize, cursor::RawCursor<true>)>>::grow_one",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<bits::Bitmap256>::next_set",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/option.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVec<(usize, cursor::RawCursor<true>)>>::grow_one",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 3
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 3
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "leaf::locate",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/skip.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/take.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/ops/range.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 2
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "<map::MapCore>::leaf_entry",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/cell.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ops/range.rs",
+     "symbol": "leaf::locate",
+     "ir": 1
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 1
+    },
+    {
+     "source_file": "crates/expanse/src/sync.rs",
+     "symbol": "<sync::ShardedTreePop>::flush_and_set",
+     "ir": 1
+    }
+   ]
+  },
+  "paths/cursor": {
+   "total_ir": 23286607,
+   "groups_ir": {
+    "consumer": 1500086,
+    "drain_pass_handoff": 11559323,
+    "harness_heap": 3603331,
+    "key_copy": 5510486,
+    "validation": 1113381
+   },
+   "rows": [
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "malloc_consolidate",
+     "ir": 2449718
+    },
+    {
+     "source_file": "crates/expanse/src/sync_str_cursor.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 2423439
+    },
+    {
+     "source_file": "crates/expanse/src/sync_str_cursor.rs",
+     "symbol": "<sync_str_cursor::StrBatch>::push",
+     "ir": 2067794
+    },
+    {
+     "source_file": "crates/expanse/src/sync_str_cursor.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 2057368
+    },
+    {
+     "source_file": "./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S",
+     "symbol": "__memcpy_avx_unaligned_erms",
+     "ir": 1892692
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 1775332
+    },
+    {
+     "source_file": "crates/expanse/src/leaf.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 1550560
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "unlink_chunk.isra.0",
+     "ir": 1149954
+    },
+    {
+     "source_file": "crates/expanse/src/sync_str_cursor.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 900011
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<sync_str_cursor::StrBatch>::push",
+     "ir": 650000
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "<sync_str_cursor::StrBatch>::push",
+     "ir": 500000
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 458515
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 407185
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<sync_str_cursor::StrBatch>::push",
+     "ir": 400000
+    },
+    {
+     "source_file": "crates/expanse/src/sync_nav.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 373272
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 366154
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 362617
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 317116
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 300000
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 298749
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 275044
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 181142
+    },
+    {
+     "source_file": "library/core/src/iter/range.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 167906
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 151344
+    },
+    {
+     "source_file": "crates/scanprof/src/main.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 150024
+    },
+    {
+     "source_file": "library/core/src/option.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 150009
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 134357
+    },
+    {
+     "source_file": "library/core/src/slice/iter/macros.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 120233
+    },
+    {
+     "source_file": "library/core/src/iter/range.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 111402
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 107470
+    },
+    {
+     "source_file": "crates/expanse/src/sync_nav.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 102424
+    },
+    {
+     "source_file": "crates/expanse/src/types.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 93409
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 85951
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 67424
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 58792
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 58174
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 56769
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 55839
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 38599
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 36974
+    },
+    {
+     "source_file": "library/core/src/option.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 35030
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 34217
+    },
+    {
+     "source_file": "library/core/src/ops/range.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 28900
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 27784
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 25778
+    },
+    {
+     "source_file": "library/core/src/slice/mod.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 24072
+    },
+    {
+     "source_file": "crates/expanse/src/map.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 23875
+    },
+    {
+     "source_file": "library/core/src/convert/num.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 23772
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 22358
+    },
+    {
+     "source_file": "library/core/src/option.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 18598
+    },
+    {
+     "source_file": "crates/expanse/src/lib.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 12996
+    },
+    {
+     "source_file": "./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S",
+     "symbol": "__memset_avx2_unaligned_erms",
+     "ir": 12330
+    },
+    {
+     "source_file": "./string/../sysdeps/x86_64/multiarch/memcmp-avx2-movbe.S",
+     "symbol": "__memcmp_avx2_movbe",
+     "ir": 10956
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/take.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 10033
+    },
+    {
+     "source_file": "crates/expanse/src/lib.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 8571
+    },
+    {
+     "source_file": "library/core/src/slice/cmp.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 7700
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 7138
+    },
+    {
+     "source_file": "crates/expanse/src/sync.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 6900
+    },
+    {
+     "source_file": "library/core/src/slice/iter/macros.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 6454
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/enumerate.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 6018
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 4649
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 4289
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 4012
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 4012
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/skip.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 2010
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 2007
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 2006
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_malloc",
+     "ir": 1935
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 1435
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 470
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_realloc",
+     "ir": 402
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "realloc",
+     "ir": 324
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "free",
+     "ir": 297
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "malloc",
+     "ir": 199
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 165
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_merge_chunk",
+     "ir": 143
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_chunk",
+     "ir": 120
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_create_chunk",
+     "ir": 102
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 100
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_maybe_consolidate.part.0",
+     "ir": 64
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 56
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 47
+    },
+    {
+     "source_file": "crates/expanse/src/sync_str_cursor.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 39
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::ScanLevel>>::grow_one",
+     "ir": 36
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "realloc",
+     "ir": 28
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 28
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 28
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 20
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 20
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVec<u8>>::grow_one",
+     "ir": 19
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 19
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 16
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "free",
+     "ir": 15
+    },
+    {
+     "source_file": "library/alloc/src/boxed.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 15
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 15
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 15
+    },
+    {
+     "source_file": "library/alloc/src/alloc.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 13
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "alloc_perturb",
+     "ir": 12
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 12
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 12
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 11
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "malloc",
+     "ir": 10
+    },
+    {
+     "source_file": "./malloc/../string/bits/string_fortified.h",
+     "symbol": "_int_realloc",
+     "ir": 8
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 8
+    },
+    {
+     "source_file": "crates/expanse/src/sync.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 7
+    },
+    {
+     "source_file": "library/alloc/src/boxed.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::ScanLevel>>::grow_one",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::ScanLevel>>::grow_one",
+     "ir": 6
+    },
+    {
+     "source_file": "library/std/src/panicking.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 6
+    },
+    {
+     "source_file": "library/std/src/panicking.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 6
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 5
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 5
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 5
+    },
+    {
+     "source_file": "crates/expanse/src/sync.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 5
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 4
+    },
+    {
+     "source_file": "library/alloc/src/sync.rs",
+     "symbol": "<alloc::sync::Arc<core::sync::atomic::Atomic<usize>>>::drop_slow",
+     "ir": 3
+    },
+    {
+     "source_file": "library/alloc/src/sync.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 3
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/alloc/layout.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVec<u8>>::grow_one",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVec<u8>>::grow_one",
+     "ir": 3
+    },
+    {
+     "source_file": "library/std/src/sync/poison.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 3
+    },
+    {
+     "source_file": "library/std/src/sync/poison.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 3
+    },
+    {
+     "source_file": "library/std/src/sys/sync/mutex/futex.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 3
+    },
+    {
+     "source_file": "library/std/src/sys/sync/mutex/futex.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 3
+    },
+    {
+     "source_file": "library/alloc/src/sync.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/option.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 2
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 2
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 2
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 1
+    },
+    {
+     "source_file": "library/alloc/src/rc.rs",
+     "symbol": "<alloc::sync::Arc<core::sync::atomic::Atomic<usize>>>::drop_slow",
+     "ir": 1
+    },
+    {
+     "source_file": "library/alloc/src/sync.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 1
+    },
+    {
+     "source_file": "library/alloc/src/sync.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<alloc::sync::Arc<core::sync::atomic::Atomic<usize>>>::drop_slow",
+     "ir": 1
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "<alloc::sync::Arc<core::sync::atomic::Atomic<usize>>>::drop_slow",
+     "ir": 1
+    }
+   ]
+  },
+  "paths_dense/locked": {
+   "total_ir": 17156088,
+   "groups_ir": {
+    "consumer": 450634,
+    "harness_heap": 3601763,
+    "key_build": 1539033,
+    "walk": 11564658
+   },
+   "rows": [
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 2714727
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "malloc_consolidate",
+     "ir": 2449718
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 1447496
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "unlink_chunk.isra.0",
+     "ir": 1149875
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 1049326
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 769847
+    },
+    {
+     "source_file": "crates/expanse/src/map.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 527518
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 481701
+    },
+    {
+     "source_file": "crates/expanse/src/map.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 465635
+    },
+    {
+     "source_file": "crates/expanse/src/iter.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 463089
+    },
+    {
+     "source_file": "library/core/src/slice/mod.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 367930
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "strmap::push_terminal",
+     "ir": 338052
+    },
+    {
+     "source_file": "crates/expanse/src/iter.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 308066
+    },
+    {
+     "source_file": "crates/scanprof/src/main.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 300030
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 287502
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 233036
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 207792
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 201911
+    },
+    {
+     "source_file": "crates/expanse/src/cursor.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 192670
+    },
+    {
+     "source_file": "crates/expanse/src/map.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 186955
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 173043
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "strmap::push_terminal",
+     "ir": 153660
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 150016
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 148947
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 148941
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 131144
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "strmap::push_terminal",
+     "ir": 122928
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "strmap::push_terminal",
+     "ir": 122928
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 117766
+    },
+    {
+     "source_file": "crates/expanse/src/cursor.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 116873
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 116585
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 113634
+    },
+    {
+     "source_file": "library/core/src/bool.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 101728
+    },
+    {
+     "source_file": "library/core/src/mem/mod.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 100002
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 96340
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 92348
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 87453
+    },
+    {
+     "source_file": "library/core/src/slice/mod.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 83965
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 77084
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 69334
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 56766
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 56521
+    },
+    {
+     "source_file": "library/core/src/slice/mod.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 56040
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 47520
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 44032
+    },
+    {
+     "source_file": "library/core/src/hint.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 43837
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 38913
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 38536
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 38536
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "strmap::push_chunk_suffix",
+     "ir": 38536
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 30738
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "strmap::push_terminal",
+     "ir": 30732
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 28568
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 20161
+    },
+    {
+     "source_file": "crates/scanprof/src/main.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 19268
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 15572
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 13023
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 12999
+    },
+    {
+     "source_file": "crates/scanprof/src/main.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 12985
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 11482
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 7786
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<strmap::Walk<false>>::descend_from",
+     "ir": 5203
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 5035
+    },
+    {
+     "source_file": "library/core/src/convert/num.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 2649
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 1721
+    },
+    {
+     "source_file": "library/core/src/convert/num.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 1720
+    },
+    {
+     "source_file": "./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S",
+     "symbol": "__memcpy_avx_unaligned_erms",
+     "ir": 1469
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "mutate::immed_map_keys",
+     "ir": 1418
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_malloc",
+     "ir": 954
+    },
+    {
+     "source_file": "crates/expanse/src/nav.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 548
+    },
+    {
+     "source_file": "./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S",
+     "symbol": "__memset_avx2_unaligned_erms",
+     "ir": 432
+    },
+    {
+     "source_file": "library/core/src/num/int_macros.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 320
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_realloc",
+     "ir": 313
+    },
+    {
+     "source_file": "library/core/src/iter/range.rs",
+     "symbol": "mutate::immed_map_keys",
+     "ir": 310
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "mutate::immed_map_keys",
+     "ir": 280
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "realloc",
+     "ir": 253
+    },
+    {
+     "source_file": "crates/expanse/src/types.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 195
+    },
+    {
+     "source_file": "library/core/src/iter/range.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 182
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "free",
+     "ir": 170
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 164
+    },
+    {
+     "source_file": "crates/expanse/src/types.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 158
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 147
+    },
+    {
+     "source_file": "library/core/src/iter/range.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 128
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 120
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "malloc",
+     "ir": 117
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 109
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_merge_chunk",
+     "ir": 96
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_chunk",
+     "ir": 95
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "mutate::immed_map_keys",
+     "ir": 94
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/take.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 91
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 83
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 80
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/take.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 79
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "mutate::immed_map_keys",
+     "ir": 70
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<sync::ShardedTreePop>::flush_and_set",
+     "ir": 65
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_maybe_consolidate.part.0",
+     "ir": 64
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 64
+    },
+    {
+     "source_file": "crates/expanse/src/types.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 64
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_create_chunk",
+     "ir": 58
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 56
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 42
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 40
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "<bits::Bitmap256>::next_set",
+     "ir": 39
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::StrFrame>>::grow_one",
+     "ir": 36
+    },
+    {
+     "source_file": "library/core/src/slice/iter/macros.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 33
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 29
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 28
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 26
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 26
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 25
+    },
+    {
+     "source_file": "library/core/src/slice/mod.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 22
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "realloc",
+     "ir": 21
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 20
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVec<(usize, cursor::RawCursor<true>)>>::grow_one",
+     "ir": 18
+    },
+    {
+     "source_file": "crates/expanse/src/sync.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 17
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 16
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 16
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 16
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "leaf::locate",
+     "ir": 14
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 14
+    },
+    {
+     "source_file": "library/alloc/src/alloc.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 13
+    },
+    {
+     "source_file": "crates/expanse/src/leaf.rs",
+     "symbol": "leaf::locate",
+     "ir": 13
+    },
+    {
+     "source_file": "crates/expanse/src/map.rs",
+     "symbol": "<map::MapCore>::leaf_entry",
+     "ir": 13
+    },
+    {
+     "source_file": "library/core/src/convert/num.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 12
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/take.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 12
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 12
+    },
+    {
+     "source_file": "library/std/src/panicking.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 11
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 10
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "free",
+     "ir": 9
+    },
+    {
+     "source_file": "./malloc/../string/bits/string_fortified.h",
+     "symbol": "_int_realloc",
+     "ir": 8
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "alloc_perturb",
+     "ir": 8
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 8
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 8
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "leaf::locate",
+     "ir": 8
+    },
+    {
+     "source_file": "crates/expanse/src/leaf.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 8
+    },
+    {
+     "source_file": "library/core/src/../../stdarch/crates/core_arch/src/simd.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/../../stdarch/crates/core_arch/src/x86/sse2.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::StrFrame>>::grow_one",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/enumerate.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::StrFrame>>::grow_one",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/slice/iter/macros.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 6
+    },
+    {
+     "source_file": "library/std/src/sys/sync/mutex/futex.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 6
+    },
+    {
+     "source_file": "crates/scanprof/src/main.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 6
+    },
+    {
+     "source_file": "library/std/src/sync/poison.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 5
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "malloc",
+     "ir": 4
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 4
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 4
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 4
+    },
+    {
+     "source_file": "library/core/src/../../stdarch/crates/core_arch/src/simd.rs",
+     "symbol": "leaf::locate",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/../../stdarch/crates/core_arch/src/x86/sse2.rs",
+     "symbol": "leaf::locate",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVec<(usize, cursor::RawCursor<true>)>>::grow_one",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<bits::Bitmap256>::next_set",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/option.rs",
+     "symbol": "<strmap::Walk<false>>::next",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVec<(usize, cursor::RawCursor<true>)>>::grow_one",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 3
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 3
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<strmap::Walk<false>>::sibling",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "leaf::locate",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/skip.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/ops/range.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "nav::next::<true>",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 2
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "<map::MapCore>::leaf_entry",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/cell.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "scanprof::scan_locked",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ops/range.rs",
+     "symbol": "leaf::locate",
+     "ir": 1
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 1
+    },
+    {
+     "source_file": "crates/expanse/src/sync.rs",
+     "symbol": "<sync::ShardedTreePop>::flush_and_set",
+     "ir": 1
+    }
+   ]
+  },
+  "paths_dense/cursor": {
+   "total_ir": 38698217,
+   "groups_ir": {
+    "consumer": 1500086,
+    "drain_pass_handoff": 24559735,
+    "harness_heap": 3602274,
+    "key_copy": 5505344,
+    "validation": 3530778
+   },
+   "rows": [
+    {
+     "source_file": "crates/expanse/src/sync_str_cursor.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 5380114
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 3848058
+    },
+    {
+     "source_file": "crates/expanse/src/sync_str_cursor.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 2913848
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "malloc_consolidate",
+     "ir": 2449718
+    },
+    {
+     "source_file": "crates/expanse/src/sync_str_cursor.rs",
+     "symbol": "<sync_str_cursor::StrBatch>::push",
+     "ir": 2055084
+    },
+    {
+     "source_file": "./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S",
+     "symbol": "__memcpy_avx_unaligned_erms",
+     "ir": 1900260
+    },
+    {
+     "source_file": "crates/expanse/src/leaf.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 1889938
+    },
+    {
+     "source_file": "crates/expanse/src/sync_nav.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 1814267
+    },
+    {
+     "source_file": "crates/expanse/src/bits.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 1434784
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "unlink_chunk.isra.0",
+     "ir": 1149884
+    },
+    {
+     "source_file": "crates/expanse/src/sync_str_cursor.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 900011
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 756712
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 718465
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<sync_str_cursor::StrBatch>::push",
+     "ir": 650000
+    },
+    {
+     "source_file": "library/core/src/slice/iter/macros.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 614488
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 600821
+    },
+    {
+     "source_file": "library/core/src/iter/range.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 578326
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "<sync_str_cursor::StrBatch>::push",
+     "ir": 500000
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 495219
+    },
+    {
+     "source_file": "crates/expanse/src/types.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 477939
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 418798
+    },
+    {
+     "source_file": "crates/expanse/src/sync_nav.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 413171
+    },
+    {
+     "source_file": "crates/expanse/src/mutate.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 404782
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<sync_str_cursor::StrBatch>::push",
+     "ir": 400000
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 362180
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 351027
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 339180
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 302093
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 300000
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 267092
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 257207
+    },
+    {
+     "source_file": "library/core/src/iter/range.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 251171
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 205603
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 201640
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 200526
+    },
+    {
+     "source_file": "library/core/src/ops/range.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 196240
+    },
+    {
+     "source_file": "library/core/src/slice/mod.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 167496
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 151716
+    },
+    {
+     "source_file": "crates/scanprof/src/main.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 150024
+    },
+    {
+     "source_file": "library/core/src/option.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 150009
+    },
+    {
+     "source_file": "library/core/src/option.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 133341
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 128598
+    },
+    {
+     "source_file": "library/core/src/option.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 126174
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 120626
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 118781
+    },
+    {
+     "source_file": "library/core/src/ptr/const_ptr.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 112326
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 111781
+    },
+    {
+     "source_file": "crates/expanse/src/sync_nav.rs",
+     "symbol": "<strmap::ExpanseStrMap>::scan_validated::<128>::{closure#2}",
+     "ir": 111163
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<strmap::ExpanseStrMap>::scan_validated::<128>::{closure#2}",
+     "ir": 109319
+    },
+    {
+     "source_file": "library/core/src/slice/iter/macros.rs",
+     "symbol": "<strmap::ExpanseStrMap>::scan_validated::<128>::{closure#2}",
+     "ir": 109319
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 106668
+    },
+    {
+     "source_file": "crates/expanse/src/map.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 97852
+    },
+    {
+     "source_file": "library/core/src/convert/num.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 92710
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/take.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 69793
+    },
+    {
+     "source_file": "crates/expanse/src/lib.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 56414
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "<strmap::ExpanseStrMap>::scan_validated::<128>::{closure#2}",
+     "ir": 55351
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<strmap::ExpanseStrMap>::scan_validated::<128>::{closure#2}",
+     "ir": 54890
+    },
+    {
+     "source_file": "crates/expanse/src/common.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 50662
+    },
+    {
+     "source_file": "library/core/src/slice/iter/macros.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 42518
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/enumerate.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 41874
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 28286
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 27916
+    },
+    {
+     "source_file": "library/core/src/slice/index.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 27916
+    },
+    {
+     "source_file": "crates/expanse/src/lib.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 26724
+    },
+    {
+     "source_file": "library/core/src/ptr/mut_ptr.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 17038
+    },
+    {
+     "source_file": "library/core/src/iter/adapters/skip.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 13962
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 13959
+    },
+    {
+     "source_file": "crates/expanse/src/node.rs",
+     "symbol": "mutate::decode_value",
+     "ir": 13958
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 13343
+    },
+    {
+     "source_file": "./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S",
+     "symbol": "__memset_avx2_unaligned_erms",
+     "ir": 12330
+    },
+    {
+     "source_file": "crates/expanse/src/strmap.rs",
+     "symbol": "<strmap::ExpanseStrMap>::scan_validated::<128>::{closure#2}",
+     "ir": 10142
+    },
+    {
+     "source_file": "crates/expanse/src/sync.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 7512
+    },
+    {
+     "source_file": "./string/../sysdeps/x86_64/multiarch/memcmp-avx2-movbe.S",
+     "symbol": "__memcmp_avx2_movbe",
+     "ir": 7226
+    },
+    {
+     "source_file": "library/core/src/slice/cmp.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::current",
+     "ir": 5110
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_malloc",
+     "ir": 1221
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "sync_str_cursor::drain_in::<128, scan_validated closure>",
+     "ir": 795
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<strmap::ExpanseStrMap>::scan_validated::<128>::{closure#2}",
+     "ir": 461
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_realloc",
+     "ir": 413
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "realloc",
+     "ir": 324
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "free",
+     "ir": 297
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "malloc",
+     "ir": 199
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 165
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 100
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_chunk",
+     "ir": 70
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 56
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_merge_chunk",
+     "ir": 47
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 47
+    },
+    {
+     "source_file": "crates/expanse/src/sync_str_cursor.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 39
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::ScanLevel>>::grow_one",
+     "ir": 36
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "_int_free_create_chunk",
+     "ir": 34
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "realloc",
+     "ir": 28
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 28
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 28
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 20
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 20
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<alloc::raw_vec::RawVec<u8>>::grow_one",
+     "ir": 19
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 19
+    },
+    {
+     "source_file": "crates/expanse/src/occ.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 16
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "free",
+     "ir": 15
+    },
+    {
+     "source_file": "library/alloc/src/boxed.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 15
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 15
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 15
+    },
+    {
+     "source_file": "library/alloc/src/alloc.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 13
+    },
+    {
+     "source_file": "./malloc/../string/bits/string_fortified.h",
+     "symbol": "_int_realloc",
+     "ir": 12
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 12
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 12
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 11
+    },
+    {
+     "source_file": "./malloc/./malloc/malloc.c",
+     "symbol": "alloc_perturb",
+     "ir": 8
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 8
+    },
+    {
+     "source_file": "crates/expanse/src/sync.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 7
+    },
+    {
+     "source_file": "library/alloc/src/boxed.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::ScanLevel>>::grow_one",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/intrinsics/mod.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 6
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVec<strmap::ScanLevel>>::grow_one",
+     "ir": 6
+    },
+    {
+     "source_file": "library/std/src/panicking.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 6
+    },
+    {
+     "source_file": "library/std/src/panicking.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 6
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 5
+    },
+    {
+     "source_file": "library/core/src/num/uint_macros.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>",
+     "ir": 5
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 5
+    },
+    {
+     "source_file": "crates/expanse/src/sync.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 5
+    },
+    {
+     "source_file": "./malloc/./malloc/arena.c",
+     "symbol": "malloc",
+     "ir": 4
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 4
+    },
+    {
+     "source_file": "library/alloc/src/sync.rs",
+     "symbol": "<alloc::sync::Arc<core::sync::atomic::Atomic<usize>>>::drop_slow",
+     "ir": 3
+    },
+    {
+     "source_file": "library/alloc/src/sync.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 3
+    },
+    {
+     "source_file": "library/alloc/src/vec/mod.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/alloc/layout.rs",
+     "symbol": "<alloc::raw_vec::RawVecInner>::finish_grow",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/cmp.rs",
+     "symbol": "<alloc::raw_vec::RawVec<u8>>::grow_one",
+     "ir": 3
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<alloc::raw_vec::RawVec<u8>>::grow_one",
+     "ir": 3
+    },
+    {
+     "source_file": "library/std/src/sync/poison.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 3
+    },
+    {
+     "source_file": "library/std/src/sync/poison.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 3
+    },
+    {
+     "source_file": "library/std/src/sys/sync/mutex/futex.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 3
+    },
+    {
+     "source_file": "library/std/src/sys/sync/mutex/futex.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 3
+    },
+    {
+     "source_file": "library/alloc/src/sync.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/option.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 2
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "scanprof::scan_cursor",
+     "ir": 2
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 2
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 2
+    },
+    {
+     "source_file": "library/alloc/src/raw_vec/mod.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 1
+    },
+    {
+     "source_file": "library/alloc/src/rc.rs",
+     "symbol": "<alloc::sync::Arc<core::sync::atomic::Atomic<usize>>>::drop_slow",
+     "ir": 1
+    },
+    {
+     "source_file": "library/alloc/src/sync.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 1
+    },
+    {
+     "source_file": "library/alloc/src/sync.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ptr/mod.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/ptr/non_null.rs",
+     "symbol": "<sync_str_cursor::SyncStrMapCursor>::build",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<occ::Collector>::register",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/result.rs",
+     "symbol": "<occ::Reader as core::ops::drop::Drop>::drop",
+     "ir": 1
+    },
+    {
+     "source_file": "library/core/src/sync/atomic.rs",
+     "symbol": "<alloc::sync::Arc<core::sync::atomic::Atomic<usize>>>::drop_slow",
+     "ir": 1
+    },
+    {
+     "source_file": "library/std/src/sys/alloc/unix.rs",
+     "symbol": "<alloc::sync::Arc<core::sync::atomic::Atomic<usize>>>::drop_slow",
+     "ir": 1
+    }
+   ]
+  }
+ }
+}
