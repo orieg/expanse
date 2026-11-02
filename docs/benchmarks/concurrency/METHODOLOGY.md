@@ -5097,6 +5097,15 @@ Drains of item 1 retain what they retained under A3, and every later drain is ad
 
 P33.3 has not run for A3 or A4, so nothing here claims a gain under writers.
 
+#### 33.13.5 Outcome of A4 (appended 2026-11-02, after the run; §33.13.1 to §33.13.4 are not edited)
+
+- **P33.6 REFUTED on both cells.** `sync_strmap_scan` ran at 2.451× `sync_strmap_scan_locked` on `paths` and 2.031× on `paths_dense`, against the 1.63 ceiling (measured: CI run [41404611758](https://github.com/orieg/expanse/actions/runs/41404611758), commit `89ded606`; `scripts/str_cursor_bounds.py::sync_strmap_scan_ratio_a4`). Against A3 on the same comparator, whose counts did not move, the cursor count rose 12.97% on `paths` and fell 21.45% on `paths_dense`. The projection of §33.13.4 held for `paths`, where A4 is worse than A3 and not only short of the ceiling, and did not decide `paths_dense`, which is refuted too. The ceiling of 1.63 stays (target).
+- **P33.7 met.** 713 resumed drains on `paths` (ceiling 1,435) and 827 on `paths_dense` (ceiling 2,667) (`sync::str_cursor_tests::bench_key_sets_scan_in_few_attempts`).
+- **P33.5 met.** 575 attempts on each set, with 0 restarts, 0 overflows and 0 fallbacks (same test).
+- **P33.1 met.** Every arm of the same run other than the two `sync_strmap_scan` cells reads within the 0.1% noise floor against the merge base, every `strmap_*` and `sync_strmap_*` arm included.
+
+The cursor now spends 265.7 instructions per key above the locked walk on `paths` and 281.4 on `paths_dense`, where A3 spent 214.2 and 432.8 (derived: `sync_strmap_scan_excess_per_key_a4`, `sync_strmap_scan_excess_per_key_a3`). On `paths` A4 cut the resumed drains from 1,435 to 713 and the sampled versions from 12,371 to 9,463, and the count still rose by 2,576,312 instructions, about 51.5 per key. Which work A4 added there (the pending-pair bookkeeping, compaction of the scratch, which ran 27 times on `paths` and not on `paths_dense`, or a codegen change to the drain loop) is unmeasured; a per-function Callgrind ranking of A3 against A4 on `paths` precedes any further amendment (AGENTS.md §6). P33.3 has not run for A3 or A4, so nothing here claims a gain under writers.
+
 ## 34. Pre-registration for #1280 Item 1 — cause of the four-thread peak in `SyncExpanseBlobMap` (appended 2026-10-04, locked before any run of the builds or instruments below)
 
 > **Section numbering note:** Section 33 was claimed by PR #1373 (A6, thread-local freelist allocation stripe) which merged. This pre-registration uses §34 (peak) and §35 (split).

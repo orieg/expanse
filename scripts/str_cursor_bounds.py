@@ -1006,6 +1006,40 @@ def str_a4_drain_costs() -> tuple[int, int, int]:
     return enter, resume, 0
 
 
+# `sync_strmap_scan` under A4 (section 33.13), with its comparator, from the
+# `instruction-counts` job of the pull request that adds A4. Both arms count
+# 50,000 keys; the comparator's counts equal A3's.
+SYNC_STRMAP_SCAN_MEASURED_A4: dict[str, dict[str, int | str]] = {
+    "paths": {"cursor": 22_442_168, "locked": 9_155_807},
+    "paths_dense": {"cursor": 27_716_669, "locked": 13_644_696},
+}
+SYNC_STRMAP_SCAN_MEASURED_A4_SOURCE: str = "CI run 41404611758, commit 89ded60655608c911c5b02273da80631279d0cf8"
+
+
+def sync_strmap_scan_ratio_a4(workload: str) -> float:
+    """Measured ratio of `sync_strmap_scan` to `sync_strmap_scan_locked` under A4 (section 33.13).
+
+    Raises:
+        ValueError: On an unknown workload.
+    """
+    if workload not in SYNC_STRMAP_SCAN_MEASURED_A4:
+        raise ValueError(f"Unknown workload: {workload}")
+    row = SYNC_STRMAP_SCAN_MEASURED_A4[workload]
+    return int(row["cursor"]) / int(row["locked"])
+
+
+def sync_strmap_scan_excess_per_key_a4(workload: str) -> float:
+    """Cursor instructions per key above the locked walk under A4: `(cursor - locked) / keys`.
+
+    Raises:
+        ValueError: On an unknown workload.
+    """
+    if workload not in SYNC_STRMAP_SCAN_MEASURED_A4:
+        raise ValueError(f"Unknown workload: {workload}")
+    row = SYNC_STRMAP_SCAN_MEASURED_A4[workload]
+    return (int(row["cursor"]) - int(row["locked"])) / SYNC_STRMAP_SCAN_KEYS
+
+
 class TestStrCursorBounds(unittest.TestCase):
     """Unit tests pinning mathematical bounds and invariants."""
 
@@ -1358,6 +1392,22 @@ class TestStrCursorBounds(unittest.TestCase):
         self.assertEqual(str_a4_drain_costs(), (14, 13, 0))
         with self.assertRaises(ValueError):
             str_cursor_a4_resume_ceiling("invalid_workload")
+
+    def test_a4_measured_ratios_pinned(self) -> None:
+        """The refuted P33.6 ratios under A4, from the counts of CI run 41404611758."""
+        self.assertAlmostEqual(sync_strmap_scan_ratio_a4("paths"), 2.4511, places=4)
+        self.assertAlmostEqual(sync_strmap_scan_ratio_a4("paths_dense"), 2.0313, places=4)
+        for wl in SYNC_STRMAP_SCAN_MEASURED_A4:
+            self.assertGreater(sync_strmap_scan_ratio_a4(wl), TARGET_P33_6_RATIOS[wl])
+            self.assertEqual(SYNC_STRMAP_SCAN_MEASURED_A4[wl]["locked"], SYNC_STRMAP_SCAN_MEASURED_A3[wl]["locked"])
+        # A4 costs more than A3 on `paths` and less on `paths_dense`.
+        self.assertGreater(sync_strmap_scan_ratio_a4("paths"), sync_strmap_scan_ratio_a3("paths"))
+        self.assertLess(sync_strmap_scan_ratio_a4("paths_dense"), sync_strmap_scan_ratio_a3("paths_dense"))
+        self.assertAlmostEqual(sync_strmap_scan_excess_per_key_a4("paths"), 265.73, places=2)
+        self.assertAlmostEqual(sync_strmap_scan_excess_per_key_a4("paths_dense"), 281.44, places=2)
+        self.assertIn("41404611758", SYNC_STRMAP_SCAN_MEASURED_A4_SOURCE)
+        with self.assertRaises(ValueError):
+            sync_strmap_scan_ratio_a4("uniform")
 
     def test_p33_6_ceiling_leaves_no_drain_excess_on_paths(self) -> None:
         """P33.6 equals the ratio with the whole drain excess removed, so A4 meets it only if it removes all of it."""
