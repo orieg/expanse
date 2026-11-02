@@ -4983,6 +4983,51 @@ Per attempt: $8d + 6$ versions at path depth $d$, $d + 13$ when every ancestor i
 
 `[lo, hi)` takes a NUL-free `lo` inclusive and `hi` exclusive; a prefix scan is `[p, p')` with $p'$ the prefix incremented as above, unbounded when $p$ is all `0xFF`. The batch holds at most `BATCH_CAP` = 256 entries and 4,096 key bytes (§33.1), plus a 256-entry scratch for the drained `(chunk, value)` pairs, which §33.1's 8 KiB does not count. A key longer than the arena is copied into a spill buffer as a batch of one. P33.2 and its ceiling of 1.15 (target) are unchanged; the constants of §33.7.6 stay (projected), and only the `instruction-counts` job decides P33.2.
 
+### 33.11 Amendment A3 to §33 — one attempt drains into child sub-maps while the read set has room (appended 2026-11-01, before any engine code of A3; §33.1 to §33.10 above are not edited)
+
+The attempt shape of §33.10 refuted P33.2. This section fixes a second shape and its predictions before the code that adds it. Where it differs from §33.10.1, this section stands. The P33.2 ceiling of 1.15 (target), P33.1, P33.3, the cells, the void conditions and gates G33.1 to G33.6 do not change. Refs #1143.
+
+#### 33.11.1 What refuted P33.2
+
+`sync_strmap_scan` ran at 2.957× `sync_strmap_scan_locked` on `paths` and 8.792× on `paths_dense` (measured: CI run 41261111168, commit `a66b0774`; `scripts/str_cursor_bounds.py::sync_strmap_scan_ratio_a2`). Both exceed 1.15: **P33.2 REFUTED** for the §33.10 shape.
+
+A diagnostic profile located the cost. It ran Callgrind in an arm64 Linux container on a scratch harness that counts batches, attempts and restarts in `fill_scan_batch`, at commit `8239a7c8`. It is not a committed artifact, its counts are arm64 rather than CI's x86, and nothing below is gated on it:
+
+| Workload | Batches | Attempts | Restarts | Keys per batch |
+|---|--:|--:|--:|--:|
+| `paths` | 2,665 | 5,257 | 2,592 | 18.8 |
+| `paths_dense` | 20,849 | 46,957 | 26,108 | 2.4 |
+
+Attempts equal batches plus restarts on both workloads, so no attempt retried and none fell back to the writer lock. The arena holds about 87 of these 47-byte keys (4,096 / 47). The batches end early because the §33.10.1 attempt ends at every child sub-map: the batch closes when it holds entries, the next attempt restarts from the root at the child's prefix when it does not, and a child that runs out restarts again past its prefix. A two-point fit over the two workloads gives about 2,009 instructions per attempt and 362 per key (derived from the diagnostic profile, two tree shapes; projected as a model, not a measurement).
+
+#### 33.11.2 The attempt shape
+
+1. The exact descent and the first drained level are those of §33.10.1.
+2. A child met in a drained level is entered in the same attempt. Its cover is sampled and checked as at any level entry, its sub-map is drained from its first chunk, and its entries are copied.
+3. A drain that stopped before the end of its sub-map (it pushed a child, filled its buffer, or returned after one sibling descent, §33.10.2) is resumed at the same level from the chunk after its last pair. A drain that reached the end of its sub-map climbs: the walk resumes the parent level at the chunk after the child it came from. The probe's own levels are parents too, so the level the exact descent reached climbs into the level above instead of restarting past its prefix.
+4. Admission. After the first drained level, entering a child is admitted only when the read set's length plus 14 (its cover and one sub-map drain) is at most 128, and resuming a level only when its length plus 13 is (`str_nested_drain_costs`). A refused drain ends the attempt: with entries, as a batch that resumes from its last key followed by `0x01`; without, as a validated restart at the key the refused drain would have started from (the child's prefix, or the level's prefix followed by its next chunk), as in §33.10.1.
+5. The batch ends as before when it is full, at the end bound, and when the walk climbs past the root, which ends the scan.
+
+Memory safety and the instant a batch describes are those of §33.10. A level's root-state copy is validated against its cover when the level is entered, and the cover stays in the read set, so a resumed drain reads through the same copy under the same holder checks as the first drain of that level. Every outcome is returned only after the whole read set and the tree word validate, so a batch is still one attempt and one instant.
+
+#### 33.11.3 The bound
+
+The exact descent and the first drained level retain at most $8d + 6$ versions (§33.10.2). Admission keeps every later drain within the set, so an attempt retains at most 128 versions at every depth $d \le 15$ (derived: `str_cursor_nested_attempt_read_set_bound`). In the worst case an attempt at depth $d$ admits at least $\lfloor (128 - 8d - 6) / 14 \rfloor$ drains and enters at least $\lfloor (128 - 8d - 6) / 27 \rfloor$ children, which at $d = 5$ is 5 drains and 3 children (derived: `str_cursor_min_admitted_drains`). A path deeper than 15 overflows at its first drained level and falls back at once, as before (§33.7.4).
+
+#### 33.11.4 Predictions, each with its refuter
+
+- **P33.2, re-evaluated.** The `instruction-counts` job on the pull request that adds A3 decides it, against the same ceiling: `sync_strmap_scan` at most 1.15× `sync_strmap_scan_locked` (target) on each of `paths` and `paths_dense`. **REFUTED** if either ratio exceeds 1.15. The projection is that `paths` stays refuted. In the fit of §33.11.1 the per-key term alone is 362 instructions against 253.9 per key for the locked walk on the same arm64 build, a ratio of 1.43 with no attempt cost at all (projected). A3 removes attempts and leaves that term. On `paths_dense` the same floor is 362 / 336.9 = 1.07 (projected), and the cost of entering a child, which moves from the attempt term into the walk, is not modelled, so the projection does not decide that cell.
+- **P33.5 — attempts per scan (deterministic).** A single-threaded full scan of each benchmark key set (`path_keys` in `crates/expanse/benches/instructions.rs`, 50,000 keys) takes no restart and at least 32 keys per attempt on `paths` and 16 on `paths_dense`, where the profile of §33.11.1 counted 9.5 and 1.06. **REFUTED** if either key set restarts or falls below its floor. The instrument is a unit test reading the cursor's test counters (`Count::Attempts`, `Count::Restarts`) over the same generator. The floors are projected: a child built by inserts holds at least two keys, because a single remainder collapses into a suffix, and §33.11.3 guarantees only 3 children, 6 keys, per attempt in the worst case, so 16 rests on the typical rather than the worst cost of a drain.
+- **P33.1** applies unchanged: the plain string arms move by at most 0.1%. A3 changes only the shared-tree scan.
+
+#### 33.11.5 Outcome of A3 (appended 2026-11-01, after the run; §33.11.1 to §33.11.4 are not edited)
+
+- **P33.2 REFUTED on both cells.** `sync_strmap_scan` ran at 2.170× `sync_strmap_scan_locked` on `paths` and 2.586× on `paths_dense` (measured: CI run [41335458877](https://github.com/orieg/expanse/actions/runs/41335458877), commit `86690edf`; `scripts/str_cursor_bounds.py::sync_strmap_scan_ratio_a3`). The cursor counts fell 26.61% and 70.59% against the §33.10 shape on the same comparator, whose counts did not move. The projection of §33.11.4 held for `paths` and did not decide `paths_dense`, which is refuted too. The ceiling of 1.15 stays (target).
+- **P33.5 met.** 575 attempts on `paths` (87.0 keys per attempt, floor 32) and 626 on `paths_dense` (79.9, floor 16), with 0 restarts, 0 overflows and 0 fallbacks (`sync::str_cursor_tests::bench_key_sets_scan_in_few_attempts`).
+- **P33.1 met.** Every arm of the same run other than the two `sync_strmap_scan` cells reads within the 0.1% noise floor against the merge base, every `strmap_*` and `sync_strmap_*` arm included.
+
+What is left is not the attempt count. The cursor spends 214.2 instructions per key above the locked walk on `paths` and 432.8 on `paths_dense`, where the ceiling allows 27.5 and 40.9 (derived: `sync_strmap_scan_excess_per_key_a3`). The hand estimate of §33.7.6 put the whole cursor overhead at ~4.4 instructions per key (projected), so the measured excess is about 49 and 98 times that estimate (derived: 214.2 / 4.4 and 432.8 / 4.4); the estimate is not a usable model of this cursor. Which mechanisms make up the excess (the per-key copy into the batch, the drain's two stages, the re-descent of a resumed drain from its sub-map's top edge) is unmeasured; a per-function Callgrind ranking of both arms precedes any further amendment (AGENTS.md §6). P33.3 has not run for this shape, so nothing here claims a gain under writers.
+
 ## 34. Pre-registration for #1280 Item 1 — cause of the four-thread peak in `SyncExpanseBlobMap` (appended 2026-10-04, locked before any run of the builds or instruments below)
 
 > **Section numbering note:** Section 33 was claimed by PR #1373 (A6, thread-local freelist allocation stripe) which merged. This pre-registration uses §34 (peak) and §35 (split).

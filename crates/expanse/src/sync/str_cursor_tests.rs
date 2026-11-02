@@ -6,9 +6,9 @@
 //! Miri filter (AGENTS.md §5), whose shard has little time to spare, so they
 //! are the small ones that between them reach every route of the walk: the
 //! exact descent, the drain of a root leaf and of a tree with branches,
-//! suffix copies, the restarts, the end bound, the spill buffer, a holder
-//! check and a cover check. The rest run under Miri in the nightly `lib-sync`
-//! shard.
+//! suffix copies, the climbs, a refused admission's restarts, the end bound,
+//! the spill buffer, a holder check and a cover check. The rest run under
+//! Miri in the nightly `lib-sync` shard.
 
 use super::*;
 use crate::sync_str_cursor::test_hooks::{self as th, Control, Count, Site};
@@ -81,7 +81,7 @@ fn locked_prefix(map: &SyncExpanseStrMap, p: &[u8]) -> Entries {
 
 /// Runs `body` on a fresh thread with `controls` on, and returns its result
 /// with that thread's counts.
-fn on_thread<R: Send>(controls: &[Control], body: impl FnOnce() -> R + Send) -> (R, [u64; 7]) {
+fn on_thread<R: Send>(controls: &[Control], body: impl FnOnce() -> R + Send) -> (R, [u64; 8]) {
     std::thread::scope(|s| {
         s.spawn(|| {
             for &c in controls {
@@ -95,7 +95,7 @@ fn on_thread<R: Send>(controls: &[Control], body: impl FnOnce() -> R + Send) -> 
     })
 }
 
-fn count(c: [u64; 7], which: Count) -> u64 {
+fn count(c: [u64; 8], which: Count) -> u64 {
     c[which as usize]
 }
 
@@ -318,6 +318,44 @@ fn scan_crosses_levels_and_suffixes() {
     }
 }
 
+/// Every admission refused (§33.11.2 item 4): each attempt ends at its first
+/// drained level, with a batch when it copied entries and otherwise with a
+/// restart at the child's prefix or at the level's next chunk, and the scan
+/// still returns exactly the model from every probe.
+#[test]
+fn tier1_refused_admission_restarts_by_key() {
+    let mut keys = Vec::new();
+    for a in [&b"aaaaaaaa"[..], b"aaaaaaab", b"bbbbbbbb"] {
+        for t in [&b""[..], b"M", b"MM", b"Z", b"ZZZZZZZZZ"] {
+            let mut k = a.to_vec();
+            k.extend_from_slice(t);
+            keys.push(k);
+        }
+    }
+    keys.push(b"aa".to_vec());
+    let (map, model) = build(&keys);
+    let (got, c) = on_thread(&[Control::RefuseAdmission], || {
+        let rd = map.reader();
+        let all = drain(rd.cursor());
+        for lo in [&b"aaaaaaaaZ"[..], b"aaaaaaab", b"ab"] {
+            assert_eq!(
+                drain(SyncStrMapCursor::range(
+                    &map,
+                    &rd.reader,
+                    nf(lo),
+                    nf(&[0xFF])
+                )),
+                model_range(&model, lo, Some(&[0xFF])),
+                "from {lo:x?}"
+            );
+        }
+        all
+    });
+    assert_eq!(got, model_range(&model, b"", None));
+    assert!(count(c, Count::Restarts) >= 1, "{c:?}");
+    assert_eq!(count(c, Count::Fallbacks), 0, "{c:?}");
+}
+
 /// A key longer than the arena is returned alone, from the spill buffer,
 /// between batches that hold the keys around it.
 #[test]
@@ -385,7 +423,7 @@ fn wide_keys(n: usize) -> Vec<Vec<u8>> {
 /// The negative control lets the drain's branch loops walk past the end
 /// bound, as the map cursor did before #1382: the walk then samples a branch
 /// per subtree to the right until the read set is full.
-fn bounded_probe(controls: &[Control]) -> ([u64; 7], [u64; 7], usize) {
+fn bounded_probe(controls: &[Control]) -> ([u64; 8], [u64; 8], usize) {
     let keys = wide_keys(if cfg!(miri) { 320 } else { 20_000 });
     let (map, model) = build(&keys);
     let k = keys[keys.len() / 8].clone();
@@ -622,13 +660,80 @@ fn deep_scan_overflow_falls_back_at_once() {
     );
 }
 
+/// The key sets of `sync_strmap_scan` (`path_keys` in
+/// `crates/expanse/benches/instructions.rs`, the same generator and seed).
+fn bench_path_keys(dense: bool, n: usize) -> Vec<Vec<u8>> {
+    let mut x = 0x5A71_C1A0_0000_0001u64;
+    let mut seen = std::collections::HashSet::with_capacity(n);
+    let mut out = Vec::with_capacity(n);
+    while out.len() < n {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let id = if dense {
+            let bucket = (x >> 28) % 52_428 * 20;
+            (bucket << 28) | (x & 0xFFF_FFFF)
+        } else {
+            x & 0xFFFF_FFFF_FFFF
+        };
+        if seen.insert(id) {
+            out.push(format!("https://example.com/api/v2/objects/{id:012x}").into_bytes());
+        }
+    }
+    out
+}
+
+/// One single-threaded full scan of a benchmark key set: the entries it
+/// returned against the model, and its counts.
+fn bench_scan(dense: bool, controls: &[Control]) -> (usize, [u64; 8]) {
+    let keys = bench_path_keys(dense, 50_000);
+    let (map, model) = build(&keys);
+    let (got, c) = on_thread(controls, || drain(map.reader().cursor()));
+    assert_eq!(got, model_range(&model, b"", None));
+    (got.len(), c)
+}
+
+/// P33.5 (§33.11.4): a single-threaded scan of each benchmark key set takes
+/// no restart, no overflow and no fallback, and at least 32 (`paths`) and
+/// 16 (`paths_dense`) keys per attempt.
+#[test]
+#[cfg_attr(miri, ignore = "50,000 keys per set; the tier-1 tests cover the walk")]
+fn bench_key_sets_scan_in_few_attempts() {
+    for (dense, floor) in [(false, 32), (true, 16)] {
+        let (len, c) = bench_scan(dense, &[]);
+        let attempts = count(c, Count::Attempts);
+        std::eprintln!(
+            "P33.5 {}: {len} keys, {attempts} attempts ({:.1} keys per attempt), {c:?}",
+            if dense { "paths_dense" } else { "paths" },
+            len as f64 / attempts as f64
+        );
+        assert_eq!(count(c, Count::Restarts), 0, "{c:?}");
+        assert_eq!(count(c, Count::Overflows), 0, "{c:?}");
+        assert_eq!(count(c, Count::Fallbacks), 0, "{c:?}");
+        assert!(
+            len as u64 >= floor * attempts,
+            "{len} keys in {attempts} attempts: {c:?}"
+        );
+    }
+}
+
+/// The negative control of admission: without it the walk enters children
+/// until the read set is full, and the attempt overflows into the writer
+/// lock.
+#[test]
+#[cfg_attr(miri, ignore = "50,000 keys; the tier-1 tests cover the walk")]
+fn bench_key_set_scan_without_admission_overflows() {
+    let (_, c) = bench_scan(true, &[Control::SkipAdmission]);
+    assert!(count(c, Count::Overflows) >= 1, "{c:?}");
+}
+
 // ---- Park points with negative controls (G33.1) ----------------------------
 
 /// A writer inserts into the drained level before the final validation.
 /// The batch must describe one instant: the validation fails, the attempt
 /// retries and the batch holds the new key. Without the final validation the
 /// batch is the drain's stale copy.
-fn park_final(controls: &[Control]) -> (Entries, [u64; 7]) {
+fn park_final(controls: &[Control]) -> (Entries, [u64; 8]) {
     let keys: Vec<Vec<u8>> = (0..40u32)
         .map(|i| format!("key{:03}", 2 * i).into_bytes())
         .collect();
@@ -661,13 +766,13 @@ fn park_without_final_validation_returns_the_stale_batch() {
     assert!(!got.iter().any(|(k, _)| k == b"key011"), "{got:?}");
 }
 
-/// The restart's validation: the probe `aaaaaaaaZ` descends into C under
-/// `aaaaaaaa`, finds nothing there at or after `Z`, and restarts past C. A
-/// writer inserts `aaaaaaaaZZ` into C at that attempt's final validation.
-/// The restart asserts C held nothing past the probe, so the validation
-/// fails and the retry returns the new key first; without it the cursor
-/// skips C and starts at S.
-fn park_restart(controls: &[Control]) -> (Entries, [u64; 7]) {
+/// The climb's validation: the probe `aaaaaaaaZ` descends into C under
+/// `aaaaaaaa`, finds nothing there at or after `Z`, and climbs to the root
+/// past C (§33.11.2). A writer inserts `aaaaaaaaZZ` into C at that attempt's
+/// final validation. The climb asserts C held nothing past the probe, so the
+/// validation fails and the retry returns the new key first; without it the
+/// cursor skips C and starts at S.
+fn park_restart(controls: &[Control]) -> (Entries, [u64; 8]) {
     let keys = [
         &b"aaaaaaaaAA"[..],
         b"aaaaaaaaAB",
@@ -710,7 +815,8 @@ fn park_restart(controls: &[Control]) -> (Entries, [u64; 7]) {
 fn tier1_park_restart_past_a_level_that_changed() {
     let (got, c) = park_restart(&[]);
     assert_eq!(got.first(), Some(&(b"aaaaaaaaZZ".to_vec(), 10)), "{got:?}");
-    assert!(count(c, Count::Restarts) >= 1, "{c:?}");
+    assert!(count(c, Count::Climbs) >= 1, "{c:?}");
+    assert!(count(c, Count::Attempts) >= 2, "{c:?}");
     assert_eq!(count(c, Count::Fallbacks), 0, "{c:?}");
 }
 
@@ -725,7 +831,7 @@ fn park_restart_without_validation_skips_the_level() {
 /// which replaces the suffix with a child node and retires it. The holder
 /// check before the suffix is read must fail and retry; without it the walk
 /// reads the retired suffix through a holder that no longer validates.
-fn park_suffix_split(controls: &[Control]) -> (Entries, [u64; 7]) {
+fn park_suffix_split(controls: &[Control]) -> (Entries, [u64; 8]) {
     let keys = [&b"a"[..], b"kkkkkkkkSUFFIX1", b"z"];
     let keys: Vec<Vec<u8>> = keys.iter().map(|k| k.to_vec()).collect();
     let map = Arc::new(build(&keys).0);
@@ -763,7 +869,7 @@ fn park_suffix_split_without_the_holder_check_reads_a_retired_suffix() {
 /// unlinks C and marks it obsolete. The cover check must fail; without it,
 /// and without the final validation, the cursor returns the removed keys
 /// from C's stale root state.
-fn park_prune(controls: &[Control]) -> (Entries, [u64; 7]) {
+fn park_prune(controls: &[Control]) -> (Entries, [u64; 8]) {
     let gone = [&b"ccccccccA"[..], b"ccccccccB"];
     let keys = [&b"a"[..], gone[0], gone[1], b"z"];
     let keys: Vec<Vec<u8>> = keys.iter().map(|k| k.to_vec()).collect();
