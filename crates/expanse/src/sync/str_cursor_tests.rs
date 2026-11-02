@@ -81,7 +81,10 @@ fn locked_prefix(map: &SyncExpanseStrMap, p: &[u8]) -> Entries {
 
 /// Runs `body` on a fresh thread with `controls` on, and returns its result
 /// with that thread's counts.
-fn on_thread<R: Send>(controls: &[Control], body: impl FnOnce() -> R + Send) -> (R, [u64; 8]) {
+fn on_thread<R: Send>(
+    controls: &[Control],
+    body: impl FnOnce() -> R + Send,
+) -> (R, [u64; th::COUNTS]) {
     std::thread::scope(|s| {
         s.spawn(|| {
             for &c in controls {
@@ -95,7 +98,7 @@ fn on_thread<R: Send>(controls: &[Control], body: impl FnOnce() -> R + Send) -> 
     })
 }
 
-fn count(c: [u64; 8], which: Count) -> u64 {
+fn count(c: [u64; th::COUNTS], which: Count) -> u64 {
     c[which as usize]
 }
 
@@ -423,7 +426,7 @@ fn wide_keys(n: usize) -> Vec<Vec<u8>> {
 /// The negative control lets the drain's branch loops walk past the end
 /// bound, as the map cursor did before #1382: the walk then samples a branch
 /// per subtree to the right until the read set is full.
-fn bounded_probe(controls: &[Control]) -> ([u64; 8], [u64; 8], usize) {
+fn bounded_probe(controls: &[Control]) -> ([u64; th::COUNTS], [u64; th::COUNTS], usize) {
     let keys = wide_keys(if cfg!(miri) { 320 } else { 20_000 });
     let (map, model) = build(&keys);
     let k = keys[keys.len() / 8].clone();
@@ -685,7 +688,7 @@ fn bench_path_keys(dense: bool, n: usize) -> Vec<Vec<u8>> {
 
 /// One single-threaded full scan of a benchmark key set: the entries it
 /// returned against the model, and its counts.
-fn bench_scan(dense: bool, controls: &[Control]) -> (usize, [u64; 8]) {
+fn bench_scan(dense: bool, controls: &[Control]) -> (usize, [u64; th::COUNTS]) {
     let keys = bench_path_keys(dense, 50_000);
     let (map, model) = build(&keys);
     let (got, c) = on_thread(controls, || drain(map.reader().cursor()));
@@ -695,11 +698,13 @@ fn bench_scan(dense: bool, controls: &[Control]) -> (usize, [u64; 8]) {
 
 /// P33.5 (§33.11.4): a single-threaded scan of each benchmark key set takes
 /// no restart, no overflow and no fallback, and at least 32 (`paths`) and
-/// 16 (`paths_dense`) keys per attempt.
+/// 16 (`paths_dense`) keys per attempt. It also pins the drains of a level
+/// other than its first, the input of P33.7 (§33.13,
+/// `scripts/str_cursor_bounds.py::STR_CURSOR_A3_RESUMES`).
 #[test]
 #[cfg_attr(miri, ignore = "50,000 keys per set; the tier-1 tests cover the walk")]
 fn bench_key_sets_scan_in_few_attempts() {
-    for (dense, floor) in [(false, 32), (true, 16)] {
+    for (dense, floor, resumes) in [(false, 32, 1_435), (true, 16, 13_336)] {
         let (len, c) = bench_scan(dense, &[]);
         let attempts = count(c, Count::Attempts);
         std::eprintln!(
@@ -714,6 +719,7 @@ fn bench_key_sets_scan_in_few_attempts() {
             len as u64 >= floor * attempts,
             "{len} keys in {attempts} attempts: {c:?}"
         );
+        assert_eq!(count(c, Count::Resumes), resumes, "{c:?}");
     }
 }
 
@@ -733,7 +739,7 @@ fn bench_key_set_scan_without_admission_overflows() {
 /// The batch must describe one instant: the validation fails, the attempt
 /// retries and the batch holds the new key. Without the final validation the
 /// batch is the drain's stale copy.
-fn park_final(controls: &[Control]) -> (Entries, [u64; 8]) {
+fn park_final(controls: &[Control]) -> (Entries, [u64; th::COUNTS]) {
     let keys: Vec<Vec<u8>> = (0..40u32)
         .map(|i| format!("key{:03}", 2 * i).into_bytes())
         .collect();
@@ -772,7 +778,7 @@ fn park_without_final_validation_returns_the_stale_batch() {
 /// final validation. The climb asserts C held nothing past the probe, so the
 /// validation fails and the retry returns the new key first; without it the
 /// cursor skips C and starts at S.
-fn park_restart(controls: &[Control]) -> (Entries, [u64; 8]) {
+fn park_restart(controls: &[Control]) -> (Entries, [u64; th::COUNTS]) {
     let keys = [
         &b"aaaaaaaaAA"[..],
         b"aaaaaaaaAB",
@@ -831,7 +837,7 @@ fn park_restart_without_validation_skips_the_level() {
 /// which replaces the suffix with a child node and retires it. The holder
 /// check before the suffix is read must fail and retry; without it the walk
 /// reads the retired suffix through a holder that no longer validates.
-fn park_suffix_split(controls: &[Control]) -> (Entries, [u64; 8]) {
+fn park_suffix_split(controls: &[Control]) -> (Entries, [u64; th::COUNTS]) {
     let keys = [&b"a"[..], b"kkkkkkkkSUFFIX1", b"z"];
     let keys: Vec<Vec<u8>> = keys.iter().map(|k| k.to_vec()).collect();
     let map = Arc::new(build(&keys).0);
@@ -869,7 +875,7 @@ fn park_suffix_split_without_the_holder_check_reads_a_retired_suffix() {
 /// unlinks C and marks it obsolete. The cover check must fail; without it,
 /// and without the final validation, the cursor returns the removed keys
 /// from C's stale root state.
-fn park_prune(controls: &[Control]) -> (Entries, [u64; 8]) {
+fn park_prune(controls: &[Control]) -> (Entries, [u64; th::COUNTS]) {
     let gone = [&b"ccccccccA"[..], b"ccccccccB"];
     let keys = [&b"a"[..], gone[0], gone[1], b"z"];
     let keys: Vec<Vec<u8>> = keys.iter().map(|k| k.to_vec()).collect();

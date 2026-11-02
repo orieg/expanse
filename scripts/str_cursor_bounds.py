@@ -957,6 +957,55 @@ def str_cursor_ratio_without_key_copy(workload: str) -> float:
     return (cursor - e["key_copy"] * STR_CURSOR_PROFILE_KEYS) / locked
 
 
+# ---------------------------------------------------------------------------
+# Section 33.13: amendment A4, buffered parent resume, and P33.7
+# ---------------------------------------------------------------------------
+#
+# An A3 drain stops at the first child pointer it pushes, so every child round
+# trip ends with a resumed drain of the parent that re-descends the parent's
+# sub-map from its top edge. `Count::Resumes` counts the drains of a level other
+# than its first. On the A3 engine a single-threaded full scan of each benchmark
+# key set counts the values below, which
+# `sync::str_cursor_tests::bench_key_sets_scan_in_few_attempts` pins exactly at
+# the commit that adds the counter (measured: that test, A3 engine).
+
+STR_CURSOR_A3_RESUMES: dict[str, int] = {"paths": 1_435, "paths_dense": 13_336}
+
+# P33.7 (section 33.13.4), frozen before any engine code of A4: the share of
+# A3's resumed drains an A4 scan of the same key set may still take, per cell
+# (target). On `paths` A4 keeps the drains it does not target: every attempt's
+# first drained level stops at its first child, as the probe's bound requires
+# (section 33.13.2), and a `paths` scan takes 575 attempts (section 33.11.5), so
+# that cell is held only to not increasing.
+TARGET_P33_7_RESUME_SHARE: dict[str, float] = {"paths": 1.0, "paths_dense": 0.2}
+
+
+def str_cursor_a4_resume_ceiling(workload: str) -> int:
+    """Most resumed drains P33.7 allows an A4 full scan of `workload`'s key set.
+
+    `floor(TARGET_P33_7_RESUME_SHARE[workload] * a3)`, with `a3` the resumed drains
+    the A3 engine takes on the same key set (`STR_CURSOR_A3_RESUMES`).
+
+    Raises:
+        ValueError: On an unknown workload.
+    """
+    if workload not in STR_CURSOR_A3_RESUMES:
+        raise ValueError(f"Unknown workload: {workload}")
+    return int(TARGET_P33_7_RESUME_SHARE[workload] * STR_CURSOR_A3_RESUMES[workload])
+
+
+def str_a4_drain_costs() -> tuple[int, int, int]:
+    """Worst-case versions one A4 step adds: (entering a child, resuming by a drain, resuming from the buffer).
+
+    Entering a child and resuming a level by a drain cost what they cost under A3
+    (`str_nested_drain_costs`): A4 keeps the drain, its one-sibling-descent stop
+    and its admission. Resuming a level from the pairs it already drained reads
+    no node and samples nothing.
+    """
+    enter, resume = str_nested_drain_costs()
+    return enter, resume, 0
+
+
 class TestStrCursorBounds(unittest.TestCase):
     """Unit tests pinning mathematical bounds and invariants."""
 
@@ -1301,6 +1350,24 @@ class TestStrCursorBounds(unittest.TestCase):
         self.assertGreaterEqual(doc.count("(projected)"), 7)
         self.assertIn("projected", strmap_predicted_callgrind_ratio.__doc__ or "")
 
+    def test_a4_resume_ceiling_and_costs(self) -> None:
+        """P33.7's ceilings follow from the pinned A3 counts; A4 adds no read-set cost."""
+        self.assertEqual(TARGET_P33_7_RESUME_SHARE, {"paths": 1.0, "paths_dense": 0.2})
+        self.assertEqual(str_cursor_a4_resume_ceiling("paths"), 1_435)
+        self.assertEqual(str_cursor_a4_resume_ceiling("paths_dense"), 2_667)
+        self.assertEqual(str_a4_drain_costs(), (14, 13, 0))
+        with self.assertRaises(ValueError):
+            str_cursor_a4_resume_ceiling("invalid_workload")
+
+    def test_p33_6_ceiling_leaves_no_drain_excess_on_paths(self) -> None:
+        """P33.6 equals the ratio with the whole drain excess removed, so A4 meets it only if it removes all of it."""
+        for wl in ("paths", "paths_dense"):
+            e = str_cursor_excess_per_key(wl)
+            locked = str_cursor_profile_engine_ir(f"{wl}/locked") / STR_CURSOR_PROFILE_KEYS
+            with_drain = (locked + sum(e.values())) / locked
+            self.assertAlmostEqual(with_drain - str_cursor_copy_out_ceiling(wl), e["drain_pass_handoff"] / locked)
+            self.assertGreater(e["drain_pass_handoff"], 0)
+
     def test_callgrind_predicted_ratios(self) -> None:
         """Confirm derived Callgrind ratios sit strictly below the 1.15 ceiling."""
         ratio_paths = strmap_predicted_callgrind_ratio("paths", avg_batch_size=64)
@@ -1356,7 +1423,9 @@ def report() -> None:
     print(f"   A3 (drain into children while the set has room): every attempt <= {STR_READ_SET_CAP} for depth <= 15;")
     print(f"     (drains, children) admitted at least, worst case, d = 1..5: {nested}")
     for wl in SYNC_STRMAP_SCAN_MEASURED_A2:
-        print(f"     A2 measured {wl}: ratio {sync_strmap_scan_ratio_a2(wl):.3f} ({SYNC_STRMAP_SCAN_MEASURED_A2_SOURCE})")
+        print(
+            f"     A2 measured {wl}: ratio {sync_strmap_scan_ratio_a2(wl):.3f} ({SYNC_STRMAP_SCAN_MEASURED_A2_SOURCE})"
+        )
     for wl in SYNC_STRMAP_SCAN_MEASURED_A3:
         excess, allowed = sync_strmap_scan_excess_per_key_a3(wl)
         print(
@@ -1367,6 +1436,9 @@ def report() -> None:
         e = str_cursor_excess_per_key(wl)
         parts = ", ".join(f"{k} {v:.1f}" for k, v in e.items())
         print(f"     section 33.12 {wl}: excess per key {parts}; P33.6 derives {str_cursor_copy_out_ceiling(wl):.4f}")
+        print(
+            f"     section 33.13 {wl}: A3 resumed drains {STR_CURSOR_A3_RESUMES[wl]}; P33.7 allows {str_cursor_a4_resume_ceiling(wl)}"
+        )
     p = str_read_set_policy()
     print(
         f"   Single StrNode: {p['single_node_max']} (one seek, fits cap) / {p['single_node_max_two_seek']} (two seeks, exceeds cap)"

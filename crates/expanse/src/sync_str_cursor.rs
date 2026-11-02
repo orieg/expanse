@@ -868,9 +868,12 @@ pub(crate) mod test_hooks {
         UnvalidatedDerefs,
         /// Versions retained, summed over every attempt.
         Samples,
+        /// Sub-map drains other than a level's first, within an attempt.
+        Resumes,
     }
 
-    const COUNTS: usize = 8;
+    /// Number of [`Count`] kinds.
+    pub(crate) const COUNTS: usize = 9;
 
     /// The write armed at a site.
     type Armed = Option<(Site, Box<dyn FnOnce()>)>;

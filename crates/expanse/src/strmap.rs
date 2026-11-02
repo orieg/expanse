@@ -2933,6 +2933,8 @@ impl ExpanseStrMap {
             } else {
                 batch.levels.len() - 1
             } * CHUNK;
+            #[cfg(test)]
+            let resumed = !entering;
             if entering {
                 if admit && (refused || !unadmitted && rs.len() + NESTED_ENTER_COST > CAP) {
                     return refuse(0, prefix, batch, restart, rs);
@@ -2970,6 +2972,10 @@ impl ExpanseStrMap {
                 entering = false;
             } else if admit && (refused || !unadmitted && rs.len() + NESTED_RESUME_COST > CAP) {
                 return refuse(from, prefix, batch, restart, rs);
+            }
+            #[cfg(test)]
+            if resumed {
+                th::count(Count::Resumes);
             }
             let ScanLevel {
                 cover,
