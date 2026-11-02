@@ -957,7 +957,8 @@ pub(crate) enum ScanEnd {
 }
 
 /// One level the scan walk holds within an attempt (§33.11.2): what a
-/// resumed drain of it needs.
+/// resumed drain of it needs, and the pairs it drained and has not taken
+/// (§33.13.2).
 #[cfg(feature = "std")]
 #[derive(Clone, Copy)]
 pub(crate) struct ScanLevel {
@@ -969,6 +970,20 @@ pub(crate) struct ScanLevel {
     msnap: crate::sync::RootSnapshot,
     /// The path to this level equals the end bound's first bytes.
     tied: bool,
+    /// The chunk the level's next drain starts from.
+    from: u64,
+    /// `batch.pairs[next..end]` are the pairs the level drained and has not
+    /// taken yet (§33.13.2).
+    next: usize,
+    /// End of the level's region of `batch.pairs`.
+    end: usize,
+    /// Once its pending pairs run out, the level is drained again from
+    /// `from`: its last drain stopped inside its sub-map.
+    more: bool,
+    /// The level's last drain met a chunk past the end bound.
+    past_end: bool,
+    /// The level has drained, so a later drain is a resume.
+    drained: bool,
 }
 
 /// Read-set room a scan attempt needs to enter a child after its first
@@ -2819,10 +2834,14 @@ impl ExpanseStrMap {
     ///
     /// The walk descends `start`'s exact continuations, then drains `StrNode`
     /// sub-maps with `sync_str_cursor::drain_submap` and copies each entry's
-    /// key into the batch. It enters each child it meets, resumes a level
-    /// whose drain stopped inside its sub-map, and climbs from a level that
-    /// ran out to its parent's next chunk, holding the levels on the path in
-    /// `batch.levels`. After the first drained level, a drain runs only when
+    /// key into the batch. It holds the levels on the path in `batch.levels`,
+    /// each with the pairs its last drain collected and the walk has not
+    /// taken yet, stacked in `batch.pairs`. Once the walk has left the probe's
+    /// path a drain passes over child pointers, so the walk enters each child
+    /// it meets and, when the child runs out, climbs back to the parent's
+    /// pending pairs without draining the parent again (§33.13.2). A level is
+    /// drained again only when its pairs ran out and its last drain stopped
+    /// inside its sub-map. After the first drained level, a drain runs only when
     /// the read set has room for its worst case, so an attempt retains at
     /// most `CAP` versions at every depth the first drained level fits
     /// (`scripts/str_cursor_bounds.py::str_cursor_nested_attempt_read_set_bound`).
@@ -2915,9 +2934,11 @@ impl ExpanseStrMap {
         // admitted against the read set's room (§33.11.2 item 4).
         let mut admit = false;
         // `node` names a level to enter; otherwise the top of `batch.levels`
-        // is drained again from `from`.
+        // takes its pending pairs, or is drained again from its `from`.
         let mut entering = true;
-        let mut from = 0u64;
+        // Pending pairs of every level on the path, which with the batch's
+        // entries never exceed the batch (§33.13.2 item 3).
+        let mut pending = 0usize;
         #[cfg(test)]
         let (unadmitted, refused) = (
             th::control(Control::SkipAdmission),
@@ -2925,17 +2946,17 @@ impl ExpanseStrMap {
         );
         #[cfg(not(test))]
         let (unadmitted, refused) = (false, false);
-        // A child pointer ends a drain: the walk descends into it or stops.
-        let stop = |chunk: u64, v: u64| !is_terminal(chunk) && !is_suffix_ptr(v);
+        #[cfg(test)]
+        let scratch = if th::control(Control::NarrowScratch) {
+            th::NARROW_SCRATCH
+        } else {
+            batch.pairs.len()
+        };
+        #[cfg(not(test))]
+        let scratch = batch.pairs.len();
         loop {
-            let off = if entering {
-                batch.levels.len()
-            } else {
-                batch.levels.len() - 1
-            } * CHUNK;
-            #[cfg(test)]
-            let resumed = !entering;
             if entering {
+                let off = batch.levels.len() * CHUNK;
                 if admit && (refused || !unadmitted && rs.len() + NESTED_ENTER_COST > CAP) {
                     return refuse(0, prefix, batch, restart, rs);
                 }
@@ -2962,102 +2983,201 @@ impl ExpanseStrMap {
                 if !held {
                     th::count(Count::UnvalidatedDerefs);
                 }
+                let top = batch.levels.last().map_or(0, |l| l.end);
                 batch.levels.push(ScanLevel {
                     cover,
                     csnap,
                     msnap,
                     tied,
+                    from: if probe { chunk_at(start, off).0 } else { 0 },
+                    next: top,
+                    end: top,
+                    more: true,
+                    past_end: false,
+                    drained: false,
                 });
-                from = if probe { chunk_at(start, off).0 } else { 0 };
                 entering = false;
-            } else if admit && (refused || !unadmitted && rs.len() + NESTED_RESUME_COST > CAP) {
-                return refuse(from, prefix, batch, restart, rs);
             }
-            #[cfg(test)]
-            if resumed {
-                th::count(Count::Resumes);
-            }
-            let ScanLevel {
-                cover,
-                csnap,
-                msnap,
-                tied: level_tied,
-            } = batch.levels[batch.levels.len() - 1];
-
+            let li = batch.levels.len() - 1;
+            let off = li * CHUNK;
+            let level = batch.levels[li];
             let end_chunk = match hi {
-                Some(h) if level_tied => chunk_at(h, off).0,
+                Some(h) if level.tied => chunk_at(h, off).0,
                 _ => u64::MAX,
             };
-            let mark = rs.len();
-            let mut d = crate::sync_str_cursor::SubDrain {
-                buf: &mut batch.pairs,
-                count: 0,
-                end_chunk,
-                past_end: false,
-                stopped: false,
-                cut: false,
-            };
-            // SAFETY: the root state was copied under `cover` and validated
-            // against it when the level was entered, the cover stays in the
-            // read set, and the caller's pin is held throughout.
-            unsafe {
-                crate::sync_str_cursor::drain_submap(msnap, from, cover, csnap, rs, &mut d, &stop)?;
-            }
-            // Admission charges a drain `NESTED_RESUME_COST` versions.
-            debug_assert!(
-                rs.len() - mark <= NESTED_RESUME_COST,
-                "a sub-map drain exceeded its admission cost"
-            );
-            let (n, past_end) = (d.count, d.past_end);
-            // More of this sub-map may follow the pairs drained.
-            let more = d.stopped || d.cut || n == d.buf.len();
-            #[cfg(test)]
-            th::at(Site::Drained);
-            if batch.pairs[..n].iter().any(|&(c, _)| !is_terminal(c)) {
-                // The holder check before any pointer value is dereferenced:
-                // the cover and every branch the drain sampled.
-                // SAFETY: the live cover; entries sampled under the pin.
-                let held = node_validate(unsafe { version_cell(cover) }, csnap)
-                    && unsafe { rs.validate_from(mark) };
-                #[cfg(test)]
-                let skip = th::control(Control::SkipHolderCheck);
-                #[cfg(not(test))]
-                let skip = false;
-                if !skip && !held {
-                    #[cfg(test)]
-                    th::count(Count::HolderRetries);
-                    return Err(Retry);
-                }
-                #[cfg(test)]
-                if !held {
-                    th::count(Count::UnvalidatedDerefs);
-                }
-            }
 
-            let mut first = 0;
-            if probe && n > 0 && batch.pairs[0].0 == from && !is_terminal(from) {
-                let v = batch.pairs[0].1;
-                if !is_suffix_ptr(v) {
-                    // An exact continuation: the probe goes on below it.
-                    prefix.extend_from_slice(&from.to_be_bytes());
-                    tied = level_tied && from == end_chunk;
-                    node = unpack_child(v).cast_const();
-                    entering = true;
+            if level.next == level.end {
+                if level.past_end {
+                    let end = if batch.count > 0 {
+                        ScanEnd::Batch { last: true }
+                    } else {
+                        ScanEnd::Exhausted
+                    };
+                    return finish(end, rs);
+                }
+                if !level.more {
+                    // This level ran out: climb to its parent, which goes on
+                    // with its pending pairs or drains again past the child.
+                    batch.levels.pop();
+                    if batch.levels.is_empty() {
+                        // Past the root: the scan is over.
+                        let end = if batch.count > 0 {
+                            ScanEnd::Batch { last: true }
+                        } else {
+                            ScanEnd::Exhausted
+                        };
+                        return finish(end, rs);
+                    }
+                    prefix.truncate((batch.levels.len() - 1) * CHUNK);
+                    #[cfg(test)]
+                    th::count(Count::Climbs);
                     continue;
                 }
-                // SAFETY: the holder validated after the pointer was loaded.
-                let bytes = unsafe { suffix_bytes(unpack_suffix(v)) };
-                if &start[off + CHUNK..] > bytes {
-                    // The suffix sorts below the probe.
-                    first = 1;
+                if level.drained {
+                    if admit && (refused || !unadmitted && rs.len() + NESTED_RESUME_COST > CAP) {
+                        return refuse(level.from, prefix, batch, restart, rs);
+                    }
+                    #[cfg(test)]
+                    th::count(Count::Resumes);
                 }
+                // The batch's room left after every pending pair; zero only
+                // once the batch holds an entry (§33.13.2 item 3).
+                let room = crate::sync_str_cursor::STR_BATCH_CAP - batch.count - pending;
+                if room == 0 {
+                    debug_assert!(batch.count > 0, "an empty batch ran out of room");
+                    return finish(ScanEnd::Batch { last: false }, rs);
+                }
+                let mut base = level.end;
+                if base == scratch {
+                    // The scratch is full of consumed pairs below the
+                    // pending ones: move every level's pending pairs down.
+                    let mut w = 0;
+                    for l in batch.levels.iter_mut() {
+                        let n = l.end - l.next;
+                        batch.pairs.copy_within(l.next..l.end, w);
+                        (l.next, l.end) = (w, w + n);
+                        w += n;
+                    }
+                    base = w;
+                    #[cfg(test)]
+                    th::count(Count::Compactions);
+                }
+                let take = room.min(scratch - base);
+                debug_assert!(take > 0, "a drain without room");
+                let mark = rs.len();
+                // While the walk follows the probe, a child pointer ends the
+                // drain (§33.13.2 item 1); later drains pass over children.
+                #[cfg(test)]
+                let stop_at_child = probe || th::control(Control::StopAtEveryChild);
+                #[cfg(not(test))]
+                let stop_at_child = probe;
+                let stop = move |chunk: u64, v: u64| {
+                    stop_at_child && !is_terminal(chunk) && !is_suffix_ptr(v)
+                };
+                let mut d = crate::sync_str_cursor::SubDrain {
+                    buf: &mut batch.pairs[base..base + take],
+                    count: 0,
+                    end_chunk,
+                    past_end: false,
+                    stopped: false,
+                    cut: false,
+                };
+                // SAFETY: the root state was copied under `cover` and
+                // validated against it when the level was entered, the cover
+                // stays in the read set, and the caller's pin is held
+                // throughout.
+                unsafe {
+                    crate::sync_str_cursor::drain_submap(
+                        level.msnap,
+                        level.from,
+                        level.cover,
+                        level.csnap,
+                        rs,
+                        &mut d,
+                        &stop,
+                    )?;
+                }
+                // Admission charges a drain `NESTED_RESUME_COST` versions.
+                debug_assert!(
+                    rs.len() - mark <= NESTED_RESUME_COST,
+                    "a sub-map drain exceeded its admission cost"
+                );
+                let (n, past_end) = (d.count, d.past_end);
+                // More of this sub-map may follow the pairs drained.
+                let more = d.stopped || d.cut || n == take;
+                #[cfg(test)]
+                th::at(Site::Drained);
+                let drained = &batch.pairs[base..base + n];
+                if drained.iter().any(|&(c, _)| !is_terminal(c)) {
+                    // The holder check before any pointer value is
+                    // dereferenced: the cover and every branch the drain
+                    // sampled.
+                    // SAFETY: the live cover; entries sampled under the pin.
+                    let held = node_validate(unsafe { version_cell(level.cover) }, level.csnap)
+                        && unsafe { rs.validate_from(mark) };
+                    #[cfg(test)]
+                    let skip = th::control(Control::SkipHolderCheck);
+                    #[cfg(not(test))]
+                    let skip = false;
+                    if !skip && !held {
+                        #[cfg(test)]
+                        th::count(Count::HolderRetries);
+                        return Err(Retry);
+                    }
+                    #[cfg(test)]
+                    if !held {
+                        th::count(Count::UnvalidatedDerefs);
+                    }
+                }
+                let resume = if more {
+                    drained.last().and_then(|&(c, _)| c.checked_add(1))
+                } else {
+                    None
+                };
+                let mut first = base;
+                if probe && n > 0 && drained[0].0 == level.from && !is_terminal(level.from) {
+                    let (chunk, v) = drained[0];
+                    if !is_suffix_ptr(v) {
+                        // An exact continuation: the probe goes on below it.
+                        let l = &mut batch.levels[li];
+                        (l.next, l.end, l.drained) = (base + 1, base + n, true);
+                        (l.more, l.past_end) = (resume.is_some(), past_end);
+                        if let Some(r) = resume {
+                            l.from = r;
+                        }
+                        pending += n - 1;
+                        prefix.extend_from_slice(&chunk.to_be_bytes());
+                        tied = level.tied && chunk == end_chunk;
+                        node = unpack_child(v).cast_const();
+                        entering = true;
+                        continue;
+                    }
+                    // SAFETY: the holder validated after the pointer was loaded.
+                    let bytes = unsafe { suffix_bytes(unpack_suffix(v)) };
+                    if &start[off + CHUNK..] > bytes {
+                        // The suffix sorts below the probe.
+                        first = base + 1;
+                    }
+                }
+                probe = false;
+                admit = true;
+                let l = &mut batch.levels[li];
+                (l.next, l.end, l.drained) = (first, base + n, true);
+                (l.more, l.past_end) = (resume.is_some(), past_end);
+                if let Some(r) = resume {
+                    l.from = r;
+                }
+                pending += base + n - first;
             }
-            probe = false;
-            admit = true;
 
+            // Take the level's pending pairs in order: copy terminals and
+            // suffixes, and enter the first child.
+            let (mut j, end) = (batch.levels[li].next, batch.levels[li].end);
             let mut child = None;
-            for j in first..n {
+            while j < end {
                 let (chunk, v) = batch.pairs[j];
+                j += 1;
+                pending -= 1;
                 let cb = chunk.to_be_bytes();
                 let (mid, tail, value): (&[u8], &[u8], u64) = if is_terminal(chunk) {
                     let len = CHUNK - (chunk.trailing_zeros() / 8) as usize;
@@ -3080,12 +3200,11 @@ impl ExpanseStrMap {
                         )
                     }
                 } else {
-                    // A child, the drain's last pair: the walk enters it.
                     child = Some((chunk, v));
                     break;
                 };
                 if let Some(h) = hi
-                    && level_tied
+                    && level.tied
                     && chunk == end_chunk
                     && !concat_below(mid, tail, &h[off.min(h.len())..])
                 {
@@ -3100,50 +3219,14 @@ impl ExpanseStrMap {
                     return finish(ScanEnd::Batch { last: false }, rs);
                 }
             }
+            batch.levels[li].next = j;
             if let Some((chunk, v)) = child {
+                // The parent goes on with its pending pairs once the child
+                // has run out.
                 prefix.extend_from_slice(&chunk.to_be_bytes());
-                tied = level_tied && chunk == end_chunk;
+                tied = level.tied && chunk == end_chunk;
                 node = unpack_child(v).cast_const();
                 entering = true;
-                // The parent resumes after the child once it has run out.
-                continue;
-            }
-            if past_end {
-                let end = if batch.count > 0 {
-                    ScanEnd::Batch { last: true }
-                } else {
-                    ScanEnd::Exhausted
-                };
-                return finish(end, rs);
-            }
-            if more && let Some(next) = batch.pairs[n - 1].0.checked_add(1) {
-                // The drain stopped inside its sub-map: resume this level.
-                from = next;
-                continue;
-            }
-            // This level ran out: climb to the first ancestor with a chunk
-            // after the child the walk came from.
-            loop {
-                batch.levels.pop();
-                if batch.levels.is_empty() {
-                    // Past the root: the scan is over.
-                    let end = if batch.count > 0 {
-                        ScanEnd::Batch { last: true }
-                    } else {
-                        ScanEnd::Exhausted
-                    };
-                    return finish(end, rs);
-                }
-                let at = (batch.levels.len() - 1) * CHUNK;
-                let mut cb = [0u8; CHUNK];
-                cb.copy_from_slice(&prefix[at..at + CHUNK]);
-                prefix.truncate(at);
-                #[cfg(test)]
-                th::count(Count::Climbs);
-                if let Some(next) = u64::from_be_bytes(cb).checked_add(1) {
-                    from = next;
-                    break;
-                }
             }
         }
     }

@@ -698,13 +698,13 @@ fn bench_scan(dense: bool, controls: &[Control]) -> (usize, [u64; th::COUNTS]) {
 
 /// P33.5 (§33.11.4): a single-threaded scan of each benchmark key set takes
 /// no restart, no overflow and no fallback, and at least 32 (`paths`) and
-/// 16 (`paths_dense`) keys per attempt. It also pins the drains of a level
-/// other than its first, the input of P33.7 (§33.13,
-/// `scripts/str_cursor_bounds.py::STR_CURSOR_A3_RESUMES`).
+/// 16 (`paths_dense`) keys per attempt. P33.7 (§33.13.4): it takes at most
+/// 1,435 (`paths`) and 2,667 (`paths_dense`) drains of a level other than
+/// its first (`scripts/str_cursor_bounds.py::str_cursor_a4_resume_ceiling`).
 #[test]
 #[cfg_attr(miri, ignore = "50,000 keys per set; the tier-1 tests cover the walk")]
 fn bench_key_sets_scan_in_few_attempts() {
-    for (dense, floor, resumes) in [(false, 32, 1_435), (true, 16, 13_336)] {
+    for (dense, floor, resumes) in [(false, 32, 1_435), (true, 16, 2_667)] {
         let (len, c) = bench_scan(dense, &[]);
         let attempts = count(c, Count::Attempts);
         std::eprintln!(
@@ -719,18 +719,68 @@ fn bench_key_sets_scan_in_few_attempts() {
             len as u64 >= floor * attempts,
             "{len} keys in {attempts} attempts: {c:?}"
         );
-        assert_eq!(count(c, Count::Resumes), resumes, "{c:?}");
+        assert!(count(c, Count::Resumes) <= resumes, "P33.7: {c:?}");
     }
 }
 
-/// The negative control of admission: without it the walk enters children
-/// until the read set is full, and the attempt overflows into the writer
-/// lock.
+/// Admission and its negative control. A scratch of `NARROW_SCRATCH` pairs
+/// makes every drain short, so the walk resumes its levels by drains, each
+/// admitted against the read set's room: with admission no attempt
+/// overflows; without it the walk drains until the read set is full, and the
+/// attempt overflows into the writer lock. Both still return the model.
 #[test]
 #[cfg_attr(miri, ignore = "50,000 keys; the tier-1 tests cover the walk")]
 fn bench_key_set_scan_without_admission_overflows() {
-    let (_, c) = bench_scan(true, &[Control::SkipAdmission]);
+    let (_, admitted) = bench_scan(true, &[Control::NarrowScratch]);
+    assert_eq!(count(admitted, Count::Overflows), 0, "{admitted:?}");
+    assert!(count(admitted, Count::Compactions) >= 1, "{admitted:?}");
+    let (_, c) = bench_scan(true, &[Control::NarrowScratch, Control::SkipAdmission]);
     assert!(count(c, Count::Overflows) >= 1, "{c:?}");
+}
+
+/// The negative control of P33.7: a drain that stops at every child, as
+/// under A3, resumes its parent by a drain after each child, and the scan
+/// takes A3's resumed drains exactly
+/// (`scripts/str_cursor_bounds.py::STR_CURSOR_A3_RESUMES`), above the
+/// ceiling the test above asserts.
+#[test]
+#[cfg_attr(miri, ignore = "50,000 keys; the tier-1 tests cover the walk")]
+fn stopping_at_every_child_restores_the_a3_resumes() {
+    for (dense, a3) in [(false, 1_435), (true, 13_336)] {
+        let (_, c) = bench_scan(dense, &[Control::StopAtEveryChild]);
+        assert_eq!(count(c, Count::Resumes), a3, "{c:?}");
+    }
+}
+
+/// A scratch of `NARROW_SCRATCH` pairs (§33.13.2 item 3): drains of one or
+/// two pairs, pending regions compacted under a child, and the batch's
+/// room bound, from every probe of keys that cross levels and suffixes.
+#[test]
+fn tier1_narrow_scratch_scan_matches_the_model() {
+    let mut keys = generated_keys(if cfg!(miri) { 60 } else { 600 }, true);
+    for a in [&b"aaaaaaaa"[..], b"aaaaaaab", b"bbbbbbbb"] {
+        for t in [&b""[..], b"\x01", b"M", b"MM", b"MN", b"Z", b"ZZZZZZZZZ"] {
+            let mut k = a.to_vec();
+            k.extend_from_slice(t);
+            keys.push(k);
+        }
+    }
+    keys.push(b"aaaaaaaaQsuffix".to_vec());
+    let (map, model) = build(&keys);
+    let probes = probes_around(&keys);
+    let (_, c) = on_thread(&[Control::NarrowScratch], || {
+        let rd = map.reader();
+        assert_eq!(drain(rd.cursor()), model_range(&model, b"", None));
+        for lo in probes.iter().step_by(if cfg!(miri) { 16 } else { 1 }) {
+            assert_eq!(
+                drain(rd.range_cursor(nf(lo), nf(&[0xFF]))),
+                model_range(&model, lo, Some(&[0xFF])),
+                "from {lo:x?}"
+            );
+        }
+    });
+    assert!(count(c, Count::Compactions) >= 1, "{c:?}");
+    assert_eq!(count(c, Count::Fallbacks), 0, "{c:?}");
 }
 
 // ---- Park points with negative controls (G33.1) ----------------------------
@@ -868,6 +918,50 @@ fn park_suffix_split_without_the_holder_check_reads_a_retired_suffix() {
     assert!(got.iter().any(|(k, _)| k == b"kkkkkkkkSUFFIX2"), "{got:?}");
     assert_eq!(count(c, Count::UnvalidatedDerefs), 1, "{c:?}");
     assert_eq!(count(c, Count::HolderRetries), 0, "{c:?}");
+}
+
+/// A pending pair read before a child round trip (§33.13.2): the root's
+/// first drain stops at C1 (the probe's level), and its resume drains C2
+/// and the suffix leaf `kkkkkkkk` past it. At C2's level entry a writer
+/// inserts a second key under `kkkkkkkk`, which replaces the suffix with a
+/// child node and retires it. The walk takes the pending suffix after C2
+/// runs out; the final validation must fail and the retry return the new
+/// key. Without the final validation the batch is the stale copy.
+fn park_pending_suffix(controls: &[Control]) -> (Entries, [u64; th::COUNTS]) {
+    let keys = [
+        &b"ccccccccA"[..],
+        b"ccccccccB",
+        b"ddddddddA",
+        b"ddddddddB",
+        b"kkkkkkkkSUFFIX1",
+    ];
+    let keys: Vec<Vec<u8>> = keys.iter().map(|k| k.to_vec()).collect();
+    let map = Arc::new(build(&keys).0);
+    on_thread(controls, || {
+        let w = Arc::clone(&map);
+        // The root's entry is the first, C1's the second, C2's the third.
+        let fired = arm_nth(Site::LevelEntry, 3, move || {
+            assert_eq!(w.insert(nf(b"kkkkkkkkSUFFIX2"), 7), None);
+        });
+        let got = drain(map.reader().cursor());
+        assert_eq!(fired.load(Ordering::SeqCst), 1);
+        got
+    })
+}
+
+#[test]
+fn tier1_park_pending_suffix_retires_behind_a_child() {
+    let (got, c) = park_pending_suffix(&[]);
+    assert!(got.iter().any(|(k, _)| k == b"kkkkkkkkSUFFIX2"), "{got:?}");
+    assert!(count(c, Count::Attempts) >= 2, "{c:?}");
+    assert_eq!(count(c, Count::UnvalidatedDerefs), 0, "{c:?}");
+}
+
+#[test]
+fn park_pending_suffix_without_final_validation_returns_the_stale_batch() {
+    let (got, _) = park_pending_suffix(&[Control::SkipFinalValidation]);
+    assert!(!got.iter().any(|(k, _)| k == b"kkkkkkkkSUFFIX2"), "{got:?}");
+    assert!(got.iter().any(|(k, _)| k == b"kkkkkkkkSUFFIX1"), "{got:?}");
 }
 
 /// T8/T9, a child emptied and pruned: the walk enters C under `cccccccc`

@@ -13,12 +13,12 @@
 //! # Protocol
 //!
 //! One batch is one attempt of `ExpanseStrMap::scan_validated`
-//! (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.10 and §33.11): it
+//! (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.10, §33.11 and §33.13): it
 //! descends the probe's exact continuations, drains `StrNode` sub-maps,
-//! entering each child it meets and climbing back to the parent's next chunk
-//! when a level runs out, copies each key and value into the batch, and
-//! validates every version it sampled, and the tree word, before the batch is
-//! used. The exact descent and the first drained level retain at most
+//! entering each child it meets and climbing back to the parent's pairs not
+//! yet taken when a level runs out (§33.13), copies each key and value into
+//! the batch, and validates every version it sampled, and the tree word,
+//! before the batch is used. The exact descent and the first drained level retain at most
 //! `8d + 6` versions at path depth `d`
 //! (`scripts/str_cursor_bounds.py::str_cursor_drain_attempt_read_set_bound`),
 //! and every later drain runs only when the read set has room for its worst
@@ -233,7 +233,9 @@ fn is_branch_edge(edge: &Edge) -> bool {
 /// above `d.end_chunk`, when the buffer is full, and as soon as a branch
 /// child yielded pairs; `scripts/str_cursor_bounds.py` bounds what it
 /// retains (`submap_drain_read_set_branches`, 13). The caller validates the
-/// set before it dereferences a pointer value, and again at the end.
+/// set before it dereferences a pointer value, and again at the end. The
+/// scan walk passes a `stop` that names child pointers only while it follows
+/// the probe (§33.13.2 item 1).
 ///
 /// # Safety
 ///
@@ -847,7 +849,16 @@ pub(crate) mod test_hooks {
         /// Every drain after an attempt's first drained level is refused,
         /// as when the read set has no room left.
         RefuseAdmission,
+        /// The drain scratch holds `NARROW_SCRATCH` pairs, so drains are
+        /// short and the pending regions are compacted (§33.13.2 item 3).
+        NarrowScratch,
+        /// Every drain stops at its first child pointer, as under A3, and a
+        /// climb resumes its parent by a drain (§33.11.2 item 3).
+        StopAtEveryChild,
     }
+
+    /// The drain scratch's size under [`Control::NarrowScratch`].
+    pub(crate) const NARROW_SCRATCH: usize = 3;
 
     /// Per-thread event counts, indexed by discriminant.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -870,10 +881,12 @@ pub(crate) mod test_hooks {
         Samples,
         /// Sub-map drains other than a level's first, within an attempt.
         Resumes,
+        /// Compactions of the levels' pending pairs in the drain scratch.
+        Compactions,
     }
 
     /// Number of [`Count`] kinds.
-    pub(crate) const COUNTS: usize = 9;
+    pub(crate) const COUNTS: usize = 10;
 
     /// The write armed at a site.
     type Armed = Option<(Site, Box<dyn FnOnce()>)>;
