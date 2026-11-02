@@ -723,6 +723,28 @@ fn bench_key_sets_scan_in_few_attempts() {
     }
 }
 
+/// The pairs A4's drains write against the pairs the walk takes
+/// (§33.13.5): a single-threaded full scan of each benchmark key set,
+/// under A4 and under its negative control `StopAtEveryChild`, pinned
+/// exactly. A drained pair the walk never takes is dropped when its
+/// attempt ends, and the next attempt drains it again.
+#[test]
+#[cfg_attr(miri, ignore = "50,000 keys per set; the tier-1 tests cover the walk")]
+fn bench_key_sets_drained_and_consumed_pairs() {
+    // (dense, A4 drained, A4 consumed, stop-at-every-child drained, consumed)
+    for (dense, a4, a4_taken, stop, stop_taken) in [
+        (false, 107_592, 51_753, 72_567, 51_754),
+        (true, 102_400, 63_700, 67_015, 63_645),
+    ] {
+        let (_, c) = bench_scan(dense, &[]);
+        assert_eq!(count(c, Count::DrainedPairs), a4, "{c:?}");
+        assert_eq!(count(c, Count::ConsumedPairs), a4_taken, "{c:?}");
+        let (_, c) = bench_scan(dense, &[Control::StopAtEveryChild]);
+        assert_eq!(count(c, Count::DrainedPairs), stop, "{c:?}");
+        assert_eq!(count(c, Count::ConsumedPairs), stop_taken, "{c:?}");
+    }
+}
+
 /// Admission and its negative control. A scratch of `NARROW_SCRATCH` pairs
 /// makes every drain short, so the walk resumes its levels by drains, each
 /// admitted against the read set's room: with admission no attempt

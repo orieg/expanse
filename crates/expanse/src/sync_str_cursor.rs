@@ -883,10 +883,14 @@ pub(crate) mod test_hooks {
         Resumes,
         /// Compactions of the levels' pending pairs in the drain scratch.
         Compactions,
+        /// Pairs written to the scratch by drains, summed over every drain.
+        DrainedPairs,
+        /// Drained pairs the walk took in order: copied, or entered as a child.
+        ConsumedPairs,
     }
 
     /// Number of [`Count`] kinds.
-    pub(crate) const COUNTS: usize = 10;
+    pub(crate) const COUNTS: usize = 12;
 
     /// The write armed at a site.
     type Armed = Option<(Site, Box<dyn FnOnce()>)>;

@@ -3103,6 +3103,8 @@ impl ExpanseStrMap {
                     "a sub-map drain exceeded its admission cost"
                 );
                 let (n, past_end) = (d.count, d.past_end);
+                #[cfg(test)]
+                th::add(Count::DrainedPairs, n as u64);
                 // More of this sub-map may follow the pairs drained.
                 let more = d.stopped || d.cut || n == take;
                 #[cfg(test)]
@@ -3178,6 +3180,8 @@ impl ExpanseStrMap {
                 let (chunk, v) = batch.pairs[j];
                 j += 1;
                 pending -= 1;
+                #[cfg(test)]
+                th::count(Count::ConsumedPairs);
                 let cb = chunk.to_be_bytes();
                 let (mid, tail, value): (&[u8], &[u8], u64) = if is_terminal(chunk) {
                     let len = CHUNK - (chunk.trailing_zeros() / 8) as usize;
