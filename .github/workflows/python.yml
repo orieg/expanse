@@ -44,7 +44,7 @@ env:
   # otherwise resolves the newest release matching pyproject.toml's range on
   # the day. Equal to the maturin pin in .github/requirements/python-bindings.in,
   # which the test job builds with; scripts/check_release_workflow.py holds both.
-  MATURIN_VERSION: "v1.15.0"
+  MATURIN_VERSION: "v1.16.0"
 
 # Minimal default; the publish-pypi job elevates id-token itself.
 permissions:
