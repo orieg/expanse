@@ -3646,8 +3646,9 @@ pub(crate) enum BranchSplitKind {
     Linear,
     /// Edge prefix mismatch during descent (Phase 4E).
     Prefix,
-    /// Remove path shrink or node condensation.
-    Remove,
+    /// A removal the optimistic path has no form for, sub-classified by
+    /// [`RemoveSplit`] (Refs #1610).
+    Remove(RemoveSplit),
     /// BranchB bitmap count exceeds BRANCHB_UP, requiring upgrade to BranchU (Phase 4D residual).
     Upgrade,
     /// A removal that empties a child of a `BranchU` holding
@@ -3671,9 +3672,62 @@ impl BranchSplitKind {
             Self::Subarray => crate::occ_stats::Stat::BranchSplitSubarray,
             Self::Linear => crate::occ_stats::Stat::BranchSplitLinear,
             Self::Prefix => crate::occ_stats::Stat::BranchSplitPrefix,
-            Self::Remove => crate::occ_stats::Stat::BranchSplitRemove,
+            Self::Remove(_) => crate::occ_stats::Stat::BranchSplitRemove,
             Self::Upgrade => crate::occ_stats::Stat::BranchSplitUpgrade,
             Self::DemoteU => crate::occ_stats::Stat::BranchSplitDemoteU,
+        }
+    }
+}
+
+/// Why a removal took [`BranchSplitKind::Remove`] (Refs #1610).
+///
+/// Carried by the `Remove` variant, so a removal site cannot report the
+/// aggregate without naming its sub-cause, and [`branch_split`] bumps exactly
+/// one of these counters with every `BranchSplitRemove`: the sub-counters
+/// partition it. Without `occ-stats` the value is never read, and every
+/// constructor is a pure function of values the site already holds, so the
+/// classification compiles to nothing.
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RemoveSplit {
+    /// The removal would empty its child, under a `BranchL3` / `BranchL7`.
+    EmptiedUnderLinear,
+    /// The removal would empty its child, under a `BranchB`.
+    EmptiedUnderBitmap,
+    /// The removal would empty its child, under any other parent form.
+    EmptiedUnderOther,
+    /// The terminal's compressed prefix does not match the key.
+    PrefixMismatch,
+    /// Neither of the above. No removal site constructs it on the current
+    /// engine; kept so the pre-registered partition stays complete.
+    #[allow(dead_code)]
+    Other,
+}
+
+#[cfg(feature = "std")]
+impl RemoveSplit {
+    /// The sub-cause of a removal that would empty a child whose parent
+    /// branch has form `parent`.
+    #[inline(always)]
+    pub(crate) const fn emptied(parent: EdgeType) -> Self {
+        match parent {
+            EdgeType::BranchL3 | EdgeType::BranchL7 => Self::EmptiedUnderLinear,
+            EdgeType::BranchB => Self::EmptiedUnderBitmap,
+            _ => Self::EmptiedUnderOther,
+        }
+    }
+}
+
+#[cfg(all(feature = "std", feature = "occ-stats"))]
+impl RemoveSplit {
+    #[inline(always)]
+    pub(crate) const fn stat(self) -> crate::occ_stats::Stat {
+        match self {
+            Self::EmptiedUnderLinear => crate::occ_stats::Stat::BranchSplitRemoveEmptiedLinear,
+            Self::EmptiedUnderBitmap => crate::occ_stats::Stat::BranchSplitRemoveEmptiedBitmap,
+            Self::EmptiedUnderOther => crate::occ_stats::Stat::BranchSplitRemoveEmptiedOther,
+            Self::PrefixMismatch => crate::occ_stats::Stat::BranchSplitRemovePrefix,
+            Self::Other => crate::occ_stats::Stat::BranchSplitRemoveOther,
         }
     }
 }
@@ -3682,12 +3736,18 @@ impl BranchSplitKind {
 ///
 /// Ensures every branch split fallback attributes its sub-cause consistently and
 /// satisfies the structural invariant that no raw `Fallback(FallbackCause::BranchSplit)`
-/// exists outside this helper.
+/// exists outside this helper. A `Remove` also bumps its [`RemoveSplit`]
+/// counter, so the five sub-counters sum to `BranchSplitRemove`.
 #[cfg(feature = "std")]
 #[inline(always)]
 fn branch_split<T>(_kind: BranchSplitKind) -> OlcOutcome<T> {
     #[cfg(feature = "occ-stats")]
-    crate::occ_stats::bump(_kind.stat());
+    {
+        crate::occ_stats::bump(_kind.stat());
+        if let BranchSplitKind::Remove(sub) = _kind {
+            crate::occ_stats::bump(sub.stat());
+        }
+    }
     OlcOutcome::Fallback(FallbackCause::BranchSplit)
 }
 
@@ -5860,7 +5920,7 @@ impl SyncExpanseSet {
                         return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                     }
                     if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
-                        return branch_split(BranchSplitKind::Remove);
+                        return branch_split(BranchSplitKind::Remove(RemoveSplit::PrefixMismatch));
                     }
                     let parent = ancestors[anc_depth - 1];
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -5896,7 +5956,9 @@ impl SyncExpanseSet {
                             }
                             return OlcOutcome::Done(true);
                         }
-                        return branch_split(BranchSplitKind::Remove);
+                        return branch_split(BranchSplitKind::Remove(RemoveSplit::emptied(
+                            parent.edge_type,
+                        )));
                     }
                     if pop0 < crate::types::LEAFB1_DOWN {
                         let mut keys = crate::mutate::StackKeys32::new();
@@ -6043,7 +6105,7 @@ impl SyncExpanseSet {
                     if kb < level as usize
                         && !crate::get::decode_matches(&edge, key, kb as u8, level)
                     {
-                        return branch_split(BranchSplitKind::Remove);
+                        return branch_split(BranchSplitKind::Remove(RemoveSplit::PrefixMismatch));
                     }
                     let k = crate::mutate::key_low(key, kb as u8);
                     let keys_ptr = edge.node_ptr();
@@ -6198,7 +6260,9 @@ impl SyncExpanseSet {
                         }
                         return OlcOutcome::Done(true);
                     }
-                    return branch_split(BranchSplitKind::Remove);
+                    return branch_split(BranchSplitKind::Remove(RemoveSplit::emptied(
+                        parent.edge_type,
+                    )));
                 }
 
                 EdgeTag::Immed(im) => {
@@ -6210,7 +6274,7 @@ impl SyncExpanseSet {
                     let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                     let kb = im.key_bytes();
                     if level > kb && !crate::get::decode_matches(&edge, key, kb, level) {
-                        return branch_split(BranchSplitKind::Remove);
+                        return branch_split(BranchSplitKind::Remove(RemoveSplit::PrefixMismatch));
                     }
                     let k = crate::mutate::key_low(key, kb);
                     let n = im.key_count() as usize;
@@ -6221,7 +6285,9 @@ impl SyncExpanseSet {
                             unsafe { crate::mutate::read_packed(payload.as_ptr(), 0, kb as usize) };
                         if existing_k == k {
                             if parent.edge_type != EdgeType::BranchU {
-                                return branch_split(BranchSplitKind::Remove);
+                                return branch_split(BranchSplitKind::Remove(
+                                    RemoveSplit::emptied(parent.edge_type),
+                                ));
                             }
                             // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
                             // from at `edge_ptr`, under this writer's pin.
@@ -9211,7 +9277,7 @@ macro_rules! olc_remove_map_body {
                     return OlcOutcome::Fallback(FallbackCause::RootGrowth);
                 }
                 if level > 1 && !crate::get::decode_matches(&edge, $key, 1, level) {
-                    return branch_split(BranchSplitKind::Remove);
+                    return branch_split(BranchSplitKind::Remove(RemoveSplit::PrefixMismatch));
                 }
                 let parent = ancestors[anc_depth - 1];
                 // SAFETY: version cell is within an EBR-live node allocation.
@@ -9286,7 +9352,9 @@ macro_rules! olc_remove_map_body {
                             return OlcOutcome::Done(Some(old));
                         }
                     }
-                    return branch_split(BranchSplitKind::Remove);
+                    return branch_split(BranchSplitKind::Remove(RemoveSplit::emptied(
+                        parent.edge_type,
+                    )));
                 }
                 if pop0 < crate::types::LEAFB1_DOWN {
                     let dv = if level > 1 {
@@ -9643,7 +9711,7 @@ macro_rules! olc_remove_map_body {
                 let kb = t.leaf_key_bytes().expect("leaf tag") as usize;
                 let pop = edge.pop0(kb as u8) as usize + 1;
                 if kb < level as usize && !crate::get::decode_matches(&edge, $key, kb as u8, level) {
-                    return branch_split(BranchSplitKind::Remove);
+                    return branch_split(BranchSplitKind::Remove(RemoveSplit::PrefixMismatch));
                 }
                 let k = crate::mutate::key_low($key, kb as u8);
                 let base = edge.node_ptr();
@@ -9795,7 +9863,9 @@ macro_rules! olc_remove_map_body {
                             return OlcOutcome::Done(Some(old));
                         }
                     }
-                    return branch_split(BranchSplitKind::Remove);
+                    return branch_split(BranchSplitKind::Remove(RemoveSplit::emptied(
+                        parent.edge_type,
+                    )));
                 }
                 let rem_pop = pop - 1;
                 let dv = if (kb as u8) < level {
@@ -9923,7 +9993,7 @@ macro_rules! olc_remove_map_body {
                 let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
                 let kb = im.key_bytes();
                 if level > kb && !crate::get::decode_matches(&edge, $key, kb, level) {
-                    return branch_split(BranchSplitKind::Remove);
+                    return branch_split(BranchSplitKind::Remove(RemoveSplit::PrefixMismatch));
                 }
                 let k = crate::mutate::key_low($key, kb);
                 let n = im.key_count() as usize;
@@ -9955,7 +10025,9 @@ macro_rules! olc_remove_map_body {
                             }
                         }
                         if parent.edge_type != EdgeType::BranchU {
-                            return branch_split(BranchSplitKind::Remove);
+                            return branch_split(BranchSplitKind::Remove(RemoveSplit::emptied(
+                                parent.edge_type,
+                            )));
                         }
                         // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
                         // from at `edge_ptr`, under this writer's pin; the closure reads the
@@ -20976,8 +21048,49 @@ mod tests {
         assert_eq!(BranchSplitKind::Subarray.stat(), Stat::BranchSplitSubarray);
         assert_eq!(BranchSplitKind::Linear.stat(), Stat::BranchSplitLinear);
         assert_eq!(BranchSplitKind::Prefix.stat(), Stat::BranchSplitPrefix);
-        assert_eq!(BranchSplitKind::Remove.stat(), Stat::BranchSplitRemove);
+        assert_eq!(
+            BranchSplitKind::Remove(super::RemoveSplit::PrefixMismatch).stat(),
+            Stat::BranchSplitRemove
+        );
         assert_eq!(BranchSplitKind::Upgrade.stat(), Stat::BranchSplitUpgrade);
+    }
+
+    /// The `Remove` sub-split's parent-form mapping and its counters
+    /// (Refs #1610). Every `EdgeType` is named, so a new parent form lands
+    /// in `EmptiedUnderOther` visibly rather than in a named bucket.
+    #[test]
+    #[cfg(feature = "occ-stats")]
+    fn test_remove_split_mapping() {
+        use super::RemoveSplit;
+        use crate::occ_stats::Stat;
+        for (parent, want) in [
+            (EdgeType::BranchL3, RemoveSplit::EmptiedUnderLinear),
+            (EdgeType::BranchL7, RemoveSplit::EmptiedUnderLinear),
+            (EdgeType::BranchB, RemoveSplit::EmptiedUnderBitmap),
+            (EdgeType::BranchU, RemoveSplit::EmptiedUnderOther),
+            (EdgeType::LeafB1, RemoveSplit::EmptiedUnderOther),
+            (EdgeType::Null, RemoveSplit::EmptiedUnderOther),
+        ] {
+            assert_eq!(RemoveSplit::emptied(parent), want, "{parent:?}");
+        }
+        for (split, stat) in [
+            (
+                RemoveSplit::EmptiedUnderLinear,
+                Stat::BranchSplitRemoveEmptiedLinear,
+            ),
+            (
+                RemoveSplit::EmptiedUnderBitmap,
+                Stat::BranchSplitRemoveEmptiedBitmap,
+            ),
+            (
+                RemoveSplit::EmptiedUnderOther,
+                Stat::BranchSplitRemoveEmptiedOther,
+            ),
+            (RemoveSplit::PrefixMismatch, Stat::BranchSplitRemovePrefix),
+            (RemoveSplit::Other, Stat::BranchSplitRemoveOther),
+        ] {
+            assert_eq!(split.stat(), stat, "{split:?}");
+        }
     }
 
     /// Verifies Phase 4C: concurrent leaf capacity class growth for both set and map

@@ -41,8 +41,11 @@
 //! Built with `occ-stats`, a `run` row also carries the window's `counters`:
 //! `GateBlockedEntries`, `GateWaitCycles`, `QuiesceCalls`,
 //! `QuiesceDrainCycles`, `LockedReads` and `ContentionGateClosed`, with
-//! `cycles_hz()` and the writers' CPU time (`CLOCK_THREAD_CPUTIME_ID`). A
-//! counters build times nothing the driver reads.
+//! `cycles_hz()` and the writers' CPU time (`CLOCK_THREAD_CPUTIME_ID`); and
+//! `BranchSplitRemove` with its sub-split (a child emptied under a linear,
+//! bitmap or other parent; a prefix mismatch; other — Refs #1610), whose
+//! share of the `churn` removals the row's `removes` divides. A counters
+//! build times nothing the driver reads.
 //!
 //! # Workload shape
 //!
@@ -329,6 +332,12 @@ fn window_counters(writer_cpu_ns: Option<u64>) -> serde_json::Value {
         "quiesce_drain_cycles": snap[Stat::QuiesceDrainCycles as usize],
         "locked_reads": snap[Stat::LockedReads as usize],
         "contention_gate_closed": snap[Stat::ContentionGateClosed as usize],
+        "branch_split_remove": snap[Stat::BranchSplitRemove as usize],
+        "branch_split_remove_emptied_linear": snap[Stat::BranchSplitRemoveEmptiedLinear as usize],
+        "branch_split_remove_emptied_bitmap": snap[Stat::BranchSplitRemoveEmptiedBitmap as usize],
+        "branch_split_remove_emptied_other": snap[Stat::BranchSplitRemoveEmptiedOther as usize],
+        "branch_split_remove_prefix": snap[Stat::BranchSplitRemovePrefix as usize],
+        "branch_split_remove_other": snap[Stat::BranchSplitRemoveOther as usize],
         "tsc_hz": tsc_hz,
         "writer_cpu_ns": writer_cpu_ns,
     })

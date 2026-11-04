@@ -277,10 +277,31 @@ pub enum Stat {
     /// consistent read holds at most 13
     /// (`scripts/olc_bounds.py::ordered_read_set_branches`).
     OrderedReadSetHwm = 66,
+    /// The subset of [`Stat::BranchSplitRemove`] in which the removal would
+    /// empty its child and the child's parent is a linear branch
+    /// (`BranchL3` / `BranchL7`), Refs #1610. The optimistic path nulls a
+    /// slot only in a `BranchU`, so such a child falls back.
+    BranchSplitRemoveEmptiedLinear = 67,
+    /// As [`Stat::BranchSplitRemoveEmptiedLinear`], under a bitmap branch
+    /// (`BranchB`).
+    BranchSplitRemoveEmptiedBitmap = 68,
+    /// As [`Stat::BranchSplitRemoveEmptiedLinear`], under any other parent
+    /// form. Expected 0: a `BranchU` parent is nulled optimistically or
+    /// counted as [`Stat::BranchSplitDemoteU`]. A non-zero value means a
+    /// parent form the classification does not name.
+    BranchSplitRemoveEmptiedOther = 69,
+    /// The subset of [`Stat::BranchSplitRemove`] in which the terminal's
+    /// compressed prefix does not match the key: the key is absent, and the
+    /// optimistic path returns it as a fallback rather than a miss.
+    BranchSplitRemovePrefix = 70,
+    /// The subset of [`Stat::BranchSplitRemove`] that is neither a child
+    /// emptied nor a prefix mismatch. No removal site maps to it on the
+    /// current engine; it keeps the partition complete if one is added.
+    BranchSplitRemoveOther = 71,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 67;
+pub const NUM_STATS: usize = 72;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -351,6 +372,11 @@ pub const NAMES: [&str; NUM_STATS] = [
     "ordered_visit_bitmap_leaf_narrow",
     "ordered_visit_full_expanse",
     "ordered_read_set_hwm",
+    "branch_split_remove_emptied_linear",
+    "branch_split_remove_emptied_bitmap",
+    "branch_split_remove_emptied_other",
+    "branch_split_remove_prefix",
+    "branch_split_remove_other",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -648,7 +674,27 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::OrderedReadSetHwm as usize + 1, NUM_STATS);
+        assert_eq!(Stat::BranchSplitRemoveOther as usize + 1, NUM_STATS);
+        let remove_split = [
+            (
+                Stat::BranchSplitRemoveEmptiedLinear,
+                "branch_split_remove_emptied_linear",
+            ),
+            (
+                Stat::BranchSplitRemoveEmptiedBitmap,
+                "branch_split_remove_emptied_bitmap",
+            ),
+            (
+                Stat::BranchSplitRemoveEmptiedOther,
+                "branch_split_remove_emptied_other",
+            ),
+            (Stat::BranchSplitRemovePrefix, "branch_split_remove_prefix"),
+            (Stat::BranchSplitRemoveOther, "branch_split_remove_other"),
+        ];
+        for (i, (stat, name)) in remove_split.into_iter().enumerate() {
+            assert_eq!(stat as usize, 67 + i, "{name}");
+            assert_eq!(NAMES[stat as usize], name);
+        }
         let ordered = [
             (Stat::OrderedVisitRootLeaf, "ordered_visit_root_leaf"),
             (Stat::OrderedVisitImmed, "ordered_visit_immed"),
