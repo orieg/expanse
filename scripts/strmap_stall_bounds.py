@@ -44,6 +44,15 @@ zeroing, and no second zeroing of a deferred freelist hit) adds:
     `results/strmap_zeroing_baseline_callgrind_a37a044e.json`
     (`--design-b-zeroing` prints the table).
 
+§49 (#1613, lever (a): a relaxed emptiness hint before the locked collector
+freelist pop) adds:
+
+11. `hint_term(records)` and `freelist_hint_bounds()` — the per-arm two-sided
+    Callgrind bound against `main` at `fa91cc67`, from each arm's in-region
+    `pop_freelist` misses, hits and freelist pushes in
+    `results/freelist_hint_baseline_callgrind_fa91cc67.json`, widened as 10 is
+    (`--freelist-hint` prints the table).
+
 Every input of 6 to 8 is a measured figure in
 `results/strmap_design_b_baseline_callgrind_f65060d8.json` or
 `results/allocator_overhead_f65060d8.txt`, or a constant below whose
@@ -561,6 +570,106 @@ def _self_test_zeroing() -> None:
     assert r["kind"] == "No change" and r["hi"] == -r["lo"] == max(1e-3 * r["base"], 500), r
 
 
+# §49 (#1613, lever (a)): a relaxed emptiness hint before the locked collector freelist pop.
+# Every constant is named in §49's silent constants.
+FH_BASELINE = REPO_ROOT / "results" / "freelist_hint_baseline_callgrind_fa91cc67.json"
+# pop_freelist at fa91cc67 (`objdump -d -l -C`, instructions binary): 45 instructions on a miss,
+# 47 on a hit (the two extra are occ.rs:2148). The artifact's call and hit counts are derived
+# from these, and every arm divides exactly.
+FH_MISS_IR = 45
+FH_HIT_IR = 47
+# What a miss still executes once the hint answers "empty" before the lock: the writer_slot
+# read and its range check, the class bounds check, the stripe address, the hint load, its test
+# and the return, at least 12 and at most 25 with the prologue and epilogue the function has
+# today. So a miss saves FH_MISS_IR minus this.
+FH_REMAINING_MISS_IR = (12, 25)
+# Per hit: the hint load, test and branch added before the lock, [0, 5], less up to 2 a
+# re-layout of the shared prefix may save.
+FH_HIT_COST_IR = (-2, 5)
+# Per freelist push: the head becomes an AtomicPtr stored Relaxed under the lock, the same mov
+# as the plain store on x86_64; [0, 2] for codegen around it.
+FH_PUSH_COST_IR = (0, 2)
+
+
+def hint_term(records: dict) -> tuple[float, float]:
+    """Lever (a)'s instruction change on one arm, as (low, high), from its §49 records.
+
+    `records` holds the arm's in-region `pop_misses`, `pop_hits` and `freelist_pushes` (a missing
+    field is 0). A miss saves `FH_MISS_IR` less `FH_REMAINING_MISS_IR`; a hit costs
+    `FH_HIT_COST_IR`; a push costs `FH_PUSH_COST_IR`. Single-threaded, the hint is exact, so the
+    hit and miss counts carry over to the change build unchanged.
+    """
+    g = {k: _nonneg_int(k, records.get(k, 0)) for k in ("pop_misses", "pop_hits", "freelist_pushes")}
+    m, h, p = g["pop_misses"], g["pop_hits"], g["freelist_pushes"]
+    save_lo = (FH_MISS_IR - FH_REMAINING_MISS_IR[1]) * m
+    save_hi = (FH_MISS_IR - FH_REMAINING_MISS_IR[0]) * m
+    lo = -save_hi + FH_HIT_COST_IR[0] * h + FH_PUSH_COST_IR[0] * p
+    hi = -save_lo + FH_HIT_COST_IR[1] * h + FH_PUSH_COST_IR[1] * p
+    return float(lo), float(hi)
+
+
+def hint_kind(term: tuple[float, float]) -> str:
+    """`No change` for a zero term, `improves` when the whole term is a saving, `may lose` when
+    none of it is, else `mixed`."""
+    if term == (0.0, 0.0):
+        return "No change"
+    if term[1] < 0:
+        return "improves"
+    return "may lose" if term[0] >= 0 else "mixed"
+
+
+def freelist_hint_bounds(path: Path = FH_BASELINE) -> list[dict]:
+    """Every arm of the §49 baseline with its bound: the term widened as §47.11's (`zeroing_bound`)."""
+    art = json.loads(Path(path).read_text())
+    out = []
+    for row in art["arms"]:
+        rec = row.get("records", {})
+        if "pop_calls" in rec and rec["pop_calls"] != rec["pop_hits"] + rec["pop_misses"]:
+            raise ValueError(f"{row['arm']}/{row['id']}: calls != hits + misses")
+        term = hint_term(rec)
+        lo, hi = zeroing_bound(row["base"], term)
+        out.append({"bench": row["bench"], "arm": row["arm"], "id": row["id"], "base": row["base"],
+                    "kind": hint_kind(term), "term": term, "lo": lo, "hi": hi,
+                    "lo_pct": 100 * lo / row["base"], "hi_pct": 100 * hi / row["base"]})
+    return out
+
+
+def _self_test_freelist_hint() -> None:
+    # The term: a miss saves [20, 33], a hit costs [-2, 5], a push [0, 2].
+    assert hint_term({"pop_misses": 10, "pop_hits": 4, "freelist_pushes": 3}) == (-330.0 - 8.0, -200.0 + 20 + 6)
+    assert hint_term({}) == (0.0, 0.0)
+    assert hint_term({"pop_hits": 1}) == (-2.0, 5.0)
+    assert hint_kind((0.0, 0.0)) == "No change"
+    assert hint_kind((-10.0, -1.0)) == "improves"
+    assert hint_kind((-10.0, 0.0)) == "mixed"
+    assert hint_kind((0.0, 2.0)) == "may lose"
+    _raises(hint_term, {"pop_misses": -1})
+    _raises(hint_term, {"pop_hits": 1.5})
+    # The per-call figures the counts were derived with, and the miss saving's range.
+    assert FH_HIT_IR - FH_MISS_IR == 2
+    assert (FH_MISS_IR - FH_REMAINING_MISS_IR[1], FH_MISS_IR - FH_REMAINING_MISS_IR[0]) == (20, 33)
+    rows = {(r["bench"], r["arm"], r["id"]): r for r in freelist_hint_bounds()}
+    assert len(rows) == 288
+    assert sum(r["kind"] != "No change" for r in rows.values()) == 53
+    # The arms #1613 names, pinned by hand from the artifact. sync_strmap_insert_short: 56,662
+    # misses, 8,038 hits, 12,803 pushes; base 102,503,355 (CI run 41655531519), slack 102,503.355.
+    r = rows[("instructions", "sync_strmap_insert_short", "short")]
+    assert r["kind"] == "improves"
+    assert (r["lo"], r["hi"]) == (-33 * 56_662 - 2 * 8_038 - 102_503.355,
+                                  -20 * 56_662 + 5 * 8_038 + 2 * 12_803 + 102_503.355), r
+    # sync_strmap_insert_sorted: 24,555 misses, 8,816 hits, 8,846 pushes; base 47,998,126.
+    r = rows[("instructions", "sync_strmap_insert_sorted", "uuid")]
+    assert (r["lo"], r["hi"]) == (-33 * 24_555 - 2 * 8_816 - 47_998.126,
+                                  -20 * 24_555 + 5 * 8_816 + 2 * 8_846 + 47_998.126), r
+    # A hit-heavy arm can lose: sync_set_churn/leaf, 21 misses, 49,979 hits, 49,993 pushes.
+    r = rows[("instructions", "sync_set_churn", "leaf")]
+    assert r["kind"] == "mixed" and r["hi"] > 0, r
+    # No pop and no push: the slack alone, as on every plain arm.
+    r = rows[("instructions", "set_insert", "sequential")]
+    assert r["kind"] == "No change" and r["hi"] == -r["lo"] == max(1e-3 * r["base"], 500), r
+    assert all(r["kind"] == "No change" for k, r in rows.items() if not k[1].startswith("sync_"))
+
+
 def _self_test_design_b() -> None:
     # G-stall: the rule, one negative control per clause.
     assert g_stall_outcome(100, 290, 100) == "PASS"
@@ -704,6 +813,7 @@ def self_test() -> int:
     _raises(run_seconds_bound, {1: 1}, 10, 0, 0, 0, 3000, 600)
     _self_test_design_b()
     _self_test_zeroing()
+    _self_test_freelist_hint()
     print("strmap_stall_bounds.py self-test PASSED")
     return 0
 
@@ -750,8 +860,23 @@ def main() -> int:
     ap.add_argument("--design-b-zeroing", action="store_true",
                     help="print METHODOLOGY §47.11's bound for every arm the increment is expected to move, "
                          "per C library, then the self-test")
+    ap.add_argument("--freelist-hint", action="store_true",
+                    help="print METHODOLOGY §49's bound for every arm lever (a) is expected to move, "
+                         "then the self-test")
     args = ap.parse_args()
-    if args.design_b_zeroing:
+    if args.freelist_hint:
+        print("| harness | arm | base (CI) | misses | hits | pushes | kind | bound low | bound high |")
+        print("|---|---|---:|---:|---:|---:|---|---:|---:|")
+        recs = {(r["bench"], r["arm"], r["id"]): r.get("records", {})
+                for r in json.loads(FH_BASELINE.read_text())["arms"]}
+        for r in sorted(freelist_hint_bounds(), key=lambda r: r["lo_pct"]):
+            if r["kind"] == "No change":
+                continue
+            g = recs[(r["bench"], r["arm"], r["id"])].get
+            print(f"| `{r['bench']}` | `{r['arm']}/{r['id']}` | {r['base']:,} | {g('pop_misses', 0):,} | "
+                  f"{g('pop_hits', 0):,} | {g('freelist_pushes', 0):,} | {r['kind']} | "
+                  f"{r['lo_pct']:+.4f}% | {r['hi_pct']:+.4f}% |")
+    elif args.design_b_zeroing:
         print("| C library | harness | arm | a37a044e | bound low | bound high |")
         print("|---|---|---|---:|---:|---:|")
         for r in design_b_zeroing_bounds():
