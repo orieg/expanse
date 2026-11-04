@@ -8260,3 +8260,169 @@ The run waits for the maintainer's go-ahead. No bound in §48.2 moves after it.
 - **Earlier record:** §47.10 recorded this cell on earlier builds with a largest insert of 29.31–30.09 s and a share of 0.26. Those are different builds and different runs, and this run does not form a paired comparison with them.
 
 **Still open.** The `branch_split_remove` fallback rate at N = 2·10⁷ (§48.1) is untouched by this change and needs its own issue.
+
+## 49. Pre-registration for #1613 lever (a) — a relaxed emptiness hint before the locked collector freelist pop (appended 2026-11-03, locked before any engine code; next free section)
+
+§47.13 names two levers on design B's remaining instruction cost on shared string inserts. This section profiles both, and pre-registers lever (a) alone (AGENTS.md §6: one increment per measurement). It holds no data of a build containing the change. Lever (b), the lock-prefixed read-modify-writes in `Deferred::charge`, needs its own section.
+
+### 49.1 The profile (measured before this lock)
+
+**Instrument.** CI's `instruction-counts` job prints each arm's total and uploads no Callgrind output, so its log ranks nothing per function. The per-function and per-line ranking was therefore taken on the x86_64 heavy-jobs host, not the reference host:
+- `main` at `fa91cc67`, in an Ubuntu 24.04 container with glibc 2.39 (CI's), rustc 1.99.1 (CI's), `iai-callgrind-runner` 0.16.1, and valgrind 3.22.0 (CI builds 3.27.1);
+- `CARGO_PROFILE_BENCH_DEBUG=1`, every arm of `instructions` and `rmw_instructions`, each arm's `callgrind.*.out` parsed per function and per source line.
+
+Artifact: `results/freelist_hint_baseline_callgrind_fa91cc67.json`, every arm with the records below. Its totals agree with CI's scheduled run [41655531519](https://github.com/orieg/expanse/actions/runs/41655531519) at the same commit (baseline pass): 249 of 286 compared arms within 0.01%, and the 34 arms that call `pop_freelist` within 0.044%. Each arm's bound below uses CI's total as its base.
+
+**`Collector::pop_freelist`.** It calls nothing on an uncontended path, so its self count is its inclusive count. `objdump -d -l -C` of the bench binary gives 45 instructions on a miss and 47 on a hit: the hit adds the two instructions of `occ.rs:2148` (`head.0 = next`). Both paths take the `lock cmpxchg` and the unlock `xchg`. A `calls=` count includes calls outside the measured region (§47.11), so the in-region counts are derived from Ir instead, and every arm divides exactly:
+- hits = Ir of `occ.rs:2148` / 2;
+- calls = (self Ir − that line's Ir) / 45;
+- misses = calls − hits.
+
+At `a37a044e`, §47.11's artifact records the same 8,038 hits on `sync_strmap_insert_short`.
+
+**`Deferred::charge`** is `#[inline(always)]` into `alloc_raw` and has no function of its own in the profile. In `new_suffix`, its 50,000 calls on `sync_strmap_insert_short` execute 8 instructions each:
+- one at `alloc.rs:600`, the shard index;
+- four for the `writer_slot` read and its range check;
+- three lock-prefixed `fetch_add`s (core `atomic.rs:4029`).
+
+The charge count is the Ir of `alloc.rs:600` over every function. The 8 per charge is read from `new_suffix` only, so the charge totals below are derived, not measured per site.
+
+| arm (CI base) | `pop_freelist` calls | hits | misses | `pop_freelist` Ir (self = inclusive) | of which misses (45 each) | charges | charge Ir (8 each, derived) | lock-prefixed `fetch_add` Ir |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `sync_strmap_insert_short/short` (102,503,355) | 64,700 | 8,038 | 56,662 | 2,927,576 (2.86%) | 2,549,790 (2.49%) | 69,393 | 555,144 (0.54%) | 208,158 (0.20%) |
+| `sync_strmap_insert_sorted/uuid` (47,998,126) | 33,371 | 8,816 | 24,555 | 1,519,327 (3.17%) | 1,104,975 (2.30%) | 34,391 | 275,128 (0.57%) | 103,152 (0.21%) |
+
+(measured: x86_64 heavy-jobs host, `fa91cc67`; shares of the profile total; bases from CI run 41655531519; `results/freelist_hint_baseline_callgrind_fa91cc67.json`)
+
+- On the two arms, 88% and 74% of `pop_freelist` calls find the list empty and still take and release the mutex. That empty path is lever (a)'s whole target, at 2.49% and 2.30% of the arm.
+- **Lever (b) on this instrument.** `charge` is at most 0.54% and 0.57% of the two arms, and its three lock-prefixed instructions are 0.20% and 0.21%. Callgrind counts each as one instruction and does not see their latency. An instruction gate can therefore credit lever (b) with little; whether it moves time is a wall-clock question this profile cannot answer. Its pre-registration states that first.
+
+### 49.2 The change (lever (a) alone)
+
+- `FreeListHead`'s pointer becomes an `AtomicPtr<FreeBlock>`. Every store to it is still made with the list's mutex held, now as a `Relaxed` store, and every read under the mutex is a `Relaxed` load ordered by the mutex as today. The type keeps the size and alignment of `*mut FreeBlock`, which the const assertions beside it already pin.
+- `pop_freelist` loads the head `Relaxed` before taking the lock. On null it returns null without the lock. Otherwise it locks and proceeds as today, re-reading the head under the lock.
+- The push sites (`reclaim_block`, the drain loop in `try_advance`, `recycle_unpublished`) and `release_free_lists` change only the type of their store. `ablation-unstriped-freelist` gets the same hint.
+- `pop_freelist` stays `#[inline(never)]`. Neither `alloc_raw` nor any function that inlines it changes source, so the change adds no code to a plain path (AGENTS.md §2.1 invariant 5). A plain tree never reaches the collector's freelists. The change adds no mutation entry point, so no `by_mode!` twin is owed.
+- A hint read inlined into `alloc_raw` would also save the call. It is a separate increment, not registered here.
+
+### 49.3 Why a relaxed read is a safe hint
+
+- **The hint is only compared with null.** It is never dereferenced or returned. Dereferencing it would be unsound: between the load and a dereference, another writer can pop the block and reuse it.
+- **A stale non-null** (the list was emptied after the load) takes the lock, re-reads null and returns null: today's miss, at today's cost.
+- **A stale null** (a push not yet visible to this thread) sends this one allocation to the system allocator, as any miss does today. This is the way the proposal errs, and it loses nothing:
+  - no block leaves the list on this path, so the pushed block stays reachable from the head;
+  - a later pop that observes the push takes it;
+  - otherwise `release_free_lists` frees it, called directly or through `drain` from the collector's drop, under the lock.
+- **The cost of erring** is one missed reuse: one system allocation, and a footprint above today's by one block until the block is reused or released. The freelist is a reuse cache whose misses already fall through to the system allocator, and a writer already misses blocks that sit on another stripe's list. That is why this direction is acceptable.
+- **Staleness is not permanent.** Read-read and write-read coherence (C++ [intro.races], which Rust's memory model follows) guarantee that a thread which pushed, or observed a push under the lock, never loads an older value afterwards. Across threads the model promises a store's visibility only eventually. A block stays unreused only while no pop of its class observes the push, and it is never lost.
+- **What the lock still orders.** The popper reads `(*block).next` only after acquiring the lock, which the pusher released after writing it, as today. The hint adds no new happens-before requirement.
+- **Grace periods are untouched.** A block reaches a freelist only after its grace period, as before.
+- **The benches are deterministic under it.** Every Callgrind arm is single-threaded. The thread that pushes is the thread that pops, so by write-read coherence the hint is exact, and each arm's hit and miss counts are the base's.
+
+### 49.4 Bounds (G-instr for lever (a); Callgrind, head against its merge base, per arm, two-sided)
+
+`python3 scripts/strmap_stall_bounds.py --freelist-hint` prints the table from the artifact. Its functions (`hint_term`, `freelist_hint_bounds`) carry pinned tests in the script's `--self-test`, which `scripts/gate.sh` and CI's `docs-lint` job run.
+
+**Per-call terms.**
+- **A miss** today executes 45 instructions. Behind the hint it still executes 12 to 25: the `writer_slot` read and its range check, the class bounds check, the stripe address, the hint load, its test and the return, and at the high end the prologue and epilogue the function has today. So a miss saves [20, 33].
+- **A hit** adds the hint load, test and branch before the lock, [0, 5]. Up to 2 may be saved if the shared prefix is laid out again, so the range is [−2, 5].
+- **A push** stores through an `AtomicPtr` with `Relaxed`, which is the same `mov` as the plain store on x86_64. [0, 2] allows for codegen around it.
+
+**Bound.** The arm's term is −[20, 33] × misses + [−2, 5] × hits + [0, 2] × pushes. It is widened on both sides by 0.1% of the arm's CI base, with a floor of 500 Ir, as in §47.11.
+- **Call counts.** They are the in-region counts of §49.1, taken on the base build the gate compares against. Single-threaded, the hint leaves them unchanged (§49.3), so no count is carried over from another build (AGENTS.md §6).
+- **Push counts.** They are the Ir of `occ.rs:2420` and `occ.rs:2182`, one store per push.
+
+**The two arms #1613 names, with the arithmetic:**
+- `sync_strmap_insert_short/short`:
+  - misses 56,662 × [20, 33] = [1,133,240, 1,869,846];
+  - hits 8,038 × [−2, 5] = [−16,076, 40,190];
+  - pushes 12,803 × [0, 2] = [0, 25,606];
+  - term [−1,885,922, −1,067,444]; slack 102,503.355;
+  - **bound [−1.9399%, −0.9414%]** of 102,503,355.
+- `sync_strmap_insert_sorted/uuid`:
+  - misses 24,555 × [20, 33] = [491,100, 810,315];
+  - hits 8,816 × [−2, 5] = [−17,632, 44,080];
+  - pushes 8,846 × [0, 2] = [0, 17,692];
+  - term [−827,947, −429,328]; slack 47,998.126;
+  - **bound [−1.8250%, −0.7945%]** of 47,998,126.
+
+Both bounds lie wholly below −0.1%. Lever (a) is therefore not pre-registered as a likely negative: if the per-call terms hold, each named arm moves by more than the §6 review threshold.
+
+**Every arm with a `pop_freelist` call** (34 arms). "improves" means the whole term is a saving. "mixed" means hits and pushes can outweigh the misses saved.
+
+| harness | arm | base (CI) | misses | hits | pushes | kind | bound low | bound high |
+|---|---|---:|---:|---:|---:|---|---:|---:|
+| `instructions` | `sync_strmap_insert_short/short` | 102,503,355 | 56,662 | 8,038 | 12,803 | improves | -1.9399% | -0.9414% |
+| `instructions` | `sync_strmap_insert_sorted/uuid` | 47,998,126 | 24,555 | 8,816 | 8,846 | improves | -1.8250% | -0.7945% |
+| `rmw_instructions` | `sync_map_cas_insert/random` | 47,201,943 | 17,848 | 11,469 | 11,810 | improves | -1.3964% | -0.4847% |
+| `instructions` | `sync_map_insert/random` | 49,595,035 | 15,892 | 9,757 | 13,596 | improves | -1.1968% | -0.3877% |
+| `instructions` | `sync_blobmap_insert/random` | 56,713,056 | 15,892 | 9,757 | 13,596 | improves | -1.0591% | -0.3265% |
+| `instructions` | `sync_map_churn/random` | 119,356,581 | 23,330 | 62,392 | 62,413 | improves | -0.8496% | +0.0750% |
+| `instructions` | `sync_map_write_twin/random` | 1,875,113 | 361 | 617 | 642 | improves | -0.8011% | -0.0520% |
+| `instructions` | `sync_map_write_twin/one_top_byte` | 2,112,365 | 361 | 617 | 642 | improves | -0.7224% | -0.0350% |
+| `rmw_instructions` | `sync_strmap_cas_insert/routes` | 102,612,996 | 17,923 | 14,613 | 23,107 | improves | -0.7049% | -0.1331% |
+| `rmw_instructions` | `sync_bytesmap_cas_insert/routes` | 109,441,310 | 17,816 | 11,499 | 11,822 | improves | -0.6582% | -0.1514% |
+| `instructions` | `sync_set_insert/random` | 45,504,138 | 7,035 | 6,944 | 10,844 | improves | -0.6407% | -0.0852% |
+| `instructions` | `sync_bytesmap_insert/routes` | 112,616,714 | 15,872 | 9,768 | 13,625 | improves | -0.5824% | -0.1143% |
+| `instructions` | `sync_strmap_insert/routes` | 78,082,578 | 9,511 | 23,054 | 23,099 | improves | -0.5610% | +0.0632% |
+| `instructions` | `sync_map_remove/random` | 63,355,007 | 6,935 | 17,859 | 36,742 | mixed | -0.5176% | +0.1380% |
+| `instructions` | `sync_blobmap_remove/random` | 65,694,284 | 6,935 | 17,859 | 36,742 | mixed | -0.5027% | +0.1367% |
+| `instructions` | `sync_strmap_remove/routes` | 86,454,908 | 7,842 | 8,818 | 25,934 | improves | -0.4197% | +0.0296% |
+| `instructions` | `sync_set_drain_floor/top` | 243,827 | 10 | 17 | 17 | improves | -0.3543% | +0.1718% |
+| `instructions` | `sync_map_drain_floor/top` | 245,638 | 10 | 15 | 17 | improves | -0.3501% | +0.1665% |
+| `instructions` | `sync_blobmap_reclaim_free/random` | 276,113 | 6 | 14 | 20 | improves | -0.2629% | +0.1775% |
+| `instructions` | `sync_bytesmap_remove/routes` | 183,156,863 | 6,889 | 17,885 | 36,687 | mixed | -0.2437% | +0.1137% |
+| `rmw_instructions` | `sync_bytesmap_cas_remove/routes` | 197,130,017 | 6,889 | 17,885 | 36,687 | mixed | -0.2335% | +0.1127% |
+| `instructions` | `sync_set_remove/random` | 53,638,583 | 1,400 | 8,961 | 13,418 | mixed | -0.2195% | +0.1814% |
+| `instructions` | `sync_set_churn/leaf` | 96,057,263 | 21 | 49,979 | 49,993 | mixed | -0.2048% | +0.4638% |
+| `instructions` | `sync_map_write_twin/sequential` | 2,131,869 | 57 | 135 | 201 | improves | -0.2009% | +0.0970% |
+| `instructions` | `sync_blobmap_churn/random` | 137,125,531 | 38 | 50,687 | 50,727 | mixed | -0.1748% | +0.3583% |
+| `instructions` | `sync_strmap_churn_short/short` | 232,531,340 | 68 | 61,375 | 61,417 | mixed | -0.1538% | +0.2842% |
+| `instructions` | `sync_set_churn/random` | 93,317,511 | 21 | 21,291 | 21,308 | mixed | -0.1464% | +0.2593% |
+| `instructions` | `sync_set_compact_drained/random60` | 18,994,761 | 2 | 4,095 | 0 | mixed | -0.1435% | +0.2076% |
+| `instructions` | `sync_map_count_after_write/random` | 32,087,526 | 361 | 617 | 642 | improves | -0.1410% | +0.0911% |
+| `instructions` | `sync_bytesmap_churn/routes` | 298,780,370 | 62 | 50,601 | 50,632 | mixed | -0.1346% | +0.2182% |
+| `instructions` | `sync_map_compact_drained/random60` | 20,495,376 | 2 | 1,776 | 0 | mixed | -0.1177% | +0.1431% |
+| `instructions` | `sync_map_count_after_write/sequential` | 14,454,578 | 57 | 135 | 201 | improves | -0.1149% | +0.0996% |
+| `instructions` | `sync_map_branchu_band/top` | 9,913,941 | 0 | 600 | 600 | mixed | -0.1121% | +0.1424% |
+| `instructions` | `sync_map_count_after_write/one_top_byte` | 1,709,922,900 | 361 | 617 | 642 | improves | -0.1008% | +0.0998% |
+
+(measured: x86_64 heavy-jobs host, `fa91cc67`; bases from CI run 41655531519; `results/freelist_hint_baseline_callgrind_fa91cc67.json`)
+
+- **The mixed arms may lose, and that loss is pre-registered.** A churn, remove or compact arm reuses most blocks, so it has few misses and many hits and pushes. At a hit cost of 5 and a push cost of 2, `sync_set_churn/leaf` can lose up to +0.3638% before slack. Such a loss above the §6 review threshold, inside its bound, is a pre-registered trade-off: the PR names each such arm and cites this section. It is not a falsifier.
+- **Push-only arms** (19 `sync_*` arms with between 5 and 15 in-region pushes and no pop, such as `sync_strmap_update/routes` and `rmw_instructions` `sync_map_cas/random`): term [0, 2] × pushes, about the slack alone.
+- **No change** (235 arms: every arm with neither a pop nor a push, which includes every plain arm, every non-`sync_*` arm and the shared read arms): ±max(0.1%, 500 Ir). The self-test asserts that no arm outside `sync_*` has a term.
+
+### 49.5 Instrument of record
+
+- **The gate** is CI's `instruction-counts` job on the PR: the merge-base pass against the head's baseline pass, for `instructions` and for `rmw_instructions`. That is rustc 1.99.1, glibc 2.39 and valgrind 3.27.1 on `ubuntu-24.04`.
+- `pop_freelist` makes no C library call, so the term does not depend on the C library, and one instrument suffices (contrast §47.11).
+- **Reported only, not bounded here:** the `x86-64-v3` pass, the AArch64 Callgrind lane, and `wasm-fuel`. A move there is attributed, and their own CI gates apply as on any PR.
+
+### 49.6 Falsifiers, and what follows each
+
+| Falsifier | What follows |
+|---|---|
+| Any arm outside its bound on the gate instrument, including a No change arm moving by more than its slack | `callgrind_annotate --inclusive=no` and `--auto=yes` base against head on the arm, and `objdump -d -C` of every function whose count moved without a source change (AGENTS.md §6). Then the code changes and is re-measured against the same bound, or the departure is recorded here as a dated note. The bound does not move. |
+| `sync_strmap_insert_short/short` or `sync_strmap_insert_sorted/uuid` improves by less than 0.1% | the lever is a **negative**: it is recorded here with its numbers and reverted (§6 *record the negatives*), whatever the other arms show |
+| The disassembly of `pop_freelist` at the head shows a miss path above 25 instructions or a hit path above 52 | the per-call term is falsified even where the arm totals land inside; recorded, and the code changes or the lever is recorded as a negative |
+| A plain path gains a `%fs:` operand, or any function other than `pop_freelist` and the push sites changes its disassembly (`objdump` of the `instructions` binary, base against head: the `strmap_insert`, `strmap_churn`, `map_remove` and `set_insert` wrappers, `alloc_raw`'s inlined callers `new_suffix` and `new_shell::<true>`) | fixed before the PR is marked ready (AGENTS.md §2.1 invariant 5) |
+| CI's Tier-1 Miri, ASan or loom, or the `occ::tests` freelist tests fail | the change does not ship as is |
+
+**What counts as a negative.** The lever is recorded as a negative, with its measured numbers, if either named arm falls short of −0.1%, or if a falsifier on any arm cannot be removed by a code change that stays inside lever (a)'s description (§49.2). A negative is written here and in #1613. It is never re-registered with wider per-call terms (AGENTS.md §8.19).
+
+### 49.7 Not predicted
+
+- **Wall clock.** A miss stops executing two lock-prefixed instructions. Whether that moves shared string-insert throughput is unmeasured, and no figure is predicted. A reference-host run needs the maintainer's go-ahead. If one is run, it reports T_head(W) / T_base(W), BCa 95%, n = 8, at W ∈ {1, 2, 4, 8} under §47.11's pin and dispatch, and decides nothing in this section.
+- **Multi-writer hit rates.** Under concurrency a stale null can turn a hit into a miss (§49.3). How often that happens is unmeasured, and no Callgrind arm can show it.
+
+### 49.8 Silent constants, fixed here
+
+- The base `fa91cc67` and its CI run 41655531519; the artifact's in-region counts.
+- `pop_freelist`'s 45 and 47 instructions per miss and hit at the base.
+- The per-call ranges: [12, 25] remaining per miss, [−2, 5] per hit, [0, 2] per push.
+- The 0.1% slack with its 500 Ir floor; the gate instrument of §49.5.
+
+Changing any of these after a measurement of the change relabels that result `INTERMEDIATE` (AGENTS.md §8.19).
+
+**Expiry.** If `main` changes `pop_freelist`, the collector's push sites, or the allocation paths of any `sync_*` arm before the change is measured, the counts are re-profiled and re-registered in a new dated subsection before the change is measured. The PR's merge base then replaces `fa91cc67`.
