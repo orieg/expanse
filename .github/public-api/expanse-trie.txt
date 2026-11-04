@@ -1458,6 +1458,11 @@ pub expanse_trie::occ_stats::Stat::BranchSplitDemoteU = 48
 pub expanse_trie::occ_stats::Stat::BranchSplitLinear = 37
 pub expanse_trie::occ_stats::Stat::BranchSplitPrefix = 38
 pub expanse_trie::occ_stats::Stat::BranchSplitRemove = 39
+pub expanse_trie::occ_stats::Stat::BranchSplitRemoveEmptiedBitmap = 68
+pub expanse_trie::occ_stats::Stat::BranchSplitRemoveEmptiedLinear = 67
+pub expanse_trie::occ_stats::Stat::BranchSplitRemoveEmptiedOther = 69
+pub expanse_trie::occ_stats::Stat::BranchSplitRemoveOther = 71
+pub expanse_trie::occ_stats::Stat::BranchSplitRemovePrefix = 70
 pub expanse_trie::occ_stats::Stat::BranchSplitSubarray = 36
 pub expanse_trie::occ_stats::Stat::BranchSplitUpgrade = 40
 pub expanse_trie::occ_stats::Stat::CapExpansionBitmapNearFull = 43
@@ -1534,7 +1539,7 @@ impl core::marker::Unpin for expanse_trie::occ_stats::Stat
 impl core::marker::UnsafeUnpin for expanse_trie::occ_stats::Stat
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::occ_stats::Stat
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::occ_stats::Stat
-pub const expanse_trie::occ_stats::NAMES: [&str; 67]
+pub const expanse_trie::occ_stats::NAMES: [&str; 72]
 pub const expanse_trie::occ_stats::NUM_STATS: usize
 pub fn expanse_trie::occ_stats::bump(expanse_trie::occ_stats::Stat)
 pub fn expanse_trie::occ_stats::bump_by(expanse_trie::occ_stats::Stat, u64)
@@ -1550,7 +1555,7 @@ pub fn expanse_trie::occ_stats::record_retire(usize)
 pub fn expanse_trie::occ_stats::reset()
 pub fn expanse_trie::occ_stats::retained_bytes() -> u64
 pub fn expanse_trie::occ_stats::retained_hwm() -> u64
-pub fn expanse_trie::occ_stats::snapshot() -> [u64; 67]
+pub fn expanse_trie::occ_stats::snapshot() -> [u64; 72]
 pub mod expanse_trie::ordered_bytesmap
 pub enum expanse_trie::ordered_bytesmap::EscapeDecodeError
 pub expanse_trie::ordered_bytesmap::EscapeDecodeError::BufferTooSmall
