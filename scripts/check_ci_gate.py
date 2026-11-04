@@ -232,6 +232,84 @@ SELF_TEST_CASES = [
 """, False),
 ]
 
+EVAL_STEP_NAME = 'Evaluate Dependency Statuses'
+NEEDS_PLACEHOLDER = '${{ toJson(needs) }}'
+
+
+def extract_eval_script(text):
+    """Return the `run:` body of ci-gate's evaluation step, dedented."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() == f'- name: {EVAL_STEP_NAME}':
+            break
+    else:
+        raise ValueError(f'step {EVAL_STEP_NAME!r} not found in ci.yml')
+    for j in range(i + 1, len(lines)):
+        if lines[j].strip() == 'run: |':
+            break
+        if lines[j].strip().startswith('- name:'):
+            raise ValueError(f'step {EVAL_STEP_NAME!r} has no `run: |` block')
+    run_indent = len(lines[j]) - len(lines[j].lstrip())
+    body = []
+    for line in lines[j + 1:]:
+        if line.strip() and len(line) - len(line.lstrip()) <= run_indent:
+            break
+        body.append(line)
+    pad = min(len(l) - len(l.lstrip()) for l in body if l.strip())
+    script = '\n'.join(l[pad:] for l in body) + '\n'
+    if NEEDS_PLACEHOLDER not in script:
+        raise ValueError(f'step {EVAL_STEP_NAME!r} no longer reads {NEEDS_PLACEHOLDER}')
+    return script
+
+
+# (name, {job: result}, gate must pass). `abandoned` is the result GitHub
+# reports when no hosted runner acquires a job; on run 41857040154 attempt 3
+# the denylist gate passed over exactly these four abandoned macOS jobs.
+GATE_RESULT_CASES = [
+    ('all success', {'lint': 'success', 'test': 'success'}, True),
+    ('success and skipped', {'lint': 'success', 'miri': 'skipped'}, True),
+    ('failure', {'lint': 'success', 'test': 'failure'}, False),
+    ('cancelled', {'lint': 'success', 'test': 'cancelled'}, False),
+    ('abandoned', {'lint': 'success', 'test': 'abandoned'}, False),
+    ('41857040154 attempt 3', {'lint': 'success', 'test': 'abandoned',
+                               'test-php': 'abandoned', 'test-ruby': 'abandoned',
+                               'test-rocksdb-memtable': 'abandoned',
+                               'miri': 'skipped'}, False),
+    ('unknown result', {'lint': 'success', 'test': 'neutral'}, False),
+    ('empty result', {'lint': 'success', 'test': ''}, False),
+]
+
+
+def gate_result_self_test():
+    """Run the real evaluation step from ci.yml against synthetic results."""
+    import json
+    import shutil
+    import subprocess
+    for tool in ('bash', 'jq'):
+        if shutil.which(tool) is None:
+            print(f'  [FAILED] gate results: {tool} not found')
+            return 1
+    with open('.github/workflows/ci.yml') as f:
+        script = extract_eval_script(f.read())
+    failures = 0
+    for name, results, should_pass in GATE_RESULT_CASES:
+        needs = json.dumps({job: {'result': r, 'outputs': {}}
+                            for job, r in results.items()})
+        proc = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c',
+                               script.replace(NEEDS_PLACEHOLDER, needs)],
+                              capture_output=True, text=True)
+        passed = proc.returncode == 0
+        ok = passed == should_pass
+        if ok and not should_pass:
+            # A failing gate must name every job that did not succeed.
+            bad = [j for j, r in results.items() if r not in ('success', 'skipped')]
+            ok = proc.returncode == 1 and all(f'{j} (' in proc.stdout for j in bad)
+        if not ok:
+            failures += 1
+        print(f"  [{'ok' if ok else 'FAILED'}] gate results: {name} "
+              f"(expected {'pass' if should_pass else 'fail'}, exit {proc.returncode})")
+    return failures
+
 
 def self_test():
     failures = 0
@@ -241,10 +319,12 @@ def self_test():
         if got != expected:
             failures += 1
         print(f"  [{status}] {name} (expected {expected}, got {got})")
+    failures += gate_result_self_test()
     if failures:
         print(f"check_ci_gate.py --self-test: {failures} case(s) failed")
         sys.exit(1)
-    print(f"check_ci_gate.py --self-test: {len(SELF_TEST_CASES)} cases passed")
+    print(f"check_ci_gate.py --self-test: "
+          f"{len(SELF_TEST_CASES) + len(GATE_RESULT_CASES)} cases passed")
     sys.exit(0)
 
 
