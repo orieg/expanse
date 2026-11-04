@@ -8312,7 +8312,7 @@ The charge count is the Ir of `alloc.rs:600` over every function. The 8 per char
 - **A stale null** (a push not yet visible to this thread) sends this one allocation to the system allocator, as any miss does today. This is the way the proposal errs, and it loses nothing:
   - no block leaves the list on this path, so the pushed block stays reachable from the head;
   - a later pop that observes the push takes it;
-  - otherwise `release_free_lists` or the collector's drop frees it, and both take the lock.
+  - otherwise `release_free_lists` frees it, called directly or through `drain` from the collector's drop, under the lock.
 - **The cost of erring** is one missed reuse: one system allocation, and a footprint above today's by one block until the block is reused or released. The freelist is a reuse cache whose misses already fall through to the system allocator, and a writer already misses blocks that sit on another stripe's list. That is why this direction is acceptable.
 - **Staleness is not permanent.** Read-read and write-read coherence (C++ [intro.races], which Rust's memory model follows) guarantee that a thread which pushed, or observed a push under the lock, never loads an older value afterwards. Across threads the model promises a store's visibility only eventually. A block stays unreused only while no pop of its class observes the push, and it is never lost.
 - **What the lock still orders.** The popper reads `(*block).next` only after acquiring the lock, which the pusher released after writing it, as today. The hint adds no new happens-before requirement.
@@ -8321,7 +8321,7 @@ The charge count is the Ir of `alloc.rs:600` over every function. The 8 per char
 
 ### 49.4 Bounds (G-instr for lever (a); Callgrind, head against its merge base, per arm, two-sided)
 
-`python3 scripts/strmap_stall_bounds.py --freelist-hint` prints the table from the artifact. Its functions (`hint_term`, `freelist_hint_bounds`) carry pinned tests in the script's `--self-test`, which `scripts/gate.sh` and CI's `lint` job run.
+`python3 scripts/strmap_stall_bounds.py --freelist-hint` prints the table from the artifact. Its functions (`hint_term`, `freelist_hint_bounds`) carry pinned tests in the script's `--self-test`, which `scripts/gate.sh` and CI's `docs-lint` job run.
 
 **Per-call terms.**
 - **A miss** today executes 45 instructions. Behind the hint it still executes 12 to 25: the `writer_slot` read and its range check, the class bounds check, the stripe address, the hint load, its test and the return, and at the high end the prologue and epilogue the function has today. So a miss saves [20, 33].
