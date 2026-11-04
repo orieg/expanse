@@ -9,7 +9,7 @@ Expanse is a drop-in replacement for the 20-year-old C `libjudy` library, with b
 
 ## 1. CI Pipeline Overview
 
-Every ready pull request, and the daily scheduled run on `main`, executes a matrix of parallel checks defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The branch ruleset (`main-protection`) requires exactly **one** status context — **`CI Gate / All Checks Passed`** — a rollup (`ci-gate`) that `needs:` every other job and fails if any of them failed or was cancelled. Because a job omitted from that rollup would fail open (its result unobserved), completeness is asserted in **two** places:
+Every ready pull request, and the daily scheduled run on `main`, executes a matrix of parallel checks defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The branch ruleset (`main-protection`) requires exactly **one** status context — **`CI Gate / All Checks Passed`** — a rollup (`ci-gate`) that `needs:` every other job and fails unless each one concluded `success` or `skipped` — so a job that failed, was cancelled, or was `abandoned` because no hosted runner acquired it fails the gate (pinned by `scripts/check_ci_gate.py --self-test`, which runs the step itself). Because a job omitted from that rollup would fail open (its result unobserved), completeness is asserted in **two** places:
 
 - the `lint` job runs `python3 scripts/check_ci_gate.py`, and
 - the `ci-gate` job's own **self-check** step parses `ci.yml`, builds the set of job ids, and fails if any id (other than `ci-gate`) is missing from `ci-gate`'s `needs:`.

@@ -3898,12 +3898,17 @@ jobs:
           for job in $(echo "$STATUSES" | jq -r 'keys[]'); do
             result=$(echo "$STATUSES" | jq -r --arg j "$job" '.[$j].result')
             echo "  Job [$job]: $result"
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
-              FAILED+=("$job")
-            fi
-            if [ "$result" = "skipped" ]; then
-              SKIPPED+=("$job")
-            fi
+            # Allowlist, not denylist: only `success` and `skipped` pass. Any
+            # other result fails the gate, including `abandoned` (no hosted
+            # runner acquired the job, so it never ran) and any result GitHub
+            # adds later. A denylist of `failure`/`cancelled` passed a run whose
+            # macOS workspace tests were abandoned. Pinned by
+            # `scripts/check_ci_gate.py --self-test`.
+            case "$result" in
+              success) ;;
+              skipped) SKIPPED+=("$job") ;;
+              *) FAILED+=("$job ($result)") ;;
+            esac
           done
 
           if [ ${#FAILED[@]} -gt 0 ]; then
