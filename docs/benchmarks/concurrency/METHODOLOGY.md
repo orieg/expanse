@@ -8426,3 +8426,37 @@ Both bounds lie wholly below −0.1%. Lever (a) is therefore not pre-registered 
 Changing any of these after a measurement of the change relabels that result `INTERMEDIATE` (AGENTS.md §8.19).
 
 **Expiry.** If `main` changes `pop_freelist`, the collector's push sites, or the allocation paths of any `sync_*` arm before the change is measured, the counts are re-profiled and re-registered in a new dated subsection before the change is measured. The PR's merge base then replaces `fa91cc67`.
+
+### 49.9 Lever (a)'s Callgrind outcome (appended 2026-11-05; §49.1 to §49.8 are not rewritten, and no bound moves)
+
+PR #1651 head `06d6e9c3`, merge base `d6639284`, on §49.5's instrument (CI run [42006114463](https://github.com/orieg/expanse/actions/runs/42006114463), `instruction-counts`, its PR-against-`main_base` pass). `f6daa739`, pushed after it, changes only the `cfg(loom)` build. Artifact: `results/freelist_hint_callgrind_06d6e9c3.json`, every arm with its merge-base and head counts and its §49.4 bound in Ir.
+
+**G-instr for lever (a): 287 of 288 arms inside their bounds.** The arm outside improves by more than its bound allows (below). Neither named arm is a negative (§49.6):
+
+| arm | merge base | head | Δ | §49.4 bound |
+|---|---:|---:|---:|---|
+| `sync_strmap_insert_short/short` | 102,503,355 | 101,160,059 | −1.3105% | [−1.9399%, −0.9414%] |
+| `sync_strmap_insert_sorted/uuid` | 47,998,126 | 47,427,732 | −1.1884% | [−1.8250%, −0.7945%] |
+| `rmw_instructions` `sync_map_cas_insert/random` | 47,201,943 | 46,807,998 | −0.8346% | [−1.3964%, −0.4847%] |
+| `sync_set_churn/leaf` | 96,057,263 | 96,206,696 | +0.1556% | [−0.2048%, +0.4638%] |
+| `sync_blobmap_churn/random` | 137,125,531 | 137,276,680 | +0.1102% | [−0.1748%, +0.3583%] |
+| `sync_blobmap_reclaim_free/random` | 276,113 | 272,040 | −1.4751% | [−0.2629%, +0.1775%], **outside** |
+
+(measured: CI `ubuntu-24.04`, valgrind 3.27.1, rustc 1.99.1, `06d6e9c3`; `results/freelist_hint_callgrind_06d6e9c3.json`)
+
+- **The mixed arms' losses are the pre-registered trade-off (§49.4).** `sync_set_churn/leaf` (+0.1556%) and `sync_blobmap_churn/random` (+0.1102%) are above the §6 review threshold and inside their bounds.
+- **The arm outside, a departure recorded here.** `callgrind_annotate --inclusive=no`, merge base against head, on the local x86_64 instrument below puts the arm's change in two functions: `Collector::free_list_bytes` −3,971 Ir and `pop_freelist` −102, a sum equal to CI's −4,073 to the instruction. `free_list_bytes` walks every freelist under its lock, 16 stripes × 62 classes = 992 lists per walk. Its body reads the head through `FreeList` now, and the walk's count fell by about 4 per list. §49.4's terms model pops and pushes only, and no term covers that walk. The departure is a saving the bound did not predict, not a cost. The code is not made worse to fit it.
+- **The two arms added after `fa91cc67`** (`sync_strmap_short_scan/user22` and `sync_strmap_short_scan_capped/user22`, #1650) neither pop nor push, and are unchanged. `sync_strmap_scan/paths` and `paths_dense` have merge-base counts below `fa91cc67`'s (#1650), call neither, and are unchanged.
+
+**Per-call terms (§49.6), `objdump -d -C` of the head `instructions` binary.** `pop_freelist` hit path 50 instructions: base 47 plus the hint's load, test and branch (falsifier above 52). Miss path 21 instructions: the prologue, the `writer_slot` read and its range check, the class check, the stripe address, the hint load and test, the null return value and the epilogue (falsifier above 25).
+
+**Plain paths (§2.1 invariant 5).** Normalised function bodies, merge base against head: none of §49.6's named functions changed (the `strmap_insert`, `strmap_churn`, `map_remove` and `set_insert` wrappers, `new_suffix`, `new_shell::<true>`, `alloc_raw`'s other callers), and no function gained a `%fs:` operand.
+
+**The implementation's departure from §49.2's text.**
+- std's `Mutex` cannot be read without locking it, so the pointer could not become atomic inside `Mutex<FreeListHead>`. It moves beside the mutex: `FreeList { state: Mutex<FreeListState>, head: AtomicPtr<FreeBlock> }`, every head store made with `state` locked. A const assertion pins `FreeList` to the size and alignment of the `Mutex<*mut FreeBlock>` it replaces, and the mutex to offset 0.
+- **The field order is part of the change.** The first build let the compiler order the fields, which put the head at offset 0 and the mutex at 8. On the local instrument below it put 15 of 288 arms outside their bounds, all on the loss side, mostly churn and remove arms (`sync_set_churn/leaf` +0.7405% against +0.4638%). `try_advance`'s push loop and `pop_freelist` each kept a second pointer, the lock word's, and the push loop spilled it to the stack, about 6 instructions per push and per hit. `#[repr(C)]` with the mutex first gives the lock word and the head their offsets in `Mutex<*mut FreeBlock>`. That is the build measured above. The bounds did not move (§49.6, first row).
+- Under loom the head is `core`'s `AtomicPtr`, not loom's. A loom atomic per list put every walk and release over loom's branch limit and four models failed on it, not on a race; loom now sees the lists' mutexes as it did before the change, and does not model the unlocked hint.
+
+The local instrument: x86_64 Callgrind in Docker on the development laptop (`linux/amd64` emulation), valgrind 3.24.0, rustc 1.99.1, every arm of both harnesses at merge base and head. Its absolute counts sit below CI's. Its delta on the arm outside equals CI's, and the gate is CI's.
+
+**Not measured.** Wall clock (§49.7) needs the maintainer's dispatch on the reference host. Lever (b) still needs its own section.
