@@ -2953,6 +2953,7 @@ pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::new(&'m expanse_
 pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::next(&mut self) -> core::option::Option<(&[u8], u64)>
 pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::prefix(&'m expanse_trie::sync::SyncExpanseStrMap, &'r expanse_trie::occ::Reader, &expanse_trie::strmap::NulFreeStr) -> Self
 pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::range(&'m expanse_trie::sync::SyncExpanseStrMap, &'r expanse_trie::occ::Reader, &expanse_trie::strmap::NulFreeStr, &expanse_trie::strmap::NulFreeStr) -> Self
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::set_batch_cap(&mut self, usize)
 impl<'m, 'r> core::marker::Freeze for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
 impl<'m, 'r> !core::marker::Send for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
 impl<'m, 'r> !core::marker::Sync for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
@@ -3098,6 +3099,7 @@ pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::new(&'m expanse_
 pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::next(&mut self) -> core::option::Option<(&[u8], u64)>
 pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::prefix(&'m expanse_trie::sync::SyncExpanseStrMap, &'r expanse_trie::occ::Reader, &expanse_trie::strmap::NulFreeStr) -> Self
 pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::range(&'m expanse_trie::sync::SyncExpanseStrMap, &'r expanse_trie::occ::Reader, &expanse_trie::strmap::NulFreeStr, &expanse_trie::strmap::NulFreeStr) -> Self
+pub fn expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>::set_batch_cap(&mut self, usize)
 impl<'m, 'r> core::marker::Freeze for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
 impl<'m, 'r> !core::marker::Send for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
 impl<'m, 'r> !core::marker::Sync for expanse_trie::sync_str_cursor::SyncStrMapCursor<'m, 'r>
