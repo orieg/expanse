@@ -2989,8 +2989,12 @@ impl ExpanseStrMap {
                 _ => u64::MAX,
             };
             let mark = rs.len();
+            // One pair past the batch's room: a probe's first pair may sort
+            // below it, and a pair that does not fit ends the attempt, so a
+            // longer drain collects only pairs the batch discards (#1645).
+            let room = batch.room().saturating_add(1).min(batch.pairs.len());
             let mut d = crate::sync_str_cursor::SubDrain {
-                buf: &mut batch.pairs,
+                buf: &mut batch.pairs[..room],
                 count: 0,
                 end_chunk,
                 past_end: false,

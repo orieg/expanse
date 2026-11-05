@@ -138,6 +138,12 @@ impl StrBatch {
         true
     }
 
+    /// Entries the batch still takes before it holds `cap`.
+    #[inline]
+    pub(crate) fn room(&self) -> usize {
+        self.cap - self.count
+    }
+
     /// Entry `i`'s key and value.
     #[inline]
     fn entry(&self, i: usize) -> (&[u8], u64) {
