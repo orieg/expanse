@@ -35,16 +35,19 @@
 //! `loom_` tests model-check writer/reader/reclamation interleavings.
 
 #[cfg(all(not(loom), feature = "std"))]
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
+use core::sync::atomic::{AtomicBool, AtomicUsize};
 #[cfg(not(loom))]
 use core::sync::atomic::{AtomicU64, Ordering, fence};
 #[cfg(feature = "std")]
 use std::sync::TryLockError;
+// A freelist head is `core`'s atomic under loom too: see `FreeList`.
+#[cfg(feature = "std")]
+use core::sync::atomic::AtomicPtr;
 #[cfg(all(not(loom), feature = "std"))]
 use std::sync::{Mutex, MutexGuard};
 
 #[cfg(loom)]
-use loom::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering, fence};
+use loom::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering, fence};
 #[cfg(loom)]
 use loom::sync::{Mutex, MutexGuard};
 
@@ -1220,6 +1223,12 @@ type FreeListState = ();
 /// they had in `Mutex<*mut FreeBlock>`, so one base register reaches both.
 /// With the head first, the push loop in `try_advance` kept a second
 /// pointer and spilled it, about six instructions per push (#1613).
+///
+/// Under loom the head stays `core`'s `AtomicPtr`, not loom's. A collector
+/// has one list per stripe and class, and a loom atomic per list puts every
+/// walk and release over loom's branch limit; with `core`'s, loom sees the
+/// lists' mutexes as it did when the head was data under them, and the
+/// unlocked hint is not modelled.
 #[cfg(feature = "std")]
 #[derive(Debug)]
 #[repr(C)]
