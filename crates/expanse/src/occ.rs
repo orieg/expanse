@@ -35,18 +35,18 @@
 //! `loom_` tests model-check writer/reader/reclamation interleavings.
 
 #[cfg(all(not(loom), feature = "std"))]
-use core::sync::atomic::{AtomicBool, AtomicUsize};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize};
 #[cfg(not(loom))]
 use core::sync::atomic::{AtomicU64, Ordering, fence};
-#[cfg(all(not(loom), feature = "std"))]
-use std::sync::Mutex;
 #[cfg(feature = "std")]
 use std::sync::TryLockError;
+#[cfg(all(not(loom), feature = "std"))]
+use std::sync::{Mutex, MutexGuard};
 
 #[cfg(loom)]
-use loom::sync::Mutex;
+use loom::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering, fence};
 #[cfg(loom)]
-use loom::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering, fence};
+use loom::sync::{Mutex, MutexGuard};
 
 #[cfg(feature = "std")]
 use core::alloc::Layout;
@@ -1197,36 +1197,82 @@ unsafe impl Send for Garbage {}
 #[cfg(feature = "std")]
 use crate::alloc::{CLASS_SPECS, FreeBlock, NUM_CLASSES, class_for};
 
-/// One size-class freelist of one stripe: the list head and, with
-/// `collector-census`, the list's cumulative counters. Both are read and
-/// written only under the list's mutex. Without the feature the second field
-/// does not exist, so the type is one pointer, as it always was (asserted
-/// below).
+/// What one size-class freelist keeps under its mutex: with
+/// `collector-census`, the list's cumulative counters; without it, nothing.
+#[cfg(all(feature = "std", feature = "collector-census"))]
+type FreeListState = FreeListCounts;
+#[cfg(all(feature = "std", not(feature = "collector-census")))]
+type FreeListState = ();
+
+/// One size-class freelist of one stripe: the list head, beside the mutex
+/// that orders it.
+///
+/// The head is written only with `state` locked, and read under it.
+/// `Collector::pop_freelist` also loads it once before locking, as an
+/// emptiness hint it only compares with null: a stale null sends one
+/// allocation to the system allocator, as any miss does, and leaves the
+/// block on the list; a stale non-null takes the lock and re-reads the head.
+/// The hint is never dereferenced (`docs/benchmarks/concurrency/METHODOLOGY.md`
+/// §49.3). The head sits outside the mutex because a `Mutex` cannot be read
+/// without locking it.
+///
+/// `#[repr(C)]`, mutex first: the lock word and the head keep the offsets
+/// they had in `Mutex<*mut FreeBlock>`, so one base register reaches both.
+/// With the head first, the push loop in `try_advance` kept a second
+/// pointer and spilled it, about six instructions per push (#1613).
 #[cfg(feature = "std")]
 #[derive(Debug)]
-struct FreeListHead(
-    *mut FreeBlock,
-    #[cfg(feature = "collector-census")] FreeListCounts,
-);
+#[repr(C)]
+struct FreeList {
+    state: Mutex<FreeListState>,
+    head: AtomicPtr<FreeBlock>,
+}
 
 #[cfg(feature = "std")]
-impl FreeListHead {
+impl FreeList {
     /// An empty list.
     #[cfg(not(feature = "collector-census"))]
-    const fn empty() -> Self {
-        Self(core::ptr::null_mut())
+    fn empty() -> Self {
+        Self {
+            state: Mutex::new(()),
+            head: AtomicPtr::new(core::ptr::null_mut()),
+        }
     }
 
     /// An empty list with zeroed counters.
     #[cfg(feature = "collector-census")]
-    const fn empty() -> Self {
-        Self(core::ptr::null_mut(), FreeListCounts::ZERO)
+    fn empty() -> Self {
+        Self {
+            state: Mutex::new(FreeListCounts::ZERO),
+            head: AtomicPtr::new(core::ptr::null_mut()),
+        }
+    }
+
+    /// Locks the list.
+    #[inline(always)]
+    fn lock(&self) -> MutexGuard<'_, FreeListState> {
+        self.state.lock().expect("freelist poisoned")
+    }
+
+    /// The head; `_locked` is this list's guard.
+    #[inline(always)]
+    fn head(&self, _locked: &MutexGuard<'_, FreeListState>) -> *mut FreeBlock {
+        self.head.load(Ordering::Relaxed)
+    }
+
+    /// Sets the head; `_locked` is this list's guard, so the mutex orders
+    /// the store.
+    #[inline(always)]
+    fn set_head(&self, _locked: &mut MutexGuard<'_, FreeListState>, block: *mut FreeBlock) {
+        self.head.store(block, Ordering::Relaxed);
+    }
+
+    /// The emptiness hint, read without the lock. Only compared with null.
+    #[inline(always)]
+    fn looks_empty(&self) -> bool {
+        self.head.load(Ordering::Relaxed).is_null()
     }
 }
-
-#[cfg(feature = "std")]
-// SAFETY: Access to the raw pointer in FreeListHead is synchronized by a Mutex.
-unsafe impl Send for FreeListHead {}
 
 /// What one epoch-bin stripe holds under its mutex: the retired blocks and,
 /// with `collector-census`, the stripe's cumulative counters. Without the
@@ -1242,11 +1288,16 @@ struct BinList {
 // G0 of #1310: with `collector-census` off, the two types the feature extends
 // keep the layout of the types they wrap, so every field of `Collector` keeps
 // its size and offset and `Collector` its size (`#[repr(C)]`, no other field
-// changes with the feature).
+// changes with the feature). A `FreeList` keeps the layout of the
+// `Mutex<*mut FreeBlock>` it replaced (#1613).
+#[cfg(all(not(loom), feature = "std", not(feature = "collector-census")))]
+const _: () = {
+    assert!(core::mem::size_of::<FreeList>() == core::mem::size_of::<Mutex<*mut FreeBlock>>());
+    assert!(core::mem::align_of::<FreeList>() == core::mem::align_of::<Mutex<*mut FreeBlock>>());
+    assert!(core::mem::offset_of!(FreeList, state) == 0);
+};
 #[cfg(all(feature = "std", not(feature = "collector-census")))]
 const _: () = {
-    assert!(core::mem::size_of::<FreeListHead>() == core::mem::size_of::<*mut FreeBlock>());
-    assert!(core::mem::align_of::<FreeListHead>() == core::mem::align_of::<*mut FreeBlock>());
     assert!(core::mem::size_of::<BinList>() == core::mem::size_of::<Vec<Garbage>>());
     assert!(core::mem::align_of::<BinList>() == core::mem::align_of::<Vec<Garbage>>());
 };
@@ -1625,7 +1676,7 @@ pub(crate) struct PaddedRetained(pub(crate) AtomicUsize);
 #[cfg(all(feature = "std", not(feature = "ablation-unstriped-freelist")))]
 #[derive(Debug)]
 #[repr(align(64))]
-struct PaddedFreelists([Mutex<FreeListHead>; NUM_CLASSES]);
+struct PaddedFreelists([FreeList; NUM_CLASSES]);
 
 /// Rows of freelists `Collector::free_list_rows` yields: one per stripe, or
 /// the single shared row under the ablation.
@@ -1908,7 +1959,7 @@ pub struct Collector {
     readers: Mutex<Vec<Arc<Slot>>>,
     pub(crate) retained_bytes: [PaddedRetained; NUM_EPOCH_STRIPES],
     #[cfg(feature = "ablation-unstriped-freelist")]
-    freelists: [Mutex<FreeListHead>; NUM_CLASSES],
+    freelists: [FreeList; NUM_CLASSES],
     #[cfg(not(feature = "ablation-unstriped-freelist"))]
     freelists: [PaddedFreelists; NUM_FREELIST_STRIPES],
     // Cold fields, after every hot one: the advancer's carry list (#1481)
@@ -1955,10 +2006,10 @@ impl Collector {
             readers: Mutex::new(Vec::new()),
             retained_bytes: core::array::from_fn(|_| PaddedRetained(AtomicUsize::new(0))),
             #[cfg(feature = "ablation-unstriped-freelist")]
-            freelists: core::array::from_fn(|_| Mutex::new(FreeListHead::empty())),
+            freelists: core::array::from_fn(|_| FreeList::empty()),
             #[cfg(not(feature = "ablation-unstriped-freelist"))]
             freelists: core::array::from_fn(|_| {
-                PaddedFreelists(core::array::from_fn(|_| Mutex::new(FreeListHead::empty())))
+                PaddedFreelists(core::array::from_fn(|_| FreeList::empty()))
             }),
             carry: Carry(core::cell::UnsafeCell::new(Vec::new())),
             carried_blocks: AtomicUsize::new(0),
@@ -2082,27 +2133,25 @@ impl Collector {
     #[inline(always)]
     fn reclaim_block(&self, g: &Garbage, stripe: usize, class: usize) {
         let block = g.ptr.as_ptr().cast::<FreeBlock>();
-        let mut head = self
-            .reclaim_freelist(stripe, class)
-            .lock()
-            .expect("freelist poisoned");
+        let list = self.reclaim_freelist(stripe, class);
+        let mut state = list.lock();
         // SAFETY: block was retired by a well-aligned allocation
         // matching this size class, and grace period elapsed.
         unsafe {
-            (*block).next = head.0;
+            (*block).next = list.head(&state);
         }
-        head.0 = block;
+        list.set_head(&mut state, block);
         #[cfg(feature = "collector-census")]
         {
-            head.1.len += 1;
-            head.1.reclaimed += 1;
+            state.len += 1;
+            state.reclaimed += 1;
         }
     }
 
     /// The freelist an allocation of `class` pops from: the one shared list
     /// under `ablation-unstriped-freelist`, or the calling writer's own stripe.
     #[inline(always)]
-    fn alloc_freelist(&self, class: usize) -> &Mutex<FreeListHead> {
+    fn alloc_freelist(&self, class: usize) -> &FreeList {
         #[cfg(feature = "ablation-unstriped-freelist")]
         {
             &self.freelists[class]
@@ -2116,7 +2165,7 @@ impl Collector {
     /// The freelist a reclaimed block of `class` is pushed to: the one shared
     /// list under `ablation-unstriped-freelist`, or the draining stripe's freelist.
     #[inline(always)]
-    fn reclaim_freelist(&self, stripe: usize, class: usize) -> &Mutex<FreeListHead> {
+    fn reclaim_freelist(&self, stripe: usize, class: usize) -> &FreeList {
         #[cfg(feature = "ablation-unstriped-freelist")]
         {
             let _ = stripe;
@@ -2136,22 +2185,25 @@ impl Collector {
     /// when its caller asks for a zeroed block.
     #[inline(never)]
     pub(crate) fn pop_freelist(&self, class: usize) -> *mut u8 {
-        let mut head = self
-            .alloc_freelist(class)
-            .lock()
-            .expect("freelist poisoned");
-        let block = head.0;
+        let list = self.alloc_freelist(class);
+        // An empty list is a miss without the lock. The hint is compared
+        // with null only; a non-null one is re-read under the lock.
+        if list.looks_empty() {
+            return core::ptr::null_mut();
+        }
+        let mut state = list.lock();
+        let block = list.head(&state);
         if block.is_null() {
             return core::ptr::null_mut();
         }
         // SAFETY: block points to a valid FreeBlock in this size class.
-        head.0 = unsafe { (*block).next };
+        list.set_head(&mut state, unsafe { (*block).next });
         #[cfg(feature = "collector-census")]
         {
-            head.1.len -= 1;
-            head.1.reused += 1;
+            state.len -= 1;
+            state.reused += 1;
         }
-        drop(head);
+        drop(state);
         block.cast::<u8>()
     }
 
@@ -2171,19 +2223,17 @@ impl Collector {
     pub(crate) unsafe fn recycle_unpublished(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         if let Some(class) = class_for(bytes, align) {
             let block = ptr.as_ptr().cast::<FreeBlock>();
-            let mut head = self
-                .alloc_freelist(class)
-                .lock()
-                .expect("freelist poisoned");
+            let list = self.alloc_freelist(class);
+            let mut state = list.lock();
             // SAFETY: block was allocated matching this size class, was never published, and caller relinquishes ownership.
             unsafe {
-                (*block).next = head.0;
+                (*block).next = list.head(&state);
             }
-            head.0 = block;
+            list.set_head(&mut state, block);
             #[cfg(feature = "collector-census")]
             {
-                head.1.len += 1;
-                head.1.recycled += 1;
+                state.len += 1;
+                state.recycled += 1;
             }
         } else {
             // SAFETY: ptr was never published and matches layout contract.
@@ -2408,20 +2458,18 @@ impl Collector {
                 freed_bytes += g.bytes;
                 if let Some(class) = class_for(g.bytes, g.align) {
                     let block = g.ptr.as_ptr().cast::<FreeBlock>();
-                    let mut head = self
-                        .reclaim_freelist(stripe, class)
-                        .lock()
-                        .expect("freelist poisoned");
+                    let list = self.reclaim_freelist(stripe, class);
+                    let mut state = list.lock();
                     // SAFETY: block was retired by a well-aligned allocation
                     // matching this size class, and grace period elapsed.
                     unsafe {
-                        (*block).next = head.0;
+                        (*block).next = list.head(&state);
                     }
-                    head.0 = block;
+                    list.set_head(&mut state, block);
                     #[cfg(feature = "collector-census")]
                     {
-                        head.1.len += 1;
-                        head.1.reclaimed += 1;
+                        state.len += 1;
+                        state.reclaimed += 1;
                     }
                 } else {
                     free_raw(g.ptr, g.bytes, g.align);
@@ -2579,7 +2627,7 @@ impl Collector {
 
     /// The freelist rows: one per stripe, or the single shared row under
     /// the ablation.
-    fn free_list_rows(&self) -> impl Iterator<Item = &[Mutex<FreeListHead>; NUM_CLASSES]> {
+    fn free_list_rows(&self) -> impl Iterator<Item = &[FreeList; NUM_CLASSES]> {
         #[cfg(feature = "ablation-unstriped-freelist")]
         let rows = core::iter::once(&self.freelists);
         #[cfg(not(feature = "ablation-unstriped-freelist"))]
@@ -2619,11 +2667,12 @@ impl Collector {
             let mut row_sum = 0;
             let mut complete = true;
             for (class, &(bytes, _)) in CLASS_SPECS.iter().enumerate() {
-                let head = if BLOCKING {
-                    row[class].lock().expect("freelist poisoned")
+                let list = &row[class];
+                let state = if BLOCKING {
+                    list.lock()
                 } else {
-                    match row[class].try_lock() {
-                        Ok(head) => head,
+                    match list.state.try_lock() {
+                        Ok(state) => state,
                         Err(TryLockError::WouldBlock) => {
                             complete = false;
                             continue;
@@ -2631,7 +2680,7 @@ impl Collector {
                         Err(TryLockError::Poisoned(_)) => panic!("freelist poisoned"),
                     }
                 };
-                let mut cur = head.0;
+                let mut cur = list.head(&state);
                 while !cur.is_null() {
                     row_sum += bytes;
                     // SAFETY: a freelist entry is a free block of this class
@@ -2669,18 +2718,19 @@ impl Collector {
             // The row is emptied below; its last known total goes with it.
             seen.store(0, Ordering::Relaxed);
             for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
-                let mut head = row[class].lock().expect("freelist poisoned");
-                let mut cur = head.0;
-                head.0 = core::ptr::null_mut();
+                let list = &row[class];
+                let mut state = list.lock();
+                let mut cur = list.head(&state);
+                list.set_head(&mut state, core::ptr::null_mut());
                 #[cfg(feature = "collector-census")]
                 {
-                    let counts = &mut head.1;
+                    let counts: &mut FreeListCounts = &mut state;
                     if !DRAIN {
                         counts.released += counts.len;
                     }
                     counts.len = 0;
                 }
-                drop(head);
+                drop(state);
                 let layout = Layout::from_size_align(bytes, align).expect("valid node layout");
                 while !cur.is_null() {
                     // SAFETY: cur was allocated with `layout`: a deferred
@@ -2731,16 +2781,17 @@ impl Collector {
         for row in self.free_list_rows() {
             let mut stripe = BlockTally::default();
             for (class, &(bytes, _)) in CLASS_SPECS.iter().enumerate() {
-                let head = row[class].lock().expect("freelist poisoned");
+                let list = &row[class];
+                let state = list.lock();
                 let mut blocks = 0;
-                let mut cur = head.0;
+                let mut cur = list.head(&state);
                 while !cur.is_null() {
                     blocks += 1;
                     // SAFETY: a freelist entry is a free block of this class
                     // with `next` written; the lock keeps it on the list.
                     cur = unsafe { (*cur).next };
                 }
-                drop(head);
+                drop(state);
                 classes[class].free.add(blocks, blocks * bytes);
                 stripe.add(blocks, blocks * bytes);
             }
@@ -2798,7 +2849,7 @@ impl Collector {
             .collect();
         for row in self.free_list_rows() {
             for (class, out) in classes.iter_mut().enumerate() {
-                let c = row[class].lock().expect("freelist poisoned").1;
+                let c = *row[class].lock();
                 out.reclaimed += c.reclaimed;
                 out.recycled += c.recycled;
                 out.reused += c.reused;
@@ -3923,7 +3974,7 @@ mod tests {
             let popped = c.pop_freelist(classed);
             assert!(!popped.is_null());
             {
-                let _held = c.reclaim_freelist(stripe, classed).lock().unwrap();
+                let _held = c.reclaim_freelist(stripe, classed).state.lock().unwrap();
                 assert_eq!(
                     c.free_list_bytes_estimate(),
                     128,
@@ -3938,13 +3989,52 @@ mod tests {
 
             assert_eq!(c.release_free_lists(), 64);
             {
-                let _held = c.reclaim_freelist(stripe, classed).lock().unwrap();
+                let _held = c.reclaim_freelist(stripe, classed).state.lock().unwrap();
                 assert_eq!(
                     c.free_list_bytes_estimate(),
                     0,
                     "a release resets the row's last known total"
                 );
             }
+            c.drain();
+        })
+        .join()
+        .unwrap();
+    }
+
+    /// #1613 lever (a): a pop from an empty list returns null without taking
+    /// the list's lock. Another thread holds that lock until the pop has
+    /// returned or a timeout passes; a pop that locked would wait for the
+    /// timeout and find the lock already released.
+    #[test]
+    fn pop_from_an_empty_list_does_not_take_its_lock() {
+        const SLOT: usize = 6;
+        std::thread::spawn(|| {
+            set_writer_slot(SLOT);
+            let classed = class_for(64, TEST_ALIGN).expect("(64, 16) is a size class");
+            let c = Arc::new(Collector::new());
+            let released = Arc::new(AtomicBool::new(false));
+            let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+            let (popped_tx, popped_rx) = std::sync::mpsc::channel::<()>();
+            let holder = {
+                let c = Arc::clone(&c);
+                let released = Arc::clone(&released);
+                std::thread::spawn(move || {
+                    let held = c.reclaim_freelist(census_stripe(SLOT), classed).lock();
+                    locked_tx.send(()).unwrap();
+                    let _ = popped_rx.recv_timeout(std::time::Duration::from_secs(10));
+                    released.store(true, Ordering::SeqCst);
+                    drop(held);
+                })
+            };
+            locked_rx.recv().unwrap();
+            assert!(c.pop_freelist(classed).is_null(), "the list is empty");
+            assert!(
+                !released.load(Ordering::SeqCst),
+                "the pop returned only after the holder released the lock"
+            );
+            popped_tx.send(()).unwrap();
+            holder.join().unwrap();
             c.drain();
         })
         .join()
