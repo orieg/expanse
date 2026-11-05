@@ -74,6 +74,9 @@ pub(crate) struct StrBatch {
     entries: [(u64, u32, u32); STR_BATCH_CAP],
     /// Entries written.
     pub(crate) count: usize,
+    /// Most entries one fill writes, `1..=STR_BATCH_CAP`
+    /// ([`SyncStrMapCursor::set_batch_cap`]).
+    cap: usize,
     /// The `(chunk, value)` pairs one sub-map drain collects.
     pub(crate) pairs: [(u64, u64); STR_BATCH_CAP],
     /// The levels the attempt holds, root first (§33.11.2).
@@ -89,6 +92,7 @@ impl StrBatch {
             used: 0,
             entries: [(0, 0, 0); STR_BATCH_CAP],
             count: 0,
+            cap: STR_BATCH_CAP,
             pairs: [(0, 0); STR_BATCH_CAP],
             levels: Vec::new(),
             spill: Vec::new(),
@@ -103,11 +107,12 @@ impl StrBatch {
     }
 
     /// Appends the entry whose key is `a ++ b ++ c`. Returns `false`, writing
-    /// nothing, when the batch is full or the key does not fit the arena; an
-    /// empty batch takes any key, into the spill buffer if it must.
+    /// nothing, when the batch holds `cap` entries or the key does not fit
+    /// the arena; an empty batch takes any key, into the spill buffer if it
+    /// must.
     #[inline]
     pub(crate) fn push(&mut self, a: &[u8], b: &[u8], c: &[u8], value: u64) -> bool {
-        if self.count == STR_BATCH_CAP {
+        if self.count == self.cap {
             return false;
         }
         let len = a.len() + b.len() + c.len();
@@ -758,6 +763,19 @@ impl<'m, 'r> SyncStrMapCursor<'m, 'r> {
         } else {
             None
         }
+    }
+
+    /// Bounds the entries each later refill copies to `cap`, clamped to
+    /// `1..=STR_BATCH_CAP`; a new cursor copies up to [`STR_BATCH_CAP`].
+    ///
+    /// A caller that will read a known number of entries sets it before the
+    /// call that refills, [`Self::advance_to`] or the first [`Self::next`],
+    /// so one refill copies no more than it will use (#1645). The entries
+    /// already buffered are kept, and the scan's order, bounds and promises
+    /// are unchanged: a smaller cap only means more refills for a scan that
+    /// reads past it. Setting [`STR_BATCH_CAP`] again restores full batches.
+    pub fn set_batch_cap(&mut self, cap: usize) {
+        self.batch.cap = cap.clamp(1, STR_BATCH_CAP);
     }
 
     /// The upper bound, exclusive; `None` when the scan is unbounded above.
