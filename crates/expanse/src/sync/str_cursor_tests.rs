@@ -616,7 +616,8 @@ fn tier1_capped_scan_matches_the_model() {
         assert_eq!(count(c, Count::Fallbacks), 0, "cap {cap}: {c:?}");
     }
     let rd = map.reader();
-    for lo in probes_around(&keys) {
+    let step = if cfg!(miri) { 7 } else { 1 };
+    for lo in probes_around(&keys).into_iter().step_by(step) {
         assert_eq!(
             drain_capped(rd.range_cursor(nf(&lo), nf(b"bbbbbbbbZ")), 2),
             model_range(&model, &lo, Some(b"bbbbbbbbZ")),
