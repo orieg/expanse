@@ -4200,6 +4200,38 @@ fn sync_strmap_short_scan(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>, u64)) 
     black_box(sink)
 }
 
+// The same scans with the refill capped at the scan's length, the falsifier
+// #1645 names: `set_batch_cap(limit)` before `advance_to`. `advance_to`
+// does not move past its entry, so the scan reads `limit` entries from the
+// start and the one refill holds every one of them. Same setup, ops and assertion as `sync_strmap_short_scan`.
+#[library_benchmark]
+#[bench::user22(args = ("user22",), setup = built_sync_strmap_short_scan)]
+fn sync_strmap_short_scan_capped(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>, u64)) -> u64 {
+    let (map, scans, expected) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    {
+        let rd = map.reader();
+        for (start, limit) in &scans {
+            let mut cur = rd.cursor();
+            cur.set_batch_cap(*limit as usize);
+            if let Some((k, v)) = cur.advance_to(black_box(tk(start))) {
+                sink ^= k.len() as u64 ^ v;
+            }
+            for _ in 0..*limit {
+                let Some((k, v)) = cur.next() else { break };
+                sink ^= k.len() as u64 ^ v;
+                n += 1;
+            }
+        }
+    }
+    assert_eq!(
+        n, expected,
+        "every scan reads its limit, or to the last key"
+    );
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 // ---- The string wrapper's memory reading (#1586) -------------------------
 //
 // `SyncExpanseStrMap::mem_used` took the writer lock and walked every
@@ -4832,6 +4864,7 @@ library_benchmark_group!(
         sync_strmap_scan_pointops,
         sync_strmap_scan,
         sync_strmap_short_scan,
+        sync_strmap_short_scan_capped,
         sync_strmap_mem_used,
         sync_bytesmap_insert,
         sync_bytesmap_remove,

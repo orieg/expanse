@@ -584,6 +584,125 @@ fn advance_to_interleaved_with_next() {
     }
 }
 
+/// Every entry a cursor returns with its batch cap set to `cap` first.
+fn drain_capped(mut cur: SyncStrMapCursor<'_, '_>, cap: usize) -> Entries {
+    cur.set_batch_cap(cap);
+    drain(cur)
+}
+
+/// A capped cursor (#1645) returns exactly the model, from every probe and
+/// across levels and suffixes, and each attempt copies at most `cap`
+/// entries: with no writer every attempt is a refill, so a scan of `n`
+/// entries takes at least `ceil(n / cap)` attempts. A cap outside
+/// `1..=STR_BATCH_CAP` is clamped.
+#[test]
+fn tier1_capped_scan_matches_the_model() {
+    let mut keys = Vec::new();
+    for a in [&b"aaaaaaaa"[..], b"aaaaaaab", b"bbbbbbbb"] {
+        for t in [&b""[..], b"\x01", b"M", b"MM", b"Z", b"ZZZZZZZZZ"] {
+            let mut k = a.to_vec();
+            k.extend_from_slice(t);
+            keys.push(k);
+        }
+    }
+    keys.push(b"aaaaaaaaQsuffix".to_vec());
+    let (map, model) = build(&keys);
+    let all = model_range(&model, b"", None);
+    for (cap, eff) in [(0, 1), (1, 1), (2, 2), (5, 5), (usize::MAX, STR_BATCH_CAP)] {
+        let (got, c) = on_thread(&[], || drain_capped(map.reader().cursor(), cap));
+        assert_eq!(got, all, "cap {cap}");
+        let floor = all.len().div_ceil(eff) as u64;
+        assert!(count(c, Count::Attempts) >= floor, "cap {cap}: {c:?}");
+        assert_eq!(count(c, Count::Fallbacks), 0, "cap {cap}: {c:?}");
+    }
+    let rd = map.reader();
+    for lo in probes_around(&keys) {
+        assert_eq!(
+            drain_capped(rd.range_cursor(nf(&lo), nf(b"bbbbbbbbZ")), 2),
+            model_range(&model, &lo, Some(b"bbbbbbbbZ")),
+            "from {lo:x?}"
+        );
+        let mut cur = rd.cursor();
+        cur.set_batch_cap(1);
+        let want = model
+            .range(lo.clone()..)
+            .next()
+            .map(|(k, &v)| (k.clone(), v));
+        let got = cur.advance_to(nf(&lo)).map(|(k, v)| (k.to_vec(), v));
+        assert_eq!(got, want, "advance_to {lo:x?}");
+    }
+}
+
+/// The short-scan shape the cap exists for: `set_batch_cap(limit)`, then
+/// `advance_to` and `limit` reads, one attempt per scan; and a scan that
+/// reads past its cap refills and returns the rest in order.
+#[test]
+fn capped_short_scans_take_one_attempt() {
+    let keys = wide_keys(if cfg!(miri) { 320 } else { 3_000 });
+    let (map, model) = build(&keys);
+    let sorted: Vec<_> = model.iter().map(|(k, &v)| (k.clone(), v)).collect();
+    for (i, limit) in [(0usize, 1usize), (7, 3), (40, 50), (100, 100)] {
+        let start = &sorted[i].0;
+        let (got, c) = on_thread(&[], || {
+            let rd = map.reader();
+            let mut cur = rd.cursor();
+            cur.set_batch_cap(limit);
+            let first = cur.advance_to(nf(start)).map(|(k, v)| (k.to_vec(), v));
+            let mut out = Vec::new();
+            for _ in 0..limit {
+                let Some((k, v)) = cur.next() else { break };
+                out.push((k.to_vec(), v));
+            }
+            (first, out)
+        });
+        assert_eq!(got.0.as_ref(), Some(&sorted[i]), "start {i}");
+        assert_eq!(got.1, sorted[i..i + limit], "start {i}, limit {limit}");
+        assert_eq!(count(c, Count::Attempts), 1, "limit {limit}: {c:?}");
+    }
+    // Past the cap: the next refill resumes after the batch's last key.
+    let rd = map.reader();
+    let mut cur = rd.cursor();
+    cur.set_batch_cap(3);
+    assert_eq!(
+        cur.advance_to(nf(&sorted[10].0)).map(|(_, v)| v),
+        Some(sorted[10].1)
+    );
+    let mut got = Vec::new();
+    for _ in 0..20 {
+        let (k, v) = cur.next().expect("20 entries follow");
+        got.push((k.to_vec(), v));
+    }
+    assert_eq!(got, sorted[10..30]);
+    // Restoring full batches applies from the next refill.
+    cur.set_batch_cap(STR_BATCH_CAP);
+    let mut rest = Vec::new();
+    while let Some((k, v)) = cur.next() {
+        rest.push((k.to_vec(), v));
+    }
+    assert_eq!(rest, sorted[30..]);
+}
+
+/// The writer-lock fallback honours the cap too: a 138-level-deep scan
+/// overflows the read set and fills every batch under the lock, so each
+/// capped batch of one is one fallback.
+#[test]
+#[cfg_attr(miri, ignore = "1,096-byte keys; the tier-1 tests cover the fallback")]
+fn capped_fallback_fills_at_most_cap() {
+    let base = vec![b'p'; 1096];
+    let keys: Vec<Vec<u8>> = [&b"a"[..], b"b", b"c"]
+        .iter()
+        .map(|t| {
+            let mut k = base.clone();
+            k.extend_from_slice(t);
+            k
+        })
+        .collect();
+    let (map, model) = build(&keys);
+    let (got, c) = on_thread(&[], || drain_capped(map.reader().cursor(), 1));
+    assert_eq!(got, model_range(&model, b"", None));
+    assert!(count(c, Count::Fallbacks) >= keys.len() as u64, "{c:?}");
+}
+
 // ---- Differential against StrCursor on quiescent maps (G33.5) --------------
 
 /// `paths`-shaped keys (a 35-byte shared prefix and 12 hex digits, depth 5)

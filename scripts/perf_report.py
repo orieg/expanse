@@ -260,6 +260,7 @@ BENCH_N_MAP: Dict[str, int] = {
     # Short scans through the string batch cursor (#1645): counted per scan,
     # the unit a refill cap would change; SHORT_SCANS = 1,000.
     "sync_strmap_short_scan": 1_000,
+    "sync_strmap_short_scan_capped": 1_000,
     # Whole-tree memory reads through the string wrapper (#1586): each
     # `mem_used` walks every shell and suffix leaf; MEM_USED_READS = 4.
     "sync_strmap_mem_used": 4,
@@ -472,6 +473,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_strmap_scan_pointops",
             "sync_strmap_scan",
             "sync_strmap_short_scan",
+            "sync_strmap_short_scan_capped",
             "sync_strmap_mem_used",
             "strmap_transcode_cursor",
             "ordered_bytesmap_cursor",
