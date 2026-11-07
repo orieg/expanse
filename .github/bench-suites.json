@@ -127,7 +127,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "YCSB core workloads A–F on uniform-random and dense clustered keys (`benches/ycsb.rs`, `benches/ycsb_dense.rs`) through `scripts/ycsb_bench.py --suite core`: 100k, 1M and 10M populations, both insertion orders, one process per round with BCa intervals and paired per-round ratios."
+      "summary": "YCSB core workloads A\u2013F on uniform-random and dense clustered keys (`benches/ycsb.rs`, `benches/ycsb_dense.rs`) through `scripts/ycsb_bench.py --suite core`: 100k, 1M and 10M populations, both insertion orders, one process per round with BCa intervals and paired per-round ratios."
     },
     {
       "name": "concurrency",
@@ -142,7 +142,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "#568 Step 2 gate run (`METHODOLOGY.md` §13) through `mixed_concurrency.py --step2-gate`: the head against `1edfa952` built with the head's `benches/concurrency.rs`, one process per window, `map` and `set` at 50/50 on 1 and 16 threads, 48 rounds, pin `0-15`; writes `baseline_concurrent_step2_gate.json`.",
+      "summary": "#568 Step 2 gate run (`METHODOLOGY.md` \u00a713) through `mixed_concurrency.py --step2-gate`: the head against `1edfa952` built with the head's `benches/concurrency.rs`, one process per window, `map` and `set` at 50/50 on 1 and 16 threads, 48 rounds, pin `0-15`; writes `baseline_concurrent_step2_gate.json`.",
       "suite": "concurrency"
     },
     {
@@ -150,7 +150,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "#1417 contended `update` cells (`METHODOLOGY.md` §39) through `mixed_concurrency.py --update-cells`: `update` against a held reader + `compare_exchange` loop on `map`, `str` and `bytes` at 1, 2, 4 and 8 threads, 0% read, one process per window, 36 rounds, pin `0,2,4,6,8,10,12,14`; writes `baseline_concurrent_update_cells.json`.",
+      "summary": "#1417 contended `update` cells (`METHODOLOGY.md` \u00a739) through `mixed_concurrency.py --update-cells`: `update` against a held reader + `compare_exchange` loop on `map`, `str` and `bytes` at 1, 2, 4 and 8 threads, 0% read, one process per window, 36 rounds, pin `0,2,4,6,8,10,12,14`; writes `baseline_concurrent_update_cells.json`.",
       "suite": "concurrency"
     },
     {
@@ -158,7 +158,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "#1417 change-build runs of the §39 cells (`METHODOLOGY.md` §40, amended in §40.8) through `mixed_concurrency.py --update-cells --change-build`: the same cells, rounds and pin as `concurrency_update_cells`, without the §39.5 void on the held arm measuring slower than `update`; writes `baseline_concurrent_update_cells_fix.json`, read against the §39.9 base pair by `--update-fix`.",
+      "summary": "#1417 change-build runs of the \u00a739 cells (`METHODOLOGY.md` \u00a740, amended in \u00a740.8) through `mixed_concurrency.py --update-cells --change-build`: the same cells, rounds and pin as `concurrency_update_cells`, without the \u00a739.5 void on the held arm measuring slower than `update`; writes `baseline_concurrent_update_cells_fix.json`, read against the \u00a739.9 base pair by `--update-fix`.",
       "suite": "concurrency"
     },
     {
@@ -166,7 +166,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "#1575 base-build runs of the blob map's contended `update` pair (`METHODOLOGY.md` §41) through `mixed_concurrency.py --update-cells --blob`: `SyncExpanseBlobMap::update` against a held reader + `compare_exchange` loop at 1, 2, 4 and 8 threads, 0% read, one process per window, 36 rounds, pin `0,2,4,6,8,10,12,14`; writes `baseline_concurrent_update_cells_blob.json`.",
+      "summary": "#1575 base-build runs of the blob map's contended `update` pair (`METHODOLOGY.md` \u00a741) through `mixed_concurrency.py --update-cells --blob`: `SyncExpanseBlobMap::update` against a held reader + `compare_exchange` loop at 1, 2, 4 and 8 threads, 0% read, one process per window, 36 rounds, pin `0,2,4,6,8,10,12,14`; writes `baseline_concurrent_update_cells_blob.json`.",
       "suite": "concurrency"
     },
     {
@@ -174,7 +174,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "#1575 change-build runs of the blob pair (`METHODOLOGY.md` §41) through `mixed_concurrency.py --update-cells --blob --change-build`: the cells, rounds and pin of `concurrency_update_cells_blob`, without the §39.5 void on the held arm measuring slower than `update` (§41.4); writes `baseline_concurrent_update_cells_blob_fix.json`.",
+      "summary": "#1575 change-build runs of the blob pair (`METHODOLOGY.md` \u00a741) through `mixed_concurrency.py --update-cells --blob --change-build`: the cells, rounds and pin of `concurrency_update_cells_blob`, without the \u00a739.5 void on the held arm measuring slower than `update` (\u00a741.4); writes `baseline_concurrent_update_cells_blob_fix.json`.",
       "suite": "concurrency"
     },
     {
@@ -182,7 +182,7 @@
       "available": false,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "#1280 four-thread peak of `SyncExpanseBlobMap` (`METHODOLOGY.md` §34, Amendment A1) through `mixed_concurrency.py --blob-peak`: `blob` at 50% read with `blob_mutex`, `blob` 100% read, `map` and `str` controls. The `cpu_pin` input is required and selects the cells: `0,2,4,6,8,10,12,14` runs 1 to 8 threads and writes `baseline_concurrency_blob_peak_percore.json`; `0-15` runs 1, 2, 4, 8 and 16 threads and writes `baseline_concurrency_blob_peak_pin0-15.json`.",
+      "summary": "#1280 four-thread peak of `SyncExpanseBlobMap` (`METHODOLOGY.md` \u00a734, Amendment A1) through `mixed_concurrency.py --blob-peak`: `blob` at 50% read with `blob_mutex`, `blob` 100% read, `map` and `str` controls. The `cpu_pin` input is required and selects the cells: `0,2,4,6,8,10,12,14` runs 1 to 8 threads and writes `baseline_concurrency_blob_peak_percore.json`; `0-15` runs 1, 2, 4, 8 and 16 threads and writes `baseline_concurrency_blob_peak_pin0-15.json`.",
       "reason": "On hold: the registered cells cannot decide the question (`docs/benchmarks/concurrency/METHODOLOGY.md` section 34b: thread placement is not controlled or recorded, no cell separates thread count from core sharing, no counters are attached). Tracked in #1280; make the suite available in the change that registers the amended design.",
       "suite": "concurrency"
     },
@@ -275,7 +275,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "Ordered readers on SyncExpanseMap: optimistic prev_before against with_locked over probe x (W, R) cells under the pin 0,2,4,6,8,10,12,14, with the P12.4 and P12.5 verdicts (#900, concurrency METHODOLOGY.md §12.4); outputs ordered_readers_writer_scaling.json.",
+      "summary": "Ordered readers on SyncExpanseMap: optimistic prev_before against with_locked over probe x (W, R) cells under the pin 0,2,4,6,8,10,12,14, with the P12.4 and P12.5 verdicts (#900, concurrency METHODOLOGY.md \u00a712.4); outputs ordered_readers_writer_scaling.json.",
       "suite": "concurrency"
     },
     {
@@ -315,7 +315,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "Batch cursor scan on SyncExpanseMap (#1142, concurrency METHODOLOGY.md §32.5): scan vs next_after across probe x (W, R) cells under pin 0,2,4,6,8,10,12,14 with P32.3 ratios; outputs scan_cells_writer_scaling.json.",
+      "summary": "Batch cursor scan on SyncExpanseMap (#1142, concurrency METHODOLOGY.md \u00a732.5): scan vs next_after across probe x (W, R) cells under pin 0,2,4,6,8,10,12,14 with P32.3 ratios; outputs scan_cells_writer_scaling.json.",
       "suite": "concurrency"
     },
     {
@@ -387,7 +387,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "G-stall of #1586 design B (METHODOLOGY.md §47): the §44 M1 cell (N = 2e7, W = 4, T = 1 s, both shapes) and a constant-N churn cell, arms none / len / mem_used interleaved per round, 5 rounds; PASS iff the BCa upper bound of the mem_used arm's per-round largest insert latency is at most 3 x the len arm's upper bound in every cell; dispatch with ref set to the change's head; outputs gate_1586_strmap_poll_stall.json.",
+      "summary": "G-stall of #1586 design B (METHODOLOGY.md \u00a747): the \u00a744 M1 cell (N = 2e7, W = 4, T = 1 s, both shapes) and a constant-N churn cell, arms none / len / mem_used interleaved per round, 5 rounds; PASS iff the BCa upper bound of the mem_used arm's per-round largest insert latency is at most 3 x the len arm's upper bound in every cell; dispatch with ref set to the change's head; outputs gate_1586_strmap_poll_stall.json.",
       "suite": "concurrency"
     },
     {
@@ -395,7 +395,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "G-scale of #1586 design B (METHODOLOGY.md §47): the str writer arm, the merge base's build (carrying the head's harness) against the head's, 8 interleaved (build x W) rounds, W in {1, 2, 4, 8}, one process per cell, under the applied pin; the paired C_head(W) / C_base(W) interval against the 0.90 floor; two dispatches make the gate; outputs gate_1586_str_writer_scaling.json.",
+      "summary": "G-scale of #1586 design B (METHODOLOGY.md \u00a747): the str writer arm, the merge base's build (carrying the head's harness) against the head's, 8 interleaved (build x W) rounds, W in {1, 2, 4, 8}, one process per cell, under the applied pin; the paired C_head(W) / C_base(W) interval against the 0.90 floor; two dispatches make the gate; outputs gate_1586_str_writer_scaling.json.",
       "suite": "concurrency"
     },
     {
@@ -936,7 +936,7 @@
       "kind": "wallclock",
       "runner": "builtin",
       "reason": "needs a Linux AArch64 host with `lrcpc`; the /bench host is self-hosted x86-64. Run `.github/workflows/aarch64_rcpc_ab.yml` via workflow_dispatch, twice (docs/BENCHMARKING.md rule 18).",
-      "summary": "writer_scaling map and set writer cells and a W = 1, R = 3 map get cell, default Linux AArch64 build against `+rcpc` and `+rcpc,+lse`, interleaved per round; paired ratios with BCa 95% intervals (docs/benchmarks/concurrency/README.md §23)."
+      "summary": "writer_scaling map and set writer cells and a W = 1, R = 3 map get cell, default Linux AArch64 build against `+rcpc` and `+rcpc,+lse`, interleaved per round; paired ratios with BCa 95% intervals (docs/benchmarks/concurrency/README.md \u00a723)."
     },
     {
       "name": "avx512_bitmap",
@@ -984,24 +984,18 @@
     },
     {
       "name": "hot_string_memory",
-      "available": false,
+      "available": true,
       "kind": "wallclock",
-      "runner": "generic",
-      "package": "expanse-hot-bench",
-      "target": "hot_string_memory",
-      "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2, and each cell must run in its own process because HOT's node pool is a process-global `static`. It is driven by `docs/benchmarks/hot_comparison/run.sh strings`, which runs the string validation gate first, takes the host-wide benchmark lock and sweeps population, not by `cargo bench`.",
-      "summary": "String-key live-heap census: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap, three columns per cell (index, external key storage, ownership).",
+      "runner": "builtin",
+      "summary": "String-key live-heap census: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap, three columns per cell (index, external key storage, ownership). Driven by `docs/benchmarks/hot_comparison/run.sh strings` after the pinned `third_party/hot` submodule is fetched (needs an x86-64 host with AVX2 and BMI2, one process per cell); that one invocation also writes the `hot_string_latency` artifact, so the two tokens run the same command.",
       "suite": "hot_comparison"
     },
     {
       "name": "hot_string_latency",
-      "available": false,
+      "available": true,
       "kind": "wallclock",
-      "runner": "generic",
-      "package": "expanse-hot-bench",
-      "target": "hot_string_latency",
-      "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2, and each cell must run in its own process because HOT's node pool is a process-global `static`. It is driven by `docs/benchmarks/hot_comparison/run.sh strings`, which runs the string validation gate first and takes the host-wide benchmark lock, not by `cargo bench`.",
-      "summary": "String-key point lookup (100% and 50% hit), cold-build insertion and ordered scan: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap; HOT's 255-byte key window reported per cell as a predicate.",
+      "runner": "builtin",
+      "summary": "String-key point lookup (100% and 50% hit), cold-build insertion and ordered scan: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap; HOT's 255-byte key window reported per cell as a predicate. Driven by `docs/benchmarks/hot_comparison/run.sh strings` after the pinned `third_party/hot` submodule is fetched (needs an x86-64 host with AVX2 and BMI2, one process per cell); that one invocation also writes the `hot_string_memory` artifact, so the two tokens run the same command.",
       "suite": "hot_comparison"
     },
     {
@@ -1017,35 +1011,26 @@
     },
     {
       "name": "masstree_string_latency",
-      "available": false,
+      "available": true,
       "kind": "wallclock",
-      "runner": "generic",
-      "package": "expanse-hot-bench",
-      "target": "masstree_string_latency",
-      "reason": "needs both `third_party/hot` and `third_party/masstree` submodules initialised and an x86-64 host with AVX2 and BMI2 (the crate also builds the HOT shim, and both arms are bound to `-march=haswell`). Each cell runs in its own process on a fresh Masstree thread slot because Masstree's pools and RCU limbo are per thread and outlive every table. It is driven by `docs/benchmarks/masstree_comparison/run.sh`, which runs the validation gate first and takes the host-wide benchmark lock, not by `cargo bench`.",
-      "summary": "Masstree vs ExpanseStrMap on byte-string keys: point lookup, insertion and ordered scan; Masstree's 255-byte key limit reported per cell as a predicate.",
+      "runner": "builtin",
+      "summary": "Masstree vs ExpanseStrMap on byte-string keys: point lookup, insertion and ordered scan; Masstree's 255-byte key limit reported per cell as a predicate. Driven by `docs/benchmarks/masstree_comparison/run.sh` after the pinned `third_party/hot` and `third_party/masstree` submodules are fetched (x86-64 with AVX2 and BMI2; validation gate first, one process per cell); that invocation writes every single-threaded artifact of the suite, so `masstree_memory` runs the same command.",
       "suite": "masstree_comparison"
     },
     {
       "name": "masstree_memory",
-      "available": false,
+      "available": true,
       "kind": "wallclock",
-      "runner": "generic",
-      "package": "expanse-hot-bench",
-      "target": "masstree_memory",
-      "reason": "needs both `third_party/hot` and `third_party/masstree` submodules initialised and an x86-64 host with AVX2 and BMI2 (the crate also builds the HOT shim, and both arms are bound to `-march=haswell`). Each cell runs in its own process on a fresh Masstree thread slot because Masstree's pools and RCU limbo are per thread and outlive every table. It is driven by `docs/benchmarks/masstree_comparison/run.sh`, which runs the validation gate first and takes the host-wide benchmark lock, not by `cargo bench`.",
-      "summary": "Masstree vs Expanse live-heap census on two instruments \u2014 the shared allocator interposition (slab-quantized on Masstree, flagged where the quantum dominates) and each engine's own node census.",
+      "runner": "builtin",
+      "summary": "Masstree vs Expanse live-heap census on two instruments \u2014 the shared allocator interposition (slab-quantized on Masstree, flagged where the quantum dominates) and each engine's own node census. Driven by `docs/benchmarks/masstree_comparison/run.sh` after the pinned `third_party/hot` and `third_party/masstree` submodules are fetched (x86-64 with AVX2 and BMI2; validation gate first, one process per cell); that invocation writes every single-threaded artifact of the suite, so `masstree_string_latency` runs the same command.",
       "suite": "masstree_comparison"
     },
     {
       "name": "masstree_concurrent",
-      "available": false,
+      "available": true,
       "kind": "wallclock",
-      "runner": "generic",
-      "package": "expanse-hot-bench",
-      "target": "masstree_concurrent",
-      "reason": "needs both `third_party/hot` and `third_party/masstree` submodules initialised and an x86-64 host with AVX2 and BMI2 (the crate also builds the HOT shim, and both arms are bound to `-march=haswell`). Each cell runs in its own process on a fresh Masstree thread slot because Masstree's pools and RCU limbo are per thread and outlive every table. It is driven by `docs/benchmarks/masstree_comparison/run.sh`, which runs the validation gate first and takes the host-wide benchmark lock, not by `cargo bench`. Every cell keeps writers + readers <= 16 inside the P-core pin; the health cells come from a separate occ-stats build.",
-      "summary": "Masstree vs SyncExpanseMap / SyncExpanseStrMap: writer throughput as writer count scales, reader throughput alongside, and the Expanse protocol's restart/fallback shares \u2014 the second route to the write-concurrency loss.",
+      "runner": "builtin",
+      "summary": "Masstree vs SyncExpanseMap / SyncExpanseStrMap: writer throughput as writer count scales, reader throughput alongside, and the Expanse protocol's restart/fallback shares \u2014 the second route to the write-concurrency loss. Driven by `docs/benchmarks/masstree_comparison/run.sh --only-concurrent` after the pinned `third_party/hot` and `third_party/masstree` submodules are fetched (x86-64 with AVX2 and BMI2); writes `results/baseline_concurrent.json`.",
       "suite": "masstree_comparison"
     },
     {
