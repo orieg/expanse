@@ -1761,8 +1761,8 @@ jobs:
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|miri|')
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    # The Tier-1 filter (AGENTS.md §5), split in three so each shard runs
+    timeout-minutes: 20
+    # The Tier-1 filter (AGENTS.md §5), split in four so each shard runs
     # well inside the limit. As two shards the test time alone reached 754 s
     # and 830 s, and the slowest job 899 s of the 900 s limit, over the 24
     # successful runs of each shard in CI runs 36259415879-36345977718
@@ -1770,16 +1770,21 @@ jobs:
     # consecutive attempts were cancelled at the limit. Each filter names
     # whole modules or single tests, and every test the unsharded filter
     # selects matches exactly one shard (`scripts/check_miri_shards.py`).
+    # Four shards and a 20-minute limit since #1651, whose atomic freelist
+    # head made the collector-heavy tests about 1.7x slower under Miri and
+    # put shards 1 and 2 over the old 15-minute limit (docs/CI.md §5).
     strategy:
       fail-fast: false
       matrix:
         include:
-          - shard: 1 of 3
-            filter: "sync::miri_tests:: map::tests::occ_engine_single_thread_under_miri set::tests::occ_engine_single_thread_under_miri map::tests::warm_insert_path_across_a_move set::tests::warm_insert_path_across_a_move map::tests::slot_calls_on_a_warm_insert_path occ::tests:: node:: bytesmap::tests::deferred"
-          - shard: 2 of 3
+          - shard: 1 of 4
+            filter: "map::tests::occ_engine_single_thread_under_miri set::tests::occ_engine_single_thread_under_miri map::tests::warm_insert_path_across_a_move set::tests::warm_insert_path_across_a_move map::tests::slot_calls_on_a_warm_insert_path occ::tests:: node:: bytesmap::tests::deferred"
+          - shard: 2 of 4
             filter: "map::tests::compact_ set::tests::compact_ alloc:: bits:: sync::str_cursor_tests::tier1_"
-          - shard: 3 of 3
+          - shard: 3 of 4
             filter: "strmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots leaf:: blobmap::tests::deferred slot:: types::"
+          - shard: 4 of 4
+            filter: "sync::miri_tests::"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -1801,7 +1806,7 @@ jobs:
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' tier1-miri.log \
             || { echo "::error::this Tier-1 Miri shard ran zero tests"; exit 1; }
       - name: Miri (concurrency diagnostic ablations — per-stripe accounting, epoch bins and freelists)
-        if: matrix.shard == '2 of 3'
+        if: matrix.shard == '2 of 4'
         run: |
           set -o pipefail
           cargo miri test -p expanse-trie --lib --features ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist -- ablation_ 2>&1 | tee ablation-miri.log
@@ -1811,10 +1816,11 @@ jobs:
       # trips of the handles and the `'static` lifetime extension of a reader
       # handle. The targets' threaded tests are `cfg_attr(miri, ignore)`. Each
       # of the three test binaries must report a non-zero pass count. On
-      # shard 2, the lightest lib shard: on shard 3 it brought slow runners to
-      # the 900 s limit (docs/CI.md §5).
+      # shard 4, beside the `sync::miri_tests::` drives of the same shared
+      # containers: on shard 3 it brought slow runners to the 900 s limit,
+      # and on shard 2 it did after #1651 (docs/CI.md §5).
       - name: Miri (C ABI — the shared string, bytes, ordered-bytes and blob maps' handles and readers, single-threaded)
-        if: matrix.shard == '2 of 3'
+        if: matrix.shard == '4 of 4'
         run: |
           set -o pipefail
           cargo miri test -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi 2>&1 | tee capi-miri.log
