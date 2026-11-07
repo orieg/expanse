@@ -8571,3 +8571,47 @@ No binding (`expanse-py`, `expanse-node`, `expanse-wasm`, `expanse-php`, `expans
 Changing any of these after a measurement of the change relabels the result `INTERMEDIATE` (AGENTS.md §8.19).
 
 **Expiry.** If `main` changes `alloc.rs`, an allocation path of a `sync_*` arm, or the writer-scaling str arm before the change is measured, the counts and the base are re-registered in a new dated subsection first.
+
+### 50.10 Lever (b)'s Callgrind outcome (appended 2026-11-07; §50.1 to §50.9 are not rewritten, and no bound moves)
+
+PR #1654 head `60da23b7`, merge base `c1b604ad`, on §50.5's instrument: CI run [42413628992](https://github.com/orieg/expanse/actions/runs/42413628992), job `Perf / Callgrind Deterministic Instructions`, its PR-against-`main_base` pass for both harnesses. Artifact: `results/charge_rmw_callgrind_60da23b7.json`, every arm with its merge-base and head counts and its §50.5 bound in Ir. Every arm's merge-base count equals its §50.5 base, so the bases in the pre-registration were the merge base's.
+
+**G-instr: 289 of 290 arms inside their bounds.** The arm outside is on the loss side (below).
+
+| arm | merge base | head | Δ | Δ per charge | §50.5 bound |
+|---|---:|---:|---:|---:|---|
+| `sync_strmap_insert_short/short` | 101,160,059 | 101,091,745 | −0.0675% | −0.98 | [−0.2372%, +0.1000%] |
+| `sync_strmap_insert_sorted/uuid` | 47,427,732 | 47,384,269 | −0.0916% | −1.26 | [−0.2450%, +0.1000%] |
+| `sync_set_churn/leaf` | 96,206,696 | 95,960,864 | −0.2555% | −1.64 | [−0.4118%, +0.1000%] |
+| `sync_map_churn/random` | 118,983,837 | 118,898,115 | −0.0720% | −0.79 | [−0.2833%, +0.1000%] |
+| `sync_set_churn/random` | 93,380,880 | 93,459,568 | +0.0843% | +1.85 | [−0.1913%, +0.1000%] |
+| `sync_set_insert/random` | 45,348,608 | 45,398,754 | +0.1106% | +2.28 | [−0.1970%, +0.1000%], **outside** |
+
+(measured: CI `ubuntu-24.04`, valgrind 3.27.1, rustc 1.99.1, `60da23b7`; `results/charge_rmw_callgrind_60da23b7.json`)
+
+- 33 of the 35 arms with a term save: 17 by exactly 1 Ir per charge, and the other 16 by between 0.52 and 1.64.
+- Of the 255 No change arms, 251 are unchanged to the instruction. Four move by 4 to 10 Ir (`map_collect`, `map_refill`), far inside their slack.
+- `sync_set_insert/random` at +0.1106% is above the §6 review threshold. It is disclosed in the PR body and carries no `allow-regression:` line, because the automated gate did not trip.
+
+**The arm outside: a departure, recorded here.** It is attributed on the local x86_64 instrument: Callgrind in Docker on the development laptop (`linux/amd64` emulation), valgrind 3.24.0, rustc 1.99.1, the full `instructions` harness at merge base and head with `CARGO_PROFILE_BENCH_DEBUG=1`. Its delta on the arm is +50,146 Ir, CI's to the instruction.
+- `callgrind_annotate --inclusive=no` puts +49,902 of it in the self count of `SyncExpanseSet::insert` (2,650,405 → 2,700,307, 50,000 calls): about one instruction per insert.
+- `--auto=yes` finds no source line for those instructions: the `<unidentified lines>` of `sync.rs` rise by 49,935.
+- `SyncExpanseSet::insert`'s source is unchanged, and it inlines `alloc_raw`. `objdump -d -C` of both binaries shows the function laid out again around the shorter `charge`:
+  - 3,203 → 3,242 instructions, 65 → 61 `lock`-prefixed, no change in `%fs:` operands;
+  - the key argument stays in `%r12` and gains a stack spill at entry to the shared path;
+  - a branch ladder on the root leaf's length is restructured.
+- **The cause is labelled unmeasured beyond that** (AGENTS.md §8.9.1). The count is consistent with one more spilled store per insert, and the instrument cannot tell a spill from rematerialisation.
+- §50.5's terms model only the charge and the discharge sequences, so no term covers a re-layout of an untouched caller. `sync_set_churn/random` (+1.85 per charge) shares the insert path and lands inside its bound.
+- **What follows (§50.7, first row):** the departure is recorded, and the bound does not move. No code change was tried to recover it: coaxing the register allocator in a function the change does not touch is not an increment of lever (b). Whether to accept the arm is part of the shipping decision G-wall makes (§50.6).
+
+**Per-call terms (§50.7), `objdump -d -C` of the head `instructions` binary built on the local instrument.**
+- `charge` inlined in `new_suffix` is 7 instructions with 2 `lock`-prefixed (`lock add` and `lock incq 0x8`), down from 8 with 3. `new_suffix` is 189 → 188 instructions.
+- `discharge` in `dispose_suffix`: `lock decq 0x8(...)` becomes `lock incq 0x10(...)`, and the function stays at 89 instructions. Every other discharge site is one-for-one.
+
+**Plain paths (§2.1 invariant 5).** The plain-arm wrappers inline `alloc_raw` and `free_raw` with both branches, for example `set_insert` (992 → 992 instructions) and `map_insert` (1,422 → 1,420). In both builds they differ only in:
+- the deferred branch's charge and discharge sequences;
+- the width of an alignment NOP.
+
+No function in the binary gained a `%fs:` operand.
+
+**Not measured yet.** G-wall (§50.6) decides whether the lever ships. Both runs are dispatched at `60da23b7` against `c1b604ad`, and their outcome is appended as §50.11.
