@@ -53,6 +53,16 @@ freelist pop) adds:
     `results/freelist_hint_baseline_callgrind_fa91cc67.json`, widened as 10 is
     (`--freelist-hint` prints the table).
 
+§50 (#1613, lever (b): `Deferred::charge` makes two locked read-modify-writes, not three;
+`live_allocs()` is derived as allocations minus frees) adds:
+
+12. `charge_term(charges)` and `charge_rmw_bounds()` — the per-arm two-sided Callgrind bound
+    against the merge base, from each arm's in-region `Deferred::charge` count, widened as 10 is
+    (`--charge-rmw` prints the table);
+13. `charge_rmw_projection(...)` — the wall-clock share the change can remove, for sizing only;
+14. `paired_t_ratio(art, w)` and `g_wall_outcome(runs)` — the reference-host gate: per-round
+    T_head / T_base, BCa 95%, and the PASS / NOT_DETECTED / HARM rule over two runs.
+
 Every input of 6 to 8 is a measured figure in
 `results/strmap_design_b_baseline_callgrind_f65060d8.json` or
 `results/allocator_overhead_f65060d8.txt`, or a constant below whose
@@ -670,6 +680,187 @@ def _self_test_freelist_hint() -> None:
     assert all(r["kind"] == "No change" for k, r in rows.items() if not k[1].startswith("sync_"))
 
 
+# §50 (#1613, lever (b)): `Deferred::charge` stops updating a per-shard `live_allocs`; the shard
+# counts frees instead, and `live_allocs()` is derived as allocations minus frees. Every constant
+# is named in §50's silent constants.
+# The bases: the head counts of lever (a)'s gate run, CI run 42006114463 at 06d6e9c3, whose tree
+# under crates/ and include/ is the merge base c1b604ad's except for the cfg(loom) build (§49.9).
+CR_BASES = REPO_ROOT / "results" / "freelist_hint_callgrind_06d6e9c3.json"
+# The in-region charge counts: §49.1's artifact at fa91cc67. No commit from there to c1b604ad
+# changes alloc.rs or an allocation path, and lever (a) leaves allocation counts unchanged when
+# single-threaded (§49.3), so the counts carry over (§50.5).
+CR_CHARGES = FH_BASELINE
+# Per charge: one `lock incq` leaves the inlined sequence (8 -> 7 instructions in `new_suffix`,
+# §49.1), and up to one more may go if the shard address is laid out again.
+CR_CHARGE_IR = (-2, 0)
+# Per discharge: `live_allocs.fetch_sub(1)` becomes `frees.fetch_add(1)`, one locked instruction
+# for one, so 0. A discharge sequence that changes length is a falsifier (§50.7), not a term.
+CR_DISCHARGE_IR = (0, 0)
+
+
+def charge_term(charges: int) -> tuple[float, float]:
+    """Lever (b)'s instruction change on one arm, as (low, high): `CR_CHARGE_IR` per in-region
+    charge. Single-threaded, the change moves no allocation, so the count is the base's."""
+    c = _nonneg_int("charges", charges)
+    return float(CR_CHARGE_IR[0] * c), float(CR_CHARGE_IR[1] * c)
+
+
+def charge_kind(term: tuple[float, float]) -> str:
+    """`No change` for a zero term, `saves` when no part of it is a cost, else `mixed`."""
+    if term == (0.0, 0.0):
+        return "No change"
+    return "saves" if term[1] <= 0 else "mixed"
+
+
+def charge_rmw_bounds(bases: Path = CR_BASES, charges: Path = CR_CHARGES) -> list[dict]:
+    """Every arm of the §49.9 gate artifact with its §50.5 bound: the charge term widened by
+    `CODEGEN_SLACK_FRAC` of the arm's head count at 06d6e9c3, with the `CODEGEN_SLACK_ABS` floor
+    (`zeroing_bound`). An arm with no charge record (both arms added after fa91cc67 among them) is
+    `No change`."""
+    counts = {}
+    for row in json.loads(Path(charges).read_text())["arms"]:
+        rec = row.get("records", {})
+        if "charges" in rec:
+            counts[(row["bench"], f"{row['arm']}/{row['id']}")] = rec["charges"]
+    out = []
+    seen = set()
+    for row in json.loads(Path(bases).read_text())["arms"]:
+        key = (row["bench"], row["arm"])
+        if key in seen:
+            raise ValueError(f"duplicate arm {key}")
+        seen.add(key)
+        term = charge_term(counts.get(key, 0))
+        lo, hi = zeroing_bound(row["head"], term)
+        out.append({"bench": row["bench"], "arm": row["arm"], "base": row["head"],
+                    "charges": counts.get(key, 0), "kind": charge_kind(term), "term": term,
+                    "lo": lo, "hi": hi, "lo_pct": 100 * lo / row["head"], "hi_pct": 100 * hi / row["head"]})
+    missing = set(counts) - seen
+    if missing:
+        raise ValueError(f"charge records for arms the bases lack: {sorted(missing)}")
+    return out
+
+
+def charge_rmw_projection(charges_per_op: float, ns_per_rmw: float, ns_per_op: float) -> float:
+    """The fraction of one operation's time lever (b) can remove: `charges_per_op` locked
+    read-modify-writes of `ns_per_rmw` each, over `ns_per_op`. A projection for sizing the
+    wall-clock gate (§50.4), never a prediction: how much of a locked instruction's cost the
+    core overlaps with other work is not derivable, and `ns_per_rmw` = 0 is a legitimate input."""
+    c = _finite("charges_per_op", charges_per_op)
+    r = _finite("ns_per_rmw", ns_per_rmw)
+    t = _finite("ns_per_op", ns_per_op)
+    if c < 0 or r < 0:
+        raise ValueError("charges_per_op and ns_per_rmw must be non-negative")
+    if t <= 0:
+        raise ValueError("ns_per_op must be positive")
+    return c * r / t
+
+
+def paired_t_ratio(art: dict, w: int) -> dict:
+    """§50.6's statistic on one writer-scaling artifact: per-round T_head(W) / T_base(W), paired
+    by round index (`throughput_variant` over `throughput`), BCa 95% with the estimator's defaults,
+    as `docs/benchmarks/concurrency/scripts/tables.py::_pc_throughput_ratio` computes it."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    from bca_bootstrap import bca_bootstrap_ci_with_method
+
+    def rounds(key: str) -> dict:
+        cells = [c for c in art[key] if c["writers"] == w]
+        if len(cells) != 1:
+            raise ValueError(f"{key}: {len(cells)} cells at W = {w}")
+        out = {int(r["round"]): r["writer_mops"] for r in cells[0]["rounds_raw"]}
+        if len(out) != len(cells[0]["rounds_raw"]):
+            raise ValueError(f"{key} W = {w}: duplicate round")
+        return out
+
+    base, head = rounds("throughput"), rounds("throughput_variant")
+    if base.keys() != head.keys():
+        raise ValueError(f"W = {w}: base and head rounds differ")
+    ratios = [head[k] / base[k] for k in sorted(base)]
+    mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(ratios, confidence=0.95)
+    return {"w": w, "n": len(ratios), "mean": mean, "ci_lower": lo, "ci_upper": hi, "ci_method": ci_method}
+
+
+G_WALL_W = (1, 2, 4, 8)
+
+
+def g_wall_outcome(runs: list[dict]) -> str:
+    """§50.6's rule over two admitted runs, each a {W: (ci_lower, ci_upper)} of T_head / T_base.
+
+    `HARM` if at some W both runs' upper bounds are below 1; otherwise `PASS` if both runs' W = 1
+    lower bounds are above 1; otherwise `NOT_DETECTED`. HARM is read first: a W = 1 gain does not
+    excuse a loss elsewhere."""
+    if len(runs) != 2:
+        raise ValueError("the gate reads exactly two runs")
+    for r in runs:
+        if set(r) != set(G_WALL_W):
+            raise ValueError(f"a run must carry W in {G_WALL_W}, got {sorted(r)}")
+        for w, (lo, hi) in r.items():
+            if not (_finite("ci_lower", lo) <= _finite("ci_upper", hi)):
+                raise ValueError(f"W = {w}: lower {lo} above upper {hi}")
+    if any(all(r[w][1] < 1.0 for r in runs) for w in G_WALL_W):
+        return "HARM"
+    if all(r[1][0] > 1.0 for r in runs):
+        return "PASS"
+    return "NOT_DETECTED"
+
+
+def _self_test_charge_rmw() -> None:
+    assert charge_term(10) == (-20.0, 0.0)
+    assert charge_term(0) == (0.0, 0.0)
+    _raises(charge_term, -1)
+    _raises(charge_term, 1.5)
+    assert charge_kind((0.0, 0.0)) == "No change"
+    assert charge_kind((-2.0, 0.0)) == "saves"
+    assert charge_kind((-2.0, 1.0)) == "mixed"
+    assert CR_DISCHARGE_IR == (0, 0)
+    rows = {(r["bench"], r["arm"]): r for r in charge_rmw_bounds()}
+    assert len(rows) == 290
+    assert sum(r["kind"] != "No change" for r in rows.values()) == 35
+    # The arm #1613 names: 69,393 charges; head count at 06d6e9c3 101,160,059 (§49.9), slack
+    # 101,160.059.
+    r = rows[("instructions", "sync_strmap_insert_short/short")]
+    assert r["kind"] == "saves"
+    assert math.isclose(r["lo"], -2 * 69_393 - 101_160.059) and math.isclose(r["hi"], 101_160.059), r
+    # The largest count: sync_set_churn/leaf, 150,000 charges.
+    r = rows[("instructions", "sync_set_churn/leaf")]
+    assert r["charges"] == 150_000 and math.isclose(r["lo"], -300_000 - 1e-3 * r["base"]), r
+    # Arms added after fa91cc67, and every arm outside sync_*, carry the slack alone.
+    for k in (("instructions", "sync_strmap_short_scan/user22"), ("instructions", "set_insert/sequential")):
+        r = rows[k]
+        assert r["kind"] == "No change" and r["hi"] == -r["lo"] == max(1e-3 * r["base"], 500), r
+    assert all(r["kind"] == "No change" for k, r in rows.items() if not k[1].startswith("sync_"))
+
+    # The projection: 1.5 charges of 2 ns over 300 ns is 1%; nothing at 0 ns.
+    assert charge_rmw_projection(1.5, 2.0, 300.0) == 0.01
+    assert charge_rmw_projection(1.5, 0.0, 300.0) == 0.0
+    for bad in ((-1.0, 1.0, 1.0), (1.0, -1.0, 1.0), (1.0, 1.0, 0.0), (float("nan"), 1.0, 1.0)):
+        _raises(charge_rmw_projection, *bad)
+
+    # The statistic reproduces §47.13's published W = 1 ratios from the committed artifacts:
+    # run 1 0.9486 [0.9458, 0.9507], run 2 0.9499 [0.9485, 0.9509].
+    res = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results"
+    for run, want in ((1, (0.9486, 0.9458, 0.9507)), (2, (0.9499, 0.9485, 0.9509))):
+        art = json.loads((res / f"gate_1586_str_writer_scaling_zeroing_run{run}.json").read_text())
+        c = paired_t_ratio(art, 1)
+        got = tuple(round(c[k], 4) for k in ("mean", "ci_lower", "ci_upper"))
+        assert got == want and c["n"] == 8 and c["ci_method"] == "bca", (run, c)
+    _raises(paired_t_ratio, {"throughput": [], "throughput_variant": []}, 1)
+
+    # The rule, one negative control per clause.
+    up = {w: (1.001, 1.01) for w in G_WALL_W}
+    flat = {w: (0.99, 1.01) for w in G_WALL_W}
+    assert g_wall_outcome([up, up]) == "PASS"
+    assert g_wall_outcome([up, flat]) == "NOT_DETECTED"            # one run alone is not a claim
+    assert g_wall_outcome([up, {**up, 1: (1.0, 1.01)}]) == "NOT_DETECTED"  # lower at 1 is not above
+    assert g_wall_outcome([flat, flat]) == "NOT_DETECTED"
+    hurt = {**up, 8: (0.90, 0.999)}
+    assert g_wall_outcome([hurt, hurt]) == "HARM"                  # a loss at W = 8 in both runs
+    assert g_wall_outcome([hurt, up]) == "PASS"                    # the loss in one run only
+    assert g_wall_outcome([{**flat, 2: (0.9, 0.99)}, {**flat, 2: (0.9, 0.99)}]) == "HARM"
+    _raises(g_wall_outcome, [up])
+    _raises(g_wall_outcome, [up, {1: (1.0, 1.1)}])
+    _raises(g_wall_outcome, [up, {**up, 1: (1.1, 1.0)}])
+
+
 def _self_test_design_b() -> None:
     # G-stall: the rule, one negative control per clause.
     assert g_stall_outcome(100, 290, 100) == "PASS"
@@ -814,6 +1005,7 @@ def self_test() -> int:
     _self_test_design_b()
     _self_test_zeroing()
     _self_test_freelist_hint()
+    _self_test_charge_rmw()
     print("strmap_stall_bounds.py self-test PASSED")
     return 0
 
@@ -863,8 +1055,19 @@ def main() -> int:
     ap.add_argument("--freelist-hint", action="store_true",
                     help="print METHODOLOGY §49's bound for every arm lever (a) is expected to move, "
                          "then the self-test")
+    ap.add_argument("--charge-rmw", action="store_true",
+                    help="print METHODOLOGY §50's bound for every arm lever (b) is expected to move, "
+                         "then the self-test")
     args = ap.parse_args()
-    if args.freelist_hint:
+    if args.charge_rmw:
+        print("| harness | arm | base (06d6e9c3) | charges | bound low | bound high |")
+        print("|---|---|---:|---:|---:|---:|")
+        for r in sorted(charge_rmw_bounds(), key=lambda r: r["lo_pct"]):
+            if r["kind"] == "No change":
+                continue
+            print(f"| `{r['bench']}` | `{r['arm']}` | {r['base']:,} | {r['charges']:,} | "
+                  f"{r['lo_pct']:+.4f}% | {r['hi_pct']:+.4f}% |")
+    elif args.freelist_hint:
         print("| harness | arm | base (CI) | misses | hits | pushes | kind | bound low | bound high |")
         print("|---|---|---:|---:|---:|---:|---|---:|---:|")
         recs = {(r["bench"], r["arm"], r["id"]): r.get("records", {})

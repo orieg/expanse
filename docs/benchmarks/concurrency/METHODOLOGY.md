@@ -8460,3 +8460,114 @@ PR #1651 head `06d6e9c3`, merge base `d6639284`, on §49.5's instrument (CI run 
 The local instrument: x86_64 Callgrind in Docker on the development laptop (`linux/amd64` emulation), valgrind 3.24.0, rustc 1.99.1, every arm of both harnesses at merge base and head. Its absolute counts sit below CI's. Its delta on the arm outside equals CI's, and the gate is CI's.
 
 **Not measured.** Wall clock (§49.7) needs the maintainer's dispatch on the reference host. Lever (b) still needs its own section.
+
+## 50. Pre-registration for #1613 lever (b) — `Deferred::charge` makes two locked read-modify-writes, not three (appended 2026-11-07, locked before any engine code; next free section)
+
+§49 pre-registered lever (a) and left lever (b) for its own section. This is that section. It holds no data of a build containing the change.
+
+### 50.1 Consumer audit (AGENTS.md §8.22.1), and the form chosen
+
+`charge` updates three per-shard counters on every allocation of a deferred tree. Each counter's consumers, by visibility first:
+
+| counter | reachable from | verdict |
+|---|---|---|
+| `bytes_in_use` | `mem_used()` on every container, the C ABI's `JudyLMemUsed`, `AcctCell` (#1478), the memory-budget gate | load bearing |
+| `total_allocs` | `pub fn NodeAlloc::total_allocs` (`.github/public-api/expanse-trie.txt` line 24); `ExpanseMap`/`ExpanseSet::total_node_allocs` (lines 853, 1792, 3988, 4181); Python `total_node_allocs()` (`crates/expanse-py/src/map.rs:170`, `set.rs:135`, stubs in `bindings/python/expanse_trie/__init__.pyi`); `examples/writer_scaling.rs` | shipped API |
+| `live_allocs` | `pub fn NodeAlloc::live_allocs` (public-api line 21, not `doc(hidden)`); `#[doc(hidden)] pub fn live_allocs` on `ExpanseMap`, `ExpanseSet` and the 32-bit map; `AllocCensus::live_allocs`; `examples/remove_retention.rs` (a committed suite); integration tests | public API whose documented use is diagnostics and leak assertions |
+
+No binding (`expanse-py`, `expanse-node`, `expanse-wasm`, `expanse-php`, `expanse-capi`, `bindings/`) reads `live_allocs` (`git grep` over each, at `c1b604ad`).
+
+**The form.**
+- **Gating `live_allocs` off the hot path** (§8.22.1's first remedy) removes a `pub` item from `expanse-trie`'s public surface, so it is an API removal with a minor bump, and it needs a cargo feature for `remove_retention` and the integration tests. That is the maintainer's decision, not this section's. It is not registered here.
+- **Owner-only plain stores** are excluded. `claim_writer_slot` (`crates/expanse/src/occ.rs:1801`) shares a slot between threads once more than `MAX_WRITER_SLOTS` (64) are live, so two writers can update one shard and a plain add loses counts. A lost charge breaks the `live_allocs() == 0` leak invariant.
+- **Registered: derive `live_allocs` from two counters the shard already needs.** The shard keeps `bytes_in_use` and `total_allocs`, and replaces `live_allocs` with `frees`, incremented by `discharge`. `charge` makes two locked read-modify-writes (`bytes_in_use`, `total_allocs`), `discharge` two (`bytes_in_use`, `frees`) as today.
+
+### 50.2 The change
+
+- `AllocShard { bytes_in_use: AtomicIsize, total_allocs: AtomicUsize, frees: AtomicUsize }`, `repr(align(64))` as today. Its size stays one line.
+- `charge` drops `live_allocs.fetch_add(1)`; `discharge` replaces `live_allocs.fetch_sub(1)` with `frees.fetch_add(1)`.
+- `NodeAlloc::live_allocs()` on a deferred tree returns `inline + Σ total_allocs − Σ frees`, the difference taken in wrapping `usize` and read as `isize`. `total_allocs()` and `bytes_in_use()` are unchanged.
+- `live_allocs()` gains `debug_assert!(net >= 0)`, the assertion `bytes_in_use()` already carries. Today it clamps a negative sum to 0 silently, which reports an over-free as an empty tree (AGENTS.md §8.22.3). The release value is unchanged.
+- **`ablation-unsharded-alloc` is unchanged.** Under it `charge` updates the allocator's inline counters, which are the plain path's counters too. Deriving `live_allocs` there needs an inline `frees` word, which adds a word to `NodeAlloc`, whose size `alloc::tests::deferred_cell_adds_no_word_to_the_allocator` pins, and moves the plain path's fields. The inverse therefore still restores the pre-promotion state (AGENTS.md §2.7), and it now differs from the default in two ways: the shared line, and one more locked read-modify-write per allocation. A future re-run of that ablation states this.
+- No plain path changes. `charge` and `discharge` run only inside `if let Some(d) = deferred_if::<OCC>()`, and no new code reaches the plain branch (§2.1 invariant 5). No mutation entry point is added, so no `by_mode!` twin is owed.
+
+### 50.3 Why every public value is identical
+
+- **Algebra.** Each shard's `live_allocs` today is its charges minus its discharges. Each shard's `total_allocs` is its charges, and `frees` will be its discharges. Summed over shards, Σ live = Σ total − Σ frees exactly, with no assumption about which shard a free lands on.
+- **Quiesced readings** (every caller of the exact accessors excludes writers, as `bytes_in_use()`'s comment states): both forms return the same number.
+- **Readings beside writers.** Today's sum and the derived one are both sequences of relaxed loads, not snapshots, and both can be off by the calls in flight. No caller of `live_allocs()` reads beside writers.
+- **Overflow.** `total_allocs` and `frees` only grow. Their difference in wrapping arithmetic is exact while the live count is below 2^63.
+
+### 50.4 What the change can be worth (math first; a projection, not a target)
+
+- **Callgrind** counts the removed `lock incq` as one instruction. At most 2 Ir per charge (§50.5) is at most 0.14% of `sync_strmap_insert_short/short` and 0.31% of the most charge-dense arm, `sync_set_churn/leaf`. The instruction gate cannot carry a claim for lever (b) on most arms. It is a no-harm gate here.
+- **Wall clock** is where a locked instruction's cost appears. `charge_rmw_projection(charges_per_op, ns_per_rmw, ns_per_op)` in `scripts/strmap_stall_bounds.py` gives the share of an insert it can remove. Inputs:
+  - `ns_per_op` = 295.2 ns: the reciprocal of 3.3872 M ops/s, the design-B str arm at W = 1 (measured: reference host i9-12900F, `af4810f6`; `results/gate_1586_str_writer_scaling_zeroing_run1.json`). `main` has changed since, and the figure only sizes the gate.
+  - `charges_per_op` ∈ [1.388, 1.720]: the two Callgrind string-insert arms' charges per insert (69,393 / 50,000 and 34,391 / 20,000, §49.1). The writer-scaling str arm inserts 2^20 alnum keys into a map prefilled with 2^20, and its own charges per insert are **unmeasured**. Carrying the range across is an assumption (AGENTS.md §6, per-call savings transfer only with their call count).
+  - `ns_per_rmw` ∈ [0, 5]: an **unverified assumption**. Its upper end is about the latency of one uncontended locked instruction at the P-cores' clock. Its lower end allows for the core overlapping the third consecutive locked instruction on one line almost entirely.
+- **Projection:** [0, 2.91%] of an insert at W = 1, and 0.47–0.58% at 1 ns per instruction.
+- **Detectability.** §47.13's paired W = 1 intervals on this suite had half-widths of 0.0024 and 0.0012 (derived from the two committed artifacts; `paired_t_ratio` reproduces §47.13's figures and the self-test pins them). An effect of about 0.3% or more clears 1.0 at W = 1. Below that, or if `ns_per_rmw` is near 0, the gate reads NOT_DETECTED and the lever is a negative.
+- At W ≥ 2, §47.13's intervals are 2–8% wide, so the gate does not try to detect a gain there.
+- **The change is not a concurrency remedy.** Each writer updates its own shard and its own line, so lever (b) removes per-operation work. W = 1 is the primary cell (§8.20.2 — a single-threaded gain is not claimed as a scaling gain).
+
+### 50.5 G-instr (Callgrind, head against its merge base, per arm, two-sided; a no-harm gate)
+
+`python3 scripts/strmap_stall_bounds.py --charge-rmw` prints the table. `charge_term`, `charge_kind` and `charge_rmw_bounds` carry pinned tests in the script's `--self-test`.
+
+- **Per charge, [−2, 0] Ir.** One `lock incq` leaves the inlined sequence (8 to 7 in `new_suffix`, §49.1), and up to one more may go if the shard address is laid out again.
+- **Per discharge, 0.** A `lock decq` becomes a `lock incq` on another field of the same shard. A discharge sequence whose length changes is a falsifier (§50.7), not a term.
+- **Counts.** The in-region charge counts of §49.1's artifact at `fa91cc67`. From `fa91cc67` to `c1b604ad` four commits touch `crates/` (#1648, #1646, #1650, #1651). None touches `alloc.rs` or an allocation path: #1650 changes the string cursor's batch copy, a `Vec`; #1651 is lever (a), and single-threaded it leaves allocation counts unchanged (§49.3). The counts therefore carry over. An arm with no record, including the two scan arms #1646 and #1650 added, takes the slack alone.
+- **Bases.** Each arm's head count in `results/freelist_hint_callgrind_06d6e9c3.json` (CI run 42006114463). That head's tree under `crates/` and `include/` is `c1b604ad`'s except for the `cfg(loom)` build (§49.9).
+- **Slack.** The term is widened on both sides by 0.1% of the base with a 500 Ir floor, as in §47.11 and §49.4. Every arm's high side is therefore the §6 review threshold, or the floor on the smallest arms.
+- **35 arms** carry a term, all of kind "saves". The extremes:
+
+| harness | arm | base (06d6e9c3) | charges | bound low | bound high |
+|---|---|---:|---:|---:|---:|
+| `instructions` | `sync_set_churn/leaf` | 96,206,696 | 150,000 | -0.4118% | +0.1000% |
+| `instructions` | `sync_map_churn/random` | 118,983,837 | 109,019 | -0.2833% | +0.1000% |
+| `instructions` | `sync_strmap_insert_sorted/uuid` | 47,427,732 | 34,391 | -0.2450% | +0.1000% |
+| `instructions` | `sync_strmap_insert_short/short` | 101,160,059 | 69,393 | -0.2372% | +0.1000% |
+| `instructions` | `sync_set_drain_floor/top` | 243,638 | 51 | -0.2471% | +0.2052% |
+| `instructions` | `sync_map_count_after_write/one_top_byte` | 1,709,916,087 | 1,477 | -0.1002% | +0.1000% |
+
+- **The other 255 arms** (every plain arm, every non-`sync_*` arm, the shared read arms): No change, ±max(0.1%, 500 Ir). The self-test asserts that no arm outside `sync_*` has a term.
+
+### 50.6 G-wall (reference host; decides whether the lever ships)
+
+- **Suite.** `writer_scaling_1586_str_vs_base` with `ref` = the PR head (40 characters), `base_ref` = `c1b604ade4cef755038df968261b2ccfcbb3791e` (the merge base) and `cpu_pin=0,2,4,6,8,10,12,14`. These are §47.11's pin and dispatch: 8 interleaved (build × W) rounds, W ∈ {1, 2, 4, 8}, one process per cell. Two independent dispatches, each admitted by the host-activity guard. A voided run is re-dispatched and never reinterpreted.
+- **Statistic.** `paired_t_ratio(art, W)`: per-round T_head(W) / T_base(W) paired by round index, BCa 95%, n = 8, with the estimator's defaults (2,000 resamples, seed 42).
+- **Rule.** `g_wall_outcome` over the two runs, read in this order:
+  - **HARM** if at some W both runs' upper bounds are below 1.0;
+  - **PASS** if both runs' W = 1 lower bounds are above 1.0;
+  - otherwise **NOT_DETECTED**.
+- **What follows.**
+  - PASS with G-instr met: the lever ships, citing this section.
+  - NOT_DETECTED or HARM: the lever is a **negative**. It is recorded here with both runs' figures and reverted (AGENTS.md §6). A NOT_DETECTED is not re-run with more rounds to rescue it (§8.19).
+- The driver's own `g47_scale` verdict (C_head/C_base against 0.90) is printed in the artifact and decides nothing here.
+
+### 50.7 Falsifiers, and what follows each
+
+| Falsifier | What follows |
+|---|---|
+| An arm outside its §50.5 bound on CI's `instruction-counts` (the merge-base pass, both harnesses), including a No change arm moving by more than its slack | attribution as §49.6's first row; the code changes and is re-measured against the same bound, or the departure is recorded here. The bound does not move. |
+| `objdump -d -C` of the head `instructions` binary: `charge`'s inlined sequence in `new_suffix` is not 7 instructions with 2 `lock`-prefixed, or a discharge sequence changes length | the per-call term is falsified even where totals land inside; recorded, and the code changes or the lever is a negative |
+| A plain path gains a `%fs:` operand or changes its disassembly (`strmap_insert`, `set_insert`, `map_remove` wrappers; `alloc_raw`'s plain callers) | fixed before the PR is marked ready (§2.1 invariant 5) |
+| The new `debug_assert` fires in any test | a reader runs beside writers, or a real over-free exists; investigated before anything else, never removed to pass |
+| G-wall NOT_DETECTED or HARM | negative, as §50.6 |
+| CI's Tier-1 Miri, ASan, loom, the `alloc::tests` accounting tests or `test_sync_compact` fail | the change does not ship as is |
+
+### 50.8 Not predicted
+
+- No wall-clock figure is predicted. §50.4's range sizes the gate and is not a target.
+- W ≥ 2 cells are reported, and decide only HARM.
+- `ablation-unsharded-alloc` is not measured. It is only built and tested.
+
+### 50.9 Silent constants, fixed here
+
+- The merge base `c1b604ad`; the bases of `results/freelist_hint_callgrind_06d6e9c3.json`; the charge counts of `results/freelist_hint_baseline_callgrind_fa91cc67.json`.
+- [−2, 0] Ir per charge, 0 per discharge; 0.1% slack with its 500 Ir floor.
+- G-wall: the suite and pin above, n = 8 rounds, BCa 95% with 2,000 resamples and seed 42, two admitted runs, the 1.0 threshold on both sides, W = 1 as the PASS cell.
+
+Changing any of these after a measurement of the change relabels the result `INTERMEDIATE` (AGENTS.md §8.19).
+
+**Expiry.** If `main` changes `alloc.rs`, an allocation path of a `sync_*` arm, or the writer-scaling str arm before the change is measured, the counts and the base are re-registered in a new dated subsection first.
