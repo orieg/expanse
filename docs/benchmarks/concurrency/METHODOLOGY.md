@@ -8460,3 +8460,76 @@ PR #1651 head `06d6e9c3`, merge base `d6639284`, on §49.5's instrument (CI run 
 The local instrument: x86_64 Callgrind in Docker on the development laptop (`linux/amd64` emulation), valgrind 3.24.0, rustc 1.99.1, every arm of both harnesses at merge base and head. Its absolute counts sit below CI's. Its delta on the arm outside equals CI's, and the gate is CI's.
 
 **Not measured.** Wall clock (§49.7) needs the maintainer's dispatch on the reference host. Lever (b) still needs its own section.
+
+## 52. Pre-registration for #1610 — which removals take the serialised `Remove` fallback on a shared string map, and how that share moves with N (appended 2026-11-07, locked before any reference-host run of the sweep; §50 and §51 are claimed by open pull requests, so this is the next number after them, and may be renumbered at merge)
+
+### 52.1 The question
+
+§48.1 recorded, as out of scope, that at N = 2·10⁷ about 23% of the churn cell's removals take the `BranchSplitKind::Remove` fallback, against about 0.02% at N = 2·10⁶. Those figures come from a diagnostic on the x86_64 heavy-jobs host: single runs of an `occ-stats` build, unpinned, with no interval. They are the reason for this section, not a result it builds on.
+
+`Remove` covers the removals the optimistic path has no form for (`sync.rs`, `BranchSplitKind::Remove`): a removal that would empty a child under a linear or bitmap branch, and a removal that meets a terminal whose skipped prefix does not match the key. Only a `BranchU` slot is nulled optimistically (`sync::null_branch_u_slot`). Since #1648 (`4f71b7f3`), an `occ-stats` build splits `BranchSplitRemove` into five counters that partition it by construction (`RemoveSplit`, `Stat` 67–71): emptied under `BranchL3`/`BranchL7`, emptied under `BranchB`, emptied under any other parent, prefix mismatch, other. No site constructs `Other` on the current engine.
+
+**Hypothesis (#1610, unmeasured).** At 2·10⁷ uniform `short` keys the last digit levels sit near one key per prefix, so a removal often empties a one-key child under a sparse linear or bitmap branch; at 2·10⁶ removals mostly shrink shared leaves in place. It predicts: at `short`, N = 2·10⁷, most `Remove` fallbacks are emptied children under `BranchL*`/`BranchB` (D1 = `EMPTIED_UNDER_LINEAR_OR_BITMAP`), and the `short` share rises from N = 2·10⁶ to 2·10⁷ (D2 = `RISES`).
+
+### 52.2 Instrument and cells
+
+- **Driver:** `strmap_poll_stall.py --plan 52`, workflow suite `strmap_remove_split_g52`. One `occ-stats` build of `crates/expanse/benches/strmap_poll_stall.rs` at the dispatched commit. The default build is not run: nothing here is timed.
+- **Cells:** §47.3's churn cell (`--workload churn`, W = 4, D = 30 s) on both shapes at N ∈ {2·10⁶, 5·10⁶, 10⁷, 2·10⁷, 5·10⁷}: ten cells. Every N is a multiple of W. Arm `none` only: the cause of a removal fallback does not depend on a poller, and `none` adds no thread.
+- **Rounds:** 5. Each (cell, round) is its own process, with its own prefill. The cell order is rotated by a fifth of the list per round. Churn keys are indexed (key `i` is a function of `i` alone), so every round removes the same keys. Rounds differ only in how the four writers interleave.
+- **Placement:** §44.3's pin and placement. The poller's CPU stays idle.
+- **Hour guard:** §44.8's, unchanged.
+- **Runs:** two dispatches at the same commit. D1 and D2 are read on each. An outcome is claimed only where both runs give it (`docs/BENCHMARKING.md` rule 18); where they disagree, the reported outcome is `INTERMEDIATE` and both are published.
+
+### 52.3 Statistics
+
+Per round, from the window's counters (the harness resets them after the prefill):
+- **share** = `branch_split_remove` / `removes`;
+- **composition**, each over `branch_split_remove`: emptied under linear or bitmap (`_emptied_linear` + `_emptied_bitmap`), each of those two alone, prefix (`_prefix`), and other (`_emptied_other` + `_other`).
+
+Each statistic is summarised over the 5 rounds with a BCa 95% interval (2,000 resamples, `ci_method` recorded). A composition is reported only for a cell in which every round took at least one `Remove` fallback.
+
+### 52.4 Decisions
+
+**D1, the cause, at `short`, N = 2·10⁷** (the §47/§48 churn cell, and the issue's cell). Applied in order, first match wins:
+
+| outcome | rule | what it means | what follows |
+|---|---|---|---|
+| `NOT_REPRODUCED` | share upper bound < 0.01 | the share #1610 reports does not occur on the reference host | #1610 is documented as not reproducing there, with this run's share; no change |
+| `EMPTIED_UNDER_LINEAR_OR_BITMAP` | emptied-under-linear-or-bitmap lower bound ≥ 0.5 | the hypothesis's cause dominates | #1610's third step: a sizing, in a section of its own, of an optimistic empty-child removal for `BranchL*`/`BranchB`, with its `by_mode!` OCC twin (AGENTS.md §2.1 invariant 5). No engine change is pre-registered here |
+| `PREFIX_MISMATCH` | prefix lower bound ≥ 0.5 | removals of keys present by construction fail a terminal's prefix check | not what the hypothesis predicts; the condition is documented as a known limit and gets an issue of its own; no change here |
+| `OTHER` | other lower bound ≥ 0.5 | an emptied child under a parent that is neither linear nor bitmap, or a site the sub-split does not name | the same as `PREFIX_MISMATCH` |
+| `MIXED` | all three upper bounds < 0.5 | no single cause is the majority | documented as a known limit with the measured composition; no single-cause change is sized |
+| `INTERMEDIATE` | otherwise | an interval straddles 0.5, or a round took no `Remove` fallback | documented with the intervals; no change is sized on it |
+
+The threshold 0.5 is a majority: a change aimed at one cause cannot remove most of the fallbacks unless that cause is most of them. The 0.01 floor is three orders of magnitude below the issue's 23%, and above its 0.02% at 2·10⁶.
+
+**D2, the N-dependence, `short` at N = 2·10⁶ against N = 2·10⁷.** `RISES` iff the 2·10⁷ share's lower bound is above the 2·10⁶ share's upper bound; `FALLS` iff its upper bound is below the 2·10⁶ lower bound; `INTERMEDIATE` otherwise. `RISES` is what the issue reports. D2 decides nothing on its own: it says whether the condition is a large-N condition, which is what the known-limit text must state.
+
+**Descriptive, deciding nothing.**
+- The `short` cells at 5·10⁶, 10⁷ and 5·10⁷ give the shape of the share against N between and beyond the two D2 points.
+- The `routes` cells are the key-shape control. Their keys share long prefixes (`/api/v2/tenants/…`), so the hypothesis does not apply to them; the issue saw about 0.6% at 2·10⁶. If the `routes` share stays below the `short` share at N ≥ 10⁷, the condition belongs to the key distribution, not to population alone.
+- Each round's raw row keeps its `removes`, `inserts` and writer CPU time. They come from the `occ-stats` build and are not throughput figures.
+
+### 52.5 Voids
+
+A cell is void, and decides nothing, if any round:
+- fails §44's rules (§8.17 contamination: foreign busy CPU above 1.0 core or a start load average above cores/2; no placement; a missing round);
+- fails §47's churn clauses (population moved by more than W; a removal found no key; no removal);
+- carries no `counters`, lacks one of the six Remove counters, or has a sub-split that does not sum to `branch_split_remove`. The partition is exact by construction (#1648), so a failure means the instrument is wrong, not the engine.
+
+D1 is void if its cell is void; D2 if either of its cells is. A void cell elsewhere is reported and decides nothing. A void run is re-dispatched, never reinterpreted.
+
+### 52.6 Memory and length (`scripts/strmap_stall_bounds.py`, self-tested)
+
+- **Memory.** `mem_required_bytes(shape, n)` = 1.5 × the shape's largest `max_rss_bytes` over the N = 2·10⁷ churn rows of `results/gate_1602_strmap_poll_stall.json` (reference host, `f5cb17a6`), scaled linearly to `n`. At 5·10⁷: `short` 3,728,670,720 B projected, 5,593,006,080 B required; `routes` 6,621,757,440 B projected, 9,932,636,160 B required (derived; `--self-test` pins both). The host has held a 7,497,252,864 B process (the largest `max_rss_bytes` of `results/baseline_strmap_poll_stall.json`, `ac7c1237`). That is a lower bound on its memory, not its size, so it cannot settle the `routes` cell.
+  - **Rule.** Before every process the driver reads `MemAvailable`, and under strict overcommit (`vm.overcommit_memory` = 2) the smaller of that and `CommitLimit − Committed_AS`: there an allocation fails at the commit limit however much memory is free. If the figure is below the requirement, the cell is skipped for the rest of the run and recorded as `SKIPPED_MEMORY` with both numbers. A missing reading stops the run.
+  - **Not covered.** The requirement is projected from resident sets. A process's committed address space can exceed its resident set, and this sweep has no measurement of the harness's commit. A process that fails to allocate stops the run, loudly; it is re-dispatched once the headroom is there, and the requirement does not move.
+  - A skipped 5·10⁷ cell decides nothing, since neither D1 nor D2 reads it. Its absence is reported, not filled.
+- **Length.** `run_seconds_bound(**DISPATCH_52)` = 6,074 s per dispatch. With the 1.2× margin §44 sizes timeouts by, that is below the workflow's default job timeout, which stays as it is (the self-test asserts it).
+
+### 52.7 Not predicted, and the silent constants
+
+- **Not predicted:** the composition at any cell other than D1's; the `routes` shares; the share at 5·10⁷; whether it changes with the window length. At 2·10⁶ the window turns the population over several times; at 5·10⁷ it does not turn it over once. A share that depends on how much of the prefill has been replaced is possible, and this sweep does not separate that from N.
+- **Silent constants, fixed here:** W = 4; D = 30 s; arm `none`; 5 rounds; the 2·10⁶ and 2·10⁷ D2 points; the 0.5 and 0.01 thresholds; BCa with 2,000 resamples; the memory factor 1.5 and its reference rows; the harness seed `0x1610_0000 + round`, which churn ignores (its keys are indexed); two runs.
+
+Nothing in §52 moves after the first dispatch. An outcome a rule above does not cover is reported as unexplained (§8.20.4), not fitted.
