@@ -1304,8 +1304,9 @@ jobs:
                 # EXPANSE_BENCH_LOCK_HELD is set, which this step's wrapper
                 # exports, so it runs under the lock and the host guard this
                 # step already holds; it sources scripts/bench_pin.sh, which
-                # keeps the pin applied above. `run.sh strings` writes both HOT
-                # string artifacts, so its two tokens run the same command; so
+                # keeps the pin applied above. `run.sh strings --sensitivity`
+                # writes the HOT string memory, latency and insertion-order
+                # (sensitivity) artifacts, so its two tokens run the same command; so
                 # do the two single-threaded Masstree tokens, whose run.sh
                 # writes the integer, string, memory and sensitivity artifacts
                 # in one pass. Every missing prerequisite is fatal and named
@@ -1337,7 +1338,7 @@ jobs:
                 fi
                 case "$SUITE" in
                   hot_string_memory|hot_string_latency)
-                    bash docs/benchmarks/hot_comparison/run.sh strings 2>&1 | tee bench-output.txt ;;
+                    bash docs/benchmarks/hot_comparison/run.sh strings --sensitivity 2>&1 | tee bench-output.txt ;;
                   masstree_memory|masstree_string_latency)
                     bash docs/benchmarks/masstree_comparison/run.sh 2>&1 | tee bench-output.txt ;;
                   masstree_concurrent)
@@ -2484,6 +2485,7 @@ jobs:
             docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_*.json \
             docs/benchmarks/hot_comparison/results/baseline_string_memory.json \
             docs/benchmarks/hot_comparison/results/baseline_string_latency.json \
+            docs/benchmarks/hot_comparison/results/baseline_string_sensitivity.json \
             docs/benchmarks/hot_comparison/results/string_validate.log \
             docs/benchmarks/masstree_comparison/results/baseline_memory.json \
             docs/benchmarks/masstree_comparison/results/baseline_string_memory.json \

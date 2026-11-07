@@ -987,7 +987,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "String-key live-heap census: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap, three columns per cell (index, external key storage, ownership). Driven by `docs/benchmarks/hot_comparison/run.sh strings` after the pinned `third_party/hot` submodule is fetched (needs an x86-64 host with AVX2 and BMI2, one process per cell); that one invocation also writes the `hot_string_latency` artifact, so the two tokens run the same command.",
+      "summary": "String-key live-heap census: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap, three columns per cell (index, external key storage, ownership). Driven by `docs/benchmarks/hot_comparison/run.sh strings --sensitivity` after the pinned `third_party/hot` submodule is fetched (needs an x86-64 host with AVX2 and BMI2, one process per cell); that one invocation also writes the insertion-order `baseline_string_sensitivity.json` and the `hot_string_latency` artifact, so the two tokens run the same command.",
       "suite": "hot_comparison"
     },
     {
@@ -995,7 +995,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "String-key point lookup (100% and 50% hit), cold-build insertion and ordered scan: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap; HOT's 255-byte key window reported per cell as a predicate. Driven by `docs/benchmarks/hot_comparison/run.sh strings` after the pinned `third_party/hot` submodule is fetched (needs an x86-64 host with AVX2 and BMI2, one process per cell); that one invocation also writes the `hot_string_memory` artifact, so the two tokens run the same command.",
+      "summary": "String-key point lookup (100% and 50% hit), cold-build insertion and ordered scan: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap; HOT's 255-byte key window reported per cell as a predicate. Driven by `docs/benchmarks/hot_comparison/run.sh strings --sensitivity` after the pinned `third_party/hot` submodule is fetched (needs an x86-64 host with AVX2 and BMI2, one process per cell); that one invocation also writes the insertion-order `baseline_string_sensitivity.json` and the `hot_string_memory` artifact, so the two tokens run the same command.",
       "suite": "hot_comparison"
     },
     {
