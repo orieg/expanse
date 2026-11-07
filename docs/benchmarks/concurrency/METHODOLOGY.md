@@ -8533,3 +8533,35 @@ D1 is void if its cell is void; D2 if either of its cells is. A void cell elsewh
 - **Silent constants, fixed here:** W = 4; D = 30 s; arm `none`; 5 rounds; the 2·10⁶ and 2·10⁷ D2 points; the 0.5 and 0.01 thresholds; BCa with 2,000 resamples; the memory factor 1.5 and its reference rows; the harness seed `0x1610_0000 + round`, which churn ignores (its keys are indexed); two runs.
 
 Nothing in §52 moves after the first dispatch. An outcome a rule above does not cover is reported as unexplained (§8.20.4), not fitted.
+
+### 52.8 The outcome (appended 2026-11-07; §52.1 to §52.7 are not rewritten, and no threshold moves)
+
+Two dispatches of `strmap_remove_split_g52` at `e186ded5`: runs 42415277957 and 42424692898. Both runs were void-free: host guard `quiet`, largest per-round foreign busy CPU 0.03 and 0.04 cores, no cell skipped. The smallest `MemAvailable` reading was 60,225,495,040 B against the 9,932,636,160 B the `routes` 5·10⁷ cell required. The artifacts are the driver's output, committed unchanged: `results/diagnostic_1610_strmap_remove_split.json` (run 1) and `results/diagnostic_1610_strmap_remove_split_run2.json` (run 2).
+
+**D1 = `EMPTIED_UNDER_LINEAR_OR_BITMAP` in both runs.** At `short`, N = 2·10⁷:
+- the share of removals on the `Remove` fallback is [20.970%, 21.109%] (run 1) and [20.983%, 21.175%] (run 2);
+- every one of those fallbacks is a child emptied under a **`BranchB`** parent. The emptied-under-bitmap fraction is [1.000, 1.000] in both runs; emptied under linear, prefix mismatch and other are each [0.000, 0.000].
+
+**D2 = `RISES` in both runs.** The `short` share at N = 2·10⁶ is [0.022%, 0.023%] in both.
+
+The share against N. Intervals are BCa 95% over 5 rounds, run 1 | run 2, all `bca` or `bc`:
+
+| N | `short` share | `routes` share |
+|---|---|---|
+| 2·10⁶ | [0.022%, 0.023%] \| [0.022%, 0.023%] | [0.588%, 0.590%] \| [0.588%, 0.589%] |
+| 5·10⁶ | [10.952%, 11.070%] \| [10.790%, 11.320%] | [0.588%, 0.589%] \| [0.588%, 0.589%] |
+| 10⁷ | [37.141%, 38.859%] \| [38.810%, 40.027%] | [0.588%, 0.589%] \| [0.588%, 0.590%] |
+| 2·10⁷ | [20.970%, 21.109%] \| [20.983%, 21.175%] | [0.584%, 0.585%] \| [0.584%, 0.585%] |
+| 5·10⁷ | [3.243%, 3.261%] \| [3.254%, 3.279%] | [0.560%, 0.562%] \| [0.561%, 0.562%] |
+
+(measured: hybrid desktop, Intel Core i9-12900F, P-cores 0–15 pinned, `occ-stats` build, `e186ded5`; the two artifacts above)
+
+**What the sweep shows beyond the two decisions (descriptive, §52.4).**
+- **Composition.** At every `short` N, all `Remove` fallbacks are emptied children under `BranchB`, in both runs; emptied-under-bitmap is at least 0.999 at 2·10⁶ in run 2. At every `routes` N they are emptied children too, split 0.599–0.600 under a linear parent and 0.400–0.401 under `BranchB`. No cell in either run recorded a prefix mismatch or an `other`.
+- **The shape against N was not predicted (§52.7).** The `short` share is not monotone: it rises to its largest value at 10⁷ and falls by 5·10⁷. The 10⁷ intervals of the two runs overlap only narrowly ([37.141%, 38.859%] against [38.810%, 40.027%]), so the size of the peak is not settled between runs (`docs/BENCHMARKING.md` rule 18). Both runs put it at 10⁷ among the swept points.
+  - **Cause unmeasured.** The hypothesis of §52.1 (one key per prefix at the last digit levels) names a density effect. A density that peaks and then falls fits it. This sweep did not measure the density of single-key children per `BranchB`.
+  - **Not separated.** §52.7 named a confound the sweep cannot separate. The window turns the population over about 26 times at 2·10⁶ and less than once at 5·10⁷, since each round removes 26–53 million keys.
+- **The control.** The `routes` share is flat at 0.56–0.59% across a 25× range of N. The large-N condition belongs to the uniform `short` distribution, not to population alone.
+- **Removal counts.** The `occ-stats` build's removals per window are lowest where the share is highest: 26.0–27.1 million at `short` 10⁷, against 52.6–53.2 million at 2·10⁶ (run 1). They are not throughput figures (§52.4), and no claim is made about them.
+
+**What follows (§52.4).** D1's outcome sends #1610 to its third step: a sizing, in a section of its own, of an optimistic removal that takes an emptied child out of a `BranchB` in place. The sweep narrows that sizing to `BranchB`, since no `short` fallback has a linear parent. No engine change is pre-registered here.
