@@ -84,6 +84,7 @@ on:
           - ycsb_concurrent
           - reclaim_stall
           - reclaim_stall_free_gate
+          - reclaim_stall_wait_share
           - strmap_poll_stall
           - strmap_poll_stall_g47
           - writer_scaling_1586_str_vs_base
@@ -1566,6 +1567,13 @@ jobs:
                 python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py \
                   --out docs/benchmarks/concurrency/results/baseline_reclaim_stall.json | tee reclaim_stall.txt
                 ;;
+              "reclaim_stall_wait_share")
+                # METHODOLOGY §50 (#1479): the occ-stats build only, every sync
+                # cell for 5 rotated rounds. The cpu_pin input decides which
+                # cells are oversubscribed, so it is dispatched once per pin.
+                python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --wait-share \
+                  --out docs/benchmarks/concurrency/results/diag_1479_wait_share.json | tee reclaim_stall.txt
+                ;;
               "reclaim_stall_free_gate")
                 # METHODOLOGY §42.3 (#1481): G2 and G3 need the base and the
                 # head in one dispatch. The driver builds the head here and the
@@ -2397,6 +2405,7 @@ jobs:
             reclaim_stall.txt \
             docs/benchmarks/concurrency/results/baseline_reclaim_stall.json \
             docs/benchmarks/concurrency/results/gate_1481_reclaim_free.json \
+            docs/benchmarks/concurrency/results/diag_1479_wait_share.json \
             strmap_poll_stall.txt \
             docs/benchmarks/concurrency/results/baseline_strmap_poll_stall.json \
             docs/benchmarks/concurrency/results/gate_1586_strmap_poll_stall.json \

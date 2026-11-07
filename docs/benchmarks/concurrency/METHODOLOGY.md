@@ -8460,3 +8460,85 @@ PR #1651 head `06d6e9c3`, merge base `d6639284`, on §49.5's instrument (CI run 
 The local instrument: x86_64 Callgrind in Docker on the development laptop (`linux/amd64` emulation), valgrind 3.24.0, rustc 1.99.1, every arm of both harnesses at merge base and head. Its absolute counts sit below CI's. Its delta on the arm outside equals CI's, and the gate is CI's.
 
 **Not measured.** Wall clock (§49.7) needs the maintainer's dispatch on the reference host. Lever (b) still needs its own section.
+
+---
+
+## 50. Pre-registration for #1479 — do the spin waits take a material share of CPU time on `main`? (appended 2026-11-07, locked before any reference-host run of the instrument below; next free section, may be renumbered at merge)
+
+§37 asked whether yielding in the writer-side waits helps, and its variant failed its cost check before any cell ran (§37.10). §37.10 named the measurement that comes first: whether the waits take a material share of time at all, on `main`, without a variant. This section registers that measurement. It changes no engine code. Code references are to `origin/main` at `c1b604ade`. Refs #1479.
+
+### 50.1 The three loops and their counters
+
+Each loop already has an `occ-stats` counter of the time spent in it, in ticks of `occ_stats::cycles_now()` (`rdtsc` on x86-64, `crates/expanse/src/occ_stats.rs:583`–`:607`). No counter is added here. The counters are compiled out without the feature (`occ_stats.rs:1`–`:6`), so the default build and the Callgrind arms are untouched by this section.
+
+| loop | where | counter | charged from, to |
+|---|---|---|---|
+| `SeqVersion::sample` | `crates/expanse/src/occ.rs:137`–`:164` | `sample_spin_cycles` (`:149`) | first odd version seen, to the even return |
+| `Shared::enter_writer_blocking` | `crates/expanse/src/sync.rs:2673`–`:2703` | `gate_wait_cycles` (`:2696`) | first failed `enter_writer`, to the entry that succeeds |
+| `WriterGate::wait_drained`, through `Shared::quiesce_writers` | `occ.rs:1109`; `sync.rs:2569`–`:2589` | `quiesce_drain_cycles` (`:2585`) | before `gate.close()`, to after the last slot drained |
+
+`quiesce_drain_cycles` includes the gate close and the slot-mask walk as well as the spins, so it is an upper bound on the drain's spin time.
+
+### 50.2 Instrument and cells
+
+**Instrument.** `docs/benchmarks/concurrency/scripts/reclaim_stall.py --wait-share`, suite token `reclaim_stall_wait_share`. It builds `crates/expanse/benches/reclaim_stall.rs` with `occ-stats` only (no timed pass), refuses a binary whose `--mode identify` does not report `occ_stats = true`, and runs every `SyncExpanseBlobMap` cell of §29.2 for 5 rounds, one process per (cell, round), the cell order rotated per round, each process confined to the applied pin and refused if it ran elsewhere. Seeds are `0x1479_0000 + 97·round + cell index`.
+
+**Window and denominator.** The harness resets the counters after the prefill (`reclaim_stall.rs:555`) and reads them after every worker thread has joined (`:647`). The denominator is the summed per-thread CPU time of the window's writer and reader threads (`CLOCK_THREAD_CPUTIME_ID`, converted to ticks at the measured `tsc_hz`); the driver refuses a row whose `thread_cpu_cycles` is not `thread_cpu_ns` at `tsc_hz`, or is zero. A loop's **share** is its counter over that denominator; the **summed share** is the sum of the three.
+
+**Cells.** All `R = 2`:
+
+| mode | live | W | threads | deciding |
+|---|---|---|---|---|
+| overwrite (two compactions per window) | 200,000 and 3,600,000 | 1, 4, 12 | 3, 6, 14 | yes |
+| full (every insert refused) | arena filled | 4, 12 | 6, 14 | no, recorded only |
+
+The holder these cells exercise is the compaction a refused insert runs with the writer gate closed (§37.2): at 3,600,000 live it stalled the window's insert for 309.9 ms [306.3, 312.0] at W = 1 (measured: reference host, `d71e65bd`, `results/baseline_reclaim_stall.json`, README §29; workload: `reclaim_stall`). That figure predates later engine changes and is context, not an input to any verdict here.
+
+**Pins.** Two dispatches per pin, four in all, at one commit:
+
+| pin | CPUs | oversubscribed cells (threads > CPUs) |
+|---|---|---|
+| `0-15` | 16 | none |
+| `0,2,4,6,8,10,12,14` | 8 | the two W = 12 overwrite cells and the W = 12 full cell |
+
+The 8-CPU pin is the oversubscribed case #1479 asks for: 14 worker threads on 8 CPUs.
+
+**Context, deciding nothing: `writer_scaling` at W = 8.** One dispatch of the existing `writer_scaling` suite at the same commit, pin `0,2,4,6,8,10,12,14`. Its counters pass records `gate_blocked_entries`, `gate_wait_cycles` and `quiesce_drain_cycles` per round, but has no CPU-time denominator (the counters build reports `elapsed_s = 0`) and does not record `sample_spin_cycles`, so no share is defined there. Registered expectation, reported and not gated: in every W = 8 cell whose `lock_fallbacks` is 0, `gate_blocked_entries` and `gate_wait_cycles` are 0, because the gate closes only inside a serialised section.
+
+### 50.3 The threshold, fixed before any run
+
+A cell's waits are **material** when the summed share is at least **0.05** (5% of the window's thread CPU time). The value is a judgement, not a derivation: §37's cheapest variant cost up to +1.84% instructions on paths that never wait, so a change to these loops needs a share well above the noise of the instrument to be worth pre-registering, and 5% is set as that floor here. It does not move after the runs (§8.19).
+
+### 50.4 Per-cell verdict
+
+Per cell, the BCa 95% interval (2,000 resamples, seed 42) of the per-round summed share, and of each loop's share:
+
+| verdict | rule |
+|---|---|
+| `ACCEPTABLE` | upper bound < 0.05 |
+| `MATERIAL` | lower bound ≥ 0.05, and the cell is not oversubscribed |
+| `UPPER_BOUND_ONLY` | lower bound ≥ 0.05, and the cell is oversubscribed |
+| `BOUNDARY` | the interval contains 0.05 |
+| `VOID` | the cell is not oversubscribed and some round's summed share exceeds 1.0 |
+
+The counters are cycle-counter deltas, so they include time a waiting thread spent descheduled; thread CPU time does not. Where the cell's threads fit the CPUs they may use, a spinning thread keeps its CPU, and the share is read as CPU time spent waiting. A round whose share exceeds 1.0 there breaks that premise (foreign load, or a wait charged while off-CPU), so the cell is `VOID` and not read. Where the threads outnumber the CPUs, the share is only an upper bound on the waits' CPU cost: below 0.05 it still decides, at or above it it cannot separate spinning from being descheduled. The same rule gives each loop a verdict of its own, which names the loops a follow-up would cover.
+
+### 50.5 Outcome, and what each implies
+
+Per run, over the six deciding cells: `MATERIAL` if any is `MATERIAL`; `ACCEPTABLE` if all are `ACCEPTABLE`; otherwise `INCONCLUSIVE`. A claim needs both runs of a pin to agree (`docs/BENCHMARKING.md` rule 18), on the run outcome and, for `MATERIAL`, on at least one cell named `MATERIAL` in both.
+
+- **`ACCEPTABLE` on both pins.** The spin waits are documented as acceptable in README, with the conditions measured: the cells, the pins, the holder and its length. The loops stay as they are, and #1479 has its measurement.
+- **`MATERIAL` on either pin.** A park or backoff design for the loops whose per-loop verdict is `MATERIAL` (not `sched_yield`, which §37 tried) is registered as a later change in a follow-up issue, with its own cost check on the `sync_*` and plain-tree Callgrind arms first (§37.3's P37.2 form). It is not built in this milestone.
+- **`INCONCLUSIVE`, or the two runs of a pin disagree.** Recorded with every cell; no change. The follow-up names the instrument that would decide, for an `UPPER_BOUND_ONLY` cell a per-wait thread CPU reading.
+
+### 50.6 Silent constants, fixed here
+
+5 rounds per (cell, pin, run); threshold 0.05; BCa 95%, 2,000 resamples, seed 42; the cell list of §50.2 (`WAIT_CELLS` in the driver); the pins of §50.2; `VOID` above a summed share of 1.0. The driver's `--quick` mode (64 MiB arena, 20,000 and 60,000 live, 3 rounds) is a smoke test with scratch output only. It was run once on the development laptop to exercise the code; its numbers are not a measurement and are not read.
+
+### 50.7 Not measured
+
+Wall-clock latency, and whether a park or backoff would help or harm the holder or the waiters: §50 measures how much CPU the waits take, not what removing them would buy. Waits on `fallback_mutex` and the `write` mutex park in the OS and have no counter here (#1479, *Blocks rather than spins*).
+
+### 50.8 Dispatch
+
+`reclaim_stall_wait_share` twice with `cpu_pin=0-15` and twice with `cpu_pin=0,2,4,6,8,10,12,14`, and `writer_scaling` once with `cpu_pin=0,2,4,6,8,10,12,14`, all at the commit that carries this section. Each run's host guard and load windows are read before its cells; a run whose guard is not quiet is voided and re-dispatched, never reinterpreted (§8.17).
