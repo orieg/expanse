@@ -234,6 +234,87 @@ def surface_table(scan: dict) -> list[str]:
     return lines + [""]
 
 
+def known_limit_reading(ci_1, ci_2) -> str:
+    """METHODOLOGY.md "Known limit": a side of 1 counts only when both runs' intervals agree on it."""
+    s1, s2 = side(ci_1), side(ci_2)
+    if s1 == s2 == "below":
+        return "Expanse faster"
+    if s1 == s2 == "above":
+        return "twin faster"
+    return "not confirmed"
+
+
+def known_limit_section(scan: dict, results_dir: Path = RESULTS) -> list[str]:
+    """The prefix-scan known limit (#1096 option (a)), read across two runs at one commit.
+
+    Rendered only when the second run's scan artifact exists. Both artifacts must
+    name the same commit; a pair that does not is a broken record, not a reading.
+    """
+    path2 = results_dir / "baseline_scan_run2.json"
+    if not path2.exists():
+        return []
+    scan2 = json.loads(path2.read_text())
+    p1, p2 = scan["provenance"], scan2["provenance"]
+    if p1["commit"] != p2["commit"]:
+        raise SystemExit(f"baseline_scan.json is at {p1['commit']} and baseline_scan_run2.json at "
+                         f"{p2['commit']}: the known-limit reading needs two runs of one commit")
+
+    def key(r):
+        return (r["population"], r["order"])
+
+    rows1 = {key(r): r for r in scan["results"] if r["operation"] == "prefix_scan"}
+    rows2 = {key(r): r for r in scan2["results"] if r["operation"] == "prefix_scan"}
+    if set(rows1) != set(rows2):
+        raise SystemExit("the two scan artifacts do not cover the same prefix-scan cells")
+    counts = {"Expanse faster": 0, "twin faster": 0, "not confirmed": 0}
+    table, faster = [], []
+    for k in sorted(rows1):
+        r1, r2 = rows1[k], rows2[k]
+        for t in TWINS:
+            rk = f"ratio_expanse_over_{t}"
+            if rk not in r1 or rk not in r2:
+                raise SystemExit(f"prefix-scan cell {k} lacks {rk} in one run")
+            reading = known_limit_reading(r1[f"{rk}_ci"], r2[f"{rk}_ci"])
+            counts[reading] += 1
+            a, b = fmt_ratio(r1, rk), fmt_ratio(r2, rk)
+            table.append(f"| {k[0]:,} | {k[1]} | `{t}` | {a} | {b} | {reading} |")
+            if reading == "Expanse faster":
+                faster.append(f"- `{t}` at n = {k[0]:,}, {k[1]}: {a} and {b}")
+    return [
+        "## Known limit: prefix scan against the radix twins (workload: patricia_scan)",
+        "",
+        "#1096 closes on its option (a): the prefix scan is recorded as a known limit of "
+        "`ExpanseStrMap` against these three tries, and this suite pursues no further remedy. "
+        "The reading rule is registered in METHODOLOGY.md, section \"Known limit\", before the two runs "
+        "below: a cell is reported as Expanse faster, or twin faster, only when its BCa 95% interval sits "
+        "on that side of 1 in both runs (`docs/BENCHMARKING.md` rule 18); otherwise it is not confirmed.",
+        "",
+        f"- Run 1: commit `{p1['commit']}`, {p1['run_id']}, pin `{p1['core_pin']}` "
+        f"(`results/baseline_scan.json`).",
+        f"- Run 2: commit `{p2['commit']}`, {p2['run_id']}, pin `{p2['core_pin']}` "
+        f"(`results/baseline_scan_run2.json`).",
+        "",
+        "Conditions: distribution `prefixed_path` (prefix length 35), Expanse timed through "
+        f"`cursor_prefix`, both build orders, n of 10,000, 100,000 and 1,000,000 "
+        f"(measured: {p1['host_description']}, {p1['commit']}). "
+        "Ratio = Expanse ns ÷ twin ns, below 1 means Expanse is faster.",
+        "",
+        f"Of {len(table)} cells: {counts['Expanse faster']} Expanse faster, {counts['twin faster']} twin "
+        f"faster, {counts['not confirmed']} not confirmed. The cells where Expanse is faster in both runs:",
+        "",
+        *(faster or ["- none"]),
+        "",
+        "| n | order | twin | run 1 | run 2 | reading |",
+        "|---|---|---|---|---|---|",
+        *table,
+        "",
+        "What the limit does not say: it describes this build, these key sets and this host, and it does "
+        "not say that no remedy exists (`AGENTS.md` §8.9 item 4). The 1M build-order gap is what D1 and D2 "
+        "below recorded; D2's A5 outcome is final and was not re-run.",
+        "",
+    ]
+
+
 def d1_section() -> list[str]:
     """Diagnostic D1 (METHODOLOGY.md Amendment A3), derived from its counter artifacts.
 
@@ -757,6 +838,7 @@ def render() -> str:
                      lambda r: f"{r['operation']} {r['distribution']} / {r['order']}",
                      lambda t: [f"ratio_expanse_over_{t}"]),
         *surface_table(scan),
+        *known_limit_section(scan),
         *d1_section(),
         *d2_section(),
         *memory_table(mem),
