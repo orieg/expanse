@@ -1,0 +1,2074 @@
+{
+ "suite": "census_subdigit_baseline_callgrind",
+ "refs": "#1610; docs/benchmarks/concurrency/METHODOLOGY.md section 54",
+ "measured": "2026-11-08 (UTC)",
+ "base": "d882511c9 (main)",
+ "what": "Callgrind profile of every instructions and rmw_instructions arm at the base, with each arm's total as its base, and, from a census build of the same tree, per arm: the census marks optimistic writers make (Shared::mark_dirty_digit calls), the dirty top-level digits the with_locked fold refolds, how many of those children skip level 7 or are not branches (refolded whole after the change too), and how many level-7 children the others hold (what the change reads exactly or refolds by bucket). For each arm with any: the base fold's recursion into dirty children (fold_branch_pop0 called from fold_branch_pop0_selective), and the fold calls themselves.",
+ "provenance": {
+  "host": {
+   "machine": "development laptop, Apple M-series, macOS",
+   "role": "not the reference benchmark host; Callgrind counts are deterministic",
+   "container": "docker --platform linux/amd64 --security-opt seccomp=unconfined (x86_64 emulation)"
+  },
+  "image": {
+   "name": "cg86:local",
+   "valgrind": "3.24.0",
+   "rustc": "1.99.1",
+   "iai_callgrind_runner": "0.16.1, matching iai-callgrind 0.16.1 in Cargo.lock"
+  },
+  "commands": [
+   "git archive d882511c9 into a fresh directory, with a fresh CARGO_TARGET_DIR",
+   "CARGO_PROFILE_BENCH_DEBUG=1 cargo bench -p expanse-trie --bench instructions --bench rmw_instructions",
+   "census build: the same tree, with #[inline(never)] marker functions of distinct bodies called once per Shared::mark_dirty_digit, once per dirty top-level child the selective fold refolds, once more for such a child that is not a branch at level 7, and once per level-7 child of the others; the markers' calls= counts per arm",
+   "each arm's callgrind out parsed per (caller, callee) call edge"
+  ],
+  "estimators": {
+   "base": "the arm's total Ir in the base profile",
+   "n_marks": "Shared::mark_dirty_digit calls in the measured region (each marker call is 3 Ir; counts are the markers' inclusive Ir / 3, because a calls= count includes the setup's calls)",
+   "n_dirty_top": "dirty top-level children the fold refolded",
+   "n_dirty_whole": "of those, children that are not a branch at level 7: refolded whole after the change",
+   "n_scan": "level-7 children of the other dirty top-level children",
+   "fold_rec_ir / fold_rec_calls": "fold_branch_pop0 called from fold_branch_pop0_selective: inclusive Ir and calls",
+   "fold_calls": "fold_branch_pop0_selective calls from outside itself (one per with_locked fold)"
+  }
+ },
+ "arms": [
+  {
+   "bench": "instructions",
+   "arm": "blobmap32_scan",
+   "id": "ipv4_routes",
+   "base": 341888
+  },
+  {
+   "bench": "instructions",
+   "arm": "blobmap_churn",
+   "id": "random",
+   "base": 72293945
+  },
+  {
+   "bench": "instructions",
+   "arm": "blobmap_compact",
+   "id": "random",
+   "base": 19386168
+  },
+  {
+   "bench": "instructions",
+   "arm": "blobmap_get",
+   "id": "random",
+   "base": 10692294
+  },
+  {
+   "bench": "instructions",
+   "arm": "blobmap_insert",
+   "id": "random",
+   "base": 30887096
+  },
+  {
+   "bench": "instructions",
+   "arm": "blobmap_insert_inline",
+   "id": "random",
+   "base": 28536441
+  },
+  {
+   "bench": "instructions",
+   "arm": "blobmap_insert_reclaiming",
+   "id": "random",
+   "base": 505457
+  },
+  {
+   "bench": "instructions",
+   "arm": "blobmap_overwrite",
+   "id": "random",
+   "base": 19537301
+  },
+  {
+   "bench": "instructions",
+   "arm": "blobmap_remove",
+   "id": "random",
+   "base": 25397424
+  },
+  {
+   "bench": "instructions",
+   "arm": "bytesmap_churn",
+   "id": "routes",
+   "base": 141785638
+  },
+  {
+   "bench": "instructions",
+   "arm": "bytesmap_get",
+   "id": "routes",
+   "base": 29361366
+  },
+  {
+   "bench": "instructions",
+   "arm": "bytesmap_insert",
+   "id": "routes",
+   "base": 78140019
+  },
+  {
+   "bench": "instructions",
+   "arm": "bytesmap_overwrite",
+   "id": "routes",
+   "base": 35436237
+  },
+  {
+   "bench": "instructions",
+   "arm": "bytesmap_remove",
+   "id": "routes",
+   "base": 85390457
+  },
+  {
+   "bench": "instructions",
+   "arm": "domain_dict_get",
+   "id": "routes",
+   "base": 51816474
+  },
+  {
+   "bench": "instructions",
+   "arm": "domain_dict_insert",
+   "id": "routes",
+   "base": 87449901
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_compact_drained",
+   "id": "random28",
+   "base": 47256901
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_for_each_range",
+   "id": "clustered",
+   "base": 207675
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_for_each_range",
+   "id": "random",
+   "base": 97745
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_for_each_range",
+   "id": "sequential",
+   "base": 138213
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_from_sorted_iter",
+   "id": "random",
+   "base": 5363805
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_from_sorted_iter",
+   "id": "random_sorted",
+   "base": 3750664
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_from_sorted_iter",
+   "id": "sequential",
+   "base": 1865785
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_get",
+   "id": "can_dispatch",
+   "base": 105841
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_insert",
+   "id": "sensor_timestamps",
+   "base": 4731334
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_insert_sorted",
+   "id": "random",
+   "base": 9538921
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_insert_sorted",
+   "id": "random_sorted",
+   "base": 9003231
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_insert_sorted",
+   "id": "sequential",
+   "base": 4767540
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_iterate",
+   "id": "clustered",
+   "base": 294256
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_iterate",
+   "id": "random",
+   "base": 334107
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_iterate",
+   "id": "sequential",
+   "base": 188834
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_nav",
+   "id": "clustered",
+   "base": 2301311
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_nav",
+   "id": "random",
+   "base": 5284959
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_nav",
+   "id": "sequential",
+   "base": 1185688
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_prev",
+   "id": "clustered",
+   "base": 2491406
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_prev",
+   "id": "random",
+   "base": 5133351
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_prev",
+   "id": "sequential",
+   "base": 1203000
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_range",
+   "id": "clustered",
+   "base": 294265
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_range",
+   "id": "random",
+   "base": 168083
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_range",
+   "id": "sequential",
+   "base": 188843
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_rebuild_drained",
+   "id": "random28",
+   "base": 93939793
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_remove",
+   "id": "clustered",
+   "base": 1942329
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_remove",
+   "id": "random",
+   "base": 1337141
+  },
+  {
+   "bench": "instructions",
+   "arm": "map32_remove",
+   "id": "sequential",
+   "base": 1435079
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_churn",
+   "id": "random",
+   "base": 58220455
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_clear_refill",
+   "id": "random",
+   "base": 26897305
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_clone",
+   "id": "random",
+   "base": 27895319
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_clone",
+   "id": "sequential",
+   "base": 9579638
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_collect",
+   "id": "random",
+   "base": 24311414
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_collect",
+   "id": "random_sorted",
+   "base": 23342273
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_collect",
+   "id": "sequential",
+   "base": 8307517
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_compact_drained",
+   "id": "random60",
+   "base": 16843630
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_count_below",
+   "id": "one_top_byte",
+   "base": 518916589
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_count_below",
+   "id": "random",
+   "base": 515890260
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_count_below",
+   "id": "sequential",
+   "base": 188472636
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_cursor_scan",
+   "id": "clustered",
+   "base": 2255529
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_cursor_scan",
+   "id": "random",
+   "base": 6347786
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_cursor_scan",
+   "id": "sequential",
+   "base": 2241739
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_from_sorted_iter",
+   "id": "random",
+   "base": 24341658
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_from_sorted_iter",
+   "id": "random_sorted",
+   "base": 10353231
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_from_sorted_iter",
+   "id": "sequential",
+   "base": 3316685
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_get",
+   "id": "clustered",
+   "base": 5619908
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_get",
+   "id": "dense_leaf",
+   "base": 11111356
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_get",
+   "id": "linear_leaf",
+   "base": 9954401
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_get",
+   "id": "random",
+   "base": 6262175
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_get",
+   "id": "sequential",
+   "base": 6950212
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_get_batch",
+   "id": "random",
+   "base": 8531842
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_ins_slot",
+   "id": "random",
+   "base": 24810612
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_insert",
+   "id": "clustered",
+   "base": 17017438
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_insert",
+   "id": "dense_leaf",
+   "base": 21781277
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_insert",
+   "id": "linear_leaf",
+   "base": 23462000
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_insert",
+   "id": "random",
+   "base": 24561492
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_insert",
+   "id": "sequential",
+   "base": 8553961
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_insert",
+   "id": "small",
+   "base": 24131845
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_iterate",
+   "id": "random",
+   "base": 5310508
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_nav",
+   "id": "clustered",
+   "base": 15943747
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_nav",
+   "id": "random",
+   "base": 15625592
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_nav",
+   "id": "sequential",
+   "base": 22350211
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_oscillate",
+   "id": "random",
+   "base": 3806017
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_prev",
+   "id": "clustered",
+   "base": 16701565
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_prev",
+   "id": "random",
+   "base": 21880844
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_prev",
+   "id": "sequential",
+   "base": 23449765
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_range",
+   "id": "clustered",
+   "base": 350751
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_range",
+   "id": "random",
+   "base": 68640
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_range",
+   "id": "sequential",
+   "base": 408758
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_range_cursor_scan",
+   "id": "clustered",
+   "base": 3905990
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_range_cursor_scan",
+   "id": "random",
+   "base": 7651312
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_range_cursor_scan",
+   "id": "sequential",
+   "base": 3889147
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_rebuild_drained",
+   "id": "random60",
+   "base": 38597753
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_refill",
+   "id": "random",
+   "base": 45707791
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_regrow_after_shrink",
+   "id": "random60",
+   "base": 65884050
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_remove",
+   "id": "random",
+   "base": 22520007
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_remove_partial",
+   "id": "random60",
+   "base": 69436415
+  },
+  {
+   "bench": "instructions",
+   "arm": "map_shrink_drained",
+   "id": "random60",
+   "base": 14920820
+  },
+  {
+   "bench": "instructions",
+   "arm": "ordered_bytesmap_cursor",
+   "id": "clean",
+   "base": 26742127
+  },
+  {
+   "bench": "instructions",
+   "arm": "ordered_bytesmap_cursor",
+   "id": "escaped",
+   "base": 40022558
+  },
+  {
+   "bench": "instructions",
+   "arm": "ordered_bytesmap_cursor_into",
+   "id": "clean",
+   "base": 18842105
+  },
+  {
+   "bench": "instructions",
+   "arm": "ordered_bytesmap_cursor_into",
+   "id": "escaped",
+   "base": 29819378
+  },
+  {
+   "bench": "instructions",
+   "arm": "ordered_bytesmap_get",
+   "id": "clean",
+   "base": 21955493
+  },
+  {
+   "bench": "instructions",
+   "arm": "ordered_bytesmap_get",
+   "id": "escaped",
+   "base": 33347135
+  },
+  {
+   "bench": "instructions",
+   "arm": "ordered_bytesmap_insert",
+   "id": "clean",
+   "base": 45447970
+  },
+  {
+   "bench": "instructions",
+   "arm": "ordered_bytesmap_insert",
+   "id": "escaped",
+   "base": 62758322
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_compact_drained",
+   "id": "random28",
+   "base": 37910308
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_from_sorted_iter",
+   "id": "random",
+   "base": 4768145
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_from_sorted_iter",
+   "id": "random_sorted",
+   "base": 3571089
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_from_sorted_iter",
+   "id": "sequential",
+   "base": 542827
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_insert",
+   "id": "sensor_timestamps",
+   "base": 4989671
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_insert_sorted",
+   "id": "random",
+   "base": 9465766
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_insert_sorted",
+   "id": "random_sorted",
+   "base": 8700724
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_insert_sorted",
+   "id": "sequential",
+   "base": 5006486
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_iterate",
+   "id": "clustered",
+   "base": 261256
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_iterate",
+   "id": "random",
+   "base": 294054
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_iterate",
+   "id": "sequential",
+   "base": 133631
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_range",
+   "id": "clustered",
+   "base": 261265
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_range",
+   "id": "random",
+   "base": 148195
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_range",
+   "id": "sequential",
+   "base": 133640
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_rebuild_drained",
+   "id": "random28",
+   "base": 72458050
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_remove",
+   "id": "clustered",
+   "base": 1824435
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_remove",
+   "id": "random",
+   "base": 1097547
+  },
+  {
+   "bench": "instructions",
+   "arm": "set32_remove",
+   "id": "sequential",
+   "base": 1078094
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_clear_refill",
+   "id": "random",
+   "base": 22604959
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_clone",
+   "id": "random",
+   "base": 15003127
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_clone",
+   "id": "sequential",
+   "base": 2698107
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_compact_drained",
+   "id": "random60",
+   "base": 16212069
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_contains",
+   "id": "random",
+   "base": 6023282
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_contains_batch",
+   "id": "random",
+   "base": 8369863
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_count_below",
+   "id": "one_top_byte",
+   "base": 526154918
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_count_below",
+   "id": "random",
+   "base": 521363715
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_count_below",
+   "id": "sequential",
+   "base": 199619100
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_insert",
+   "id": "clustered",
+   "base": 10648907
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_insert",
+   "id": "dense_leaf",
+   "base": 17800542
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_insert",
+   "id": "linear_leaf",
+   "base": 18738011
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_insert",
+   "id": "random",
+   "base": 20550250
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_insert",
+   "id": "sequential",
+   "base": 3126086
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_nav",
+   "id": "clustered",
+   "base": 14293756
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_nav",
+   "id": "random",
+   "base": 15824125
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_nav",
+   "id": "sequential",
+   "base": 19457612
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_oscillate",
+   "id": "random",
+   "base": 3306015
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_prev",
+   "id": "clustered",
+   "base": 14871097
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_prev",
+   "id": "random",
+   "base": 22599272
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_prev",
+   "id": "sequential",
+   "base": 20405851
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_range",
+   "id": "clustered",
+   "base": 266760
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_range",
+   "id": "random",
+   "base": 72710
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_range",
+   "id": "sequential",
+   "base": 203732
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_rebuild_drained",
+   "id": "random60",
+   "base": 16656384
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_refill",
+   "id": "random",
+   "base": 42979837
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_remove",
+   "id": "random",
+   "base": 23285065
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_remove_partial",
+   "id": "random60",
+   "base": 77999348
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_shrink_drained",
+   "id": "random60",
+   "base": 11081428
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_subtree_boundary_oscillate",
+   "id": "band2",
+   "base": 16916127
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_subtree_boundary_oscillate",
+   "id": "band9",
+   "base": 70931871
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_subtree_condense",
+   "id": "h1",
+   "base": 632591
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_subtree_condense",
+   "id": "wide",
+   "base": 526978
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_subtree_condense_control",
+   "id": "h1",
+   "base": 638131
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_subtree_condense_control",
+   "id": "wide",
+   "base": 550371
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_subtree_split",
+   "id": "e1024",
+   "base": 11710935
+  },
+  {
+   "bench": "instructions",
+   "arm": "set_subtree_split_control",
+   "id": "e1024",
+   "base": 382443
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_churn",
+   "id": "routes",
+   "base": 117088402
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_clear_refill",
+   "id": "routes",
+   "base": 51739055
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_cursor_scan",
+   "id": "paths",
+   "base": 9204895
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_cursor_scan",
+   "id": "paths_dense",
+   "base": 13693955
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_get",
+   "id": "routes",
+   "base": 35163669
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_get_short",
+   "id": "short",
+   "base": 20487589
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_insert",
+   "id": "routes",
+   "base": 42254497
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_insert_plain",
+   "id": "routes",
+   "base": 42254497
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_oscillate",
+   "id": "routes",
+   "base": 27084801
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_prefix_bounded",
+   "id": "paths",
+   "base": 2622259
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_prefix_bounded",
+   "id": "paths_dense",
+   "base": 3747206
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_prefix_scan",
+   "id": "paths",
+   "base": 2807170
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_prefix_scan",
+   "id": "paths_dense",
+   "base": 3937229
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_prefix_seek",
+   "id": "paths",
+   "base": 146157
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_prefix_seek",
+   "id": "paths_dense",
+   "base": 145495
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_raw_cursor",
+   "id": "clean",
+   "base": 14534087
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_raw_get",
+   "id": "clean",
+   "base": 17405493
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_raw_insert",
+   "id": "clean",
+   "base": 40577470
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_refill",
+   "id": "routes",
+   "base": 98689732
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_refill_small",
+   "id": "routes",
+   "base": 84125125
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_transcode_cursor",
+   "id": "clean",
+   "base": 25734088
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_transcode_cursor",
+   "id": "escaped",
+   "base": 39120684
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_transcode_get",
+   "id": "clean",
+   "base": 21655495
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_transcode_get",
+   "id": "escaped",
+   "base": 62669523
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_transcode_insert",
+   "id": "clean",
+   "base": 44830958
+  },
+  {
+   "bench": "instructions",
+   "arm": "strmap_transcode_insert",
+   "id": "escaped",
+   "base": 91970571
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync32_map_get",
+   "id": "bitmap",
+   "base": 1460470
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync32_map_get",
+   "id": "linear",
+   "base": 1790630
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync32_map_get",
+   "id": "linear_wide",
+   "base": 1464624
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync32_map_write",
+   "id": "churn",
+   "base": 1125219
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync32_map_write",
+   "id": "overwrite",
+   "base": 1472444
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync32_map_write",
+   "id": "overwrite_same",
+   "base": 608444
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_churn",
+   "id": "random",
+   "base": 134831094,
+   "records": {
+    "n_marks": 76703,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_compact",
+   "id": "random",
+   "base": 19387043
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_compare_exchange",
+   "id": "random",
+   "base": 50745407
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_get",
+   "id": "random",
+   "base": 19659573
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_get_into",
+   "id": "random",
+   "base": 19991771
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_insert",
+   "id": "random",
+   "base": 55407077,
+   "records": {
+    "n_marks": 49967,
+    "n_dirty_top": 256,
+    "n_dirty_whole": 0,
+    "n_scan": 34969,
+    "fold_rec_ir": 1695674,
+    "fold_rec_calls": 256,
+    "fold_calls": 1
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_insert_reclaiming",
+   "id": "random",
+   "base": 699951
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_overwrite",
+   "id": "random",
+   "base": 32519216,
+   "records": {
+    "n_marks": 0,
+    "n_dirty_top": 256,
+    "n_dirty_whole": 0,
+    "n_scan": 34969,
+    "fold_rec_ir": 1695674,
+    "fold_rec_calls": 256,
+    "fold_calls": 1
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_reclaim_free",
+   "id": "random",
+   "base": 251838,
+   "records": {
+    "n_marks": 65,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_remove",
+   "id": "random",
+   "base": 64588488,
+   "records": {
+    "n_marks": 15030,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_blobmap_remove_miss",
+   "id": "random",
+   "base": 17825592
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_bytesmap_churn",
+   "id": "routes",
+   "base": 296935431,
+   "records": {
+    "n_marks": 76683,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_bytesmap_compare_exchange",
+   "id": "routes",
+   "base": 130517727
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_bytesmap_get",
+   "id": "routes",
+   "base": 32346617
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_bytesmap_insert",
+   "id": "routes",
+   "base": 111212147,
+   "records": {
+    "n_marks": 49967,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_bytesmap_overwrite",
+   "id": "routes",
+   "base": 57399211
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_bytesmap_remove",
+   "id": "routes",
+   "base": 181698385,
+   "records": {
+    "n_marks": 15028,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_bytesmap_update",
+   "id": "routes",
+   "base": 102477044
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_branchu_band",
+   "id": "top",
+   "base": 9596714,
+   "records": {
+    "n_marks": 6400,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_churn",
+   "id": "leaf",
+   "base": 99430496
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_churn",
+   "id": "random",
+   "base": 117631737,
+   "records": {
+    "n_marks": 100000,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_compact_baseline",
+   "id": "random60",
+   "base": 44952444,
+   "records": {
+    "n_marks": 0,
+    "n_dirty_top": 16,
+    "n_dirty_whole": 0,
+    "n_scan": 4096,
+    "fold_rec_ir": 3436326,
+    "fold_rec_calls": 16,
+    "fold_calls": 1
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_compact_drained",
+   "id": "random60",
+   "base": 20495416
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_compare_exchange",
+   "id": "random",
+   "base": 40799226
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_count_after_write",
+   "id": "one_top_byte",
+   "base": 1709849516,
+   "records": {
+    "n_marks": 1530,
+    "n_dirty_top": 1000,
+    "n_dirty_whole": 0,
+    "n_scan": 256000,
+    "fold_rec_ir": 1697096548,
+    "fold_rec_calls": 1001,
+    "fold_calls": 1000
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_count_after_write",
+   "id": "random",
+   "base": 32019359,
+   "records": {
+    "n_marks": 1530,
+    "n_dirty_top": 1527,
+    "n_dirty_whole": 0,
+    "n_scan": 209416,
+    "fold_rec_ir": 10142431,
+    "fold_rec_calls": 1783,
+    "fold_calls": 1000
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_count_after_write",
+   "id": "sequential",
+   "base": 14449290,
+   "records": {
+    "n_marks": 2000,
+    "n_dirty_top": 1000,
+    "n_dirty_whole": 1000,
+    "n_scan": 0,
+    "fold_rec_ir": 8290080,
+    "fold_rec_calls": 1001,
+    "fold_calls": 1000
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_count_locked",
+   "id": "one_top_byte",
+   "base": 11110209
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_count_locked",
+   "id": "random",
+   "base": 11049679
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_count_locked",
+   "id": "sequential",
+   "base": 4426917
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_drain_floor",
+   "id": "top",
+   "base": 239501,
+   "records": {
+    "n_marks": 39,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_get",
+   "id": "leaf",
+   "base": 7554516
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_get",
+   "id": "random",
+   "base": 14946993
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_insert",
+   "id": "random",
+   "base": 48331967,
+   "records": {
+    "n_marks": 49967,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_next_after_scan",
+   "id": "clustered",
+   "base": 26299701
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_next_after_scan",
+   "id": "random",
+   "base": 33004872
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_next_after_scan",
+   "id": "sequential",
+   "base": 35301481
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_prev",
+   "id": "random",
+   "base": 34041421
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_prev_locked",
+   "id": "random",
+   "base": 57180347,
+   "records": {
+    "n_marks": 0,
+    "n_dirty_top": 256,
+    "n_dirty_whole": 0,
+    "n_scan": 34969,
+    "fold_rec_ir": 1695674,
+    "fold_rec_calls": 256,
+    "fold_calls": 1
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_remove",
+   "id": "random",
+   "base": 62253474,
+   "records": {
+    "n_marks": 15030,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_scan",
+   "id": "clustered",
+   "base": 4544671
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_scan",
+   "id": "random",
+   "base": 10202171
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_scan",
+   "id": "sequential",
+   "base": 4541467
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_update",
+   "id": "random",
+   "base": 40799226
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_write_twin",
+   "id": "one_top_byte",
+   "base": 2039435,
+   "records": {
+    "n_marks": 1530,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_write_twin",
+   "id": "random",
+   "base": 1807400,
+   "records": {
+    "n_marks": 1530,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_map_write_twin",
+   "id": "sequential",
+   "base": 2126718,
+   "records": {
+    "n_marks": 2000,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_churn",
+   "id": "leaf",
+   "base": 85313509
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_churn",
+   "id": "random",
+   "base": 93003633,
+   "records": {
+    "n_marks": 100000,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_compact_baseline",
+   "id": "random60",
+   "base": 22631152,
+   "records": {
+    "n_marks": 0,
+    "n_dirty_top": 16,
+    "n_dirty_whole": 0,
+    "n_scan": 4096,
+    "fold_rec_ir": 3499354,
+    "fold_rec_calls": 16,
+    "fold_calls": 1
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_compact_drained",
+   "id": "random60",
+   "base": 18894121
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_contains",
+   "id": "leaf",
+   "base": 7104599
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_contains",
+   "id": "random",
+   "base": 14754943
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_drain_floor",
+   "id": "top",
+   "base": 238450,
+   "records": {
+    "n_marks": 39,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_insert",
+   "id": "random",
+   "base": 44730742,
+   "records": {
+    "n_marks": 49967,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_next_after_scan",
+   "id": "clustered",
+   "base": 25022329
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_next_after_scan",
+   "id": "random",
+   "base": 33592531
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_next_after_scan",
+   "id": "sequential",
+   "base": 32954973
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_next_after_scan_locked",
+   "id": "clustered",
+   "base": 48035213,
+   "records": {
+    "n_marks": 0,
+    "n_dirty_top": 139,
+    "n_dirty_whole": 95,
+    "n_scan": 101,
+    "fold_rec_ir": 9178,
+    "fold_rec_calls": 139,
+    "fold_calls": 1
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_next_after_scan_locked",
+   "id": "random",
+   "base": 57120698,
+   "records": {
+    "n_marks": 0,
+    "n_dirty_top": 256,
+    "n_dirty_whole": 0,
+    "n_scan": 34969,
+    "fold_rec_ir": 1758030,
+    "fold_rec_calls": 256,
+    "fold_calls": 1
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_next_after_scan_locked",
+   "id": "sequential",
+   "base": 53167570,
+   "records": {
+    "n_marks": 0,
+    "n_dirty_top": 1,
+    "n_dirty_whole": 1,
+    "n_scan": 0,
+    "fold_rec_ir": 9029,
+    "fold_rec_calls": 1,
+    "fold_calls": 1
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_prev",
+   "id": "immed",
+   "base": 57114019
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_prev",
+   "id": "leaf",
+   "base": 7002583
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_prev",
+   "id": "random",
+   "base": 33101648
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_prev_locked",
+   "id": "immed",
+   "base": 78542796
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_prev_locked",
+   "id": "leaf",
+   "base": 37281424
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_prev_locked",
+   "id": "random",
+   "base": 57961669,
+   "records": {
+    "n_marks": 0,
+    "n_dirty_top": 256,
+    "n_dirty_whole": 0,
+    "n_scan": 34969,
+    "fold_rec_ir": 1758030,
+    "fold_rec_calls": 256,
+    "fold_calls": 1
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_set_remove",
+   "id": "random",
+   "base": 52946172,
+   "records": {
+    "n_marks": 15030,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_churn",
+   "id": "routes",
+   "base": 189093017
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_churn_short",
+   "id": "short",
+   "base": 228111518
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_compare_exchange",
+   "id": "routes",
+   "base": 122998839
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_get_short",
+   "id": "short",
+   "base": 29883082
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_insert",
+   "id": "routes",
+   "base": 77440881
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_insert_short",
+   "id": "short",
+   "base": 100090882
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_insert_sorted",
+   "id": "uuid",
+   "base": 46695110
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_mem_used",
+   "id": "routes",
+   "base": 5851763
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_mem_used",
+   "id": "short",
+   "base": 5852065
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_next_after_scan_locked",
+   "id": "paths",
+   "base": 118325920
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_next_after_scan_locked",
+   "id": "paths_dense",
+   "base": 134217680
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_remove",
+   "id": "routes",
+   "base": 85555642
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_scan",
+   "id": "paths",
+   "base": 19326060
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_scan",
+   "id": "paths_dense",
+   "base": 34721071
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_scan_locked",
+   "id": "paths",
+   "base": 9155815
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_scan_locked",
+   "id": "paths_dense",
+   "base": 13644632
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_scan_pointops",
+   "id": "paths",
+   "base": 182760927
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_scan_pointops",
+   "id": "paths_dense",
+   "base": 171939796
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_short_scan",
+   "id": "user22",
+   "base": 93084580
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_short_scan_capped",
+   "id": "user22",
+   "base": 64143182
+  },
+  {
+   "bench": "instructions",
+   "arm": "sync_strmap_update",
+   "id": "routes",
+   "base": 73816055
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_blobmap_cas",
+   "id": "random",
+   "base": 61764299
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_blobmap_update_rmw",
+   "id": "random",
+   "base": 95786678
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_bytesmap_cas",
+   "id": "routes",
+   "base": 56396728
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_bytesmap_cas_insert",
+   "id": "routes",
+   "base": 106884671,
+   "records": {
+    "n_marks": 49775,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_bytesmap_cas_remove",
+   "id": "routes",
+   "base": 195494389,
+   "records": {
+    "n_marks": 15028,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_bytesmap_update_rmw",
+   "id": "routes",
+   "base": 88353725
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_map_cas",
+   "id": "random",
+   "base": 26335084
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_map_cas_insert",
+   "id": "random",
+   "base": 46103519,
+   "records": {
+    "n_marks": 49779,
+    "n_dirty_top": 0,
+    "n_dirty_whole": 0,
+    "n_scan": 0,
+    "fold_rec_ir": 0,
+    "fold_rec_calls": 0,
+    "fold_calls": 0
+   }
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_map_update_rmw",
+   "id": "random",
+   "base": 43781863
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_strmap_cas",
+   "id": "routes",
+   "base": 73554134
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_strmap_cas_insert",
+   "id": "routes",
+   "base": 100428487
+  },
+  {
+   "bench": "rmw_instructions",
+   "arm": "sync_strmap_update_rmw",
+   "id": "routes",
+   "base": 122664489
+  }
+ ]
+}

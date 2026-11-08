@@ -1701,7 +1701,211 @@ def report() -> None:
           f"in 97.5% of runs (within-run spread only)")
 
 
+# --- §54 (#1610): the sub-digit census fold -----------------------------------
+#
+# The change: optimistic writers mark the census by key, one bit per bucket of eight
+# level-7 digits under each top digit (`DirtySub`), setting the top digit's bit only when
+# the bucket was clean; the `with_locked` fold refolds only the marked buckets of a dirty
+# top digit's level-7 branch and reads its other children's `pop0` exactly. Every input is
+# a measured figure in CENSUS54_BASELINE or a constant below whose derivation §54 states.
+CENSUS54_BASELINE = REPO_ROOT / "results" / "census_subdigit_baseline_callgrind_d882511c.json"
+# Per key mark, the change's instructions on the path a marked bucket takes: the old mark
+# decoded the top digit into a padded word index and bit (shift, mask, shift); the new one
+# decodes the top digit as a word index and the level-7 digit into a bucket bit (shift,
+# mask, shift, shift). One load and one test either way.
+C54_MARK_IR = (-3, 4)
+# Per mark that finds its bucket clean: the bucket's fetch_or and the top digit's
+# test-and-set, which the old path took only once per top digit.
+C54_RARE_IR = (0, 10)
+# Distinct (top digit, bucket) pairs: a bound on the clean-bucket marks between two folds.
+C54_BUCKETS = 256 * 32
+# Per level-7 child the selective fold reads exactly instead of refolding: its tag, its
+# `pop0` and the loop (the `edge_pop0_exact` path the top-level fold already takes).
+C54_SCAN_IR = (3, 20)
+# Per dirty top digit: taking its bucket word, the selectivity test, expanding the word
+# into a 256-digit mask and the extra call.
+C54_DIGIT_IR = (0, 80)
+# Per fold call that finds any dirty digit: zeroing the 256-word take buffer.
+C54_CALL_IR = (0, 150)
+# The selective fold's threshold (`SUB_FULL_FOLD_BUCKETS` in sync.rs).
+C54_FULL_FOLD_BUCKETS = 28
+C54_SLACK_FRAC = 0.001
+C54_SLACK_ABS = 500
+
+
+def census54_term(rec: dict) -> tuple[float, float]:
+    """The change's instruction delta on one arm, as (low, high), from its §54 census record.
+
+    Marks: `n_marks` × `C54_MARK_IR`, plus `C54_RARE_IR` for each mark that may find its
+    bucket clean, at most min(`n_marks`, `C54_BUCKETS` × (`fold_calls` + 1)).
+
+    Fold, for an arm whose folds met `n_dirty_top` dirty top digits: the base refolded each
+    whole, `fold_rec_ir` in all, `f` per digit. After the change a digit that is not a
+    level-7 branch (`n_dirty_whole`) is still refolded whole. Each of the other digits, with
+    `c` level-7 children on average (`n_scan` over them), costs one of:
+      - folded by bucket: `c` × `C54_SCAN_IR` plus the refold of its marked buckets, at most
+        `b` × 8 / `c` of `f`, where `b` is the marked buckets: at most the marks between two
+        folds plus one, or all 32 when the census has no in-region marks (a bulk load in the
+        setup marked them);
+      - folded whole, when `b` reaches `C54_FULL_FOLD_BUCKETS`: `f`.
+    Plus `C54_DIGIT_IR` per dirty digit and `C54_CALL_IR` per fold call.
+    """
+    g = {k: int(rec.get(k, 0)) for k in ("n_marks", "n_dirty_top", "n_dirty_whole", "n_scan",
+                                          "fold_rec_ir", "fold_calls")}
+    for k, v in g.items():
+        if v < 0:
+            raise ValueError(f"{k} must be >= 0, got {v}")
+    n = g["n_marks"]
+    rare = min(n, C54_BUCKETS * (g["fold_calls"] + 1))
+    lo = C54_MARK_IR[0] * n + C54_RARE_IR[0] * rare
+    hi = C54_MARK_IR[1] * n + C54_RARE_IR[1] * rare
+    dirty, whole = g["n_dirty_top"], g["n_dirty_whole"]
+    if dirty == 0:
+        return float(lo), float(hi)
+    if whole > dirty:
+        raise ValueError(f"n_dirty_whole {whole} exceeds n_dirty_top {dirty}")
+    f = g["fold_rec_ir"] / dirty
+    scan_digits = dirty - whole
+    lo += C54_DIGIT_IR[0] * dirty + C54_CALL_IR[0] * g["fold_calls"]
+    hi += C54_DIGIT_IR[1] * dirty + C54_CALL_IR[1] * g["fold_calls"]
+    if scan_digits:
+        c = g["n_scan"] / scan_digits
+        if c <= 0:
+            raise ValueError("dirty level-7 digits with no children")
+        b = 32 if n == 0 or g["fold_calls"] == 0 else min(32, -(-n // g["fold_calls"]) + 1)
+        refold = f * min(1.0, b * 8 / c)
+        selective_lo = c * C54_SCAN_IR[0]
+        selective_hi = c * C54_SCAN_IR[1] + refold
+        if b >= C54_FULL_FOLD_BUCKETS:
+            per_lo, per_hi = min(selective_lo, f), max(selective_hi, f)
+        else:
+            per_lo, per_hi = selective_lo, selective_hi
+        lo += scan_digits * (per_lo - f)
+        hi += scan_digits * (per_hi - f)
+    return float(lo), float(hi)
+
+
+def census54_bound(base: int, term: tuple[float, float]) -> tuple[float, float]:
+    """The two-sided bound on one arm: the term, widened by max(0.1% of the base, 500 Ir)."""
+    if base <= 0:
+        raise ValueError("base must be positive")
+    lo, hi = term
+    if lo > hi:
+        raise ValueError(f"term low {lo} exceeds high {hi}")
+    slack = max(C54_SLACK_FRAC * base, C54_SLACK_ABS)
+    return lo - slack, hi + slack
+
+
+def census54_kind(term: tuple[float, float]) -> str:
+    if term == (0.0, 0.0):
+        return "No change"
+    if term[1] < 0:
+        return "improves"
+    return "may lose" if term[0] >= 0 else "mixed"
+
+
+def census54_bounds(path: Path = CENSUS54_BASELINE) -> list[dict]:
+    """Every arm of the §54 baseline with its bound."""
+    art = json.loads(Path(path).read_text())
+    out = []
+    for row in art["arms"]:
+        term = census54_term(row.get("records", {}))
+        lo, hi = census54_bound(row["base"], term)
+        out.append({"bench": row["bench"], "arm": row["arm"], "id": row["id"], "base": row["base"],
+                    "kind": census54_kind(term), "term": term, "lo": lo, "hi": hi,
+                    "lo_pct": 100 * lo / row["base"], "hi_pct": 100 * hi / row["base"]})
+    return out
+
+
+def census54_report() -> None:
+    print("| harness | arm | base | marks | dirty digits | whole | children | kind | bound low | bound high |")
+    print("|---|---|---:|---:|---:|---:|---:|---|---:|---:|")
+    recs = {(r["bench"], r["arm"], r["id"]): r.get("records", {})
+            for r in json.loads(CENSUS54_BASELINE.read_text())["arms"]}
+    for r in census54_bounds():
+        if r["kind"] == "No change":
+            continue
+        g = recs[(r["bench"], r["arm"], r["id"])]
+        print(f"| `{r['bench']}` | `{r['arm']}/{r['id']}` | {r['base']:,} | {g['n_marks']:,} | "
+              f"{g['n_dirty_top']:,} | {g['n_dirty_whole']:,} | {g['n_scan']:,} | {r['kind']} | "
+              f"{r['lo_pct']:+.4f}% | {r['hi_pct']:+.4f}% |")
+
+
+class TestCensus54(unittest.TestCase):
+    def test_mark_term(self):
+        # 1,000 marks, no fold: [-3, 4] each, plus up to 10 for each of the 1,000 that may
+        # find a clean bucket (min(1,000, 8,192)).
+        self.assertEqual(census54_term({"n_marks": 1000}), (-3000.0, 4000.0 + 10000.0))
+        # The clean-bucket count is capped by the buckets per fold epoch.
+        t = census54_term({"n_marks": 100_000})
+        self.assertEqual(t, (-300_000.0, 400_000.0 + 10 * 8192))
+        self.assertEqual(census54_term({}), (0.0, 0.0))
+
+    def test_fold_term_selective(self):
+        # One fold call, 2 marks, 1 dirty digit of 100 children, base refold 10,000 Ir:
+        # b = 3 buckets, refold <= 10,000 * 24 / 100 = 2,400.
+        rec = {"n_marks": 2, "n_dirty_top": 1, "n_scan": 100, "fold_rec_ir": 10_000, "fold_calls": 1}
+        lo, hi = census54_term(rec)
+        marks_lo, marks_hi = -6, 8 + 20
+        self.assertAlmostEqual(lo, marks_lo + 0 + 0 + (300 - 10_000))
+        self.assertAlmostEqual(hi, marks_hi + 80 + 150 + (2000 + 2400 - 10_000))
+        self.assertEqual(census54_kind((lo, hi)), "improves")
+
+    def test_fold_term_bulk_marked(self):
+        # No in-region marks (a bulk load marked every bucket in the setup): b = 32, so the
+        # digit may be folded whole, and the term may lose the scan.
+        rec = {"n_dirty_top": 4, "n_scan": 400, "fold_rec_ir": 40_000, "fold_calls": 1}
+        lo, hi = census54_term(rec)
+        self.assertAlmostEqual(lo, 4 * (300 - 10_000))
+        self.assertAlmostEqual(hi, 4 * 80 + 150 + 4 * (100 * 20 + 10_000 - 10_000))
+        self.assertEqual(census54_kind((lo, hi)), "mixed")
+
+    def test_fold_term_whole_digits(self):
+        # Digits that are not level-7 branches are refolded whole: only the overheads move.
+        rec = {"n_marks": 1000, "n_dirty_top": 1000, "n_dirty_whole": 1000, "fold_rec_ir": 8_000_000,
+               "fold_calls": 1000}
+        self.assertEqual(census54_term(rec), (-3000.0, 4000.0 + 10_000 + 80_000 + 150_000))
+
+    def test_bad_inputs(self):
+        with self.assertRaises(ValueError):
+            census54_term({"n_dirty_top": 1, "n_dirty_whole": 2, "fold_rec_ir": 1})
+        with self.assertRaises(ValueError):
+            census54_term({"n_dirty_top": 1, "n_scan": 0, "fold_rec_ir": 1, "fold_calls": 1})
+        with self.assertRaises(ValueError):
+            census54_bound(0, (0.0, 0.0))
+        with self.assertRaises(ValueError):
+            census54_bound(10, (1.0, 0.0))
+
+    def test_baseline_table(self):
+        rows = {(r["bench"], r["arm"], r["id"]): r for r in census54_bounds()}
+        self.assertEqual(len(rows), 290)
+        moving = {k for k, r in rows.items() if r["kind"] != "No change"}
+        self.assertEqual(len(moving), 33)
+        for k, r in rows.items():
+            if k not in moving:
+                self.assertEqual(r["hi"], max(1e-3 * r["base"], 500))
+                self.assertEqual(r["lo"], -r["hi"])
+        # sync_map_count_after_write/random, pinned from the artifact: 1,530 marks, 1,000 fold
+        # calls, 1,527 dirty digits, none whole, 209,416 children, base refold 10,142,431 Ir.
+        r = rows[("instructions", "sync_map_count_after_write", "random")]
+        self.assertEqual(r["kind"], "improves")
+        f = 10_142_431 / 1527
+        c = 209_416 / 1527
+        refold = f * min(1.0, 3 * 8 / c)
+        lo = -3 * 1530 + 1527 * (c * 3 - f)
+        hi = 4 * 1530 + 10 * 1530 + 80 * 1527 + 150 * 1000 + 1527 * (c * 20 + refold - f)
+        self.assertAlmostEqual(r["lo"], lo - 32_019.359, places=3)
+        self.assertAlmostEqual(r["hi"], hi + 32_019.359, places=3)
+        # A writer-only arm loses at most its marks' share.
+        r = rows[("instructions", "sync_map_insert", "random")]
+        self.assertEqual(r["kind"], "mixed")
+        self.assertAlmostEqual(r["hi"], 4 * 49_967 + 10 * 8192 + 48_331.967, places=3)
+
+
 if __name__ == "__main__":
+    if "--census-54" in sys.argv:
+        census54_report()
+        sys.exit(0)
     if "--self-test" in sys.argv:
         sys.argv = [sys.argv[0]]
         unittest.main()
