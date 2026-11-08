@@ -19,9 +19,9 @@ share can exceed the waits' true CPU cost. No verdict reads these figures.
 
 `--wait-share` runs that counters build alone, every sync cell for `--rounds`
 rounds, one process per (cell, round) with the order rotated per round, and
-evaluates METHODOLOGY §50 (#1479): per cell, the BCa interval of the summed
+evaluates METHODOLOGY §51 (#1479): per cell, the BCa interval of the summed
 share of the three wait loops (`gate_wait_cycles`, `quiesce_drain_cycles`,
-`sample_spin_cycles`) against §50.3's threshold, with a cell whose threads
+`sample_spin_cycles`) against §51.3's threshold, with a cell whose threads
 outnumber the CPUs it may use read as an upper bound only. No timed pass runs.
 
 `--free-gate --base-ref REF` evaluates METHODOLOGY §42.3's G2 and G3
@@ -447,12 +447,12 @@ def self_test_wait_counters() -> None:
     assert code.count("CLOCK_THREAD_CPUTIME_ID") == 1
 
 
-# --- METHODOLOGY §50: the spin waits' share of thread CPU time on main (#1479) ----
+# --- METHODOLOGY §51: the spin waits' share of thread CPU time on main (#1479) ----
 
-# §50.3's threshold, fixed before any run: a summed wait share of thread CPU time
+# §51.3's threshold, fixed before any run: a summed wait share of thread CPU time
 # at or above this is material.
 WAIT_SHARE_MATERIAL = 0.05
-# The cells §50 decides on: the sync overwrite cells, each holding two compactions.
+# The cells §51 decides on: the sync overwrite cells, each holding two compactions.
 # The `full` cells are recorded and decide nothing.
 WAIT_SHARE_DECIDING_MODE = "overwrite"
 
@@ -472,7 +472,7 @@ def cpus_of(pin: str | None) -> int:
 
 
 def wait_share_verdict(lo: float, hi: float, oversubscribed: bool) -> str:
-    """§50.4: the interval against the threshold.
+    """§51.4: the interval against the threshold.
 
     The counters are TSC deltas and include time a waiting thread was
     descheduled. Where the cell's threads fit the CPUs they may use, a spinning
@@ -489,14 +489,14 @@ def wait_share_verdict(lo: float, hi: float, oversubscribed: bool) -> str:
 
 
 def evaluate_wait_share(cells: list[dict[str, Any]]) -> dict[str, Any]:
-    """§50.4's per-cell verdicts and §50.5's outcome over the deciding cells."""
+    """§51.4's per-cell verdicts and §51.5's outcome over the deciding cells."""
     per_cell = []
     for cell in cells:
         rows = cell["rounds_raw"]
         shares = {k: [row["wait"]["share_of_thread_cpu"][k] for row in rows] for k in WAIT_CYCLE_COUNTERS}
         summed = [sum(shares[k][i] for k in WAIT_CYCLE_COUNTERS) for i in range(len(rows))]
         iv = interval(summed)
-        # §50.4: a waiting thread with a CPU of its own spends its wait on it, so in a
+        # §51.4: a waiting thread with a CPU of its own spends its wait on it, so in a
         # cell that is not oversubscribed the waits cannot exceed the CPU time. A round
         # in which they do breaks that premise (foreign load, or a wait the counters
         # charge while the thread was off-CPU): the cell is void, never read.
@@ -521,7 +521,7 @@ def evaluate_wait_share(cells: list[dict[str, Any]]) -> dict[str, Any]:
         per_cell.append(entry)
     deciding = [e["verdict"] for e in per_cell if e["deciding"]]
     if not deciding:
-        raise DriverError("no deciding cell ran: §50 has nothing to evaluate")
+        raise DriverError("no deciding cell ran: §51 has nothing to evaluate")
     if "MATERIAL" in deciding:
         outcome = "MATERIAL"
     elif all(v == "ACCEPTABLE" for v in deciding):
@@ -532,7 +532,7 @@ def evaluate_wait_share(cells: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def measure_wait_share(rounds: int, out_path: Path, quick: bool = False) -> dict[str, Any]:
-    """§50.2: the occ-stats build over the sync cells, one process per (cell, round), rotated.
+    """§51.2: the occ-stats build over the sync cells, one process per (cell, round), rotated.
 
     `quick` runs the same code on a 64 MiB arena with small live sets, as a
     smoke test whose output is scratch and not a measurement.
@@ -547,7 +547,7 @@ def measure_wait_share(rounds: int, out_path: Path, quick: bool = False) -> dict
         extra = ("--cap-mib", str(QUICK_CAP_MIB))
         rounds = QUICK_ROUNDS
     applied = bench_pin.apply("reclaim_stall.py")
-    prov = new_provenance("concurrency", 1479, "§50 spin-wait share of thread CPU (no ratio gate)", REPO_ROOT,
+    prov = new_provenance("concurrency", 1479, "§51 spin-wait share of thread CPU (no ratio gate)", REPO_ROOT,
                           cell_isolation="process", rounds=rounds, core_pin_applied=applied, quick=quick)
     cexe = build(("occ-stats",))
     probe(cexe, counters=True)
@@ -583,7 +583,7 @@ def measure_wait_share(rounds: int, out_path: Path, quick: bool = False) -> dict
 
 
 def wait_share_lines(ws: dict[str, Any]) -> list[str]:
-    lines = [f"§50 spin-wait share of thread CPU, threshold {ws['threshold']:.0%}"]
+    lines = [f"§51 spin-wait share of thread CPU, threshold {ws['threshold']:.0%}"]
     for e in ws["cells"]:
         iv = e["summed_share"]
         loops = ", ".join(f"{k} {v['mean']:.4f}" for k, v in e["per_loop_share"].items())
@@ -640,7 +640,7 @@ def self_test_wait_share() -> None:
     v = evaluate_wait_share([_wait_cell("b", "overwrite", over, threads=14, cpus=8)])
     assert v["cells"][0]["verdict"] == "UPPER_BOUND_ONLY", v
     assert cpus_of("0,2,4,6,8,10,12,14") == 8 and cpus_of("0-15") == 16
-    # §50.2's deciding cells are the six sync overwrite cells, one of them oversubscribed on 8 CPUs.
+    # §51.2's deciding cells are the six sync overwrite cells, one of them oversubscribed on 8 CPUs.
     deciding = [c for c in WAIT_CELLS if c["mode"] == WAIT_SHARE_DECIDING_MODE]
     assert len(deciding) == 6 and {threads_of(c) for c in deciding} == {3, 6, 14}
     assert [threads_of(c) > 8 for c in deciding].count(True) == 2
@@ -937,8 +937,8 @@ def main() -> int:
     ap.add_argument("--wait-counters", action="store_true",
                     help="after the timed rounds, record each sync stall window's wait counters from an occ-stats build")
     ap.add_argument("--wait-share", action="store_true",
-                    help="METHODOLOGY §50 (#1479): the occ-stats build only, every sync cell for --rounds rounds, "
-                         "and the spin waits' share of thread CPU time against §50.3's threshold")
+                    help="METHODOLOGY §51 (#1479): the occ-stats build only, every sync cell for --rounds rounds, "
+                         "and the spin waits' share of thread CPU time against §51.3's threshold")
     ap.add_argument("--free-gate", action="store_true",
                     help="METHODOLOGY §42.3's G2 and G3: base and head builds in one run")
     ap.add_argument("--base-ref", default="", help="the base for --free-gate (the merge base on main)")
