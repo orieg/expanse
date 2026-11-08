@@ -563,3 +563,28 @@ This adds one refusal to the start gate that A5.3's H0 reads. It changes no clau
 - **Size of the probe.** `required_huge_pages()` = `ceil(1638 / 20) * 2` = 164 extents (328 MiB). 1638 is the largest per-cell `thp_delta.thp_fault_alloc` of the committed 2 MiB artifacts (`docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_2m_run1.json` and `..._run2.json`; the other cells read 1620, 1638 and 1618). A cell is 10 runs of a build and a probe process, 20 sequential processes, and both phases build the same structure from fixed seeds, so one process maps about 82 huge pages. The factor 2 is a stated margin and not a measurement. `--self-test` re-derives 1638 and 20 from the artifacts. 164 sizes the probe; it is not a free-memory level that separates good hosts from bad ones.
 - **Recorded, not judged.** Free 2 MiB pages from `/proc/buddyinfo` (Normal zones, summed over nodes, order 10 counting two; all zones beside it), `MemFree`, `Cached`, the THP `enabled` and `defrag` modes, `thp_fault_fallback`, and the compaction counters `compact_stall`, `compact_fail`, `compact_success`. The `thp_fault_alloc` / `thp_fault_fallback` deltas across the probe are system-wide, so another process moves them; they are context. Free pages are not a clause because the one reading taken after a voided dispatch, 166 free 2 MiB pages (operator observation after the run, in no artifact), sat beside a run that had fallen to 4 KiB pages: a count at one instant does not bound what the kernel can supply.
 - **Limits.** A probe at the start does not guarantee supply for the whole run, since the suite's builds change memory and page-cache state; it shows that the kernel could supply the suite's own need at gate time. An in-run fallback still voids the run by the existing rule. Whether the probe would have refused the voided dispatch's host is unknown: no probe was run there and its state during the run was not recorded.
+
+## Known limit: the prefix scan against the radix twins (appended 2026-11-07, registered before the two confirming dispatches report; refs #1096; nothing above is edited)
+
+#1096 closes on its option (a): the prefix-scan ratios against `patricia_tree`, `fast_radix_trie` and `qp_trie` are recorded as a known limit of `ExpanseStrMap`, and no further remedy is pursued in this suite. D2 is not re-run: its A5 outcome above is final (`AGENTS.md` §8.19).
+
+- **Cells.** `patricia_scan`, operation `prefix_scan`, distribution `prefixed_path` (prefix length 35), n ∈ {10,000, 100,000, 1,000,000}, orders `generator` and `sorted`, against each of the three twins: 18 ratios, each Expanse ns ÷ twin ns with the Expanse side timed through `cursor_prefix` (Amendment A2).
+- **Data.** Two `patricia_comparison` dispatches of `bench_baremetal.yml` at the same commit (`c1b604ade4cef755038df968261b2ccfcbb3791e`), same runner, same pin, no change between them. The first run's artifacts are committed as `results/baseline_*.json`; the second run's scan artifact as `results/baseline_scan_run2.json`.
+- **Rule** (`docs/BENCHMARKING.md` rule 18). A cell is reported as **Expanse faster** only when the BCa 95% interval lies wholly below 1 in both runs, and as **twin faster** only when it lies wholly above 1 in both. Every other combination — an interval that spans 1 in either run, or the two runs on opposite sides — is reported as **not confirmed**, with both intervals. No threshold beyond 1 is set, nothing is predicted, and no verdict label of §3 is assigned.
+- **Earlier attempt.** Dispatch `42410700658` at the same commit was registered against none of this. Its build was refused memory under the host's strict overcommit before any harness ran, so it recorded no data, and it is not one of the two runs.
+- **Voids.** A dispatch whose load record is inadmissible under the workflow's host guard or `AGENTS.md` §8.17 is replaced by a fresh dispatch at the same commit and disclosed; its numbers are not used.
+- **Scope of the statement.** The limit describes this build, these key sets and this host; it does not say that no remedy exists (`AGENTS.md` §8.9 item 4). The 1M build-order gap's cause is what D1 and D2 recorded, and nothing here adds to it.
+
+## Known-limit outcome (appended after the dispatches; refs #1096; nothing above is edited)
+
+Every dispatch at `c1b604ade4cef755038df968261b2ccfcbb3791e`, in order:
+
+| Dispatch | Run | Result |
+|---|---|---|
+| 1 | `42410700658` | no data: the build was refused memory under the host's strict overcommit before any harness ran (the "Earlier attempt" above) |
+| 2 | `42433736053` | `VOID`: an `apt-daily` job raised foreign load on the pinned CPUs to 1.03 core-equivalents, 4 samples over the host guard's void line |
+| 3 | `42438017772` | admissible: run 1, committed as `results/baseline_*.json` |
+| 4 | `42442221339` | `VOID`: started outside its slot, and foreign load on the pinned CPUs crossed the void line twice (0.28 and 0.68) |
+| 5 | `42462421849` | admissible: run 2, its scan artifact committed as `results/baseline_scan_run2.json` |
+
+The void dispatches are disclosed here and their numbers are not used (`AGENTS.md` §8.17). The reading under the rule above, cell by cell with both intervals, is in `README.md`, section "Known limit". 5 of the 18 cells are Expanse faster in both runs, 13 are twin faster in both, and none is unconfirmed. No threshold, estimator or cell set was changed after the data.

@@ -109,87 +109,87 @@
   <text x="800.0" y="574" class="t-axis-label" text-anchor="middle">1</text>
   <text x="24" y="120" class="t-bar-label">sequential</text>
   <text x="34" y="136" class="t-axis-label">100% hit · patricia_tree</text>
-  <rect x="384.1" y="128" width="415.9" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="383.9" y1="132.5" x2="384.3" y2="132.5" class="axis"/>
-  <text x="990" y="136" class="t-val-accent" text-anchor="end">120× faster</text>
+  <rect x="383.6" y="128" width="416.4" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="383.5" y1="132.5" x2="383.7" y2="132.5" class="axis"/>
+  <text x="990" y="136" class="t-val-accent" text-anchor="end">121× faster</text>
   <text x="34" y="151" class="t-axis-label">100% hit · qp-trie</text>
-  <rect x="674.1" y="143" width="125.9" height="10" rx="1.5" class="b-qp"/>
-  <line x1="673.6" y1="147.5" x2="674.6" y2="147.5" class="axis"/>
-  <text x="990" y="151" class="t-val-accent" text-anchor="end">4.26× faster</text>
+  <rect x="673.8" y="143" width="126.2" height="10" rx="1.5" class="b-qp"/>
+  <line x1="673.3" y1="147.5" x2="674.3" y2="147.5" class="axis"/>
+  <text x="990" y="151" class="t-val-accent" text-anchor="end">4.28× faster</text>
   <text x="34" y="166" class="t-axis-label">50% hit · patricia_tree</text>
-  <rect x="391.0" y="158" width="409.0" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="390.7" y1="162.5" x2="391.5" y2="162.5" class="axis"/>
+  <rect x="391.2" y="158" width="408.8" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="391.0" y1="162.5" x2="391.3" y2="162.5" class="axis"/>
   <text x="990" y="166" class="t-val-accent" text-anchor="end">111× faster</text>
   <text x="34" y="181" class="t-axis-label">50% hit · qp-trie</text>
-  <rect x="693.8" y="173" width="106.2" height="10" rx="1.5" class="b-qp"/>
-  <line x1="693.4" y1="177.5" x2="694.3" y2="177.5" class="axis"/>
-  <text x="990" y="181" class="t-val-accent" text-anchor="end">3.39× faster</text>
+  <rect x="694.2" y="173" width="105.8" height="10" rx="1.5" class="b-qp"/>
+  <line x1="693.8" y1="177.5" x2="694.6" y2="177.5" class="axis"/>
+  <text x="990" y="181" class="t-val-accent" text-anchor="end">3.38× faster</text>
   <text x="24" y="208" class="t-bar-label">clustered</text>
   <text x="34" y="224" class="t-axis-label">100% hit · patricia_tree</text>
-  <rect x="427.5" y="216" width="372.5" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="427.3" y1="220.5" x2="427.6" y2="220.5" class="axis"/>
-  <text x="990" y="224" class="t-val-accent" text-anchor="end">72.9× faster</text>
+  <rect x="427.8" y="216" width="372.2" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="427.6" y1="220.5" x2="428.1" y2="220.5" class="axis"/>
+  <text x="990" y="224" class="t-val-accent" text-anchor="end">72.6× faster</text>
   <text x="34" y="239" class="t-axis-label">100% hit · qp-trie</text>
-  <rect x="700.8" y="231" width="99.2" height="10" rx="1.5" class="b-qp"/>
-  <line x1="700.2" y1="235.5" x2="701.5" y2="235.5" class="axis"/>
-  <text x="990" y="239" class="t-val-accent" text-anchor="end">3.13× faster</text>
+  <rect x="700.7" y="231" width="99.3" height="10" rx="1.5" class="b-qp"/>
+  <line x1="700.2" y1="235.5" x2="701.4" y2="235.5" class="axis"/>
+  <text x="990" y="239" class="t-val-accent" text-anchor="end">3.14× faster</text>
   <text x="34" y="254" class="t-axis-label">50% hit · patricia_tree</text>
-  <rect x="475.1" y="246" width="324.9" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="474.9" y1="250.5" x2="475.3" y2="250.5" class="axis"/>
-  <text x="990" y="254" class="t-val-accent" text-anchor="end">42.1× faster</text>
+  <rect x="475.7" y="246" width="324.3" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="475.5" y1="250.5" x2="475.9" y2="250.5" class="axis"/>
+  <text x="990" y="254" class="t-val-accent" text-anchor="end">41.8× faster</text>
   <text x="34" y="269" class="t-axis-label">50% hit · qp-trie</text>
-  <rect x="725.5" y="261" width="74.5" height="10" rx="1.5" class="b-qp"/>
-  <line x1="725.0" y1="265.5" x2="726.0" y2="265.5" class="axis"/>
-  <text x="990" y="269" class="t-val-accent" text-anchor="end">2.36× faster</text>
+  <rect x="725.7" y="261" width="74.3" height="10" rx="1.5" class="b-qp"/>
+  <line x1="725.0" y1="265.5" x2="726.3" y2="265.5" class="axis"/>
+  <text x="990" y="269" class="t-val-accent" text-anchor="end">2.35× faster</text>
   <text x="24" y="296" class="t-bar-label">uniform_random</text>
   <text x="34" y="312" class="t-axis-label">100% hit · patricia_tree</text>
-  <rect x="416.2" y="304" width="383.8" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="415.9" y1="308.5" x2="416.7" y2="308.5" class="axis"/>
-  <text x="990" y="312" class="t-val-accent" text-anchor="end">83× faster</text>
+  <rect x="416.0" y="304" width="384.0" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="415.9" y1="308.5" x2="416.2" y2="308.5" class="axis"/>
+  <text x="990" y="312" class="t-val-accent" text-anchor="end">83.2× faster</text>
   <text x="34" y="327" class="t-axis-label">100% hit · qp-trie</text>
-  <rect x="730.5" y="319" width="69.5" height="10" rx="1.5" class="b-qp"/>
-  <line x1="730.2" y1="323.5" x2="730.8" y2="323.5" class="axis"/>
-  <text x="990" y="327" class="t-val-accent" text-anchor="end">2.23× faster</text>
+  <rect x="730.7" y="319" width="69.3" height="10" rx="1.5" class="b-qp"/>
+  <line x1="730.5" y1="323.5" x2="730.9" y2="323.5" class="axis"/>
+  <text x="990" y="327" class="t-val-accent" text-anchor="end">2.22× faster</text>
   <text x="34" y="342" class="t-axis-label">50% hit · patricia_tree</text>
-  <rect x="424.6" y="334" width="375.4" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="424.4" y1="338.5" x2="424.9" y2="338.5" class="axis"/>
-  <text x="990" y="342" class="t-val-accent" text-anchor="end">75.3× faster</text>
+  <rect x="424.3" y="334" width="375.7" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="424.1" y1="338.5" x2="424.4" y2="338.5" class="axis"/>
+  <text x="990" y="342" class="t-val-accent" text-anchor="end">75.6× faster</text>
   <text x="34" y="357" class="t-axis-label">50% hit · qp-trie</text>
-  <rect x="747.0" y="349" width="53.0" height="10" rx="1.5" class="b-qp"/>
-  <line x1="746.8" y1="353.5" x2="747.3" y2="353.5" class="axis"/>
+  <rect x="746.8" y="349" width="53.2" height="10" rx="1.5" class="b-qp"/>
+  <line x1="746.7" y1="353.5" x2="747.0" y2="353.5" class="axis"/>
   <text x="990" y="357" class="t-val-accent" text-anchor="end">1.84× faster</text>
   <text x="24" y="384" class="t-bar-label">sparse_stride</text>
   <text x="34" y="400" class="t-axis-label">100% hit · patricia_tree</text>
-  <rect x="369.7" y="392" width="430.3" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="369.6" y1="396.5" x2="369.9" y2="396.5" class="axis"/>
-  <text x="990" y="400" class="t-val-accent" text-anchor="end">142× faster</text>
+  <rect x="368.6" y="392" width="431.4" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="368.4" y1="396.5" x2="368.9" y2="396.5" class="axis"/>
+  <text x="990" y="400" class="t-val-accent" text-anchor="end">144× faster</text>
   <text x="34" y="415" class="t-axis-label">100% hit · qp-trie</text>
-  <rect x="663.7" y="407" width="136.3" height="10" rx="1.5" class="b-qp"/>
-  <line x1="663.4" y1="411.5" x2="664.0" y2="411.5" class="axis"/>
-  <text x="990" y="415" class="t-val-accent" text-anchor="end">4.8× faster</text>
+  <rect x="662.7" y="407" width="137.3" height="10" rx="1.5" class="b-qp"/>
+  <line x1="662.5" y1="411.5" x2="662.9" y2="411.5" class="axis"/>
+  <text x="990" y="415" class="t-val-accent" text-anchor="end">4.86× faster</text>
   <text x="34" y="430" class="t-axis-label">50% hit · patricia_tree</text>
-  <rect x="421.4" y="422" width="378.6" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="421.2" y1="426.5" x2="421.5" y2="426.5" class="axis"/>
-  <text x="990" y="430" class="t-val-accent" text-anchor="end">78.2× faster</text>
+  <rect x="421.9" y="422" width="378.1" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="421.7" y1="426.5" x2="422.0" y2="426.5" class="axis"/>
+  <text x="990" y="430" class="t-val-accent" text-anchor="end">77.7× faster</text>
   <text x="34" y="445" class="t-axis-label">50% hit · qp-trie</text>
-  <rect x="720.5" y="437" width="79.5" height="10" rx="1.5" class="b-qp"/>
-  <line x1="720.3" y1="441.5" x2="720.7" y2="441.5" class="axis"/>
-  <text x="990" y="445" class="t-val-accent" text-anchor="end">2.5× faster</text>
+  <rect x="720.9" y="437" width="79.1" height="10" rx="1.5" class="b-qp"/>
+  <line x1="720.1" y1="441.5" x2="721.4" y2="441.5" class="axis"/>
+  <text x="990" y="445" class="t-val-accent" text-anchor="end">2.49× faster</text>
   <text x="24" y="472" class="t-bar-label">zipfian</text>
   <text x="34" y="488" class="t-axis-label">100% hit · patricia_tree</text>
-  <rect x="364.0" y="480" width="436.0" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="363.6" y1="484.5" x2="364.3" y2="484.5" class="axis"/>
+  <rect x="364.3" y="480" width="435.7" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="363.9" y1="484.5" x2="365.0" y2="484.5" class="axis"/>
   <text x="990" y="488" class="t-val-accent" text-anchor="end">151× faster</text>
   <text x="34" y="503" class="t-axis-label">100% hit · qp-trie</text>
-  <rect x="722.8" y="495" width="77.2" height="10" rx="1.5" class="b-qp"/>
-  <line x1="720.9" y1="499.5" x2="724.3" y2="499.5" class="axis"/>
+  <rect x="723.1" y="495" width="76.9" height="10" rx="1.5" class="b-qp"/>
+  <line x1="720.9" y1="499.5" x2="724.9" y2="499.5" class="axis"/>
   <text x="990" y="503" class="t-val-accent" text-anchor="end">2.43× faster</text>
   <text x="34" y="518" class="t-axis-label">50% hit · patricia_tree</text>
-  <rect x="437.4" y="510" width="362.6" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="437.1" y1="514.5" x2="437.6" y2="514.5" class="axis"/>
-  <text x="990" y="518" class="t-val-accent" text-anchor="end">65× faster</text>
+  <rect x="437.6" y="510" width="362.4" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="437.3" y1="514.5" x2="437.9" y2="514.5" class="axis"/>
+  <text x="990" y="518" class="t-val-accent" text-anchor="end">64.9× faster</text>
   <text x="34" y="533" class="t-axis-label">50% hit · qp-trie</text>
-  <rect x="746.1" y="525" width="53.9" height="10" rx="1.5" class="b-qp"/>
-  <line x1="744.0" y1="529.5" x2="747.5" y2="529.5" class="axis"/>
-  <text x="990" y="533" class="t-val-accent" text-anchor="end">1.86× faster</text>
+  <rect x="745.3" y="525" width="54.7" height="10" rx="1.5" class="b-qp"/>
+  <line x1="743.4" y1="529.5" x2="747.1" y2="529.5" class="axis"/>
+  <text x="990" y="533" class="t-val-accent" text-anchor="end">1.88× faster</text>
 </svg>
