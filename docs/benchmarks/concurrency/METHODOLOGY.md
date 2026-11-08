@@ -8698,6 +8698,41 @@ Wall-clock latency, and whether a park or backoff would help or harm the holder 
 
 `reclaim_stall_wait_share` twice with `cpu_pin=0-15` and twice with `cpu_pin=0,2,4,6,8,10,12,14`, and `writer_scaling` once with `cpu_pin=0,2,4,6,8,10,12,14`, all at the commit that carries this section. Each run's host guard and load windows are read before its cells; a run whose guard is not quiet is voided and re-dispatched, never reinterpreted (§8.17).
 
+### 51.9 Outcome (appended 2026-11-08, after the runs; §51.1 to §51.8 are not rewritten, and no bound moves)
+
+**`MATERIAL` on both pins, in both runs of each.** All four runs were dispatched at `989b1e28`, the merge of this section onto `main` at `c1b604ad` plus #1652 and #1655, neither of which touches the engine. Every host guard read quiet, and no cell's foreign load exceeded 0.07 busy CPUs. Every overwrite round completed its two compactions with no refused insert. No run was voided or discarded, and no cell was `VOID`.
+
+| run | pin | run id | artifact | outcome |
+|---|---|---|---|---|
+| 1 | `0-15` | [42479674379](https://github.com/orieg/expanse/actions/runs/42479674379) | `results/diag_1479_wait_share_pin0-15_run1.json` | `MATERIAL` |
+| 2 | `0-15` | [42494207528](https://github.com/orieg/expanse/actions/runs/42494207528) | `results/diag_1479_wait_share_pin0-15_run2.json` | `MATERIAL` |
+| 1 | `0,2,4,6,8,10,12,14` | [42484650638](https://github.com/orieg/expanse/actions/runs/42484650638) | `results/diag_1479_wait_share_percore_run1.json` | `MATERIAL` |
+| 2 | `0,2,4,6,8,10,12,14` | [42489223239](https://github.com/orieg/expanse/actions/runs/42489223239) | `results/diag_1479_wait_share_percore_run2.json` | `MATERIAL` |
+
+Summed share of thread CPU, mean over 5 rounds with the BCa 95% interval, and the §51.4 verdict (measured: reference host — Intel Core i9-12900F, `989b1e28`; the four artifacts above; workload: `reclaim_stall`):
+
+| cell | `0-15` run 1 | `0-15` run 2 | per-core run 1 | per-core run 2 |
+|---|---|---|---|---|
+| overwrite 200,000 W = 1 | 0.0009 [0.0009, 0.0009] `ACCEPTABLE` | 0.0009 [0.0009, 0.0009] `ACCEPTABLE` | 0.0009 [0.0009, 0.0009] `ACCEPTABLE` | 0.0009 [0.0009, 0.0009] `ACCEPTABLE` |
+| overwrite 3,600,000 W = 1 | 0.0096 [0.0095, 0.0096] `ACCEPTABLE` | 0.0096 [0.0095, 0.0096] `ACCEPTABLE` | 0.0096 [0.0096, 0.0096] `ACCEPTABLE` | 0.0096 [0.0095, 0.0096] `ACCEPTABLE` |
+| overwrite 200,000 W = 4 | 0.0101 [0.0076, 0.0120] `ACCEPTABLE` | 0.0105 [0.0086, 0.0123] `ACCEPTABLE` | 0.0105 [0.0096, 0.0114] `ACCEPTABLE` | 0.0106 [0.0088, 0.0122] `ACCEPTABLE` |
+| overwrite 3,600,000 W = 4 | 0.0746 [0.0384, 0.0954] `BOUNDARY` | 0.0803 [0.0668, 0.0931] `MATERIAL` | 0.0738 [0.0591, 0.0887] `MATERIAL` | 0.0881 [0.0675, 0.0951] `MATERIAL` |
+| overwrite 200,000 W = 12 | 0.1955 [0.1477, 0.2118] `MATERIAL` | 0.2088 [0.2016, 0.2124] `MATERIAL` | 0.2294 [0.2242, 0.2339] `UPPER_BOUND_ONLY` | 0.2425 [0.2314, 0.2600] `UPPER_BOUND_ONLY` |
+| overwrite 3,600,000 W = 12 | 0.2299 [0.1790, 0.2483] `MATERIAL` | 0.2353 [0.2168, 0.2495] `MATERIAL` | 0.3201 [0.3055, 0.3419] `UPPER_BOUND_ONLY` | 0.3332 [0.3231, 0.3472] `UPPER_BOUND_ONLY` |
+| full W = 4 (not deciding) | 0.0147 [0.0142, 0.0150] | 0.0147 [0.0143, 0.0151] | 0.0152 [0.0148, 0.0155] | 0.0149 [0.0144, 0.0157] |
+| full W = 12 (not deciding) | 0.1102 [0.1085, 0.1127] | 0.1098 [0.1081, 0.1116] | 1.3510 [1.3456, 1.3554] | 1.3505 [1.3468, 1.3535] |
+
+**The rule-18 agreement.** On `0-15`, both W = 12 overwrite cells are `MATERIAL` in both runs (14 threads on 16 CPUs). On the per-core pin, the 3,600,000 W = 4 cell is `MATERIAL` in both runs (6 threads on 8 CPUs). On `0-15` that same cell is `BOUNDARY` in run 1 and `MATERIAL` in run 2, so no claim is made about it on that pin. The W = 1 cells, and the 200,000 W = 4 cell, are `ACCEPTABLE` in all four runs.
+
+**Which loop.** By the per-loop rule of §51.4, `gate_wait_cycles` (`enter_writer_blocking`) is the only loop `MATERIAL` in both runs of any cell that is not oversubscribed: 0.128–0.184 of thread CPU in the `0-15` W = 12 cells. In the per-core 3,600,000 W = 4 cell it is `BOUNDARY` in run 1 and `MATERIAL` in run 2. `quiesce_drain_cycles` and `sample_spin_cycles` are `ACCEPTABLE` in every cell that is not oversubscribed, in all four runs; the largest are 0.026 (drain) and 0.047 (sample), both in `0-15` W = 12.
+
+**What follows (§51.5).** The spin waits are not documented as acceptable. A park or backoff design for `enter_writer_blocking`, not `sched_yield`, is to be registered as a later change in a follow-up issue, with the §37.3 P37.2-form cost check on the `sync_*` and plain-tree Callgrind arms before any wall-clock cell. It is not built in this milestone. Neither `SeqVersion::sample` nor `wait_drained` met the threshold, so neither is in that design's scope on this evidence.
+
+**Observations, not read by any verdict.**
+- **The W = 12 gate waits are not only the compaction.** A window holds two compactions, but it also holds 0.62–1.16 million `quiesce_writers` calls at 200,000 live and 0.30–0.56 million at 3,600,000 live (W = 12, the five rounds of run 1 on `0-15`), against 24,170–45,886 at W = 4 and 18,421–26,166 at W = 1. The counters do not attribute a wait to the serialised section that closed the gate, so the split between the two compactions and the many short sections is unmeasured. A design that parks only after a spin budget would treat the two kinds differently, and the follow-up has to measure that split first.
+- **The oversubscribed full cell.** With 14 threads on 8 CPUs, the W = 12 full cell's gate waits sum to 1.23 of thread CPU (an upper bound by §51.4), and its writers refused 0.13–0.50 million inserts per window, against 18.2–19.9 million on 16 CPUs. The cause is not measured. Waiters that keep their CPU while the gate holder is descheduled would produce this signature, but so could other effects of 14 threads sharing 8 CPUs, so it is a hypothesis for the follow-up, not a finding.
+- **Context run** `writer_scaling` at W = 8 (§51.2): pending, appended when it completes. It decides nothing.
+
 ---
 
 ## 52. Pre-registration for #1610 — which removals take the serialised `Remove` fallback on a shared string map, and how that share moves with N (appended 2026-11-07, locked before any reference-host run of the sweep; §50 and §51 are claimed by open pull requests, so this is the next number after them, and may be renumbered at merge)
