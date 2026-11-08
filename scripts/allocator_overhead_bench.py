@@ -165,23 +165,32 @@ def build_binary(ref: str, out_path: Path) -> None:
         subprocess.check_call(["git", "checkout", orig_branch], cwd=REPO_ROOT)
 
 
+def resolve_commit(ref: str) -> str:
+    """The full SHA a ref names, so the artifact records the commit it measured (AGENTS.md section 8.7)."""
+    return subprocess.check_output(["git", "rev-parse", f"{ref}^{{commit}}"], cwd=REPO_ROOT, text=True).strip()
+
+
 def execute_run(
-    bin_path: Path, population: int
+    bin_path: Path, population: int, label: str = "run"
 ) -> Tuple[Dict[str, Dict[str, Optional[float]]], str, Dict[str, Any]]:
-    """Runs binary with population and captures load snapshot."""
+    """Runs binary with population and captures a load snapshot before and after it.
+
+    The after snapshot is differenced against the before one, so its
+    `foreign_busy_cpus_since_prev` covers exactly this run (AGENTS.md section 8.17).
+    """
     import bench_provenance as prov
 
-    load_before = prov.snapshot_system_load()
+    load_before = prov.load_snapshot(f"before-{label}")
     rc, stdout, stderr = run_command([str(bin_path), str(population)])
-    load_after = prov.snapshot_system_load()
+    load_after = prov.load_snapshot(f"after-{label}", load_before)
 
     if rc != 0:
         raise RuntimeError(f"Binary {bin_path} exited with {rc}:\n{stderr}\n{stdout}")
 
     data = parse_allocator_table(stdout)
     load_info = {
-        "load_before": load_before,
-        "load_after": load_after,
+        "load_before": dict(load_before),
+        "load_after": dict(load_after),
     }
     return data, stdout, load_info
 
@@ -685,6 +694,22 @@ uuid            60.86     66.81     66.24     78.50     86.93     87.12     87.1
     assert "Gate G1: Allocator Overhead & RSS Recovery Census" in md
     assert "✅ PASS" in md
 
+    # execute_run is the live path, and it once called a bench_provenance
+    # function that never existed: every dispatch built both binaries and then
+    # died before its first run. Drive the real call site with a stand-in
+    # binary that prints one census table.
+    with tempfile.TemporaryDirectory() as td:
+        stub = Path(td) / "allocator_overhead_stub"
+        stub.write_text("#!/bin/sh\ncat <<'EOF'\n" + mock_base_output.strip() + "\nEOF\n")
+        stub.chmod(0o755)
+        data, out, load = execute_run(stub, 10_000_000, "self-test")
+        assert set(data) == set(ALL_SHAPES), sorted(data)
+        assert load["load_before"]["label"] == "before-self-test"
+        assert load["load_after"]["since"] == "before-self-test"
+        assert "foreign_busy_cpus_since_prev" in load["load_after"]
+        json.dumps(load)
+    assert resolve_commit("HEAD") and len(resolve_commit("HEAD")) == 40
+
     print("allocator_overhead_bench.py self-test: all checks passed.")
     return 0
 
@@ -715,6 +740,7 @@ def main() -> int:
     base_runs: List[Dict[str, Dict[str, Optional[float]]]] = []
     head_runs: List[Dict[str, Dict[str, Optional[float]]]] = []
     raw_logs: List[str] = []
+    loads: List[Dict[str, Any]] = []
 
     try:
         # Pre-captured logs mode
@@ -746,13 +772,15 @@ def main() -> int:
             for r in range(1, args.runs + 1):
                 if base_bin is not None:
                     print(f"Executing Base run {r}/{args.runs}...", flush=True)
-                    b_data, b_stdout, _ = execute_run(base_bin, args.population)
+                    b_data, b_stdout, b_load = execute_run(base_bin, args.population, f"base-{r}")
                     base_runs.append(b_data)
+                    loads.append(b_load)
                     raw_logs.append(f"=== Base Run {r} ===\n" + b_stdout)
 
                 print(f"Executing Head run {r}/{args.runs}...", flush=True)
-                h_data, h_stdout, _ = execute_run(head_bin, args.population)
+                h_data, h_stdout, h_load = execute_run(head_bin, args.population, f"head-{r}")
                 head_runs.append(h_data)
+                loads.append(h_load)
                 raw_logs.append(f"=== Head Run {r} ===\n" + h_stdout)
 
         eval_result = evaluate_gate(base_runs, head_runs)
@@ -763,10 +791,19 @@ def main() -> int:
             "pin": pin,
             "base_ref": args.base_ref,
             "head_ref": args.head_ref,
+            "base_commit": resolve_commit(args.base_ref) if args.base_ref else None,
+            "head_commit": resolve_commit(args.head_ref),
             "population": args.population,
             "runs": args.runs,
             "timestamp": time.time(),
         }
+        # The load record of every run, and the binary's own tables verbatim, so a
+        # figure quoted from this artifact resolves to the run that printed it
+        # (AGENTS.md sections 8.7 and 8.17).
+        eval_result["loads"] = loads
+        eval_result["raw_logs"] = raw_logs
+        for log in raw_logs:
+            print(log, flush=True)
 
         # Write JSON
         with open(args.out, "w") as f:
