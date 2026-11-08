@@ -87,6 +87,7 @@ on:
           - strmap_poll_stall
           - strmap_poll_stall_g47
           - strmap_remove_split_g52
+          - writer_scaling_1610_map_vs_base
           - writer_scaling_1586_str_vs_base
           - point_lookup_counters
           - search_instructions
@@ -1647,6 +1648,19 @@ jobs:
                 python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --plan 52 \
                   --out docs/benchmarks/concurrency/results/diagnostic_1610_strmap_remove_split.json | tee strmap_poll_stall.txt
                 ;;
+              "writer_scaling_1610_map_vs_base")
+                # METHODOLOGY §54 (Refs #1610): G54-scale, the map arm on the
+                # merge base resolved above (a worktree carrying the head's
+                # harness) against the head, interleaved (build x W) rounds. An
+                # empty base is fatal: the comparison is the point of the run.
+                if [ -z "$BASE_REF" ]; then
+                  echo "::error::writer_scaling_1610_map_vs_base needs a base ref (merge base on main); none resolved"
+                  exit 1
+                fi
+                python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --compare-base-ref "$BASE_REF" --arm map \
+                  --out docs/benchmarks/concurrency/results/gate_1610_map_writer_scaling.json | tee writer_scaling.txt
+                ;;
               "writer_scaling_1586_str_vs_base")
                 # METHODOLOGY §47 (#1586 design B): G-scale, the str arm on the
                 # merge base resolved above (a worktree carrying the head's
@@ -2464,6 +2478,7 @@ jobs:
             docs/benchmarks/concurrency/results/gate_1586_strmap_poll_stall.json \
             docs/benchmarks/concurrency/results/diagnostic_1610_strmap_remove_split.json \
             docs/benchmarks/concurrency/results/gate_1586_str_writer_scaling.json \
+            docs/benchmarks/concurrency/results/gate_1610_map_writer_scaling.json \
             docs/benchmarks/concurrency/results/baseline_writer_scaling.json \
             docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json \
             docs/benchmarks/concurrency/results/ablation_unsharded_alloc_writer_scaling.json \

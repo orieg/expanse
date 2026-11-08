@@ -278,6 +278,19 @@ G47_SCALE_HEAD = "head"
 G47_SCALE_RESULTS_PATH = (
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "gate_1586_str_writer_scaling.json"
 )
+# METHODOLOGY.md §54 G54-scale (Refs #1610): the map arm, the merge base's build
+# against the head's, as §47's G-scale, with a no-loss floor. Fixed by §54 and
+# not moved after the first run (AGENTS.md §8.19).
+G54_SCALE_PREREGISTRATION = "docs/benchmarks/concurrency/METHODOLOGY.md §54"
+G54_SCALE_FLOOR = 0.97
+G54_SCALE_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "gate_1610_map_writer_scaling.json"
+)
+# Each comparison gate by arm: (pre-registration, floor, artifact key, default output).
+COMPARE_GATES = {
+    "str": (G47_SCALE_PREREGISTRATION, G47_SCALE_FLOOR, "g47_scale", G47_SCALE_RESULTS_PATH),
+    "map": (G54_SCALE_PREREGISTRATION, G54_SCALE_FLOOR, "g54_scale", G54_SCALE_RESULTS_PATH),
+}
 # The harness both builds run: the head's, copied into the base tree, so the
 # instrument is the same and only the engine under it differs.
 WRITER_SCALING_HARNESS_REL = "crates/expanse/examples/writer_scaling.rs"
@@ -417,10 +430,13 @@ def build_base_binaries(base_ref: str, tree: Path, target_root: Path) -> tuple[P
     return out[0], out[1], sha
 
 
-def g47_scale_report(comparison: dict[str, Any], rounds: int, quick: bool) -> dict[str, Any]:
-    """§47 G-scale for one run: per W >= 2, the paired C_head(W) / C_base(W) interval against the floor.
+def g47_scale_report(comparison: dict[str, Any], rounds: int, quick: bool,
+                     floor: float = G47_SCALE_FLOOR,
+                     prereg: str = G47_SCALE_PREREGISTRATION) -> dict[str, Any]:
+    """§47 G-scale for one run (§54's G54-scale with its own `floor` and `prereg`): per W >= 2,
+    the paired C_head(W) / C_base(W) interval against the floor.
 
-    `MEETS_FLOOR` iff the BCa lower bound is at least `G47_SCALE_FLOOR`,
+    `MEETS_FLOOR` iff the BCa lower bound is at least `floor`,
     `BELOW_FLOOR` iff the upper bound is below it, `INTERMEDIATE` otherwise.
     The run is `MEETS_FLOOR` iff every W is, `BELOW_FLOOR` iff any W is, and
     `VOID` for a quick run or one at another round count. §47 needs two runs;
@@ -429,13 +445,13 @@ def g47_scale_report(comparison: dict[str, Any], rounds: int, quick: bool) -> di
     per_w: dict[str, Any] = {}
     for w, e in sorted(comparison["per_writer"].items(), key=lambda kv: int(kv[0])):
         lo, hi = e["ratio_ci_lower"], e["ratio_ci_upper"]
-        status = ("MEETS_FLOOR" if lo >= G47_SCALE_FLOOR
-                  else "BELOW_FLOOR" if hi < G47_SCALE_FLOOR else "INTERMEDIATE")
+        status = ("MEETS_FLOOR" if lo >= floor
+                  else "BELOW_FLOOR" if hi < floor else "INTERMEDIATE")
         per_w[w] = {"ratio_ci_lower": lo, "ratio_ci_upper": hi, "ratio_ci_method": e["ratio_ci_method"],
                     "ratio_mean": e["ratio_c_variant_over_c_default_mean"], "status": status}
     voids = []
     if quick:
-        voids.append("quick run: not §47's registered cells")
+        voids.append("quick run: not the registered cells")
     if rounds != G47_SCALE_ROUNDS:
         voids.append(f"round count {rounds} is not the registered {G47_SCALE_ROUNDS}")
     if sorted(int(w) for w in per_w) != [w for w in G47_SCALE_WRITERS if w >= 2]:
@@ -443,10 +459,10 @@ def g47_scale_report(comparison: dict[str, Any], rounds: int, quick: bool) -> di
     statuses = [v["status"] for v in per_w.values()]
     verdict = ("VOID" if voids else "MEETS_FLOOR" if all(x == "MEETS_FLOOR" for x in statuses)
                else "BELOW_FLOOR" if "BELOW_FLOOR" in statuses else "INTERMEDIATE")
-    return {"preregistration": G47_SCALE_PREREGISTRATION, "floor": G47_SCALE_FLOOR,
+    return {"preregistration": prereg, "floor": floor,
             "statistic": "BCa 95% interval of the per-round C_head(W) / C_base(W), W >= 2",
             "per_writer": per_w, "verdict": verdict, "voids": voids,
-            "note": "one run; §47 reads G-scale over two independent runs"}
+            "note": "one run; the gate reads two independent runs"}
 
 
 def _self_test_g47_scale_report() -> None:
@@ -470,13 +486,27 @@ def _self_test_g47_scale_report() -> None:
     # The suite's dispatch spelling parses.
     args = build_parser().parse_args(["--compare-base-ref", "abc", "--arm", "str"])
     assert args.compare_base_ref == "abc" and args.arm == "str"
+    # §54's G54-scale: the same rule at its own floor. 0.96 straddles 0.97 and does not meet it.
+    assert (G54_SCALE_FLOOR, COMPARE_GATES["map"][1], COMPARE_GATES["map"][2]) == (0.97, 0.97, "g54_scale")
+    ok54 = {2: (0.98, 1.05), 4: (0.97, 1.02), 8: (0.99, 1.01)}
+    assert g47_scale_report(comp(ok54), 8, False, G54_SCALE_FLOOR, G54_SCALE_PREREGISTRATION)["verdict"] == \
+        "MEETS_FLOOR"
+    r = g47_scale_report(comp({**ok54, 4: (0.96, 1.0)}), 8, False, G54_SCALE_FLOOR, G54_SCALE_PREREGISTRATION)
+    assert r["verdict"] == "INTERMEDIATE" and r["preregistration"].endswith("§54"), r
+    r = g47_scale_report(comp({**ok54, 8: (0.90, 0.969)}), 8, False, G54_SCALE_FLOOR, G54_SCALE_PREREGISTRATION)
+    assert r["verdict"] == "BELOW_FLOOR", r
+    # The same intervals meet §47's 0.90 floor: the floor parameter is what differs.
+    assert g47_scale_report(comp({**ok54, 8: (0.90, 0.969)}), 8, False)["verdict"] == "MEETS_FLOOR"
 
 
 def run_compare_base_ref(args: argparse.Namespace) -> int:
-    """§47 G-scale: the str arm, the base's build against the head's, interleaved (build x W)."""
-    if args.arm not in ("all", "str"):
-        sys.stderr.write("error: --compare-base-ref is the str arm only (METHODOLOGY.md §47)\n")
+    """§47 G-scale (the str arm) or §54 G54-scale (the map arm): the base's build against the
+    head's, interleaved (build x W)."""
+    if args.arm not in ("all", "str", "map"):
+        sys.stderr.write("error: --compare-base-ref takes the str arm (METHODOLOGY.md §47) or the map arm (§54)\n")
         return 1
+    arm = "map" if args.arm == "map" else "str"
+    prereg, floor, gate_key, default_out = COMPARE_GATES[arm]
     if args.rounds < 3:
         sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
         return 1
@@ -485,7 +515,7 @@ def run_compare_base_ref(args: argparse.Namespace) -> int:
         sys.stderr.write("error: --writers must include 1 to compute single-writer baseline C(N)\n")
         return 1
     if not args.out:
-        args.out = str(G47_SCALE_RESULTS_PATH)
+        args.out = str(default_out)
     if args.quick and Path(args.out).resolve() in committed_result_paths() and not args.force_quick_out:
         sys.stderr.write(f"error: --quick output cannot overwrite committed results path {args.out}\n")
         return 1
@@ -496,15 +526,15 @@ def run_compare_base_ref(args: argparse.Namespace) -> int:
         bin_base, cnt_base, base_sha = build_base_binaries(args.compare_base_ref, tree, tmp / "target")
         bin_head, cnt_head = build_binaries(features=None, verbose=True)
         prov = new_provenance(
-            suite="concurrency", issue=1586,
-            ratio="C_head(W) / C_base(W): the head build over the merge base's, str arm (METHODOLOGY.md §47)",
+            suite="concurrency", issue=1586 if arm == "str" else 1610,
+            ratio=f"C_head(W) / C_base(W): the head build over the merge base's, {arm} arm ({prereg})",
             repo_root=REPO_ROOT, core_pin=core_pin, cell_isolation=CELL_ISOLATION,
             cell_schedule=CELL_SCHEDULE_COMPARISON,
         )
         prov["base_commit"] = base_sha
-        prov["preregistration"] = G47_SCALE_PREREGISTRATION
+        prov["preregistration"] = prereg
         cells_b, cells_h, comp, schedule = run_comparison(
-            bin_base, bin_head, G47_SCALE_HEAD, cnt_base, cnt_head, "str", writers_list, args.rounds, prov,
+            bin_base, bin_head, G47_SCALE_HEAD, cnt_base, cnt_head, arm, writers_list, args.rounds, prov,
             quick=args.quick,
         )
     finally:
@@ -515,14 +545,14 @@ def run_compare_base_ref(args: argparse.Namespace) -> int:
     prov["build_labels"] = {DEFAULT_BUILD: f"base {base_sha}", G47_SCALE_HEAD: "the head (this checkout)"}
     artifact: dict[str, Any] = {
         "provenance": prov, "throughput": cells_b, "throughput_variant": cells_h, "comparison": [comp],
-        "g47_scale": g47_scale_report(comp, args.rounds, args.quick),
+        gate_key: g47_scale_report(comp, args.rounds, args.quick, floor, prereg),
     }
-    check_artifact_against_schedule(artifact, expected_cells("str", schedule))
+    check_artifact_against_schedule(artifact, expected_cells(arm, schedule))
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(artifact, indent=2) + "\n")
-    g = artifact["g47_scale"]
-    print(f"G-scale (floor {G47_SCALE_FLOOR}): {g['verdict']}")
+    g = artifact[gate_key]
+    print(f"{'G-scale' if arm == 'str' else 'G54-scale'} (floor {floor}): {g['verdict']}")
     for w, e in g["per_writer"].items():
         print(f"  W={w}: C_head/C_base [{e['ratio_ci_lower']:.4f}, {e['ratio_ci_upper']:.4f}] "
               f"({e['ratio_ci_method']}) {e['status']}")
@@ -2649,6 +2679,7 @@ def committed_result_paths() -> tuple[Path, ...]:
         SCAN_CELLS_RESULTS_PATH.resolve(),
         SCAN_CELLS_RUN2_RESULTS_PATH.resolve(),
         G47_SCALE_RESULTS_PATH.resolve(),
+        G54_SCALE_RESULTS_PATH.resolve(),
     )
 
 
@@ -9963,9 +9994,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--compare-base-ref",
         default="",
         metavar="REF",
-        help="METHODOLOGY.md §47 G-scale (#1586): the str arm, REF's build (a detached worktree carrying "
-             "the head's harness) against the head's, interleaved (build x W) rounds, one process per cell; "
-             "writes gate_1586_str_writer_scaling.json with the run's G-scale block",
+        help="METHODOLOGY.md §47 G-scale (#1586, --arm str) or §54 G54-scale (#1610, --arm map): REF's "
+             "build (a detached worktree carrying the head's harness) against the head's, interleaved "
+             "(build x W) rounds, one process per cell; writes gate_1586_str_writer_scaling.json or "
+             "gate_1610_map_writer_scaling.json with the run's gate block",
     )
     parser.add_argument(
         "--scan-cells-verdict",

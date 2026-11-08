@@ -8565,3 +8565,153 @@ The share against N. Intervals are BCa 95% over 5 rounds, run 1 | run 2, all `bc
 - **Removal counts.** The `occ-stats` build's removals per window are lowest where the share is highest: 26.0–27.1 million at `short` 10⁷, against 52.6–53.2 million at 2·10⁶ (run 1). They are not throughput figures (§52.4), and no claim is made about them.
 
 **What follows (§52.4).** D1's outcome sends #1610 to its third step: a sizing, in a section of its own, of an optimistic removal that takes an emptied child out of a `BranchB` in place. The sweep narrows that sizing to `BranchB`, since no `short` fallback has a linear parent. No engine change is pre-registered here.
+
+## 54. Pre-registration for #1610 — the census fold refolds only the level-7 buckets writers touched (appended 2026-11-08, locked before any measurement of the change build; §50, §51 and §53 are claimed by open pull requests, so this is the next number after them, and may be renumbered at merge)
+
+### 54.1 Why, and the mechanism chosen
+
+On #1656's first push (§53), `sync_map_count_after_write/random` lost 8.97% (CI run 42438019031). An optimistic removal marks its top digit dirty in the census, so the next locked `count_below` refolds that digit's whole subtree: `fold_branch_pop0` +3,077,304 Ir over 470 extra digit folds, about 6,500 Ir each. The base had not paid this because those removals were serialised fallbacks, which keep `pop0` exact under the quiesced gate.
+
+**Three mechanisms were considered:**
+- **Keeping the census exact on the optimistic removal.** Rejected: the `pop0` words a count reads live one level up from each branch, in nodes the removal does not lock. Keeping them exact is bottom-up ancestor locking on every optimistic write, which ARCHITECTURE's *Lazy Census Rollup (#822)* removed and the maintainer excluded.
+- **Delta logs replayed at the fold.** Rejected: an optimistic writer can publish a new child edge whose `pop0` is already exact (a reallocated or split leaf), so a replayed delta cannot tell which edges on the path already include it.
+- **Chosen: finer census marks with a fold that uses them.** It changes the fold, which runs only under `with_locked` with the writers drained, and adds at most one cold-path store to the optimistic writes. The writer's common path stays one load and one test.
+
+**The change** (`crates/expanse/src/sync.rs`):
+- `DirtySub` holds one 32-bit word per top digit, one bit per bucket of eight level-7 digits (`digit(key, 7) >> 3`). It is a new field at the end of `Shared` (`#[repr(C)]`), so no existing field moves.
+- `Shared::mark_dirty_key(key)` replaces every `mark_dirty_digit(digit(key, 8))` call, 53 sites. It tests the key's bucket. Only a mark that finds the bucket clean sets it, together with the top digit's bit in `DirtyDigits` (unchanged). So a non-zero bucket word always has its top bit set, and a writer whose bucket is already marked makes one load and one test, as before.
+- The string map's hosts keep their per-node flag, through the trait's default `mark_dirty_key`.
+- `with_locked` and `with_locked_pre` take the bucket words of the dirty top digits with the top mask. `fold_branch_pop0_selective` folds a dirty top-level child selectively one level down when that child is a level-7 branch: it refolds the children in marked buckets and reads the other children's `pop0` exactly (`edge_pop0_exact`, as the top level already does for clean digits).
+- A child that skips level 7, a digit marked whole (`Shared::mark_dirty_digit`, which sets all 32 buckets), and a digit with `SUB_FULL_FOLD_BUCKETS` = 28 or more buckets marked are refolded whole, as today.
+
+**Why the fold stays exact.** Every optimistic write marks its own key's bucket. The `pop0` words it leaves stale all lie on its key's path: the top digit's edge, which the fold always recomputes as the sum of the level-7 children, and edges inside the key's level-7 child, which is in the marked bucket and is refolded. An exclusive write keeps the `pop0` of its own path exact, or leaves a stale value stale under a bucket that is already marked.
+
+The S7 census invariant (ARCHITECTURE, Stage B table) is unchanged in statement and instrument: after writers drain, `with_locked` folds and the validator checks `pop0 + 1` against the keys under every edge (`test_multi_writer_parallel_disjoint_and_census`, `test_multi_writer_str_parallel_disjoint_and_census`).
+
+**AGENTS.md §2.1 invariant 5.** No new mutation entry point; the mark is a call inside the existing optimistic walks. The plain walks do not mark the census and are unchanged; their disassembly is checked against the merge base (§54.5).
+
+### 54.2 The profile (measured before this lock)
+
+`results/census_subdigit_baseline_callgrind_d882511c.json` was produced by x86_64 Callgrind in Docker on the development laptop (valgrind 3.24.0, rustc 1.99.1). It holds every `instructions` and `rmw_instructions` arm's total at `d882511c`, plus a census build of the same tree whose out-of-line markers count, per arm:
+- the census marks;
+- the dirty top digits each fold met;
+- how many of those are not level-7 branches;
+- how many level-7 children the others hold.
+
+The base fold's recursion into dirty children (`fold_branch_pop0` called from `fold_branch_pop0_selective`) is read from the base profile.
+
+**Counting rule.** A marker call is 3 Ir, and counts are each marker's inclusive Ir divided by 3: a `calls=` figure also counts the setup's calls, as the §49 baseline artifact also records.
+
+**33 arms reach the change.** The counting arm the loss came from, `sync_map_count_after_write/random`, has:
+- 1,530 marks;
+- 1,000 folds meeting 1,527 dirty digits, none of them whole;
+- 209,416 level-7 children under those digits;
+- 10,142,431 Ir of base refold.
+
+### 54.3 G54-instr (CI, deterministic)
+
+**Bound** (`scripts/olc_bounds.py`: `census54_term`, `census54_bounds`, unit-tested in `TestCensus54`; `--census-54` prints the table). Per arm:
+
+- **Marks.** `n_marks` × [−3, +4] Ir, from the decode of the top digit against the decode of the top digit and the bucket; both make one load and one test. Plus [0, 10] Ir for each mark that may find its bucket clean (the fetch_or and the top-bit test-and-set). That count is at most min(`n_marks`, 8,192 × (fold calls + 1)).
+- **Fold.** The base refolded each dirty digit whole, `f` = `fold_rec_ir` / `n_dirty_top` per digit. After the change:
+  - a whole digit costs the same;
+  - each other digit, with `c` level-7 children on average, costs `c` × [3, 20] Ir plus the refold of its marked buckets, at most `b` × 8 / `c` of `f`. Here `b` is at most the marks between two folds plus one, or 32 when the arm has no in-region marks, because a bulk load in the setup marked them all;
+  - when `b` can reach 28, the digit may instead be folded whole, at cost `f`;
+  - plus [0, 80] Ir per dirty digit (the take, the selectivity test, the expansion, the call) and [0, 150] Ir per fold call (zeroing the 256-word take buffer).
+- **Widening.** The term is widened by max(0.1% of the base, 500 Ir).
+- **Every other arm is No change** within that slack. That includes the locked readers on a clean tree (`sync_map_count_locked/*`), whose folds find no dirty digit.
+
+Arms the change is expected to move (`python3 scripts/olc_bounds.py --census-54`; derived from the artifact above, local Callgrind at `d882511c`):
+
+| harness | arm | base | marks | dirty digits | whole | children | kind | bound low | bound high |
+|---|---|---:|---:|---:|---:|---:|---|---:|---:|
+| `instructions` | `sync_blobmap_churn/random` | 134,831,094 | 76,703 | 0 | 0 | 0 | mixed | -0.2707% | +0.3883% |
+| `instructions` | `sync_blobmap_insert/random` | 55,407,077 | 49,967 | 256 | 0 | 34,969 | mixed | -3.2416% | +2.0559% |
+| `instructions` | `sync_blobmap_overwrite/random` | 32,519,216 | 0 | 256 | 0 | 34,969 | mixed | -4.9918% | +2.3141% |
+| `instructions` | `sync_blobmap_reclaim_free/random` | 251,838 | 65 | 0 | 0 | 0 | mixed | -0.2760% | +0.5599% |
+| `instructions` | `sync_blobmap_remove/random` | 64,588,488 | 15,030 | 0 | 0 | 0 | mixed | -0.1698% | +0.3199% |
+| `instructions` | `sync_bytesmap_churn/routes` | 296,935,431 | 76,683 | 0 | 0 | 0 | mixed | -0.1775% | +0.2309% |
+| `instructions` | `sync_bytesmap_insert/routes` | 111,212,147 | 49,967 | 0 | 0 | 0 | mixed | -0.2348% | +0.3534% |
+| `instructions` | `sync_bytesmap_remove/routes` | 181,698,385 | 15,028 | 0 | 0 | 0 | mixed | -0.1248% | +0.1782% |
+| `instructions` | `sync_map_branchu_band/top` | 9,596,714 | 6,400 | 0 | 0 | 0 | mixed | -0.3001% | +1.0337% |
+| `instructions` | `sync_map_churn/random` | 117,631,737 | 100,000 | 0 | 0 | 0 | mixed | -0.3550% | +0.5097% |
+| `instructions` | `sync_map_compact_baseline/random60` | 44,952,444 | 0 | 16 | 0 | 4,096 | mixed | -7.7170% | +0.2854% |
+| `instructions` | `sync_map_count_after_write/one_top_byte` | 1,709,849,516 | 1,530 | 1,000 | 0 | 256,000 | improves | -99.3095% | -89.5349% |
+| `instructions` | `sync_map_count_after_write/random` | 32,019,359 | 1,530 | 1,527 | 0 | 209,416 | improves | -29.8282% | -12.0351% |
+| `instructions` | `sync_map_count_after_write/sequential` | 14,449,290 | 2,000 | 1,000 | 1,000 | 0 | mixed | -0.1415% | +1.8856% |
+| `instructions` | `sync_map_drain_floor/top` | 239,501 | 39 | 0 | 0 | 0 | mixed | -0.2576% | +0.4367% |
+| `instructions` | `sync_map_insert/random` | 48,331,967 | 49,967 | 0 | 0 | 0 | mixed | -0.4101% | +0.6830% |
+| `instructions` | `sync_map_prev_locked/random` | 57,180,347 | 0 | 256 | 0 | 34,969 | mixed | -2.8820% | +1.3592% |
+| `instructions` | `sync_map_remove/random` | 62,253,474 | 15,030 | 0 | 0 | 0 | mixed | -0.1724% | +0.3282% |
+| `instructions` | `sync_map_write_twin/one_top_byte` | 2,039,435 | 1,530 | 0 | 0 | 0 | mixed | -0.3251% | +1.1503% |
+| `instructions` | `sync_map_write_twin/random` | 1,807,400 | 1,530 | 0 | 0 | 0 | mixed | -0.3540% | +1.2851% |
+| `instructions` | `sync_map_write_twin/sequential` | 2,126,718 | 2,000 | 0 | 0 | 0 | mixed | -0.3821% | +1.4166% |
+| `instructions` | `sync_set_churn/random` | 93,003,633 | 100,000 | 0 | 0 | 0 | mixed | -0.4226% | +0.6182% |
+| `instructions` | `sync_set_compact_baseline/random60` | 22,631,152 | 0 | 16 | 0 | 4,096 | mixed | -15.5083% | +0.4683% |
+| `instructions` | `sync_set_drain_floor/top` | 238,450 | 39 | 0 | 0 | 0 | mixed | -0.2588% | +0.4387% |
+| `instructions` | `sync_set_insert/random` | 44,730,742 | 49,967 | 0 | 0 | 0 | mixed | -0.4351% | +0.7300% |
+| `instructions` | `sync_set_next_after_scan_locked/clustered` | 48,035,213 | 0 | 139 | 95 | 101 | mixed | -0.1054% | +0.1277% |
+| `instructions` | `sync_set_next_after_scan_locked/random` | 57,120,698 | 0 | 256 | 0 | 34,969 | mixed | -2.9941% | +1.3605% |
+| `instructions` | `sync_set_next_after_scan_locked/sequential` | 53,167,570 | 0 | 1 | 1 | 0 | may lose | -0.1000% | +0.1004% |
+| `instructions` | `sync_set_prev_locked/random` | 57,961,669 | 0 | 256 | 0 | 34,969 | mixed | -2.9521% | +1.3422% |
+| `instructions` | `sync_set_remove/random` | 52,946,172 | 15,030 | 0 | 0 | 0 | mixed | -0.1852% | +0.3683% |
+| `rmw_instructions` | `sync_bytesmap_cas_insert/routes` | 106,884,671 | 49,775 | 0 | 0 | 0 | mixed | -0.2397% | +0.3629% |
+| `rmw_instructions` | `sync_bytesmap_cas_remove/routes` | 195,494,389 | 15,028 | 0 | 0 | 0 | mixed | -0.1231% | +0.1727% |
+| `rmw_instructions` | `sync_map_cas_insert/random` | 46,103,519 | 49,779 | 0 | 0 | 0 | mixed | -0.4239% | +0.7096% |
+
+**Arms that may lose, and by how much.** Every "mixed" arm may lose up to its bound high, and the "may lose" arm up to +0.1004%.
+- **Writer-only arms** (no fold in the region): the high is the marks' share, at most +1.42% (`sync_map_write_twin/sequential`, 2,000 marks on a 2.1 M-instruction arm). The prediction is about zero: the common path executes the same number of instructions.
+- **Arms whose single fold meets digits a bulk setup marked whole** (`*_prev_locked/random`, `*_next_after_scan_locked/random`, `sync_blobmap_insert/random`, `sync_blobmap_overwrite/random`): the high is the scan, at most +2.31%. The prediction is about zero: those digits have 28 or more buckets marked and are folded whole.
+- **The arm the change is for,** `sync_map_count_after_write/random`, is predicted to improve by 12.04% to 29.83%.
+
+**Instrument of record:** CI's `instruction-counts` job on the PR, its PR-against-merge-base pass, for both harnesses.
+
+### 54.4 G54-scale (reference host)
+
+The optimistic writers' mark is on the concurrent write path, so the change carries a wall-clock gate that it costs nothing there:
+- **Run:** `writer_scaling.py --compare-base-ref <merge base> --arm map`, suite `writer_scaling_1610_map_vs_base`. This is §47's G-scale design on the map writer arm: the merge base's build carrying the head's harness against the head's, 8 interleaved (build × W) rounds, W ∈ {1, 2, 4, 8}, one process per cell, under the applied pin.
+- **Statistic:** the paired per-round C_head(W) / C_base(W), with its BCa 95% interval (2,000 resamples, `ci_method` recorded).
+- **Verdict:** `MEETS_FLOOR` iff the lower bound ≥ **0.97** at every W ≥ 2; `BELOW_FLOOR` iff the upper bound < 0.97 at any; `INTERMEDIATE` otherwise.
+- **Two runs:** G54-scale is met only if two dispatches at one head both meet the floor (`docs/BENCHMARKING.md` rule 18).
+- **Why 0.97:** the writer's common path executes the same instructions as before, so no loss is expected. 0.97 leaves room for the between-run spread of a multi-writer cell without accepting a loss larger than 3%.
+- **Voids:** the driver's §8.17 contamination rules and its schedule checks. A void run is discarded, disclosed and re-dispatched at the same commit.
+
+### 54.5 Falsifiers, and what follows each
+
+- **An arm outside its G54-instr bound.** It is attributed with a merge-base-against-head per-function diff before anything else, and reported as a departure; the bound does not move.
+  - `sync_map_count_after_write/random` outside its bound on the loss side means the change does not do what it is for, and it is reverted.
+  - A writer-only arm above +0.5%, or two above, trips the automated gate. No `allow-regression` line is added; the PR does not merge until the cost is removed and re-measured.
+- **The S7 census tests, the new structural tests (§54.6), or the validator fail.** The change is wrong and does not merge.
+- **G54-scale `BELOW_FLOOR` in either run.** That is a negative: recorded here with its numbers, and the change is reverted. `INTERMEDIATE`, or two runs that disagree, is reported; nothing is claimed for the wall clock.
+- **Plain paths.** `objdump -d -C` of the plain (non-OCC) walks, merge base against head, must show identical normalised bodies and no added `%fs:` reads.
+
+### 54.6 Tests and their negative controls
+
+New tests in `sync.rs`:
+- `sub_digit_fold_keeps_the_census_exact`: optimistic inserts and removals under three buckets of one top digit, whose level-7 children are branches, and under another top digit; the tree version unmoved (they were optimistic); then `validate` on the set and the map, and ranks against a model.
+- `sub_digit_fold_refolds_only_the_marked_bucket`: after one optimistic insert, the fold visits at most 60 edges (`fold_edges`). A whole-digit mark in the same test visits at least 200, so the counter discriminates.
+- `dirty_sub_buckets_cover_their_digits`: the bucket arithmetic, the selectivity threshold, and `mark` / `take`.
+
+Each mutation is applied alone, and each turns a test red:
+
+| mutation | red test |
+|---|---|
+| dirty buckets read as clean (the expansion yields no digit) | both fold tests (the validator panics, `set.rs:1609`) |
+| a writer marks the neighbouring bucket | both fold tests (the validator panics, `set.rs:1609`) |
+| a writer marks no bucket (the word stays 0, folded whole) | the edge-count test (240 edges) |
+| a dirty top digit always folded whole | the edge-count test (241 edges) |
+
+### 54.7 Not predicted
+
+- Wall clock beyond G54-scale.
+- Memory: `Shared` grows by 1 KiB, the `DirtySub` array, in every wrapper.
+- The string map's arms, whose hosts are unchanged.
+
+### 54.8 Silent constants, fixed here
+
+- **G54-instr:** the bucket width of eight level-7 digits; `SUB_FULL_FOLD_BUCKETS` = 28; `C54_MARK_IR` = [−3, 4]; `C54_RARE_IR` = [0, 10]; `C54_SCAN_IR` = [3, 20]; `C54_DIGIT_IR` = [0, 80]; `C54_CALL_IR` = [0, 150]; the slack max(0.1%, 500 Ir); the census at `d882511c`.
+- **G54-scale:** the floor 0.97; 8 rounds; W ∈ {1, 2, 4, 8}; two runs.
+
+Nothing in §54 moves after the first measurement of the change build. An outcome no rule above covers is reported as unexplained (§8.20.4).
+
+**#1656 after this lands.** #1656 merges main once the §54 PR is in, and is re-measured against its unchanged §53 bounds (§53 is not edited in place). Its first push's outcome stays recorded as observed. If it still misses §53, the miss is reported.

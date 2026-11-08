@@ -399,6 +399,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_1610_map_vs_base",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "G54-scale of the sub-digit census fold (METHODOLOGY.md §54, Refs #1610): the map writer arm, the merge base's build (carrying the head's harness) against the head's, 8 interleaved (build x W) rounds, W in {1, 2, 4, 8}, one process per cell, under the applied pin; the paired C_head(W) / C_base(W) interval against the 0.97 floor; two dispatches make the gate; outputs gate_1610_map_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "writer_scaling_1586_str_vs_base",
       "available": true,
       "kind": "wallclock",
