@@ -8720,3 +8720,43 @@ The share against N. Intervals are BCa 95% over 5 rounds, run 1 | run 2, all `bc
 - **Removal counts.** The `occ-stats` build's removals per window are lowest where the share is highest: 26.0–27.1 million at `short` 10⁷, against 52.6–53.2 million at 2·10⁶ (run 1). They are not throughput figures (§52.4), and no claim is made about them.
 
 **What follows (§52.4).** D1's outcome sends #1610 to its third step: a sizing, in a section of its own, of an optimistic removal that takes an emptied child out of a `BranchB` in place. The sweep narrows that sizing to `BranchB`, since no `short` fallback has a linear parent. No engine change is pre-registered here.
+
+### 50.11 G-wall outcome: NOT_DETECTED, and lever (b) is recorded as a negative (appended 2026-11-08; §50.1 to §50.10 are not rewritten, and no bound moves)
+
+Two dispatches under §50.6, at `60da23b7` against `c1b604ad`, pin `0,2,4,6,8,10,12,14`. Both were admitted:
+
+| run | host guard | peak foreign busy CPUs (on pin) | artifact |
+|---|---|---|---|
+| [42429202377](https://github.com/orieg/expanse/actions/runs/42429202377) | `quiet` | 0.069 (0.044) | `results/gate_1613_charge_rmw_writer_scaling_run1.json` |
+| [42466680377](https://github.com/orieg/expanse/actions/runs/42466680377) | `quiet` | 0.099 (0.089) | `results/gate_1613_charge_rmw_writer_scaling_run2.json` |
+
+No run was discarded. Every commit on the branch after `60da23b7` changes only docs, results and scripts, so both runs measure the engine code under review.
+
+The table gives `paired_t_ratio`: per-round T_head(W) / T_base(W), BCa 95%, n = 8 per run. A figure above 1 means the head is faster.
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 1 | 1.0042 [1.0018, 1.0071] | 1.0030 [0.9992, 1.0061] |
+| 2 | 1.0001 [0.9958, 1.0086] | 1.0068 [1.0028, 1.0132] |
+| 4 | 1.0094 [0.9811, 1.0414] | 1.0036 [0.9729, 1.0295] |
+| 8 | 0.9932 [0.9565, 1.0282] | 1.0104 [0.9293, 1.0458] |
+
+(measured: reference host i9-12900F, 8 P-cores pinned one per core, `60da23b7` vs `c1b604ad`; `results/gate_1613_charge_rmw_writer_scaling_run{1,2}.json`)
+
+- **`g_wall_outcome`: NOT_DETECTED.**
+  - Run 1's W = 1 lower bound clears 1.0; run 2's, 0.9992, does not.
+  - No W has both runs' upper bounds below 1.0, so it is not HARM.
+  - The driver's own `g47_scale` reads MEETS_FLOOR in both runs and decides nothing here (§50.6).
+- **What it does and does not say.**
+  - Both W = 1 point estimates sit about 0.3–0.4% above 1, inside §50.4's projected range.
+  - The pre-registered two-run rule does not admit them as a gain, and AGENTS.md rule 18 does not allow claiming one either.
+  - No run is added to rescue it (§8.19). Run 2's W = 2 interval lies above 1 but run 1's does not, and W ≥ 2 was never a gain cell (§50.4).
+- **What follows (§50.6).**
+  - Lever (b) is a negative. The engine change of `60da23b7` is reverted on this branch, so the pull request carries the pre-registration, the bound functions, both outcomes and the artifacts, with no engine change.
+  - Neither the Callgrind result of §50.10 nor this one is re-registered with a wider rule.
+- **What was tried, for the next attempt** (AGENTS.md §6, *record the negatives*):
+  - The form: two locked read-modify-writes per charge instead of three, with `live_allocs` derived as allocations minus frees.
+  - Callgrind: −1 Ir per charge on most arms, plus a +1 Ir per insert register re-layout in `SyncExpanseSet::insert` (§50.10).
+  - Wall clock at W = 1: about +0.3–0.4%, not separable from 1.0 in both runs on this instrument.
+  - A further attempt needs either a larger cut or a more sensitive instrument, since §50.4 already sized this one at its detection limit. The larger cut is gating `live_allocs` off the hot path, an API removal that is the maintainer's decision (§50.1).
+- **Separable from the lever, also reverted with it:** the `debug_assert!` on a negative derived live count. `NodeAlloc::live_allocs()` on `main` still clamps a negative per-shard sum to 0 without an assertion (AGENTS.md §8.22.3). That is a correctness item of its own, not a performance one.
