@@ -80,7 +80,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 - **Fewer Instructions than Stock Judy**: Lower Callgrind instruction counts than original `libjudy` on every measured arm (inserts, lookups, set tests, churn). Wall clock wins on insert and on sequential and clustered 1M lookup; the one measured loss is random 1M `get` at **1.031×, BCa 95% CI [1.024, 1.038]** *(measured: reference host, [`results/baseline_vs_libjudy.json`](results/baseline_vs_libjudy.json))*. [Full table](#performance-vs-stock-libjudy).
 - **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
 - **Hardware Acceleration & Portability**: SSE2 leaf and branch kernels on every x86-64 build, with runtime CPUID dispatch to `POPCNT` and BMI2 `PDEP` on x86-64 only; NEON byte-equality kernels on ARM64 (compile-time baseline, no runtime dispatch). Every other target — 64-bit RISC-V (`RV64GC`) and bare-metal 32-bit embedded (`RV32IMAC`, `Cortex-M4/M7`) — runs the portable scalar paths. `glibc-hwcaps` variants (`x86-64-v2`/`v3`/`v4`) are a build recipe, not part of the released packages ([docs/COMPAT.md](docs/COMPAT.md)).
-- **Concurrent Readers and Writers**: Every `Sync*` wrapper serves readers that **take no lock on the common path** and concurrent writers through optimistic lock coupling (a blocking protocol, not lock-free). `SyncExpanseMap` serves **348–354 M reads/s at 16 threads** *(measured: reference host; workload: `core_concurrency`)*. [Tables, losses and competitors](#multithreaded-occ-concurrency-scalability).
+- **Concurrent Readers and Writers**: Every `Sync*` wrapper serves readers that **take no lock on the common path** and concurrent writers through optimistic lock coupling (a blocking protocol, not lock-free). `SyncExpanseMap` serves **322.8 M reads/s [322.1, 323.5] and 321.6 M reads/s [321.2, 322.1] at 16 threads** in two independent runs, BCa 95% over 18 rounds *(measured: reference host, commit `f9853201`; [`baseline_concurrent_mixed.json`](docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json), [`baseline_concurrent_mixed_run2.json`](docs/benchmarks/concurrency/results/baseline_concurrent_mixed_run2.json); workload: `core_concurrency`)*. [Tables, losses and competitors](#multithreaded-occ-concurrency-scalability).
 - **Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on dense and clustered 64-bit **sets** (`ExpanseSet`, key presence only) *(measured: `bytes_per_key` example)*. A **map** stores an 8-byte value word per key, so it cannot go below 8 B/key: `ExpanseMap` measures **8.56–8.61 bytes/key** on the same dense and clustered distributions at 1M keys *(measured: deterministic `mem_used()` accounting, host-independent; `bytes_per_key` example, workload `example_bytes_per_key`; gated copy `docs/visualizer_data.json` → `memory_budget`)* and **~0.31 bytes/key** on clustered 32-bit embedded sets *(measured: `bytes_per_key_32` example)*. On uniform random keys per-key set cost is a sawtooth in key density, **7.08–21.02 bytes/key** *(measured: `keyspace_density` example; [docs/ARCHITECTURE.md §3.5](docs/ARCHITECTURE.md#35-per-key-memory-is-a-sawtooth-in-expanse-occupancy-and-leaf_cap-sets-the-tooth))*.
 
 ---
@@ -259,29 +259,34 @@ Per-tier instruction counts are deterministic: [`docs/visualizer_data.json`](doc
 
 ## Performance vs Stock libjudy
 
-Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured via paired A/B rounds (interleaved median of 5 rounds). **Below 1.00 = libexpanse does less work / runs faster than original libjudy.**
+Wall-clock latency and instructions retired through the identical C ABI on identical key streams. **Below 1.00 = libexpanse does less work / runs faster than original libjudy.**
 
-> **Provenance.** The `M inst` rows (workload: `capi_vs_stock`) are deterministic Callgrind counts on the portable `x86-64-v1` baseline, and the `B/k` columns are deterministic byte accounting. The `ns` rows (workload: `capi_bench_vs_libjudy`) are wall clock: 15 paired rounds, arms interleaved, 50% hit rate, value slot dereferenced, ratios with BCa 95% intervals *(measured: reference host — Intel i9-12900F, [run 33151981386](https://github.com/orieg/expanse/actions/runs/33151981386); per-round data in [`results/baseline_vs_libjudy.json`](results/baseline_vs_libjudy.json))*.
+> **Provenance.** The wall-clock table (workload: `capi_bench_vs_libjudy`) is 15 paired rounds, arms interleaved, 50% hit rate, value slot dereferenced, ratios with BCa 95% intervals *(measured: reference host — Intel i9-12900F, [run 33151981386](https://github.com/orieg/expanse/actions/runs/33151981386); per-round data in [`results/baseline_vs_libjudy.json`](results/baseline_vs_libjudy.json))*. The `B/k` columns are deterministic `JudyLMemUsed` byte accounting from the same harness; that artifact does not record bytes/key, so they are unsourced pending a re-run that does.
 >
 > **Random 1M lookup is the one measured wall-clock loss: 1.031× slower than stock libjudy, BCa 95% CI [1.024, 1.038]** (workload: `capi_bench_vs_libjudy`). Full matrix and intervals: [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
 
-| Benchmark Workload | Wall-Clock Latency (Expanse vs Stock) | Ratio (.so / rlib) | Memory Overhead (Expanse vs Stock) | Status |
+| Benchmark Workload | Wall-Clock Latency (Expanse vs Stock) | Ratio (.so / stock) | Memory Overhead (Expanse vs Stock) | Status |
 |---|---|---:|---|---|
 | **Sequential 1,000,000 insert** | **12.2 ns** vs 22.4 ns (workload: `capi_bench_vs_libjudy`) | **0.545×** [0.544, 0.546] | **8.56 B/k** vs 8.32 B/k (1.03×) | 🟢 **~1.84× faster insert** |
-| **Sequential 100,000 insert** | **6.40M** vs 12.84M inst (workload: `capi_vs_stock`) | **0.50× / 0.49×** | **8.57 B/k** vs 8.41 B/k (1.02×) | 🟢 **2× faster than Judy** |
-| **Sequential 30,000 lookup** | **4.37M** vs 5.07M inst (workload: `capi_vs_stock`) | **0.86× / 0.85×** | **8.57 B/k** vs 8.41 B/k (1.02×) | 🟢 **14% faster than Judy** |
 | **Random 1,000,000 lookup** | 41.0 ns vs **39.8 ns** (workload: `capi_bench_vs_libjudy`) | **1.031×** [1.024, 1.038] | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟡 **3% slower lookup, 5% less memory** |
-| **Random 3,000,000 lookup** | **318.5M** vs 389.7M inst (workload: `capi_vs_stock`) | **0.82× / 0.81×** | **16.80 B/k** vs 17.80 B/k (0.94×) | 🟢 **18% faster than Judy** |
-| **Random 30,000 lookup** | **4.53M** vs 5.09M inst (workload: `capi_vs_stock`) | **0.89× / 0.88×** | **24.63 B/k** vs 24.81 B/k (0.99×) | 🟢 **11% faster than Judy** |
-| **Random 30,000 set test** | **3.78M** vs 3.83M inst (workload: `capi_vs_stock`) | **0.988× / 0.98×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Faster than Judy** |
-| **Random 30,000 churn (del+ins)** | **38.14M** vs 50.78M inst (workload: `capi_vs_stock`) | **0.751× / 0.75×** | **Dynamic exact accounting** | 🟢 **24.9% faster than Judy** |
-| **Clustered 100,000 set insert** | **7.54M** vs 10.38M inst (workload: `capi_vs_stock`) | **0.727× / 0.72×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **27.3% faster than Judy** |
 | **Clustered 1,000,000 insert** | **20.1 ns** vs 21.5 ns (workload: `capi_bench_vs_libjudy`) | **0.933×** [0.932, 0.935] | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **~7% faster insert, 8% less memory** |
 | **Clustered 1,000,000 lookup** | **13.1 ns** vs 14.4 ns (workload: `capi_bench_vs_libjudy`) | **0.904×** [0.902, 0.908] | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **~10% faster lookup** |
-| **Clustered 30,000 lookup** | **3.71M** vs 3.97M inst (workload: `capi_vs_stock`) | **0.94× / 0.92×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **6% faster than Judy** |
-| **Clustered 100,000 map insert** | **11.42M** vs 12.01M inst (workload: `capi_vs_stock`) | **0.951× / 0.95×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **4.9% faster than Judy** |
-| **Random 100,000 set insert** | **15.10M** vs 15.69M inst (workload: `capi_vs_stock`) | **0.962× / 0.96×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **3.8% faster than Judy** |
-| **Random 100,000 map insert** | **17.52M** vs 17.76M inst (workload: `capi_vs_stock`) | **0.986× / 0.997×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Faster than Judy across rlib and .so** |
+
+Instructions retired, in millions, through the same C ABI. `.so` is `libexpanse.so` `dlopen`'d exactly as stock is, and is the like-for-like arm; `rlib` is the Rust library linked into the harness with LTO, a shape no C consumer gets. Callgrind counts are exact integers, so they carry no interval *(measured: reference host — Intel i9-12900F, commit `d1fde746`, [run 33422776469](https://github.com/orieg/expanse/actions/runs/33422776469); [`results/baseline_vs_stock.json`](results/baseline_vs_stock.json); harness [`crates/expanse-capi/benches/vs_stock.rs`](crates/expanse-capi/benches/vs_stock.rs); workload: `capi_vs_stock`)*. The artifact predates later engine changes, so the libexpanse columns describe the engine at `d1fde746`.
+
+| Operation (workload: `capi_vs_stock`) | Keys | libexpanse `.so` | libexpanse rlib | stock libjudy | `.so` / stock | rlib / stock |
+|---|---:|---:|---:|---:|---:|---:|
+| `JudyLIns`, sequential | 30,000 | **6.43** | 6.40 | 14.71 | **0.437×** | 0.435× |
+| `JudyLIns`, random | 30,000 | **17.71** | 17.54 | 18.98 | **0.933×** | 0.924× |
+| `JudyLIns`, clustered | 30,000 | **11.48** | 11.43 | 13.37 | **0.859×** | 0.855× |
+| `JudyLGet`, sequential | 30,000 | **4.62** | 4.62 | 6.69 | **0.690×** | 0.690× |
+| `JudyLGet`, random | 30,000 | **4.10** | 4.10 | 6.77 | **0.606×** | 0.606× |
+| `JudyLGet`, clustered | 30,000 | **3.90** | 3.90 | 5.86 | **0.666×** | 0.666× |
+| `JudyLGet`, random | 1,500,000 | **306.52** | 306.52 | 478.17 | **0.641×** | 0.641× |
+| `JudyL` churn (upsert, insert neighbour, delete it), random | 30,000 | **39.09** | 38.09 | 56.30 | **0.694×** | 0.677× |
+| `Judy1Set`, random | 30,000 | **15.10** | 15.11 | 17.26 | **0.875×** | 0.876× |
+| `Judy1Set`, clustered | 30,000 | **7.47** | 7.54 | 11.90 | **0.628×** | 0.634× |
+| `Judy1Test`, random | 30,000 | **3.88** | 3.88 | 5.77 | **0.673×** | 0.673× |
 
 ---
 

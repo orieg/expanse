@@ -640,7 +640,7 @@ void test_sync_set() {
     assert(ss.contains(250));
     assert(!ss.contains(999));
 
-    // Multi-threaded lock-free OCC readers
+    // Multi-threaded optimistic OCC readers (no lock on the common path; blocking, not lock-free)
     std::atomic<bool> stop_flag{false};
     std::vector<std::thread> reader_threads;
 
