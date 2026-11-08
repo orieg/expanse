@@ -77,10 +77,22 @@ cells are the key-shape control. Before every process the driver reads
 a cell whose projected need
 (`strmap_stall_bounds.mem_required_bytes`) it does not meet, recording why.
 
+`--plan 53 --base-ref REF` runs METHODOLOGY §53's G53-wall (Refs #1610): the
+§52 churn cell (W = 4, 30 s, arm `none`) on `short` keys at N = 1e7 and 2e7,
+and on `routes` keys at N = 2e7 as a control that decides nothing, each on
+REF's build (a detached worktree carrying the head's harness) and on the
+head's, interleaved within each cell with the order alternating by round, 8
+rounds. Per round the head's churn throughput ((inserts + removals) / window)
+is divided by the base's; G53-wall reads the BCa interval of that ratio on
+each `short` cell: `PASS` iff its lower bound is at least `G53_FLOOR`, `FAIL`
+iff its upper bound is below `G53_NO_LOSS`, `INTERMEDIATE` otherwise. The run
+is `PASS` iff both are, `FAIL` iff either is. §53 reads two runs.
+
 Usage:
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --out ARTIFACT.json
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --plan 47 --out GATE.json
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --plan 52 --out DIAGNOSTIC.json
+    python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --plan 53 --base-ref REF --out GATE.json
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --quick --out SCRATCH.json
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --self-test
 """
@@ -91,6 +103,7 @@ import argparse
 import itertools
 import json
 import os
+import shutil
 import statistics
 import subprocess
 import sys
@@ -157,6 +170,23 @@ G52_QUICK = {"keys": (20_000, 40_000, 200_000), "seconds": 1, "rounds": 3}
 REMOVE_SPLIT_KEYS = ("branch_split_remove_emptied_linear", "branch_split_remove_emptied_bitmap",
                      "branch_split_remove_emptied_other", "branch_split_remove_prefix",
                      "branch_split_remove_other")
+
+# METHODOLOGY §53's G53-wall (#1610): the head against its merge base on the §52 churn cell.
+G53_ARTIFACT_REL = "concurrency/results/gate_1610_strmap_branchb_remove.json"
+G53_PREREGISTRATION = "concurrency METHODOLOGY §53"
+G53_CELLS = ({"shape": "short", "keys": 10_000_000, "gated": True},
+             {"shape": "short", "keys": 20_000_000, "gated": True},
+             {"shape": "routes", "keys": 20_000_000, "gated": False})
+G53_WRITERS = 4
+G53_PERIOD_MS = 1000          # passed to the harness; arm `none` runs no poller
+G53_ARM = "none"
+G53_ROUNDS = 8
+G53_FLOOR = 1.10              # PASS iff the ratio's BCa lower bound is at least this
+G53_NO_LOSS = 1.0             # FAIL iff the ratio's BCa upper bound is below this
+G53_QUICK = {"cells": ({"shape": "short", "keys": 40_000, "gated": True},
+                       {"shape": "short", "keys": 200_000, "gated": True},
+                       {"shape": "routes", "keys": 200_000, "gated": False}),
+             "seconds": 1, "rounds": 3}
 
 # The reference host runs an hourly rsync at minutes :15-:20 UTC (METHODOLOGY §44.8): no
 # process, prefill or window, may overlap it. A process's length is estimated from its
@@ -706,13 +736,15 @@ def refuse_docs_path(out_path: Path) -> None:
         raise DriverError(f"--quick writes scratch output only, never under docs/ ({out_path})")
 
 
-def measure(out_path: Path, quick: bool = False, plan: str = "44") -> dict[str, Any]:
+def measure(out_path: Path, quick: bool = False, plan: str = "44", base_ref: str | None = None) -> dict[str, Any]:
     if quick:
         refuse_docs_path(out_path)
-    if plan not in ("44", "47", "52"):
-        raise DriverError(f"unknown plan {plan!r}; expected 44, 47 or 52")
+    if plan not in ("44", "47", "52", "53"):
+        raise DriverError(f"unknown plan {plan!r}; expected 44, 47, 52 or 53")
     if plan == "52":
         return measure52(out_path, quick)
+    if plan == "53":
+        return measure53(out_path, quick, base_ref)
     g = grid(quick) if plan == "44" else grid47(quick)
     rounds = g["rounds"]
     applied = bench_pin.apply("strmap_poll_stall.py")
@@ -1045,7 +1077,199 @@ def check_provenance(art: dict[str, Any], quick: bool, rel: str = ARTIFACT_REL) 
         print(f"::notice::quick run, provenance finding (not a measurement): {f}", file=sys.stderr)
 
 
+# --- §53: the head against its merge base on the §52 churn cell (#1610) -----
+
+def grid53(quick: bool = False) -> dict[str, Any]:
+    """§53's G53-wall cells: two gated `short` cells and the `routes` control."""
+    if not quick:
+        return {"plan": "53", "cells": [dict(c) for c in G53_CELLS], "seconds": SECONDS, "rounds": G53_ROUNDS}
+    q = G53_QUICK
+    return {"plan": "53", "cells": [dict(c) for c in q["cells"]], "seconds": q["seconds"], "rounds": q["rounds"]}
+
+
+def cells53(g: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"shape": c["shape"], "keys": c["keys"], "writers": G53_WRITERS, "period_ms": G53_PERIOD_MS,
+             "workload": "churn", "gated": c["gated"]} for c in g["cells"]]
+
+
+def build_order53(r: int) -> tuple[str, str]:
+    """Round `r`'s build order within each cell: base first on even rounds, head first on odd."""
+    return ("base", "head") if r % 2 == 0 else ("head", "base")
+
+
+def churn_throughput(row: dict[str, Any]) -> float:
+    """Operations per second of a churn window: its inserts and its removals."""
+    return (row["inserts"] + row["removes"]) / row["elapsed_s"]
+
+
+def g53_outcome(iv: dict[str, Any]) -> str:
+    """§53's rule on one gated cell's paired head/base ratio interval."""
+    if iv["ci_lower"] >= G53_FLOOR:
+        return "PASS"
+    if iv["ci_upper"] < G53_NO_LOSS:
+        return "FAIL"
+    return "INTERMEDIATE"
+
+
+def evaluate53(base: list[dict[str, Any]], head: list[dict[str, Any]], g: dict[str, Any], quick: bool,
+               load_avg_void: float, run_voids: list[str] | None = None) -> dict[str, Any]:
+    """G53-wall from the two builds' raw rounds: per cell the per-round head/base throughput ratio."""
+    rounds = g["rounds"]
+    voids = list(run_voids or [])
+    if quick:
+        voids.append("quick run: decides nothing")
+    out: dict[str, Any] = {"preregistration": G53_PREREGISTRATION, "floor": G53_FLOOR, "no_loss": G53_NO_LOSS,
+                           "statistic": "BCa 95% interval of the per-round churn throughput ratio head / base",
+                           "cells": {}}
+    by_b = {c["cell"]: c for c in base}
+    by_h = {c["cell"]: c for c in head}
+    for cid in by_b:
+        cb, ch = by_b[cid], by_h.get(cid)
+        if ch is None:
+            voids.append(f"{cid}: no head cell")
+            continue
+        v = cell_voids(cb, rounds, quick, load_avg_void) + cell_voids(ch, rounds, quick, load_avg_void)
+        e: dict[str, Any] = {"gated": cb.get("gated", False)}
+        if v:
+            e["voids"] = v[:5]
+            if e["gated"]:
+                voids.extend(v)
+            out["cells"][cid] = e
+            continue
+        rb = {r["round"]: r for r in cb["rounds_raw"]}
+        rh = {r["round"]: r for r in ch["rounds_raw"]}
+        ratios = [churn_throughput(rh[i]) / churn_throughput(rb[i]) for i in sorted(rb)]
+        e["ratio"] = interval(ratios)
+        e["base_ops_s"] = interval([churn_throughput(rb[i]) for i in sorted(rb)])
+        e["head_ops_s"] = interval([churn_throughput(rh[i]) for i in sorted(rb)])
+        if e["gated"]:
+            e["outcome"] = g53_outcome(e["ratio"])
+        out["cells"][cid] = e
+    outs = [e["outcome"] for e in out["cells"].values() if "outcome" in e]
+    gated = [e for e in out["cells"].values() if e["gated"]]
+    if len(outs) != len(gated) or not gated:
+        voids.append("a gated cell has no outcome")
+    out["voids"] = voids
+    out["verdict"] = ("VOID" if voids else "PASS" if all(o == "PASS" for o in outs)
+                      else "FAIL" if "FAIL" in outs else "INTERMEDIATE")
+    return {"G53_wall": out}
+
+
+def build_base53(base_ref: str, tree: Path, target: Path) -> tuple[Path, str]:
+    """The base build: a detached worktree of `base_ref` carrying the head's harness (§53).
+
+    Refuses a base that is the head (§8.1): the comparison is the point.
+    """
+    sha = subprocess.run(["git", "rev-parse", "--verify", f"{base_ref}^{{commit}}"], cwd=REPO_ROOT,
+                         check=True, stdout=subprocess.PIPE, text=True).stdout.strip()
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, check=True,
+                          stdout=subprocess.PIPE, text=True).stdout.strip()
+    if sha == head:
+        raise DriverError(f"the base {base_ref} is the head commit {head}: nothing to compare")
+    subprocess.run(["git", "worktree", "add", "--detach", str(tree), sha], cwd=REPO_ROOT, check=True,
+                   stdout=subprocess.DEVNULL)
+    shutil.copy2(REPO_ROOT / HARNESS_REL, tree / HARNESS_REL)
+    out = subprocess.run(
+        ["cargo", "build", "--release", "-p", "expanse-trie", "--bench", HARNESS,
+         "--message-format=json-render-diagnostics"],
+        cwd=tree, check=True, stdout=subprocess.PIPE, text=True,
+        env={**os.environ, "CARGO_TARGET_DIR": str(target)},
+    ).stdout
+    exes = [json.loads(ln).get("executable") for ln in out.splitlines() if ln.startswith("{")]
+    exes = [e for e in exes if e and Path(e).name.startswith(HARNESS)]
+    if len(exes) != 1:
+        raise DriverError(f"expected one base {HARNESS} executable, found {exes}")
+    return Path(exes[0]), sha
+
+
+def measure53(out_path: Path, quick: bool, base_ref: str | None) -> dict[str, Any]:
+    if not base_ref:
+        raise DriverError("--plan 53 needs --base-ref (the merge base the head is measured against)")
+    g = grid53(quick)
+    rounds = g["rounds"]
+    applied = bench_pin.apply("strmap_poll_stall.py --plan 53")
+    prov = new_provenance("concurrency", 1610,
+                          "§53 G53-wall: churn throughput head / base, paired per round (BCa lower bound vs floor)",
+                          REPO_ROOT, cell_isolation="process", rounds=rounds, core_pin_applied=applied,
+                          preregistration=G53_PREREGISTRATION, quick=quick, seconds=g["seconds"],
+                          bca_resamples=BCA_RESAMPLES, arm=G53_ARM)
+    cpus = host_cpus(applied)
+    siblings = read_siblings(cpus) if cpus else None
+    prov["placement_rule"] = ("writers on the first CPU of every core but the first, then their SMT "
+                              "siblings (arm none: the poller's CPU stays idle)")
+    prov["placement_cpus"] = cpus if siblings else None
+    tmp = Path(tempfile.mkdtemp(prefix="strmap-poll-stall-base-"))
+    tree = tmp / "tree"
+    try:
+        exe_base, base_sha = build_base53(base_ref, tree, tmp / "target")
+        exe_head = build()
+        probe(exe_base)
+        probe(exe_head)
+        prov["base_commit"] = base_sha
+        prov["build_labels"] = {"base": f"base {base_sha}", "head": "the head (this checkout)"}
+        exes = {"base": exe_base, "head": exe_head}
+        pin = child_pin(applied)
+        cells = cells53(g)
+        by = {(cell_id(c), b): {"cell": cell_id(c), **c, "arm": G53_ARM, "build": b, "rounds_raw": []}
+              for c in cells for b in ("base", "head")}
+        pauses: list[dict[str, Any]] = []
+        processes: list[dict[str, Any]] = []
+        prefills: dict[tuple[str, int], float] = {}
+        prov["hour_guard"] = {"blackout_utc_minutes": [HOUR_BLACKOUT_S[0] // 60, HOUR_BLACKOUT_S[1] // 60],
+                              "prefill_s_per_key_default": PREFILL_S_PER_KEY, "prefill_margin": PREFILL_MARGIN,
+                              "post_s": POST_S, "pauses": pauses, "processes": processes}
+        for r in range(rounds):
+            for c in round_order52(cells, r, rounds):
+                cid = cell_id(c)
+                for b in build_order53(r):
+                    place = placement(cpus, siblings, c["writers"]) if siblings else None
+                    label = f"cell:{cid}:{b}:r{r}"
+                    guard_pause(pauses, label, process_estimate_s(c, g["seconds"], prefills))
+                    start = begin_cell(prov, label)
+                    row = run_recorded(processes, label,
+                                       lambda: run_one(exes[b], c, G53_ARM, r, g["seconds"], 0x1610_5300 + r,
+                                                       pin, place))
+                    note_prefill(prefills, c, row)
+                    row["load"] = end_cell(start)
+                    row["load_start"] = {"label": start.get("label"), "load1": start.get("load1")}
+                    by[(cid, b)]["rounds_raw"].append(row)
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=REPO_ROOT,
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        shutil.rmtree(tmp, ignore_errors=True)
+    base_cells = [by[(cell_id(c), "base")] for c in cells]
+    head_cells = [by[(cell_id(c), "head")] for c in cells]
+    for cell in base_cells + head_cells:
+        cell["load"] = max((row["load"] for row in cell["rounds_raw"]),
+                           key=lambda ld: ld.get("foreign_busy_cpus") or 0.0)
+    ncpu = os.cpu_count() or 1
+    run_voids = [] if quick or rounds == G53_ROUNDS else [f"round count {rounds} is not the registered {G53_ROUNDS}"]
+    art: dict[str, Any] = {"provenance": prov, "throughput": base_cells, "throughput_variant": head_cells,
+                           "verdicts": evaluate53(base_cells, head_cells, g, quick, ncpu / 2, run_voids)}
+    if quick:
+        art["note"] = "quick smoke run on a reduced grid: not a measurement, decides nothing"
+    check_pauses(prov["hour_guard"])
+    check_provenance(art, quick, G53_ARTIFACT_REL)
+    out_path.write_text(json.dumps(art, indent=2) + "\n")
+    return art
+
+
 def verdict_lines(v: dict[str, Any]) -> list[str]:
+    if "G53_wall" in v:
+        gw = v["G53_wall"]
+        lines = [f"G53-wall (floor {gw['floor']:g}, no-loss {gw['no_loss']:g}): {gw['verdict']}"]
+        for cid, e in gw["cells"].items():
+            if "ratio" in e:
+                r = e["ratio"]
+                tag = e.get("outcome", "control")
+                lines.append(f"  {cid}: {tag}; head/base [{r['ci_lower']:.4f}, {r['ci_upper']:.4f}] "
+                             f"({r['ci_method']}); base {e['base_ops_s']['median']:,.0f} ops/s, "
+                             f"head {e['head_ops_s']['median']:,.0f} ops/s (medians)")
+            else:
+                lines.append(f"  {cid}: void")
+        for reason in gw["voids"][:10]:
+            lines.append(f"  G53-wall void: {reason}")
+        return lines
     if "D1" in v:
         lines = [f"D1 at {v['D1']['cell']}: {v['D1']['verdict']}",
                  f"D2 {v['D2']['from']} -> {v['D2']['to']}: {v['D2']['verdict']}"]
@@ -1677,6 +1901,92 @@ def self_test_plan52() -> None:
     art = {"provenance": {}, "cells": _cells52(g), "verdicts": ev(_cells52(g))}
     assert not [f for f in check_bench_provenance.partial_label_problems(G52_ARTIFACT_REL, art)], art["verdicts"]
 
+def _cells53(g: dict[str, Any], *, ratio: float = 1.4, rounds: int = 5, overrides: dict | None = None,
+             **kw) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Synthetic §53 cells: the head's churn throughput `ratio` times the base's, 2% jitter per round."""
+    base, head = [], []
+    for c in cells53(g):
+        rt = (overrides or {}).get((c["shape"], c["keys"]), ratio)
+        for b, out in (("base", base), ("head", head)):
+            rows = []
+            for r in range(rounds):
+                row = _row(c, G53_ARM, r, 50e3, None, 5e3, **kw)
+                j = 1 + 0.02 * ((r * 7) % 5) / 4
+                ops = 1_000_000 * (rt * j if b == "head" else 1.0)
+                row.update({"len_before": c["keys"], "len_after": c["keys"], "remove_missed": 0,
+                            "inserts": int(ops / 2), "removes": int(ops / 2), "elapsed_s": 1.0})
+                rows.append(row)
+            out.append({"cell": cell_id(c), **c, "arm": G53_ARM, "build": b, "rounds_raw": rows})
+    return base, head
+
+
+def self_test_plan53() -> None:
+    g = grid53()
+    cells = cells53(g)
+    # §53's cells: short at 1e7 and 2e7 gated, routes at 2e7 the control; W = 4 churn, 8 rounds.
+    assert [(c["shape"], c["keys"], c["gated"]) for c in cells] == [
+        ("short", 10_000_000, True), ("short", 20_000_000, True), ("routes", 20_000_000, False)]
+    assert all(c["writers"] == 4 and c["workload"] == "churn" and c["keys"] % 4 == 0 for c in cells)
+    assert (G53_FLOOR, G53_NO_LOSS, G53_ROUNDS, G53_ARM) == (1.10, 1.0, 8, "none")
+    # The gated short cell at 2e7 is §52's D1 cell and §47's churn cell: one id.
+    assert cell_id(cells[1]) == _cell52_id("short", 20_000_000)
+    # Builds alternate their order by round.
+    assert [build_order53(r) for r in range(3)] == [("base", "head"), ("head", "base"), ("base", "head")]
+    assert churn_throughput({"inserts": 3, "removes": 3, "elapsed_s": 2.0}) == 3.0
+
+    def ev(b, h, **kw):
+        return evaluate53(b, h, g, False, 12.0, **kw)["G53_wall"]
+    v = ev(*_cells53(g, rounds=8))
+    assert v["verdict"] == "PASS" and all(e["ratio"]["ci_method"] for e in v["cells"].values()), v
+    assert "outcome" not in v["cells"][cell_id(cells[2])], "the routes control decides nothing"
+    # One negative control per clause: the floor reads the lower bound; FAIL reads the upper bound
+    # against 1.0; either short cell alone decides; the control never does.
+    assert ev(*_cells53(g, rounds=8, ratio=1.05))["verdict"] == "INTERMEDIATE"
+    v = ev(*_cells53(g, rounds=8, ratio=1.09))
+    e = v["cells"][cell_id(cells[0])]
+    assert e["ratio"]["ci_lower"] < G53_FLOOR and v["verdict"] == "INTERMEDIATE", e
+    assert ev(*_cells53(g, rounds=8, ratio=0.9))["verdict"] == "FAIL"
+    assert ev(*_cells53(g, rounds=8, ratio=0.99))["verdict"] in ("FAIL", "INTERMEDIATE")
+    v = ev(*_cells53(g, rounds=8, overrides={("short", 10_000_000): 0.8}))
+    assert v["cells"][cell_id(cells[0])]["outcome"] == "FAIL" and v["verdict"] == "FAIL", v
+    v = ev(*_cells53(g, rounds=8, overrides={("short", 20_000_000): 1.0}))
+    assert v["cells"][cell_id(cells[1])]["outcome"] == "INTERMEDIATE" and v["verdict"] == "INTERMEDIATE", v
+    assert ev(*_cells53(g, rounds=8, overrides={("routes", 20_000_000): 0.5}))["verdict"] == "PASS"
+    # Voids: contamination, a missing round, the churn clauses, a missing head cell; a void control
+    # is reported and does not void the run.
+    assert ev(*_cells53(g, rounds=8, foreign=1.5))["verdict"] == "VOID"
+    assert ev(*_cells53(g, rounds=7))["verdict"] == "VOID"
+    b, h = _cells53(g, rounds=8)
+    h[0]["rounds_raw"][3]["len_after"] = 10_000_005
+    assert ev(b, h)["verdict"] == "VOID"
+    b, h = _cells53(g, rounds=8)
+    assert ev(b, h[1:])["verdict"] == "VOID"
+    b, h = _cells53(g, rounds=8)
+    h[2]["rounds_raw"][0]["remove_missed"] = 2
+    v = ev(b, h)
+    assert v["verdict"] == "PASS" and "voids" in v["cells"][cell_id(cells[2])], v
+    assert ev(*_cells53(g, rounds=8), run_voids=["round count 7"])["verdict"] == "VOID"
+    # A quick run never decides; measure53 refuses a run without a base.
+    gq = grid53(quick=True)
+    assert evaluate53(*_cells53(gq, rounds=3), gq, True, 12.0)["G53_wall"]["verdict"] == "VOID"
+    assert "--base-ref" in _refused(measure53, Path(tempfile.gettempdir()) / "x.json", True, None)
+    # The verdict lines name the verdict and every cell.
+    lines = verdict_lines(evaluate53(*_cells53(g, rounds=8), g, False, 12.0))
+    assert lines[0].startswith("G53-wall") and "PASS" in lines[0] and len(lines) == 4, lines
+    # measure53: every process is guarded and recorded, base and head alike, and the base worktree
+    # is removed however the run ends.
+    src = Path(__file__).resolve().read_text()
+    body = src[src.index("def measure53("):src.index("\ndef verdict_lines(")]
+    code = "\n".join(ln.split("#", 1)[0] for ln in body.splitlines())
+    runs = [i for i in range(len(code)) if code.startswith("run_one(", i)]
+    guards = [i for i in range(len(code)) if code.startswith("guard_pause(", i)]
+    recs = [i for i in range(len(code)) if code.startswith("run_recorded(processes,", i)]
+    assert len(runs) == len(guards) == len(recs) == 1 and guards[0] < recs[0] < runs[0], (runs, guards, recs)
+    assert code.index("for b in build_order53(r)") < guards[0]
+    assert code.index("try:") < code.index("build_base53(") < code.index("finally:")
+    assert code.index("finally:") < code.index('"worktree", "remove"')
+    assert code.index("check_pauses(") < code.index("out_path.write_text(")
+
 def self_test_churn_harness_source() -> None:
     """The churn writer times the insert and the removal apart, and inserts before it removes."""
     src = (REPO_ROOT / HARNESS_REL).read_text()
@@ -1697,6 +2007,7 @@ def self_test() -> int:
     bounds.self_test()
     self_test_plan47()
     self_test_plan52()
+    self_test_plan53()
     self_test_churn_harness_source()
     self_test_hour_guard()
     assert CI_METHOD_BCA
@@ -1713,16 +2024,18 @@ def main() -> int:
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--quick", action="store_true", help="a reduced-grid smoke run; scratch output only")
-    ap.add_argument("--plan", choices=("44", "47", "52"), default="44",
+    ap.add_argument("--plan", choices=("44", "47", "52", "53"), default="44",
                     help="44: METHODOLOGY §44's grid (default); 47: §47's G-stall cells; "
-                         "52: §52's Remove-fallback sweep (occ-stats build)")
+                         "52: §52's Remove-fallback sweep (occ-stats build); "
+                         "53: §53's G53-wall, the head against --base-ref")
+    ap.add_argument("--base-ref", help="--plan 53: the commit the head is measured against")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
     if not args.out:
         ap.error("--out is required")
     try:
-        art = measure(args.out, args.quick, args.plan)
+        art = measure(args.out, args.quick, args.plan, args.base_ref)
     except DriverError as e:
         print(f"strmap_poll_stall.py: {e}", file=sys.stderr)
         return 1

@@ -399,6 +399,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "strmap_branchb_remove_g53",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "G53-wall of the optimistic BranchB empty-child removal (METHODOLOGY.md §53, Refs #1610): the §52 churn cell (W = 4, 30 s, arm none) on short keys at N = 1e7 and 2e7, gated, and on routes keys at 2e7 as a control, on the merge base's build (carrying the head's harness) and the head's, 8 rounds with the build order alternating; PASS iff the BCa lower bound of the per-round head/base churn throughput ratio is at least 1.10 on both short cells; two dispatches make the gate; outputs gate_1610_strmap_branchb_remove.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "strmap_remove_split_g52",
       "available": true,
       "kind": "wallclock",
