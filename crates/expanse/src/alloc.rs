@@ -541,12 +541,8 @@ pub(crate) const NUM_ALLOC_SHARDS: usize = crate::occ::MAX_WRITER_SLOTS;
 #[repr(align(64))]
 pub(crate) struct AllocShard {
     pub(crate) bytes_in_use: core::sync::atomic::AtomicIsize,
+    pub(crate) live_allocs: core::sync::atomic::AtomicIsize,
     pub(crate) total_allocs: AtomicUsize,
-    /// Frees accounted on this shard. A shard keeps no live count of its own:
-    /// [`NodeAlloc::live_allocs`] is the sum of `total_allocs` less the sum of
-    /// `frees`, so an allocation makes two locked read-modify-writes, not
-    /// three (concurrency METHODOLOGY §50). Both only grow.
-    pub(crate) frees: AtomicUsize,
 }
 
 #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
@@ -554,8 +550,8 @@ impl AllocShard {
     pub(crate) fn new() -> Self {
         Self {
             bytes_in_use: core::sync::atomic::AtomicIsize::new(0),
+            live_allocs: core::sync::atomic::AtomicIsize::new(0),
             total_allocs: AtomicUsize::new(0),
-            frees: AtomicUsize::new(0),
         }
     }
 }
@@ -603,6 +599,7 @@ impl Deferred {
             let _ = a;
             let sh = &self.shards[crate::occ::writer_slot()];
             sh.bytes_in_use.fetch_add(size as isize, Ordering::Relaxed);
+            sh.live_allocs.fetch_add(1, Ordering::Relaxed);
             sh.total_allocs.fetch_add(1, Ordering::Relaxed);
         }
         #[cfg(feature = "ablation-unsharded-alloc")]
@@ -614,9 +611,7 @@ impl Deferred {
     }
 
     /// Inverse of [`Self::charge`]. A free may land on a different shard than
-    /// its allocation, which is why the shard's byte count is signed; its
-    /// live count is never stored, only derived (`frees` against
-    /// `total_allocs`, summed over every shard).
+    /// its allocation, which is why the shard counters are signed.
     #[inline(always)]
     fn discharge(&self, a: &NodeAlloc, size: usize) {
         #[cfg(not(feature = "ablation-unsharded-alloc"))]
@@ -624,7 +619,7 @@ impl Deferred {
             let _ = a;
             let sh = &self.shards[crate::occ::writer_slot()];
             sh.bytes_in_use.fetch_sub(size as isize, Ordering::Relaxed);
-            sh.frees.fetch_add(1, Ordering::Relaxed);
+            sh.live_allocs.fetch_sub(1, Ordering::Relaxed);
         }
         #[cfg(feature = "ablation-unsharded-alloc")]
         {
@@ -1289,24 +1284,10 @@ impl NodeAlloc {
         let inline = self.live_allocs.load(Ordering::Relaxed);
         #[cfg(all(feature = "std", not(feature = "ablation-unsharded-alloc")))]
         if let Some(d) = self.deferred.get() {
-            // Allocations less frees, each summed over every shard; the
-            // difference is exact in wrapping arithmetic while the live count
-            // is below 2^63, wherever each free landed.
-            let (allocs, frees) = d.shards.iter().fold((0usize, 0usize), |(a, f), s| {
-                (
-                    a.wrapping_add(s.total_allocs.load(Ordering::Relaxed)),
-                    f.wrapping_add(s.frees.load(Ordering::Relaxed)),
-                )
+            let total = d.shards.iter().fold(inline as isize, |acc, s| {
+                acc.saturating_add(s.live_allocs.load(Ordering::Relaxed))
             });
-            let net = (inline as isize).wrapping_add(allocs.wrapping_sub(frees) as isize);
-            // As in `bytes_in_use`: every caller of this reading excludes
-            // writers, so a negative count is an over-free, and the clamp
-            // below would report it as an empty tree (AGENTS.md §8.22.3).
-            debug_assert!(
-                net >= 0,
-                "NodeAlloc accounting sums to {net} live allocations: more freed than allocated"
-            );
-            return if net < 0 { 0 } else { net as usize };
+            return if total < 0 { 0 } else { total as usize };
         }
         inline
     }
@@ -2111,8 +2092,8 @@ mod tests {
         for &s in &stripes {
             crate::occ::set_writer_slot(s);
             ptrs.push(a.alloc_bytes(32));
+            assert_eq!(sh[s].live_allocs.load(Ordering::Relaxed), 1);
             assert_eq!(sh[s].total_allocs.load(Ordering::Relaxed), 1);
-            assert_eq!(sh[s].frees.load(Ordering::Relaxed), 0);
         }
         let per = (a.bytes_in_use() / stripes.len()) as isize;
         for &s in &stripes {
@@ -2125,29 +2106,10 @@ mod tests {
             unsafe { a.free_bytes(p, 32) };
         }
         let n = stripes.len() as isize;
-        assert_eq!(sh[1].frees.load(Ordering::Relaxed), n as usize);
-        assert_eq!(sh[1].total_allocs.load(Ordering::Relaxed), 0);
+        assert_eq!(sh[1].live_allocs.load(Ordering::Relaxed), -n);
         assert_eq!(a.live_allocs(), 0);
         assert_eq!(a.bytes_in_use(), 0);
         assert_eq!(a.total_allocs(), stripes.len());
-    }
-
-    /// The derived live count does not clamp an over-free to an empty tree in
-    /// a debug build (AGENTS.md §8.22.3): one more free than allocations, put
-    /// straight on a shard, trips the assertion rather than reading 0.
-    #[test]
-    #[cfg(all(
-        feature = "std",
-        debug_assertions,
-        not(feature = "ablation-unsharded-alloc")
-    ))]
-    #[should_panic(expected = "more freed than allocated")]
-    fn derived_live_count_reports_an_over_free() {
-        let a = NodeAlloc::new();
-        a.defer_to(Arc::new(Collector::new()));
-        let d = a.deferred.get().expect("defer_to publishes the shards");
-        d.shards[3].frees.fetch_add(1, Ordering::Relaxed);
-        core::hint::black_box(a.live_allocs());
     }
 
     /// The shards ride in the collector's cell, boxed, so an allocator that
