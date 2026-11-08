@@ -64,9 +64,23 @@ otherwise. The run is `PASS` iff all four are, `FAIL` iff any is, and
 `INTERMEDIATE` otherwise. §44's void rules apply, and a churn round whose
 population moved by more than W, or whose removals missed a key, is void too.
 
+`--plan 52` runs METHODOLOGY §52's sweep (Refs #1610): the §47 churn cell at
+W = 4 on both shapes at N in {2e6, 5e6, 1e7, 2e7, 5e7}, arm `none` only, 5
+rotated rounds, all on the `occ-stats` build, timing nothing it reports. Each
+round reads the share of removals that took the serialised
+`BranchSplitKind::Remove` fallback (`branch_split_remove / removes`) and that
+fallback's sub-split, which must partition it (a round where it does not is
+void: the instrument is wrong). D1 classifies the cause at `short`, N = 2e7;
+D2 says whether the `short` share rises from N = 2e6 to 2e7; the `routes`
+cells are the key-shape control. Before every process the driver reads
+`MemAvailable` (and, under strict overcommit, the commit headroom) and skips
+a cell whose projected need
+(`strmap_stall_bounds.mem_required_bytes`) it does not meet, recording why.
+
 Usage:
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --out ARTIFACT.json
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --plan 47 --out GATE.json
+    python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --plan 52 --out DIAGNOSTIC.json
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --quick --out SCRATCH.json
     python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --self-test
 """
@@ -127,6 +141,23 @@ G47_AT = {"keys": 20_000_000, "writers": 4, "period_ms": 1000}
 G47_K = 3.0
 G47_QUICK = {"keys": 200_000, "writers": 4, "period_ms": 250, "seconds": 1, "rounds": 3}
 
+# METHODOLOGY §52's sweep (#1610): which removals take the serialised Remove fallback.
+G52_ARTIFACT_REL = "concurrency/results/diagnostic_1610_strmap_remove_split.json"
+G52_PREREGISTRATION = "concurrency METHODOLOGY §52"
+G52_SHAPES = ("short", "routes")
+G52_KEYS = bounds.SWEEP_52
+G52_WRITERS = 4
+G52_PERIOD_MS = 1000          # passed to the harness; arm `none` runs no poller
+G52_ARM = "none"
+G52_D1_AT = {"shape": "short", "keys": 20_000_000}
+G52_D2_FROM = 2_000_000
+G52_DOMINATES = 0.5           # a sub-cause dominates iff its fraction's lower bound is >= this
+G52_NOT_REPRODUCED = 0.01     # the share's upper bound below this at D1's cell: not reproduced
+G52_QUICK = {"keys": (20_000, 40_000, 200_000), "seconds": 1, "rounds": 3}
+REMOVE_SPLIT_KEYS = ("branch_split_remove_emptied_linear", "branch_split_remove_emptied_bitmap",
+                     "branch_split_remove_emptied_other", "branch_split_remove_prefix",
+                     "branch_split_remove_other")
+
 # The reference host runs an hourly rsync at minutes :15-:20 UTC (METHODOLOGY §44.8): no
 # process, prefill or window, may overlap it. A process's length is estimated from its
 # (shape, N)'s largest prefill seen so far, times PREFILL_MARGIN, or PREFILL_S_PER_KEY per key
@@ -159,6 +190,9 @@ def grid(quick: bool = False) -> dict[str, Any]:
 
 
 def cells_for(g: dict[str, Any]) -> list[dict[str, Any]]:
+    if g.get("plan") == "52":
+        return [{"shape": s, "keys": n, "writers": G52_WRITERS, "period_ms": G52_PERIOD_MS, "workload": "churn"}
+                for s, n in itertools.product(G52_SHAPES, g["keys"])]
     if g.get("plan") == "47":
         at = g["at"]
         return [{"shape": s, "keys": at["keys"], "writers": at["writers"], "period_ms": at["period_ms"],
@@ -174,6 +208,16 @@ def grid47(quick: bool = False) -> dict[str, Any]:
     q = G47_QUICK
     return {"plan": "47", "at": {k: q[k] for k in ("keys", "writers", "period_ms")},
             "seconds": q["seconds"], "rounds": q["rounds"]}
+
+
+def grid52(quick: bool = False) -> dict[str, Any]:
+    """§52's sweep cells, and where D1 and D2 are read, for a full or a quick run."""
+    if not quick:
+        return {"plan": "52", "keys": G52_KEYS, "seconds": SECONDS, "rounds": ROUNDS,
+                "d1": dict(G52_D1_AT), "d2_from": G52_D2_FROM}
+    q = G52_QUICK
+    return {"plan": "52", "keys": q["keys"], "seconds": q["seconds"], "rounds": q["rounds"],
+            "d1": {"shape": "short", "keys": q["keys"][-1]}, "d2_from": q["keys"][0]}
 
 
 def cell_id(c: dict[str, Any], arm: str | None = None) -> str:
@@ -637,7 +681,7 @@ def evaluate47(cells: list[dict[str, Any]], g: dict[str, Any], quick: bool,
 # --- Counters pass ----------------------------------------------------------
 
 COUNTER_KEYS = ("gate_blocked_entries", "gate_wait_cycles", "quiesce_calls", "quiesce_drain_cycles",
-                "locked_reads", "contention_gate_closed")
+                "locked_reads", "contention_gate_closed", "branch_split_remove", *REMOVE_SPLIT_KEYS)
 
 
 def counters_report(row: dict[str, Any]) -> dict[str, Any]:
@@ -665,8 +709,10 @@ def refuse_docs_path(out_path: Path) -> None:
 def measure(out_path: Path, quick: bool = False, plan: str = "44") -> dict[str, Any]:
     if quick:
         refuse_docs_path(out_path)
-    if plan not in ("44", "47"):
-        raise DriverError(f"unknown plan {plan!r}; expected 44 or 47")
+    if plan not in ("44", "47", "52"):
+        raise DriverError(f"unknown plan {plan!r}; expected 44, 47 or 52")
+    if plan == "52":
+        return measure52(out_path, quick)
     g = grid(quick) if plan == "44" else grid47(quick)
     rounds = g["rounds"]
     applied = bench_pin.apply("strmap_poll_stall.py")
@@ -745,6 +791,246 @@ def measure(out_path: Path, quick: bool = False, plan: str = "44") -> dict[str, 
     return art
 
 
+# --- §52: the Remove fallback's share and cause over N (#1610) --------------
+
+def _meminfo_kb(text: str, key: str) -> int | None:
+    for ln in text.splitlines():
+        if ln.startswith(key + ":"):
+            parts = ln.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                return int(parts[1])
+    return None
+
+
+def mem_available_bytes(meminfo: Path = Path("/proc/meminfo"),
+                        overcommit: Path = Path("/proc/sys/vm/overcommit_memory")) -> int | None:
+    """The memory a new process can take, in bytes, or None where the kernel does not say.
+
+    `MemAvailable`; and under strict overcommit (`vm.overcommit_memory` = 2),
+    where an allocation fails once `Committed_AS` reaches `CommitLimit` however
+    much is free, the smaller of that and `CommitLimit - Committed_AS`.
+    """
+    try:
+        text = meminfo.read_text()
+    except OSError:  # discipline:allow(error-swallowing) no meminfo is the None the caller refuses on
+        return None
+    avail = _meminfo_kb(text, "MemAvailable")
+    if avail is None:
+        return None
+    try:
+        strict = overcommit.read_text().strip() == "2"
+    except OSError:  # discipline:allow(error-swallowing) no sysctl file: heuristic overcommit, MemAvailable governs
+        strict = False
+    if strict:
+        limit, committed = _meminfo_kb(text, "CommitLimit"), _meminfo_kb(text, "Committed_AS")
+        if limit is None or committed is None:
+            return None
+        avail = min(avail, max(0, limit - committed))
+    return avail * 1024
+
+
+def memory_skip(c: dict[str, Any], avail: int | None, quick: bool) -> str | None:
+    """Why §52 does not start the process of cell `c`, or None (§52's memory rule).
+
+    A real run refuses to guess: with no `MemAvailable` reading it raises. A
+    quick run on a host without one (macOS) proceeds.
+    """
+    need = bounds.mem_required_bytes(c["shape"], c["keys"])
+    if avail is None:
+        if quick:
+            return None
+        raise DriverError(f"{cell_id(c)}: available memory is unreadable; §52 does not start a process unchecked")
+    if avail < need:
+        return (f"{cell_id(c)}: available memory {avail:,} B below the {need:,.0f} B §52 requires "
+                f"({bounds.MEM_FACTOR} x the projected RSS)")
+    return None
+
+
+def round_order52(cells: list[dict[str, Any]], r: int, rounds: int) -> list[dict[str, Any]]:
+    """Round `r`'s cell sequence: the list rotated by r/rounds of its length."""
+    k = (r * len(cells)) // rounds
+    return cells[k:] + cells[:k]
+
+
+def split_voids(r: dict[str, Any], at: str) -> list[str]:
+    """Why a round's Remove counters cannot be read, or [] (§52: the sub-split must partition)."""
+    c = r.get("counters")
+    if not isinstance(c, dict):
+        return [f"{at}: the row has no `counters` (not an occ-stats build)"]
+    missing = [k for k in ("branch_split_remove", *REMOVE_SPLIT_KEYS)
+               if isinstance(c.get(k), bool) or not isinstance(c.get(k), int)]
+    if missing:
+        return [f"{at}: the counters lack {missing}"]
+    total = sum(c[k] for k in REMOVE_SPLIT_KEYS)
+    if total != c["branch_split_remove"]:
+        return [f"{at}: the sub-split sums to {total}, not branch_split_remove = {c['branch_split_remove']}"]
+    return []
+
+
+SPLIT_GROUPS = (
+    ("emptied_linear_or_bitmap", ("branch_split_remove_emptied_linear", "branch_split_remove_emptied_bitmap")),
+    ("emptied_linear", ("branch_split_remove_emptied_linear",)),
+    ("emptied_bitmap", ("branch_split_remove_emptied_bitmap",)),
+    ("prefix", ("branch_split_remove_prefix",)),
+    ("other", ("branch_split_remove_emptied_other", "branch_split_remove_other")),
+)
+SPLIT_FRACTIONS = tuple(name for name, _ in SPLIT_GROUPS)
+
+
+def round_split(r: dict[str, Any]) -> dict[str, float | None]:
+    """One round's share of removals on the Remove fallback, and that fallback's composition."""
+    c = r["counters"]
+    bsr = c["branch_split_remove"]
+    out: dict[str, float | None] = {"share": bsr / r["removes"]}
+    for name, keys in SPLIT_GROUPS:
+        out[name] = sum(c[k] for k in keys) / bsr if bsr else None
+    return out
+
+
+def summarise52(cell: dict[str, Any]) -> dict[str, Any]:
+    """The cell's share and composition, each with its BCa interval over rounds."""
+    splits = [round_split(r) for r in cell["rounds_raw"]]
+    out: dict[str, Any] = {"share": interval([x["share"] for x in splits])}
+    for k in SPLIT_FRACTIONS:
+        vals = [x[k] for x in splits]
+        if all(v is not None for v in vals):
+            out[k] = interval(vals)
+    return out
+
+
+def d1_outcome(s: dict[str, Any]) -> str:
+    """§52's D1 rule on one cell's summary."""
+    if s["share"]["ci_upper"] < G52_NOT_REPRODUCED:
+        return "NOT_REPRODUCED"
+    if not all(k in s for k in ("emptied_linear_or_bitmap", "prefix", "other")):
+        return "INTERMEDIATE"
+    lb, px, ot = s["emptied_linear_or_bitmap"], s["prefix"], s["other"]
+    if lb["ci_lower"] >= G52_DOMINATES:
+        return "EMPTIED_UNDER_LINEAR_OR_BITMAP"
+    if px["ci_lower"] >= G52_DOMINATES:
+        return "PREFIX_MISMATCH"
+    if ot["ci_lower"] >= G52_DOMINATES:
+        return "OTHER"
+    if max(lb["ci_upper"], px["ci_upper"], ot["ci_upper"]) < G52_DOMINATES:
+        return "MIXED"
+    return "INTERMEDIATE"
+
+
+def d2_outcome(lo_n: dict[str, Any], hi_n: dict[str, Any]) -> str:
+    """§52's D2 rule: does the share at the larger N sit above the share at the smaller?"""
+    a, b = lo_n["share"], hi_n["share"]
+    if b["ci_lower"] > a["ci_upper"]:
+        return "RISES"
+    if b["ci_upper"] < a["ci_lower"]:
+        return "FALLS"
+    return "INTERMEDIATE"
+
+
+def _cell52_id(shape: str, keys: int) -> str:
+    return cell_id({"shape": shape, "keys": keys, "writers": G52_WRITERS, "period_ms": G52_PERIOD_MS,
+                    "workload": "churn"})
+
+
+def evaluate52(cells: list[dict[str, Any]], g: dict[str, Any], quick: bool, load_avg_void: float,
+               run_voids: list[str] | None = None) -> dict[str, Any]:
+    """§52's D1 and D2, and the per-cell table, from the cells' raw rounds."""
+    rounds = g["rounds"]
+    voids_by: dict[str, list[str]] = {}
+    table: dict[str, Any] = {}
+    for cell in cells:
+        cid = cell["cell"]
+        if cell.get("skipped"):
+            voids_by[cid] = [cell["skipped"]]
+            table[cid] = {"status": "SKIPPED_MEMORY", "reason": cell["skipped"]}
+            continue
+        v = cell_voids(cell, rounds, quick, load_avg_void)
+        for r in cell.get("rounds_raw", []):
+            v.extend(split_voids(r, f"{cid} round {r.get('round')}"))
+        voids_by[cid] = v
+        if v:
+            table[cid] = {"status": "VOID", "voids": v[:5]}
+            continue
+        table[cid] = {"status": "OK", **summarise52(cell)}
+    pre = list(run_voids or []) + (["quick run: decides nothing"] if quick else [])
+    d1c = _cell52_id(g["d1"]["shape"], g["d1"]["keys"])
+    d1v = pre + voids_by.get(d1c, [f"{d1c}: not measured"])
+    d1 = {"at": dict(g["d1"]), "cell": d1c, "voids": d1v,
+          "verdict": "VOID" if d1v else d1_outcome(table[d1c])}
+    d2a, d2b = _cell52_id("short", g["d2_from"]), d1c
+    d2v = pre + voids_by.get(d2a, [f"{d2a}: not measured"]) + voids_by.get(d2b, [f"{d2b}: not measured"])
+    d2 = {"from": d2a, "to": d2b, "voids": d2v,
+          "verdict": "VOID" if d2v else d2_outcome(table[d2a], table[d2b])}
+    return {"D1": d1, "D2": d2, "cells": table}
+
+
+def measure52(out_path: Path, quick: bool) -> dict[str, Any]:
+    g = grid52(quick)
+    rounds = g["rounds"]
+    applied = bench_pin.apply("strmap_poll_stall.py")
+    prov = new_provenance("concurrency", 1610,
+                          "§52 Remove-fallback share and sub-split over N (counts; no ratio gate)",
+                          REPO_ROOT, cell_isolation="process", rounds=rounds, core_pin_applied=applied,
+                          preregistration=G52_PREREGISTRATION, quick=quick, seconds=g["seconds"],
+                          bca_resamples=BCA_RESAMPLES, arm=G52_ARM, build_features=["occ-stats"],
+                          mem_factor=bounds.MEM_FACTOR)
+    cpus = host_cpus(applied)
+    siblings = read_siblings(cpus) if cpus else None
+    prov["placement_rule"] = ("writers on the first CPU of every core but the first, then their SMT "
+                              "siblings (arm none: the poller's CPU stays idle)")
+    prov["placement_cpus"] = cpus if siblings else None
+    exe = build(("occ-stats",))
+    probe(exe, counters=True)
+    pin = child_pin(applied)
+    cells = cells_for(g)
+    by = {cell_id(c): {"cell": cell_id(c), **c, "arm": G52_ARM, "rounds_raw": []} for c in cells}
+    pauses: list[dict[str, Any]] = []
+    processes: list[dict[str, Any]] = []
+    prefills: dict[tuple[str, int], float] = {}
+    memory: list[dict[str, Any]] = []
+    prov["hour_guard"] = {"blackout_utc_minutes": [HOUR_BLACKOUT_S[0] // 60, HOUR_BLACKOUT_S[1] // 60],
+                          "prefill_s_per_key_default": PREFILL_S_PER_KEY, "prefill_margin": PREFILL_MARGIN,
+                          "post_s": POST_S, "pauses": pauses, "processes": processes}
+    prov["memory_checks"] = memory
+    for r in range(rounds):
+        for c in round_order52(cells, r, rounds):
+            cid = cell_id(c)
+            cell = by[cid]
+            if cell.get("skipped"):
+                continue
+            avail = mem_available_bytes()
+            why = memory_skip(c, avail, quick)
+            memory.append({"cell": cid, "round": r, "mem_available_bytes": avail,
+                           "required_bytes": bounds.mem_required_bytes(c["shape"], c["keys"]), "skipped": why})
+            if why:
+                cell["skipped"] = why
+                continue
+            place = placement(cpus, siblings, c["writers"]) if siblings else None
+            label = f"cell:{cid}:{G52_ARM}:r{r}"
+            guard_pause(pauses, label, process_estimate_s(c, g["seconds"], prefills))
+            start = begin_cell(prov, label)
+            row = run_recorded(processes, label,
+                               lambda: run_one(exe, c, G52_ARM, r, g["seconds"], 0x1610_0000 + r, pin, place))
+            note_prefill(prefills, c, row)
+            row["load"] = end_cell(start)
+            row["load_start"] = {"label": start.get("label"), "load1": start.get("load1")}
+            cell["rounds_raw"].append(row)
+    out_cells = [by[cell_id(c)] for c in cells]
+    for cell in out_cells:
+        loads = [row["load"] for row in cell["rounds_raw"]]
+        if loads:
+            cell["load"] = max(loads, key=lambda ld: ld.get("foreign_busy_cpus") or 0.0)
+    ncpu = os.cpu_count() or 1
+    run_voids = [] if quick or rounds == ROUNDS else [f"round count {rounds} is not the registered {ROUNDS}"]
+    art: dict[str, Any] = {"provenance": prov, "cells": out_cells,
+                           "verdicts": evaluate52(out_cells, g, quick, ncpu / 2, run_voids)}
+    if quick:
+        art["note"] = "quick smoke run on a reduced grid: not a measurement, decides nothing"
+    check_pauses(prov["hour_guard"])
+    check_provenance(art, quick, G52_ARTIFACT_REL)
+    out_path.write_text(json.dumps(art, indent=2) + "\n")
+    return art
+
+
 def check_provenance(art: dict[str, Any], quick: bool, rel: str = ARTIFACT_REL) -> None:
     """Runs `check_bench_provenance` on the artifact before it is written.
 
@@ -760,6 +1046,23 @@ def check_provenance(art: dict[str, Any], quick: bool, rel: str = ARTIFACT_REL) 
 
 
 def verdict_lines(v: dict[str, Any]) -> list[str]:
+    if "D1" in v:
+        lines = [f"D1 at {v['D1']['cell']}: {v['D1']['verdict']}",
+                 f"D2 {v['D2']['from']} -> {v['D2']['to']}: {v['D2']['verdict']}"]
+        for cid, e in v["cells"].items():
+            if e["status"] != "OK":
+                lines.append(f"  {cid}: {e['status']}")
+                continue
+            sh = e["share"]
+            parts = [f"share [{sh['ci_lower']:.5f}, {sh['ci_upper']:.5f}] ({sh['ci_method']})"]
+            for k in SPLIT_FRACTIONS:
+                if k in e:
+                    parts.append(f"{k} [{e[k]['ci_lower']:.3f}, {e[k]['ci_upper']:.3f}]")
+            lines.append(f"  {cid}: " + "; ".join(parts))
+        for key in ("D1", "D2"):
+            for reason in v[key]["voids"][:10]:
+                lines.append(f"  {key} void: {reason}")
+        return lines
     if "G_stall" in v:
         gs = v["G_stall"]
         lines = [f"G-stall at {gs['at']} (k = {gs['k']:g}): {gs['verdict']}"]
@@ -975,8 +1278,12 @@ def self_test_identity_and_counters() -> None:
     row = {"elapsed_s": 30.0, "inserts": 10, "polls": [[0, 1, 1]],
            "counters": {"gate_blocked_entries": 5, "gate_wait_cycles": 3_000_000_000, "quiesce_calls": 29,
                         "quiesce_drain_cycles": 1_000_000, "locked_reads": 29, "contention_gate_closed": 0,
+                        "branch_split_remove": 7, "branch_split_remove_emptied_linear": 3,
+                        "branch_split_remove_emptied_bitmap": 2, "branch_split_remove_emptied_other": 0,
+                        "branch_split_remove_prefix": 2, "branch_split_remove_other": 0,
                         "tsc_hz": 3_000_000_000, "writer_cpu_ns": 1}}
     rep = counters_report(row)
+    assert rep["counters"]["branch_split_remove_prefix"] == 2 and len(rep["counters"]) == len(COUNTER_KEYS)
     assert rep["gate_wait_s"] == 1.0 and rep["quiesce_drain_s"] == 1e6 / 3e9 and rep["polls"] == 1
     assert "no `counters`" in _refused(counters_report, {"elapsed_s": 1.0})
     row["counters"]["tsc_hz"] = 0
@@ -1070,7 +1377,7 @@ def self_test_hour_guard() -> None:
         assert "overlaps measured process" in got, (bad, got)
     # The call sites: every process measure() starts is guarded first, and its prefill noted.
     src = (Path(__file__).resolve()).read_text()
-    body = src[src.index("def measure("):src.index("def check_provenance(")]
+    body = src[src.index("def measure("):src.index("# --- §52: the Remove fallback")]
     code = "\n".join(ln.split("#", 1)[0] for ln in body.splitlines())  # measure() has no '#' in strings
     runs = [i for i in range(len(code)) if code.startswith("run_one(", i)]
     guards = [i for i in range(len(code)) if code.startswith("guard_pause(", i)]
@@ -1082,6 +1389,18 @@ def self_test_hour_guard() -> None:
     recs = [i for i in range(len(code)) if code.startswith("run_recorded(processes,", i)]
     assert len(recs) == 2 and all(rec < r and code[rec:r].rstrip().endswith("lambda:") and "run_one(" not in code[rec:r]
                                   for rec, r in zip(recs, runs)), (recs, runs)
+    assert '"processes": processes}' in code and code.count('check_pauses(prov["hour_guard"])') == 1
+    assert code.index("check_pauses(") < code.index("out_path.write_text(")
+    # §52's measure52() holds to the same: one guarded, recorded process per (cell, round).
+    body = src[src.index("def measure52("):src.index("def check_provenance(")]
+    code = "\n".join(ln.split("#", 1)[0] for ln in body.splitlines())
+    runs = [i for i in range(len(code)) if code.startswith("run_one(", i)]
+    guards = [i for i in range(len(code)) if code.startswith("guard_pause(", i)]
+    recs = [i for i in range(len(code)) if code.startswith("run_recorded(processes,", i)]
+    assert len(runs) == len(guards) == len(recs) == 1 and guards[0] < recs[0] < runs[0], (runs, guards, recs)
+    assert code[recs[0]:runs[0]].rstrip().endswith("lambda:")
+    assert code.count("note_prefill(prefills") == 1 and code.index("note_prefill(") > runs[0]
+    assert code.index("memory_skip(") < guards[0]
     assert '"processes": processes}' in code and code.count('check_pauses(prov["hour_guard"])') == 1
     assert code.index("check_pauses(") < code.index("out_path.write_text(")
     # A pause begins only after the previous process has exited: every process runs through a
@@ -1192,6 +1511,172 @@ def self_test_plan47() -> None:
     assert "unknown plan" in _refused(measure, Path(tempfile.gettempdir()) / "x.json", True, "45")
 
 
+def _cells52(g: dict[str, Any], *, share: float = 0.2, lin: float = 0.5, bmp: float = 0.3, pre: float = 0.15,
+             rounds: int = 5, removes: int = 100_000, overrides: dict | None = None,
+             **kw) -> list[dict[str, Any]]:
+    """Synthetic §52 cells: `share` of removals on the Remove fallback, split lin/bmp/prefix/rest.
+
+    `overrides` maps (shape, keys) to a dict of the same keyword values for that cell alone.
+    """
+    out = []
+    for c in cells_for(g):
+        o = {"share": share, "lin": lin, "bmp": bmp, "pre": pre, **((overrides or {}).get((c["shape"], c["keys"]), {}))}
+        rows = []
+        for r in range(rounds):
+            row = _row(c, G52_ARM, r, 50e3, None, 5e3, **kw)
+            j = 1 + 0.01 * (r % 3)
+            bsr = int(removes * o["share"] * j)
+            el, eb, px = int(bsr * o["lin"]), int(bsr * o["bmp"]), int(bsr * o["pre"])
+            eo = (bsr - el - eb - px) // 2
+            row.update({"len_before": c["keys"], "len_after": c["keys"], "removes": removes, "remove_missed": 0,
+                        "counters": {"branch_split_remove": bsr,
+                                     "branch_split_remove_emptied_linear": el,
+                                     "branch_split_remove_emptied_bitmap": eb,
+                                     "branch_split_remove_prefix": px,
+                                     "branch_split_remove_emptied_other": eo,
+                                     "branch_split_remove_other": bsr - el - eb - px - eo}})
+            rows.append(row)
+        out.append({"cell": cell_id(c), **c, "arm": G52_ARM, "rounds_raw": rows})
+    return out
+
+
+def self_test_plan52() -> None:
+    g = grid52()
+    cells = cells_for(g)
+    # §52's grid: two shapes x five N, W = 4, churn, every N a multiple of W.
+    assert len(cells) == 10 and {c["shape"] for c in cells} == {"short", "routes"}
+    assert sorted({c["keys"] for c in cells}) == [2_000_000, 5_000_000, 10_000_000, 20_000_000, 50_000_000]
+    assert all(c["writers"] == 4 and c["workload"] == "churn" and c["keys"] % 4 == 0 for c in cells)
+    # D1's cell is §47's short churn cell: the same id.
+    assert _cell52_id("short", 20_000_000) in {cell_id(c) for c in cells_for(grid47())}
+    assert (G52_DOMINATES, G52_NOT_REPRODUCED, G52_ARM, ROUNDS) == (0.5, 0.01, "none", 5)
+    # COUNTER_KEYS carries the Remove counter and its five sub-counters, and the harness emits each.
+    src = (REPO_ROOT / HARNESS_REL).read_text()
+    assert len(COUNTER_KEYS) == 12 and len(set(COUNTER_KEYS)) == 12
+    for k in COUNTER_KEYS:
+        assert f'"{k}":' in src, k
+    # Round order: every cell once per round, rotated.
+    for r in range(ROUNDS):
+        o = round_order52(cells, r, ROUNDS)
+        assert sorted(map(cell_id, o)) == sorted(map(cell_id, cells)) and o[0] == cells[(r * 10) // 5]
+
+    def ev(cs, **kw):
+        return evaluate52(cs, g, False, 12.0, **kw)
+    # Baseline: 20% share, 80% emptied under a linear or bitmap parent.
+    v = ev(_cells52(g))
+    assert v["D1"]["verdict"] == "EMPTIED_UNDER_LINEAR_OR_BITMAP", v["D1"]
+    assert v["D2"]["verdict"] == "INTERMEDIATE", v["D2"]          # the same share at every N
+    e = v["cells"][v["D1"]["cell"]]
+    assert e["status"] == "OK" and all(e[k]["ci_method"] for k in ("share", *SPLIT_FRACTIONS))
+    # D1, one negative control per outcome and per threshold.
+    assert ev(_cells52(g, share=0.005))["D1"]["verdict"] == "NOT_REPRODUCED"
+    assert ev(_cells52(g, share=0.0098))["D1"]["verdict"] == "NOT_REPRODUCED"   # upper bound 0.00993
+    assert ev(_cells52(g, share=0.0099))["D1"]["verdict"] != "NOT_REPRODUCED"   # upper bound 0.01003
+    assert ev(_cells52(g, lin=0.3, bmp=0.15, pre=0.5))["D1"]["verdict"] == "PREFIX_MISMATCH"
+    assert ev(_cells52(g, lin=0.1, bmp=0.1, pre=0.1))["D1"]["verdict"] == "OTHER"
+    assert ev(_cells52(g, lin=0.2, bmp=0.1, pre=0.3))["D1"]["verdict"] == "MIXED"
+    # Just below the 0.5 line on emptied-linear-or-bitmap, nothing else above it: MIXED; above: EMPTIED.
+    assert ev(_cells52(g, lin=0.3, bmp=0.18, pre=0.3))["D1"]["verdict"] == "MIXED"
+    assert ev(_cells52(g, lin=0.3, bmp=0.21, pre=0.3))["D1"]["verdict"] == "EMPTIED_UNDER_LINEAR_OR_BITMAP"
+    # The linear and bitmap parents count together: 0.26 + 0.26 dominates, either alone does not.
+    assert ev(_cells52(g, lin=0.26, bmp=0.26, pre=0.2))["D1"]["verdict"] == "EMPTIED_UNDER_LINEAR_OR_BITMAP"
+    # Straddling 0.5 with per-round spread: INTERMEDIATE.
+    cs = _cells52(g, lin=0.3, bmp=0.2, pre=0.3)
+    d1c = find(cs, shape="short", keys=20_000_000)
+    for i, frac in enumerate((0.47, 0.53, 0.49, 0.51, 0.50)):
+        c = d1c["rounds_raw"][i]["counters"]
+        c["branch_split_remove_emptied_linear"] = int(c["branch_split_remove"] * frac)
+        c["branch_split_remove_emptied_bitmap"] = 0
+        c["branch_split_remove_prefix"] = int(c["branch_split_remove"] * 0.2)
+        c["branch_split_remove_emptied_other"] = 0
+        c["branch_split_remove_other"] = (c["branch_split_remove"] - c["branch_split_remove_emptied_linear"]
+                                          - c["branch_split_remove_prefix"])
+    v = ev(cs)
+    lb = v["cells"][d1c["cell"]]["emptied_linear_or_bitmap"]
+    assert lb["ci_lower"] < 0.5 <= lb["ci_upper"] and v["D1"]["verdict"] == "INTERMEDIATE", (lb, v["D1"])
+    # A Remove-free round leaves the composition undefined: INTERMEDIATE unless the share already says
+    # NOT_REPRODUCED.
+    cs = _cells52(g)
+    c0 = find(cs, shape="short", keys=20_000_000)["rounds_raw"][0]["counters"]
+    for k in ("branch_split_remove", *REMOVE_SPLIT_KEYS):
+        c0[k] = 0
+    assert ev(cs)["D1"]["verdict"] == "INTERMEDIATE"
+    # D2: rises, falls, overlaps; it reads only short at 2e6 and 2e7.
+    rise = {("short", 2_000_000): {"share": 0.0002}}
+    assert ev(_cells52(g, overrides=rise))["D2"]["verdict"] == "RISES"
+    assert ev(_cells52(g, overrides={("short", 2_000_000): {"share": 0.5}}))["D2"]["verdict"] == "FALLS"
+    assert ev(_cells52(g, overrides={("routes", 2_000_000): {"share": 0.0002}}))["D2"]["verdict"] == "INTERMEDIATE"
+    # D2 reads the intervals, not the medians: a higher median inside overlapping intervals does not rise.
+    v = ev(_cells52(g, overrides={("short", 2_000_000): {"share": 0.199}}))
+    lo_c, hi_c = v["cells"][v["D2"]["from"]]["share"], v["cells"][v["D2"]["to"]]["share"]
+    assert hi_c["median"] > lo_c["median"] and hi_c["ci_lower"] <= lo_c["ci_upper"], (lo_c, hi_c)
+    assert v["D2"]["verdict"] == "INTERMEDIATE", v["D2"]
+    # Voids: the partition, a missing counter, the churn clauses, contamination, a missing round.
+    cs = _cells52(g)
+    find(cs, shape="short", keys=20_000_000)["rounds_raw"][1]["counters"]["branch_split_remove_other"] += 1
+    v = ev(cs)
+    assert v["D1"]["verdict"] == "VOID" and any("sums to" in x for x in v["D1"]["voids"]), v["D1"]
+    assert v["D2"]["verdict"] == "VOID"
+    cs = _cells52(g)
+    del find(cs, shape="short", keys=20_000_000)["rounds_raw"][1]["counters"]["branch_split_remove_prefix"]
+    assert any("lack" in x for x in ev(cs)["D1"]["voids"])
+    cs = _cells52(g)
+    del find(cs, shape="short", keys=20_000_000)["rounds_raw"][1]["counters"]
+    assert any("no `counters`" in x for x in ev(cs)["D1"]["voids"])
+    cs = _cells52(g)
+    find(cs, shape="short", keys=20_000_000)["rounds_raw"][2]["len_after"] = 20_000_005
+    assert any("moved from" in x for x in ev(cs)["D1"]["voids"])
+    assert ev(_cells52(g, foreign=1.5))["D1"]["verdict"] == "VOID"
+    assert ev(_cells52(g, rounds=4))["D1"]["verdict"] == "VOID"
+    assert ev(_cells52(g, placed=False))["D1"]["verdict"] == "VOID"
+    # A void routes or 5e7 cell decides neither D1 nor D2.
+    cs = _cells52(g)
+    find(cs, shape="routes", keys=50_000_000)["rounds_raw"][0]["remove_missed"] = 3
+    v = ev(cs)
+    assert v["D1"]["verdict"] == "EMPTIED_UNDER_LINEAR_OR_BITMAP"
+    assert v["cells"][_cell52_id("routes", 50_000_000)]["status"] == "VOID"
+    # The memory rule: a skipped cell is reported, never read, and decides neither D1 nor D2.
+    cs = _cells52(g)
+    sk = find(cs, shape="routes", keys=50_000_000)
+    sk["rounds_raw"], sk["skipped"] = [], "MemAvailable below"
+    v = ev(cs)
+    assert v["cells"][sk["cell"]]["status"] == "SKIPPED_MEMORY" and v["D1"]["verdict"] != "VOID"
+    c50 = {"shape": "routes", "keys": 50_000_000, "writers": 4, "period_ms": 1000, "workload": "churn"}
+    need = bounds.mem_required_bytes("routes", 50_000_000)
+    assert memory_skip(c50, int(need), False) is None
+    assert "below" in memory_skip(c50, int(need) - 1, False)
+    assert memory_skip(c50, None, True) is None
+    assert "unreadable" in _refused(memory_skip, c50, None, False)
+    with tempfile.TemporaryDirectory() as d:
+        mi = Path(d) / "meminfo"
+        oc = Path(d) / "overcommit_memory"
+        oc.write_text("0\n")
+        mi.write_text("MemTotal:       65536000 kB\nMemFree:  1000 kB\nMemAvailable:   60000000 kB\n"
+                      "CommitLimit:    40000000 kB\nCommitted_AS:   36000000 kB\n")
+        assert mem_available_bytes(mi, oc) == 60_000_000 * 1024          # heuristic overcommit: MemAvailable
+        assert mem_available_bytes(mi, Path(d) / "absent") == 60_000_000 * 1024
+        oc.write_text("2\n")
+        assert mem_available_bytes(mi, oc) == 4_000_000 * 1024           # strict: the commit headroom
+        mi.write_text("MemAvailable:   3000000 kB\nCommitLimit:    40000000 kB\nCommitted_AS:   36000000 kB\n")
+        assert mem_available_bytes(mi, oc) == 3_000_000 * 1024           # strict, MemAvailable smaller
+        mi.write_text("MemAvailable:   60000000 kB\nCommitLimit:    40000000 kB\nCommitted_AS:   41000000 kB\n")
+        assert mem_available_bytes(mi, oc) == 0                          # over the limit already
+        mi.write_text("MemAvailable:   60000000 kB\n")
+        assert mem_available_bytes(mi, oc) is None                       # strict, no commit figures
+        mi.write_text("MemTotal:       65536000 kB\n")
+        assert mem_available_bytes(mi, oc) is None
+        assert mem_available_bytes(Path(d) / "absent", oc) is None
+    # A quick run never decides.
+    gq = grid52(quick=True)
+    v = evaluate52(_cells52(gq, rounds=3), gq, True, 12.0)
+    assert v["D1"]["verdict"] == "VOID" and any("quick run" in x for x in v["D1"]["voids"])
+    # The verdict lines name both decisions and every cell.
+    lines = verdict_lines(ev(_cells52(g)))
+    assert lines[0].startswith("D1 at") and lines[1].startswith("D2") and len(lines) == 12, lines
+    # The artifact passes the provenance gate's cell and label checks under its registered name.
+    art = {"provenance": {}, "cells": _cells52(g), "verdicts": ev(_cells52(g))}
+    assert not [f for f in check_bench_provenance.partial_label_problems(G52_ARTIFACT_REL, art)], art["verdicts"]
+
 def self_test_churn_harness_source() -> None:
     """The churn writer times the insert and the removal apart, and inserts before it removes."""
     src = (REPO_ROOT / HARNESS_REL).read_text()
@@ -1211,6 +1696,7 @@ def self_test_churn_harness_source() -> None:
 def self_test() -> int:
     bounds.self_test()
     self_test_plan47()
+    self_test_plan52()
     self_test_churn_harness_source()
     self_test_hour_guard()
     assert CI_METHOD_BCA
@@ -1227,8 +1713,9 @@ def main() -> int:
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--quick", action="store_true", help="a reduced-grid smoke run; scratch output only")
-    ap.add_argument("--plan", choices=("44", "47"), default="44",
-                    help="44: METHODOLOGY §44's grid (default); 47: §47's G-stall cells")
+    ap.add_argument("--plan", choices=("44", "47", "52"), default="44",
+                    help="44: METHODOLOGY §44's grid (default); 47: §47's G-stall cells; "
+                         "52: §52's Remove-fallback sweep (occ-stats build)")
     args = ap.parse_args()
     if args.self_test:
         return self_test()

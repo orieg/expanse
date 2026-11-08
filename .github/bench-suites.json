@@ -391,6 +391,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "strmap_remove_split_g52",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Which removals take the serialised BranchSplitKind::Remove fallback on a SyncExpanseStrMap (METHODOLOGY.md §52, Refs #1610): the §47 churn cell (W = 4, 30 s, arm none) on both shapes at N in {2e6, 5e6, 1e7, 2e7, 5e7}, 5 rotated rounds, occ-stats build only; per round the Remove share of removals and its sub-split, BCa intervals over rounds; D1 classifies the cause at short N = 2e7, D2 compares the short share at 2e6 and 2e7; a cell whose projected memory MemAvailable does not cover is skipped and recorded; outputs diagnostic_1610_strmap_remove_split.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "writer_scaling_1586_str_vs_base",
       "available": true,
       "kind": "wallclock",
