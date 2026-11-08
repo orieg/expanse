@@ -1172,6 +1172,96 @@ impl DirtyDigits {
     }
 }
 
+/// Which level-7 digits under each top-level digit optimistic writers touched
+/// (Refs #1610): one 32-bit word per top digit, one bit per bucket of eight
+/// level-7 digits (`digit(key, 7) >> 3`). Every key-addressed mark
+/// ([`Shared::mark_dirty_key`]) tests its bucket here first; only a mark
+/// that finds the bucket clean sets it, and the top-level bit of
+/// [`DirtyDigits`] with it, so a non-zero word always has its top bit set.
+/// Read only by the census fold, which takes the words of the dirty top
+/// digits and refolds just their marked buckets. A whole-digit mark
+/// ([`Shared::mark_dirty_digit`]) sets every bucket; a dirty top digit whose
+/// word is 0 is refolded whole as well.
+///
+/// It sits at the end of `Shared`, so the hot fields keep their offsets.
+pub(crate) struct DirtySub([core::sync::atomic::AtomicU32; 256]);
+
+/// The marked-bucket count from which a dirty top digit is folded whole
+/// rather than by bucket ([`DirtySub::selective`]), of 32 (Refs #1610).
+pub(crate) const SUB_FULL_FOLD_BUCKETS: u32 = 28;
+
+impl DirtySub {
+    pub(crate) const fn new() -> Self {
+        Self([const { core::sync::atomic::AtomicU32::new(0) }; 256])
+    }
+
+    /// Marks the bucket of level-7 digit `d2` under top digit `d1`, and
+    /// reports whether the bucket was clean: only then must the caller set
+    /// the top digit's bit in [`DirtyDigits`]. A writer whose bucket is
+    /// already marked makes one load and one test, as the per-digit mark
+    /// alone did, and writes nothing.
+    #[inline(always)]
+    pub(crate) fn mark(&self, d1: u8, d2: u8) -> bool {
+        let w = &self.0[d1 as usize];
+        let bit = 1u32 << (d2 >> 3);
+        if w.load(core::sync::atomic::Ordering::Relaxed) & bit == 0 {
+            w.fetch_or(bit, core::sync::atomic::Ordering::Relaxed);
+            return true;
+        }
+        false
+    }
+
+    /// Marks every bucket under top digit `d1`: the whole digit.
+    #[inline(always)]
+    pub(crate) fn mark_all(&self, d1: u8) {
+        self.0[d1 as usize].store(u32::MAX, core::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Takes the words of the top digits set in `mask`, clearing them; the
+    /// other entries of the result are 0 and never read.
+    pub(crate) fn take(&self, mask: &[u32; 8]) -> [u32; 256] {
+        let mut out = [0u32; 256];
+        for (w, &bits) in mask.iter().enumerate() {
+            let mut b = bits;
+            while b != 0 {
+                let d = w * 32 + b.trailing_zeros() as usize;
+                out[d] = self.0[d].swap(0, core::sync::atomic::Ordering::Relaxed);
+                b &= b - 1;
+            }
+        }
+        out
+    }
+
+    /// Whether a taken word is worth folding selectively: not the whole
+    /// digit (0), and fewer than [`SUB_FULL_FOLD_BUCKETS`] of the 32 buckets
+    /// marked. A digit with nearly every bucket marked (a bulk load, a
+    /// whole-digit mark) refolds nearly every child anyway, and folding it
+    /// whole skips the per-child digit decoding of the selective loop.
+    #[inline(always)]
+    pub(crate) fn selective(word: u32) -> bool {
+        word != 0 && word.count_ones() < SUB_FULL_FOLD_BUCKETS
+    }
+
+    /// A taken word as the selective fold's 256-digit mask: bucket `b` covers
+    /// level-7 digits `8b..8b + 8`. A word of 0 is the whole digit.
+    #[inline]
+    pub(crate) fn expand(word: u32) -> [u32; 8] {
+        if word == 0 {
+            return [u32::MAX; 8];
+        }
+        let mut out = [0u32; 8];
+        for (i, o) in out.iter_mut().enumerate() {
+            let quad = (word >> (4 * i)) & 0xF;
+            for j in 0..4 {
+                if quad & (1 << j) != 0 {
+                    *o |= 0xFF << (8 * j);
+                }
+            }
+        }
+        out
+    }
+}
+
 /// Test-only census of the work [`fold_branch_pop0`] does: one tick per edge
 /// it visits, on the calling thread. What pins the string wrapper's insert
 /// path to folding nothing (#1162) — a count, where a wall clock could not
@@ -1788,9 +1878,15 @@ unsafe fn edge_pop0_exact(edge: *mut Edge, level: u8) -> u64 {
 /// Lazily computes and updates branch `pop0` counts across subtrees whose digits
 /// are marked in `mask`.
 ///
-/// At level 8, child subtrees whose digits have clean bits in `mask` are read
-/// in O(1) via `edge_pop0_exact` without recursion. Only child subtrees whose digits
-/// have set bits in `mask` are recursively folded.
+/// When the branch under `edge` sits at `level` (no skipped digits), child
+/// subtrees whose digits have clean bits in `mask` are read in O(1) via
+/// `edge_pop0_exact` without recursion, and only the children whose bits are
+/// set are folded. With `sub` (the top-level call, Refs #1610), a dirty
+/// child at level 8 is itself folded selectively one level down, against the
+/// sub-digit buckets its writers marked ([`DirtySub`]): only the buckets of
+/// level-7 digits a writer touched are refolded, and the other level-7
+/// children's `pop0` are read exactly. A branch below `level` (it skips
+/// digits) is folded whole.
 ///
 /// Returns the total population of the subtree under `edge`.
 ///
@@ -1802,6 +1898,7 @@ pub(crate) unsafe fn fold_branch_pop0_selective(
     edge: *mut Edge,
     level: u8,
     mask: &[u32; 8],
+    sub: Option<&[u32; 256]>,
 ) -> u64 {
     if edge.is_null() {
         return 0;
@@ -1870,14 +1967,14 @@ pub(crate) unsafe fn fold_branch_pop0_selective(
                 // SAFETY: child_ptr points to an Edge within the branch's allocated edges array.
                 let is_null = unsafe { child_ptr.read().is_null() };
                 if !is_null {
-                    let is_dirty = if bl == 8 {
+                    let is_dirty = if bl == level {
                         (mask[(d / 32) as usize] & (1u32 << (d % 32))) != 0
                     } else {
                         true
                     };
                     if is_dirty {
                         // SAFETY: child_ptr is non-null and valid for recursive fold.
-                        pop += unsafe { fold_branch_pop0(child_ptr, bl - 1) };
+                        pop += unsafe { fold_dirty_child(child_ptr, bl, level, d, sub) };
                     } else {
                         // SAFETY: child_ptr is clean; read exact pop0 without recursion.
                         pop += unsafe { edge_pop0_exact(child_ptr, bl - 1) };
@@ -1900,12 +1997,13 @@ pub(crate) unsafe fn fold_branch_pop0_selective(
             }
             let b = ptr.cast::<BranchB>();
             let mut pop = 0u64;
+            let sub_masks = sub;
             for (sub, &sub_mask) in mask.iter().enumerate() {
                 // SAFETY: ptr points to an EBR-live BranchB.
                 let (expected, sub_ptr) =
                     unsafe { ((*b).pop_counts[sub] as usize, (*b).subarrays[sub]) };
                 if expected > 0 && !sub_ptr.is_null() {
-                    if bl == 8 && sub_mask == 0 {
+                    if bl == level && sub_mask == 0 {
                         // Entire 32-digit subexpanse is clean: read exact counts without recursion.
                         for i in 0..expected {
                             // SAFETY: i < expected within subarray.
@@ -1917,7 +2015,7 @@ pub(crate) unsafe fn fold_branch_pop0_selective(
                                 pop += unsafe { edge_pop0_exact(child_ptr, bl - 1) };
                             }
                         }
-                    } else if bl == 8 {
+                    } else if bl == level {
                         // Subexpanse has dirty digits: identify child digits from bitmap.
                         // SAFETY: ptr points to an EBR-live BranchB.
                         let sub_bitmap =
@@ -1935,8 +2033,11 @@ pub(crate) unsafe fn fold_branch_pop0_selective(
                                 let is_null = unsafe { child_ptr.read().is_null() };
                                 if !is_null {
                                     if is_dirty {
+                                        let d = (sub * 32) as u8 + trailing as u8;
                                         // SAFETY: child_ptr is non-null and dirty; recursive fold needed.
-                                        pop += unsafe { fold_branch_pop0(child_ptr, bl - 1) };
+                                        pop += unsafe {
+                                            fold_dirty_child(child_ptr, bl, level, d, sub_masks)
+                                        };
                                     } else {
                                         // SAFETY: child_ptr is clean; read exact pop0 without recursion.
                                         pop += unsafe { edge_pop0_exact(child_ptr, bl - 1) };
@@ -1984,14 +2085,14 @@ pub(crate) unsafe fn fold_branch_pop0_selective(
                 let is_null = unsafe { child_ptr.read().is_null() };
                 if !is_null {
                     let d = i as u8;
-                    let is_dirty = if bl == 8 {
+                    let is_dirty = if bl == level {
                         (mask[(d / 32) as usize] & (1u32 << (d % 32))) != 0
                     } else {
                         true
                     };
                     if is_dirty {
                         // SAFETY: child_ptr is non-null and valid for recursive fold.
-                        pop += unsafe { fold_branch_pop0(child_ptr, bl - 1) };
+                        pop += unsafe { fold_dirty_child(child_ptr, bl, level, d, sub) };
                     } else {
                         // SAFETY: child_ptr is clean; read exact pop0 without recursion.
                         pop += unsafe { edge_pop0_exact(child_ptr, bl - 1) };
@@ -2004,6 +2105,36 @@ pub(crate) unsafe fn fold_branch_pop0_selective(
             }
             pop
         }
+    }
+}
+
+/// Folds a dirty child of a branch the selective fold masks (Refs #1610).
+///
+/// At the top level (`level == 8`, `sub` given) the child is folded
+/// selectively one level down, against its writers' sub-digit buckets
+/// ([`DirtySub::expand`]); anywhere else, and for a top-level digit whose
+/// buckets say "whole digit" (`0`), it is folded whole.
+///
+/// # Safety
+///
+/// As [`fold_branch_pop0_selective`]; `child` is a non-null edge of the
+/// branch at `bl`.
+#[inline(always)]
+unsafe fn fold_dirty_child(
+    child: *mut Edge,
+    bl: u8,
+    level: u8,
+    d: u8,
+    sub: Option<&[u32; 256]>,
+) -> u64 {
+    match sub {
+        Some(sub) if level == 8 && bl == 8 && DirtySub::selective(sub[d as usize]) => {
+            let mask = DirtySub::expand(sub[d as usize]);
+            // SAFETY: caller contract; one level down, without further sub-masks.
+            unsafe { fold_branch_pop0_selective(child, bl - 1, &mask, None) }
+        }
+        // SAFETY: caller contract.
+        _ => unsafe { fold_branch_pop0(child, bl - 1) },
     }
 }
 
@@ -2239,6 +2370,9 @@ struct Shared<T> {
     // `Shared`'s layout -- and `layout_report()` -- is the same across variants.
     #[cfg_attr(feature = "advance-never", allow(dead_code))]
     advance_tick: UnsafeCell<u64>,
+    /// The sub-digit dirty buckets the census fold reads ([`DirtySub`],
+    /// Refs #1610). Last, so it moves no hot field.
+    dirty_sub: DirtySub,
 }
 
 // SAFETY: the OCC protocol above is exactly what makes the inner tree
@@ -2357,6 +2491,7 @@ impl<T: SharedTree> Shared<T> {
             #[cfg(feature = "occ-stats")]
             last_holder: UnsafeCell::new(0),
             advance_tick: UnsafeCell::new(0),
+            dirty_sub: DirtySub::new(),
         });
         // SAFETY: the word and the tree live in this one heap block, which
         // the wrapper owns through `SharedBox` and never opens; `inner` drops
@@ -2498,9 +2633,25 @@ impl<T: SharedTree> Shared<T> {
         unsafe { &*self.tree_ptr() }
     }
 
+    /// Marks the whole top-level digit `d` dirty: the census fold refolds
+    /// every subtree under it.
     #[inline(always)]
     pub(crate) fn mark_dirty_digit(&self, d: u8) {
         self.dirty_digits.mark_digit(d);
+        self.dirty_sub.mark_all(d);
+    }
+
+    /// Marks the census stale along `key`'s path (Refs #1610): the bucket of
+    /// its level-7 digit under its top-level digit, so the fold refolds that
+    /// bucket and reads the rest of the digit's children exactly. The
+    /// top-level bit is set only when the bucket was clean; every later
+    /// writer into the same bucket finds it marked and writes nothing.
+    #[inline(always)]
+    pub(crate) fn mark_dirty_key(&self, key: Key) {
+        let d1 = digit(key, 8);
+        if self.dirty_sub.mark(d1, digit(key, 7)) {
+            self.dirty_digits.mark_digit(d1);
+        }
     }
 
     /// Admits the calling thread as an optimistic writer, returning the guard
@@ -3224,11 +3375,12 @@ impl<T: SharedTree> Shared<T> {
         inner.clear_path();
         let mut mask = [0u32; 8];
         if self.dirty_digits.take(&mut mask) {
+            let sub = self.dirty_sub.take(&mask);
             // SAFETY: Writers are quiesced and write lock is held; root_top_ptr is safe to access and mutate.
             let top_ptr = unsafe { inner.root_top_ptr() };
             if !top_ptr.is_null() {
                 // SAFETY: root top pointer is non-null and points to an EBR-live root Edge.
-                let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask) };
+                let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask, Some(&sub)) };
                 inner.set_tree_pop(folded);
                 self.tree_pop.flush_and_set(folded);
                 if T::PUBLISHES_ROOT {
@@ -3279,11 +3431,12 @@ impl<T: SharedTree> Shared<T> {
         pre(inner);
         let mut mask = [0u32; 8];
         if self.dirty_digits.take(&mut mask) {
+            let sub = self.dirty_sub.take(&mask);
             // SAFETY: writers are quiesced and the write lock is held.
             let top_ptr = unsafe { inner.root_top_ptr() };
             if !top_ptr.is_null() {
                 // SAFETY: the root top pointer is non-null and points to an EBR-live root Edge.
-                let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask) };
+                let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask, Some(&sub)) };
                 inner.set_tree_pop(folded);
                 self.tree_pop.flush_and_set(folded);
                 if T::PUBLISHES_ROOT {
@@ -3433,6 +3586,13 @@ pub(crate) trait OlcHost {
     /// stale there until its next quiescent fold.
     fn mark_dirty_digit(&self, d: u8);
 
+    /// The census went stale along `key`'s path (Refs #1610). A host
+    /// that keeps only per-digit marks marks `key`'s top-level digit.
+    #[inline(always)]
+    fn mark_dirty_key(&self, key: Key) {
+        self.mark_dirty_digit(digit(key, 8));
+    }
+
     /// Decodes the tag of an edge met on the descent.
     ///
     /// Which form a host takes is pinned rather than left to the inliner,
@@ -3498,6 +3658,11 @@ impl OlcHost for Shared<ExpanseMap> {
     }
 
     #[inline(always)]
+    fn mark_dirty_key(&self, key: Key) {
+        Shared::mark_dirty_key(self, key);
+    }
+
+    #[inline(always)]
     fn edge_tag(&self, edge: &Edge) -> Option<EdgeTag> {
         EdgeTag::from_u8(edge.tag_byte())
     }
@@ -3526,6 +3691,11 @@ impl OlcHost for Shared<ExpanseBlobMap> {
     #[inline(always)]
     fn mark_dirty_digit(&self, d: u8) {
         Shared::mark_dirty_digit(self, d);
+    }
+
+    #[inline(always)]
+    fn mark_dirty_key(&self, key: Key) {
+        Shared::mark_dirty_key(self, key);
     }
 
     #[inline(always)]
@@ -3561,6 +3731,11 @@ impl<S: BuildHasher> OlcHost for Shared<ExpanseBytesMap<S>> {
     #[inline(always)]
     fn mark_dirty_digit(&self, d: u8) {
         Shared::mark_dirty_digit(self, d);
+    }
+
+    #[inline(always)]
+    fn mark_dirty_key(&self, key: Key) {
+        Shared::mark_dirty_key(self, key);
     }
 
     #[inline(always)]
@@ -4790,7 +4965,7 @@ impl SyncExpanseSet {
                                 true,
                                 lock_t0,
                             );
-                            self.shared.mark_dirty_digit(digit(key, 8));
+                            self.shared.mark_dirty_key(key);
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -5021,7 +5196,7 @@ impl SyncExpanseSet {
                                 );
                             }
                         }
-                        self.shared.mark_dirty_digit(digit(key, 8));
+                        self.shared.mark_dirty_key(key);
                         return OlcOutcome::Done(true);
                     }
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -5133,7 +5308,7 @@ impl SyncExpanseSet {
                         if crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d) {
                             Edge::set_pop0_at(edge_ptr, 1, (pop0 + 1) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            self.shared.mark_dirty_digit(digit(key, 8));
+                            self.shared.mark_dirty_key(key);
                             return OlcOutcome::Done(true);
                         } else {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
@@ -5182,7 +5357,7 @@ impl SyncExpanseSet {
                             );
                         }
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        self.shared.mark_dirty_digit(digit(key, 8));
+                        self.shared.mark_dirty_key(key);
                         return OlcOutcome::Done(true);
                     }
                     return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
@@ -5260,7 +5435,7 @@ impl SyncExpanseSet {
                                 );
                                 Edge::set_pop0_at(edge_ptr, kb as u8, pop as u64);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
-                                self.shared.mark_dirty_digit(digit(key, 8));
+                                self.shared.mark_dirty_key(key);
                             }
                             return OlcOutcome::Done(true);
                         } else {
@@ -5320,7 +5495,7 @@ impl SyncExpanseSet {
                                     core::ptr::NonNull::new_unchecked(keys_ptr),
                                     old_size,
                                 );
-                                self.shared.mark_dirty_digit(digit(key, 8));
+                                self.shared.mark_dirty_key(key);
                             }
                             return OlcOutcome::Done(true);
                         }
@@ -5391,7 +5566,7 @@ impl SyncExpanseSet {
                             Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(keys_ptr), old_size);
-                            self.shared.mark_dirty_digit(digit(key, 8));
+                            self.shared.mark_dirty_key(key);
                         }
                         return OlcOutcome::Done(true);
                     } else {
@@ -5450,7 +5625,7 @@ impl SyncExpanseSet {
                                     core::ptr::NonNull::new_unchecked(keys_ptr),
                                     old_size,
                                 );
-                                self.shared.mark_dirty_digit(digit(key, 8));
+                                self.shared.mark_dirty_key(key);
                             }
                             return OlcOutcome::Done(true);
                         } else {
@@ -5516,7 +5691,7 @@ impl SyncExpanseSet {
                                     core::ptr::NonNull::new_unchecked(keys_ptr),
                                     old_size,
                                 );
-                                self.shared.mark_dirty_digit(digit(key, 8));
+                                self.shared.mark_dirty_key(key);
                             }
                             return OlcOutcome::Done(true);
                         }
@@ -5610,7 +5785,7 @@ impl SyncExpanseSet {
                         unsafe {
                             Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            self.shared.mark_dirty_digit(digit(key, 8));
+                            self.shared.mark_dirty_key(key);
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -5667,7 +5842,7 @@ impl SyncExpanseSet {
                         new_edge.set_pop0(kb, n as u64);
                         Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        self.shared.mark_dirty_digit(digit(key, 8));
+                        self.shared.mark_dirty_key(key);
                     }
                     return OlcOutcome::Done(true);
                 }
@@ -5952,7 +6127,7 @@ impl SyncExpanseSet {
                             unsafe {
                                 let alloc = self.shared.engine_alloc();
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                                self.shared.mark_dirty_digit(digit(key, 8));
+                                self.shared.mark_dirty_key(key);
                             }
                             return OlcOutcome::Done(true);
                         }
@@ -6013,7 +6188,7 @@ impl SyncExpanseSet {
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 let alloc = self.shared.engine_alloc();
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                                self.shared.mark_dirty_digit(digit(key, 8));
+                                self.shared.mark_dirty_key(key);
                             }
                             return OlcOutcome::Done(true);
                         } else {
@@ -6060,7 +6235,7 @@ impl SyncExpanseSet {
                                 Edge::store_at::<true>(edge_ptr, new_edge);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                                self.shared.mark_dirty_digit(digit(key, 8));
+                                self.shared.mark_dirty_key(key);
                             }
                             return OlcOutcome::Done(true);
                         }
@@ -6080,7 +6255,7 @@ impl SyncExpanseSet {
                         crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         Edge::set_pop0_at(edge_ptr, 1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        self.shared.mark_dirty_digit(digit(key, 8));
+                        self.shared.mark_dirty_key(key);
                         return OlcOutcome::Done(true);
                     }
                 }
@@ -6144,7 +6319,7 @@ impl SyncExpanseSet {
                             crate::leaf::shared_keys::set_remove_at(keys_ptr, kb as u8, pop, pos);
                             Edge::set_pop0_at(edge_ptr, kb as u8, (pop - 2) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            self.shared.mark_dirty_digit(digit(key, 8));
+                            self.shared.mark_dirty_key(key);
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -6190,7 +6365,7 @@ impl SyncExpanseSet {
                                 core::ptr::NonNull::new_unchecked(keys_ptr),
                                 crate::leaf::size_set(kb as u8, pop),
                             );
-                            self.shared.mark_dirty_digit(digit(key, 8));
+                            self.shared.mark_dirty_key(key);
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -6236,7 +6411,7 @@ impl SyncExpanseSet {
                                 core::ptr::NonNull::new_unchecked(keys_ptr),
                                 crate::leaf::size_set(kb as u8, pop),
                             );
-                            self.shared.mark_dirty_digit(digit(key, 8));
+                            self.shared.mark_dirty_key(key);
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -6256,7 +6431,7 @@ impl SyncExpanseSet {
                                 core::ptr::NonNull::new_unchecked(keys_ptr),
                                 crate::leaf::size_set(kb as u8, pop),
                             );
-                            self.shared.mark_dirty_digit(digit(key, 8));
+                            self.shared.mark_dirty_key(key);
                         }
                         return OlcOutcome::Done(true);
                     }
@@ -6296,7 +6471,7 @@ impl SyncExpanseSet {
                             if let Err(o) = nulled {
                                 return o;
                             }
-                            self.shared.mark_dirty_digit(digit(key, 8));
+                            self.shared.mark_dirty_key(key);
                             return OlcOutcome::Done(true);
                         }
                         if !crate::occ::node_validate(p_cell, parent.version_snap) {
@@ -6342,7 +6517,7 @@ impl SyncExpanseSet {
                         new_edge.set_tag(new_im.as_u8());
                         Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        self.shared.mark_dirty_digit(digit(key, 8));
+                        self.shared.mark_dirty_key(key);
                     }
                     return OlcOutcome::Done(true);
                 }
@@ -7865,7 +8040,7 @@ macro_rules! olc_insert_map_body {
                             crate::node::linear_insert_at_shared(&raw mut (*b).hdr, (&raw mut (*b).edges).cast::<Edge>(), cur_num, d, new_edge);
                         }
                         version_unlock_timed(crate::occ::version_cell(vp), old_v, true, lock_t0);
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                     }
                     return OlcOutcome::Done(None);
                 }
@@ -8073,7 +8248,7 @@ macro_rules! olc_insert_map_body {
                             alloc.free_bytes(old_arr.cast(), crate::mutate::sub_edges_size(old_n));
                         }
                     }
-                    $host.mark_dirty_digit(digit($key, 8));
+                    $host.mark_dirty_key($key);
                     return OlcOutcome::Done(None);
                 }
                 // SAFETY: version cell is within an EBR-live node allocation.
@@ -8226,7 +8401,7 @@ macro_rules! olc_insert_map_body {
                         crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d);
                         Edge::set_pop0_at(edge_ptr, 1, (pop0 + 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                     }
                     return OlcOutcome::Done(None);
                 } else {
@@ -8287,7 +8462,7 @@ macro_rules! olc_insert_map_body {
                                 crate::mutate::sub_vals_size(old_n),
                             );
                         }
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                     }
                     return OlcOutcome::Done(None);
                 }
@@ -8383,7 +8558,7 @@ macro_rules! olc_insert_map_body {
                             crate::leaf::shared_keys::map_insert_at(base, kb as u8, pop, at, k, $val);
                             Edge::set_pop0_at(edge_ptr, kb as u8, pop as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            $host.mark_dirty_digit(digit($key, 8));
+                            $host.mark_dirty_key($key);
                         }
                         return OlcOutcome::Done(None);
                     } else {
@@ -8437,7 +8612,7 @@ macro_rules! olc_insert_map_body {
                             Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
-                            $host.mark_dirty_digit(digit($key, 8));
+                            $host.mark_dirty_key($key);
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -8493,7 +8668,7 @@ macro_rules! olc_insert_map_body {
                         Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                     }
                     return OlcOutcome::Done(None);
                 } else {
@@ -8555,7 +8730,7 @@ macro_rules! olc_insert_map_body {
                             Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
-                            $host.mark_dirty_digit(digit($key, 8));
+                            $host.mark_dirty_key($key);
                         }
                         return OlcOutcome::Done(None);
                     } else {
@@ -8611,7 +8786,7 @@ macro_rules! olc_insert_map_body {
                             Edge::store_at::<true>(edge_ptr, tmp);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
-                            $host.mark_dirty_digit(digit($key, 8));
+                            $host.mark_dirty_key($key);
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -8723,7 +8898,7 @@ macro_rules! olc_insert_map_body {
                             new_edge.set_tag(new_im.as_u8());
                             Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            $host.mark_dirty_digit(digit($key, 8));
+                            $host.mark_dirty_key($key);
                         }
                         return OlcOutcome::Done(None);
                     } else {
@@ -8772,7 +8947,7 @@ macro_rules! olc_insert_map_body {
                             new_edge.set_pop0(kb, 1);
                             Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            $host.mark_dirty_digit(digit($key, 8));
+                            $host.mark_dirty_key($key);
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -8850,7 +9025,7 @@ macro_rules! olc_insert_map_body {
                             new_edge.set_tag(new_im.as_u8());
                             Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            $host.mark_dirty_digit(digit($key, 8));
+                            $host.mark_dirty_key($key);
                         }
                         return OlcOutcome::Done(None);
                     }
@@ -8916,7 +9091,7 @@ macro_rules! olc_insert_map_body {
                             core::ptr::NonNull::new_unchecked(old_vals.cast()),
                             old_size,
                         );
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                     }
                     return OlcOutcome::Done(None);
                 }
@@ -8985,7 +9160,7 @@ macro_rules! olc_insert_map_body {
                     Edge::store_at::<true>(edge_ptr, new_edge);
                     version_unlock_timed(p_cell, old_v, true, lock_t0);
                     alloc.free_bytes(core::ptr::NonNull::new_unchecked(old_vals.cast()), old_size);
-                    $host.mark_dirty_digit(digit($key, 8));
+                    $host.mark_dirty_key($key);
                 }
                 return OlcOutcome::Done(None);
             }
@@ -9031,7 +9206,7 @@ macro_rules! olc_insert_map_body {
                         crate::mutate::branch_u_note_fill::<true>(parent.node.cast::<BranchU>());
                     }
                     version_unlock_timed(p_cell, old_v, true, lock_t0);
-                    $host.mark_dirty_digit(digit($key, 8));
+                    $host.mark_dirty_key($key);
                     return OlcOutcome::Done(None);
                 }
                 return OlcOutcome::Fallback(FallbackCause::ImmediateConversion);
@@ -9348,7 +9523,7 @@ macro_rules! olc_remove_map_body {
                                 crate::mutate::sub_vals_size(1),
                             );
                             alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                            $host.mark_dirty_digit(digit($key, 8));
+                            $host.mark_dirty_key($key);
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -9430,7 +9605,7 @@ macro_rules! olc_remove_map_body {
                                     }
                                 }
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                                $host.mark_dirty_digit(digit($key, 8));
+                                $host.mark_dirty_key($key);
                             }
                             return OlcOutcome::Done(Some(old));
                         } else {
@@ -9502,7 +9677,7 @@ macro_rules! olc_remove_map_body {
                                     }
                                 }
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                                $host.mark_dirty_digit(digit($key, 8));
+                                $host.mark_dirty_key($key);
                             }
                             return OlcOutcome::Done(Some(old));
                         }
@@ -9568,7 +9743,7 @@ macro_rules! olc_remove_map_body {
                                 }
                             }
                             alloc.free_node(core::ptr::NonNull::new_unchecked(node));
-                            $host.mark_dirty_digit(digit($key, 8));
+                            $host.mark_dirty_key($key);
                         }
                         return OlcOutcome::Done(Some(old));
                     }
@@ -9604,7 +9779,7 @@ macro_rules! olc_remove_map_body {
                             core::ptr::NonNull::new_unchecked(old_arr.cast()),
                             crate::mutate::sub_vals_size(1),
                         );
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                         return OlcOutcome::Done(Some(old));
                     }
                 } else if crate::leaf::cap_class(old_n - 1) == crate::leaf::cap_class(old_n) {
@@ -9631,7 +9806,7 @@ macro_rules! olc_remove_map_body {
                         crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         Edge::set_pop0_at(edge_ptr, 1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                         return OlcOutcome::Done(Some(old));
                     }
                 } else {
@@ -9687,7 +9862,7 @@ macro_rules! olc_remove_map_body {
                             core::ptr::NonNull::new_unchecked(old_arr.cast()),
                             crate::mutate::sub_vals_size(old_n),
                         );
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                         return OlcOutcome::Done(Some(old));
                     }
                 }
@@ -9774,7 +9949,7 @@ macro_rules! olc_remove_map_body {
                         crate::leaf::shared_keys::map_remove_at(base, kb as u8, pop, pos);
                         Edge::set_pop0_at(edge_ptr, kb as u8, (pop - 2) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                         return OlcOutcome::Done(Some(old));
                     }
                 }
@@ -9829,7 +10004,7 @@ macro_rules! olc_remove_map_body {
                             core::ptr::NonNull::new_unchecked(base),
                             crate::leaf::size_map(kb as u8, pop),
                         );
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                         return OlcOutcome::Done(Some(old));
                     }
                 }
@@ -9859,7 +10034,7 @@ macro_rules! olc_remove_map_body {
                                 core::ptr::NonNull::new_unchecked(base),
                                 crate::leaf::size_map(kb as u8, 1),
                             );
-                            $host.mark_dirty_digit(digit($key, 8));
+                            $host.mark_dirty_key($key);
                             return OlcOutcome::Done(Some(old));
                         }
                     }
@@ -9924,7 +10099,7 @@ macro_rules! olc_remove_map_body {
                             core::ptr::NonNull::new_unchecked(base),
                             crate::leaf::size_map(kb as u8, pop),
                         );
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                     }
                     return OlcOutcome::Done(Some(old));
                 } else {
@@ -9978,7 +10153,7 @@ macro_rules! olc_remove_map_body {
                             core::ptr::NonNull::new_unchecked(base),
                             crate::leaf::size_map(kb as u8, pop),
                         );
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                     }
                     return OlcOutcome::Done(Some(old));
                 }
@@ -10045,7 +10220,7 @@ macro_rules! olc_remove_map_body {
                             Ok(old) => old,
                             Err(o) => return o,
                         };
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                         return OlcOutcome::Done(Some(old));
                     }
                     if !crate::occ::node_validate(p_cell, parent.version_snap) {
@@ -10119,7 +10294,7 @@ macro_rules! olc_remove_map_body {
                             core::ptr::NonNull::new_unchecked(vals.cast::<u8>()),
                             crate::mutate_map::map_immed_val_size(2),
                         );
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                         return OlcOutcome::Done(Some(old));
                     }
                 }
@@ -10156,7 +10331,7 @@ macro_rules! olc_remove_map_body {
                         e.set_tag(new_im.as_u8());
                         Edge::store_at::<true>(edge_ptr, e);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
-                        $host.mark_dirty_digit(digit($key, 8));
+                        $host.mark_dirty_key($key);
                         return OlcOutcome::Done(Some(old));
                     }
                 }
@@ -10219,7 +10394,7 @@ macro_rules! olc_remove_map_body {
                         core::ptr::NonNull::new_unchecked(vals.cast::<u8>()),
                         crate::mutate_map::map_immed_val_size(n),
                     );
-                    $host.mark_dirty_digit(digit($key, 8));
+                    $host.mark_dirty_key($key);
                     return OlcOutcome::Done(Some(old));
                 }
             }
@@ -26685,6 +26860,11 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
                 "advance_tick",
                 core::mem::offset_of!(Shared<T>, advance_tick),
             ),
+            (
+                wrapper,
+                "dirty_sub",
+                core::mem::offset_of!(Shared<T>, dirty_sub),
+            ),
             (wrapper, "size_of", core::mem::size_of::<Shared<T>>()),
         ]);
     }
@@ -26697,9 +26877,9 @@ pub fn layout_report() -> Vec<(&'static str, &'static str, usize)> {
     out
 }
 
-/// Rows per wrapper in [`layout_report`]: the eleven fields and the size row.
+/// Rows per wrapper in [`layout_report`]: the twelve fields and the size row.
 #[cfg(feature = "occ-stats")]
-const LAYOUT_ROWS: usize = 12;
+const LAYOUT_ROWS: usize = 13;
 
 #[cfg(all(test, feature = "occ-stats"))]
 mod diagnostics_tests {
@@ -26774,7 +26954,7 @@ mod diagnostics_tests {
 
     #[test]
     fn layout_report_names_every_field_of_every_wrapper() {
-        const FIELDS: [&str; 11] = [
+        const FIELDS: [&str; 12] = [
             "inner",
             "version",
             "tree_pop",
@@ -26786,6 +26966,7 @@ mod diagnostics_tests {
             "writers",
             "last_holder",
             "advance_tick",
+            "dirty_sub",
         ];
         const WRAPPERS: [&str; 5] = [
             "SyncExpanseSet",
@@ -26833,6 +27014,14 @@ mod diagnostics_tests {
                     "{wrapper}: {w} shares no line with the tree word"
                 );
             }
+            // The sub-digit census buckets (Refs #1610) come after every
+            // other field, so adding them moved no hot field.
+            assert!(
+                rows[..FIELDS.len() - 1]
+                    .iter()
+                    .all(|(_, _, o)| *o < off("dirty_sub")),
+                "{wrapper}: dirty_sub is the last field"
+            );
             #[cfg(not(feature = "ablation-unpadded-lock"))]
             {
                 assert_eq!(off("tree_pop") % 64, 0, "{wrapper}: tree_pop line-aligned");
@@ -28071,6 +28260,167 @@ mod obsolete_tests {
         assert_eq!(map.with_locked(|m| m.count_below(55)), 6);
         assert_eq!(map.with_locked(|m| m.count_range(10..=50)), 5);
         assert_eq!(map.with_locked(|m| m.by_count(5)), Some((50, 5)));
+    }
+
+    /// Key `j` under level-6 digit `e` of level-7 child `d2` of top digit
+    /// `0x30`.
+    fn sub_key(d2: u64, e: u64, j: u64) -> u64 {
+        (0x30 << 56) | (d2 << 48) | (e << 40) | j
+    }
+
+    /// Under top digit `0x30`, a level-7 branch of 40 children (five
+    /// buckets), each itself a branch: five level-6 digits of eight keys,
+    /// more than one leaf holds. A write under a child leaves that child's
+    /// own branch `pop0` stale, which only a refold of its bucket repairs. A
+    /// few other top digits keep the root wide.
+    fn sub_digit_keys() -> std::collections::BTreeSet<u64> {
+        let mut keys: std::collections::BTreeSet<u64> = (0..40u64)
+            .flat_map(|d2| (0..5u64).flat_map(move |e| (1..=8).map(move |j| sub_key(d2, e, j))))
+            .collect();
+        keys.extend((1..10u64).map(|t| (t << 56) | 7));
+        keys
+    }
+
+    /// #1610, the sub-digit census: optimistic inserts and removals under a
+    /// few level-7 buckets of one top digit (and under another top digit)
+    /// mark only those buckets, and the next `with_locked` fold leaves every
+    /// edge's `pop0` exact — the validator checks each branch's `pop0 + 1`
+    /// against the keys under it — and every rank equal to the model's.
+    #[test]
+    fn sub_digit_fold_keeps_the_census_exact() {
+        let mut model = sub_digit_keys();
+        let set = SyncExpanseSet::new();
+        let map = SyncExpanseMap::new();
+        for &k in &model {
+            set.insert(k);
+            map.insert(k, !k);
+        }
+        set.with_locked(ExpanseSet::validate);
+        map.with_locked(ExpanseMap::validate);
+        let tree = set.shared.version().sample();
+        // Inserts into buckets 0 and 3 (one into an existing level-6 digit,
+        // two under a new one), removals in bucket 2 and under another top
+        // digit.
+        // None empties a child, so every one is optimistic on this engine.
+        let ins = [
+            sub_key(5, 3, 9),
+            sub_key(30, 6, 1),
+            sub_key(30, 6, 2),
+            (3 << 56) | 8,
+        ];
+        let rem = [sub_key(17, 1, 1), sub_key(18, 2, 2), (3 << 56) | 7];
+        for &k in &ins {
+            assert!(set.insert(k));
+            assert_eq!(map.insert(k, !k), None);
+            model.insert(k);
+        }
+        for &k in &rem {
+            assert!(set.remove(k));
+            assert_eq!(map.remove(k), Some(!k));
+            model.remove(&k);
+        }
+        assert!(
+            set.shared.version().validate(tree),
+            "the writes must be optimistic, or the exclusive path keeps the census exact itself"
+        );
+        assert!(set.shared.dirty_digits.is_digit_dirty(0x30));
+        set.with_locked(ExpanseSet::validate);
+        map.with_locked(ExpanseMap::validate);
+        for probe in [
+            sub_key(0, 0, 0),
+            sub_key(5, 3, 10),
+            sub_key(6, 0, 0),
+            sub_key(17, 9, 0),
+            sub_key(31, 0, 0),
+            sub_key(39, 9, 0),
+            u64::MAX,
+        ] {
+            let want = model.range(..probe).count() as u64;
+            assert_eq!(
+                set.with_locked(|s| s.count_below(probe)),
+                want,
+                "set rank of {probe:#x}"
+            );
+            assert_eq!(
+                map.with_locked(|m| m.count_below(probe)),
+                want,
+                "map rank of {probe:#x}"
+            );
+        }
+    }
+
+    /// #1610, the bucket arithmetic: bucket `b` is level-7 digits
+    /// `8b..8b + 8`, a word of 0 is the whole digit, and a word with
+    /// `SUB_FULL_FOLD_BUCKETS` or more buckets marked is folded whole.
+    #[test]
+    fn dirty_sub_buckets_cover_their_digits() {
+        let mut want = [0u32; 8];
+        want[0] = 0xFF;
+        assert_eq!(DirtySub::expand(1), want);
+        let mut want = [0u32; 8];
+        want[1] = 0xFF00; // bucket 5: digits 40..48
+        assert_eq!(DirtySub::expand(1 << 5), want);
+        let mut want = [0u32; 8];
+        want[7] = 0xFF00_0000; // bucket 31: digits 248..256
+        assert_eq!(DirtySub::expand(1 << 31), want);
+        assert_eq!(DirtySub::expand(0), [u32::MAX; 8]);
+        assert_eq!(DirtySub::expand(u32::MAX), [u32::MAX; 8]);
+        for d2 in 0..=255u8 {
+            let m = DirtySub::expand(1 << (d2 >> 3));
+            assert_ne!(
+                m[(d2 / 32) as usize] & (1 << (d2 % 32)),
+                0,
+                "digit {d2} outside its bucket"
+            );
+            assert_eq!(m.iter().map(|w| w.count_ones()).sum::<u32>(), 8);
+        }
+        assert!(!DirtySub::selective(0));
+        assert!(DirtySub::selective(1));
+        assert!(DirtySub::selective((1 << (SUB_FULL_FOLD_BUCKETS - 1)) - 1));
+        assert!(!DirtySub::selective((1 << SUB_FULL_FOLD_BUCKETS) - 1));
+        assert!(!DirtySub::selective(u32::MAX));
+        let s = DirtySub::new();
+        assert!(s.mark(0x30, 5), "a clean bucket reports its first mark");
+        assert!(!s.mark(0x30, 7), "a marked bucket reports nothing");
+        assert!(s.mark(0x30, 8), "the next bucket is clean");
+        let mut top = [0u32; 8];
+        top[1] = 1 << 16; // digit 0x30
+        let taken = s.take(&top);
+        assert_eq!(taken[0x30], 0b11);
+        assert_eq!(s.take(&top)[0x30], 0, "take clears what it takes");
+    }
+
+    /// #1610: after one optimistic insert, the fold refolds only the level-7
+    /// bucket of its key, not the whole top digit's subtree. The control in
+    /// the same test marks the whole digit (`Shared::mark_dirty_digit`) and
+    /// shows the counter discriminates the two.
+    #[test]
+    fn sub_digit_fold_refolds_only_the_marked_bucket() {
+        let set = SyncExpanseSet::new();
+        for &k in &sub_digit_keys() {
+            set.insert(k);
+        }
+        set.with_locked(ExpanseSet::validate);
+        assert!(set.insert(sub_key(5, 3, 9)));
+        let before = fold_edges::get();
+        set.with_locked(|s| s.count_below(sub_key(6, 0, 0)));
+        let marked = fold_edges::get() - before;
+        // Bucket 0 is level-7 digits 0..8: eight children of six edges each
+        // (the child and its five level-6 children), against 40 children for
+        // the whole digit.
+        assert!(
+            marked <= 60,
+            "the fold visited {marked} edges for one marked bucket"
+        );
+        set.shared.mark_dirty_digit(0x30);
+        let before = fold_edges::get();
+        set.with_locked(|s| s.count_below(sub_key(6, 0, 0)));
+        let whole = fold_edges::get() - before;
+        assert!(
+            whole >= 200,
+            "the whole-digit fold visited only {whole} edges"
+        );
+        set.with_locked(ExpanseSet::validate);
     }
 
     /// Asserts that insertion into an unoccupied null slot of a BranchU succeeds
