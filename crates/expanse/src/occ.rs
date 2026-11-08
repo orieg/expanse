@@ -5784,6 +5784,180 @@ mod loom_tests {
         branch_u_floor_model(false);
     }
 
+    /// `sync::empty_branch_b_slot` reduced to its words (Refs #1610): a
+    /// `BranchB` subexpanse's bitmap word, its packed edge subarray (each
+    /// edge the digit it names, plus one, so 0 is never a live edge) and the
+    /// branch's version. [`B_DIGITS`] digits are present at first.
+    const B_DIGITS: usize = 3;
+
+    /// The bit positions of the subexpanse's digits.
+    fn b_bitmap_full() -> u64 {
+        (1u64 << B_DIGITS) - 1
+    }
+
+    /// The optimistic removal of digit `d`: sample, read the bitmap and the
+    /// rank, lock against the snapshot, clear the bit, shift the later edges
+    /// down one place in the same subarray, unlock modified. No retry loop.
+    fn b_remove_in_place(v: &VersionCell, bitmap: &AtomicU64, arr: &[AtomicU64], d: usize) -> bool {
+        let Some(snap) = node_sample(v) else {
+            return false;
+        };
+        let bits = bitmap.load(Ordering::Acquire);
+        if bits & (1 << d) == 0 || !node_validate(v, snap) {
+            return false;
+        }
+        let Ok(old_v) = version_try_lock_expect(v, snap) else {
+            return false;
+        };
+        let rank = (bits & ((1 << d) - 1)).count_ones() as usize;
+        let n = bits.count_ones() as usize;
+        bitmap.store(bits & !(1 << d), Ordering::Release);
+        for i in rank..n - 1 {
+            arr[i].store(arr[i + 1].load(Ordering::Relaxed), Ordering::Release);
+        }
+        version_unlock(v, old_v, true);
+        true
+    }
+
+    /// A reader of digit `t`, as the `BranchB` arm of every optimistic walk
+    /// reads it: sample, bitmap, rank, edge, then validate. `validate_after`
+    /// false validates before the edge load instead of after it, which is
+    /// the negative control. `None` is a retry.
+    fn b_read(
+        v: &VersionCell,
+        bitmap: &AtomicU64,
+        arr: &[AtomicU64],
+        t: usize,
+        validate_after: bool,
+    ) -> Option<Option<u64>> {
+        let snap = node_sample(v)?;
+        let bits = bitmap.load(Ordering::Acquire);
+        if bits & (1 << t) == 0 {
+            return node_validate(v, snap).then_some(None);
+        }
+        let rank = (bits & ((1 << t) - 1)).count_ones() as usize;
+        if !validate_after && !node_validate(v, snap) {
+            return None;
+        }
+        let e = arr[rank].load(Ordering::Acquire);
+        if validate_after && !node_validate(v, snap) {
+            return None;
+        }
+        Some(Some(e))
+    }
+
+    /// A writer takes digit 0 out of the subarray in place while a reader
+    /// looks up digit 1, whose edge the shift moves into slot 0. A validated
+    /// answer must be digit 1's own edge. The reader is the spawned thread:
+    /// with the reader on the model's main thread, loom 0.7 completed this
+    /// model in one iteration and the negative control did not fire.
+    fn branch_b_shrink_model(validate_after: bool) {
+        loom::model(move || {
+            let v = Arc::new(VersionCell::new(0));
+            let bitmap = Arc::new(AtomicU64::new(b_bitmap_full()));
+            let arr: Arc<[AtomicU64; B_DIGITS]> =
+                Arc::new(core::array::from_fn(|i| AtomicU64::new(i as u64 + 1)));
+            let (v1, b1, a1) = (Arc::clone(&v), Arc::clone(&bitmap), Arc::clone(&arr));
+            let r = loom::thread::spawn(move || b_read(&v1, &b1, &a1[..], 1, validate_after));
+            b_remove_in_place(&v, &bitmap, &arr[..], 0);
+            let got = r.join().unwrap();
+            if let Some(answer) = got {
+                assert_eq!(
+                    answer,
+                    Some(2),
+                    "a validated read of a BranchB returned another digit's edge"
+                );
+            }
+        });
+    }
+
+    /// A reader validating against the branch's version after it loads the
+    /// edge never returns the neighbour's edge, however the in-place shift
+    /// interleaves with it.
+    #[test]
+    fn loom_branch_b_shrink_in_place_readers_validate() {
+        branch_b_shrink_model(true);
+    }
+
+    /// The negative control: validating before the edge load lets the read
+    /// see the shifted subarray through the old rank.
+    #[test]
+    #[should_panic(expected = "a validated read of a BranchB returned another digit's edge")]
+    fn loom_branch_b_shrink_in_place_validated_too_early_returns_the_neighbour() {
+        branch_b_shrink_model(false);
+    }
+
+    /// `sync::branch_b_takes_empty` and the snapshot lock that validates its
+    /// count, reduced to words: two writers each take one digit out of a
+    /// branch whose floor is one below what either removal alone leaves.
+    /// [`B_FLOOR`] stands in for `BRANCHB_TO_L7_DOWN`.
+    const B_FLOOR: usize = B_DIGITS - 2;
+
+    fn b_take_above_floor(
+        v: &VersionCell,
+        bitmap: &AtomicU64,
+        d: usize,
+        expect_snapshot: bool,
+    ) -> bool {
+        let Some(snap) = node_sample(v) else {
+            return false;
+        };
+        let bits = bitmap.load(Ordering::Acquire);
+        if bits & (1 << d) == 0 || !node_validate(v, snap) {
+            return false;
+        }
+        if (bits.count_ones() as usize) - 1 <= B_FLOOR {
+            return false;
+        }
+        let locked = if expect_snapshot {
+            version_try_lock_expect(v, snap)
+        } else {
+            version_try_lock(v)
+        };
+        let Ok(old_v) = locked else {
+            return false;
+        };
+        let now = bitmap.load(Ordering::Relaxed);
+        bitmap.store(now & !(1 << d), Ordering::Release);
+        version_unlock(v, old_v, true);
+        true
+    }
+
+    fn branch_b_floor_model(expect_snapshot: bool) {
+        loom::model(move || {
+            let v = Arc::new(VersionCell::new(0));
+            let bitmap = Arc::new(AtomicU64::new(b_bitmap_full()));
+            let (v1, b1) = (Arc::clone(&v), Arc::clone(&bitmap));
+            let t = loom::thread::spawn(move || b_take_above_floor(&v1, &b1, 0, expect_snapshot));
+            let mine = b_take_above_floor(&v, &bitmap, 1, expect_snapshot);
+            let theirs = t.join().unwrap();
+            let left = bitmap.load(Ordering::Relaxed).count_ones() as usize;
+            assert!(
+                left > B_FLOOR,
+                "optimistic removals left the BranchB at its floor ({mine}, {theirs})"
+            );
+            assert_eq!(
+                left,
+                B_DIGITS - usize::from(mine) - usize::from(theirs),
+                "a removal was lost or invented"
+            );
+        });
+    }
+
+    /// Two optimistic removals on one `BranchB` never take it to its floor.
+    #[test]
+    fn loom_branch_b_removals_stay_above_the_floor() {
+        branch_b_floor_model(true);
+    }
+
+    /// The negative control: a lock that expects no snapshot leaves the
+    /// count unvalidated, and both writers remove.
+    #[test]
+    #[should_panic(expected = "optimistic removals left the BranchB at its floor")]
+    fn loom_branch_b_removals_without_the_snapshot_reach_the_floor() {
+        branch_b_floor_model(false);
+    }
+
     /// The bytes wrapper's two bucket writers (#929), reduced to the two
     /// words they contend on: `word` is the trie slot naming the published
     /// bucket, and each bucket is one value word.

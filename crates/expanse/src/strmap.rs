@@ -379,10 +379,10 @@ fn pack_child(p: *mut StrNode) -> u64 {
 /// (Refs #1162). A dirty node is always in tree state: leaf-state sub-maps
 /// are only ever mutated under the cover, which keeps their population
 /// exact, and an optimistic writer never condenses a tree or changes its
-/// root state. Nor does it empty one: it nulls a `BranchU` slot only while
-/// the branch stays above its demotion floor, and a removal that would
-/// empty a child of any other branch, or cross that floor, falls back
-/// (Refs #1079). The removal of a tree's last key is therefore always
+/// root state. Nor does it empty one: it takes an emptied child out of a
+/// `BranchU` or a `BranchB` only while the branch stays above its demotion
+/// floor, and a removal that would empty a child of any other branch, or
+/// cross a floor, falls back (Refs #1079, #1610). The removal of a tree's last key is therefore always
 /// exclusive, and the exclusive path decides the prune. The flag sits in
 /// the padding the cover word's alignment already reserved, so the node's
 /// size does not move.
@@ -4377,9 +4377,10 @@ mod olc {
                     if is_tree {
                         // T7 in tree state. An optimistic removal never
                         // empties a tree (a removal that would empty a child
-                        // falls back unless its `BranchU` parent stays above
-                        // its floor, Refs #1079), so the sub-map still holds
-                        // a key and there is no prune to hand on.
+                        // falls back unless its `BranchU` or `BranchB` parent
+                        // stays above its floor, Refs #1079, #1610), so the
+                        // sub-map still holds a key and there is no prune to
+                        // hand on.
                         let host = StrHost {
                             node,
                             alloc,

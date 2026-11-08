@@ -714,11 +714,13 @@ ENGINE_BODIES = (
 # The remove-path demotions `drained_form` models: one site in each remove
 # walk. Each file has two walks, the plain one (`remove` / `map_remove`) and
 # the shared tree's copy (`remove_occ` / `map_remove_occ`, #1086), and both
-# must carry the demotion.
+# must carry the demotion. The B -> L7 sites ask `mutate::branch_b_below_floor`
+# (#1610), whose body in mutate.rs is the one comparison against the floor.
 ENGINE_DEMOTIONS = (
-    ("mutate.rs", "digits <= crate::types::BRANCHB_TO_L7_DOWN", 2),
+    ("mutate.rs", "digits <= crate::types::BRANCHB_TO_L7_DOWN", 1),
+    ("mutate.rs", "if branch_b_below_floor(digits) {", 2),
     ("mutate.rs", "num < BRANCH_L3_CAP", 2),
-    ("mutate_map.rs", "digits <= crate::types::BRANCHB_TO_L7_DOWN", 2),
+    ("mutate_map.rs", "if crate::mutate::branch_b_below_floor(digits) {", 2),
     ("mutate_map.rs", "num < BRANCH_L3_CAP", 2),
 )
 
@@ -817,9 +819,12 @@ def test_engine_sync() -> None:
         ("common.rs", "} else if pop <= 24 {\n        24", "} else if pop <= 24 {\n        28", "cap_class"),
         ("leaf.rs", "crate::common::cap_class(pop)", "crate::common::cap_class(pop + 1)", "cap_class"),
         ("mutate.rs", "7 / kb as usize", "6 / kb as usize", "map_immed_max"),
-        ("mutate.rs", "if digits <= crate::types::BRANCHB_TO_L7_DOWN {",
-         "if digits < crate::types::BRANCHB_TO_L7_DOWN {",
+        ("mutate.rs", "    digits <= crate::types::BRANCHB_TO_L7_DOWN\n",
+         "    digits < crate::types::BRANCHB_TO_L7_DOWN\n",
          "digits <= crate::types::BRANCHB_TO_L7_DOWN"),
+        # A walk that stops asking the predicate drops its demotion.
+        ("mutate_map.rs", "if crate::mutate::branch_b_below_floor(digits) {",
+         "if false {", "if crate::mutate::branch_b_below_floor(digits) {"),
         # A demotion that survives only in a comment must not count.
         ("mutate_map.rs", "if !is_l3 && num < BRANCH_L3_CAP {",
          "if false { // num < BRANCH_L3_CAP", "num < BRANCH_L3_CAP"),

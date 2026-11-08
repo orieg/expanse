@@ -1402,13 +1402,214 @@ unsafe fn null_branch_u_slot<T, R>(
     Ok(r)
 }
 
+/// Whether an optimistic removal may take an emptied child out of the
+/// `BranchB` of `parent` in place (Refs #1610): the branch is a `BranchB` and
+/// holds more than one digit above its demotion floor, so it stays a
+/// `BranchB` with the digit gone. A branch the removal would bring to
+/// [`crate::types::BRANCHB_TO_L7_DOWN`] digits needs the exclusive walks'
+/// B → L7 demotion, a form change, and that removal falls back as before
+/// (`BranchSplitKind::Remove`).
+///
+/// The count is read before any lock and may be torn; [`empty_branch_b_slot`]
+/// locks against the descent's snapshot, which validates it, since the
+/// bitmap changes only under the branch's version lock or with the writer
+/// gate closed. A torn count can only cause a spurious fallback or a retry.
+///
+/// # Safety
+///
+/// As [`null_branch_u_slot`]: `parent` is a frame the descent wrote, of an
+/// EBR-live branch, under this writer's pin.
+#[cfg(feature = "std")]
+#[inline(always)]
+unsafe fn branch_b_takes_empty(parent: &AncestorFrame) -> bool {
+    if parent.edge_type != EdgeType::BranchB {
+        return false;
+    }
+    let b = parent.node.cast::<BranchB>();
+    // SAFETY: caller contract; the four bitmap words are loaded atomically.
+    let digits = unsafe { crate::bits::shared_bitmap::count::<true>(&raw const (*b).bitmap) };
+    !crate::mutate::branch_b_below_floor((digits as usize).saturating_sub(1))
+}
+
+/// Takes the digit whose child an optimistic removal emptied out of the
+/// `BranchB` of `parent`, in place, or declines to (Refs #1610). The
+/// `BranchB` twin of [`null_branch_u_slot`]; the caller has checked
+/// [`branch_b_takes_empty`], so the branch keeps its form.
+///
+/// 1. Read the subexpanse's population before the lock, and allocate the
+///    smaller subarray when the removal crosses a capacity class
+///    (`leaf::cap_class`), as the optimistic insert into a `BranchB` does in
+///    the other direction.
+/// 2. Lock the branch by compare-exchange from the version the descent
+///    sampled. Success validates every pre-lock read (the count
+///    [`branch_b_takes_empty`] read, the population, the subarray pointer
+///    and the rank `edge_ptr` was computed from): each changes only under
+///    this branch's version lock, released with the version advanced, or
+///    with the writer gate closed and every optimistic writer drained.
+/// 3. Re-check that the slot still holds `edge`, run `under_lock`, then clear
+///    the digit's bit and remove its edge from the subarray: free the
+///    subarray when it held only this edge, move the other edges to the
+///    smaller array across a class boundary, or shift them down in place.
+///    Unlock with the version advanced, and retire the replaced subarray
+///    through the deferred allocator, since a reader may still be inside it.
+///
+/// A reader that read the bitmap, the rank or the subarray before the stores
+/// fails its validation of this branch and retries: every reader of a
+/// `BranchB` validates against its version after loading the child edge.
+///
+/// `Ok` carries `under_lock`'s value; the caller then frees the emptied
+/// child and marks its digit dirty, as after [`null_branch_u_slot`]. `Err`
+/// is the outcome the caller returns: a retry, or `under_lock`'s kept value.
+///
+/// Out of line: it is reached only by a removal that empties a child under a
+/// `BranchB`, and keeping it out of the walks leaves their bodies, and the
+/// inlining decisions made on them, as they were.
+///
+/// # Safety
+///
+/// `parent` is the frame of an EBR-live `BranchB` whose subarray slot at
+/// `edge_ptr` the descent loaded `edge` from under `parent.version_snap`,
+/// [`branch_b_takes_empty`] returned `true` for it, and the caller holds its
+/// writer pin. `alloc` is the tree's allocator. `under_lock` may rely on the
+/// branch being locked and the slot still holding `edge`.
+#[cfg(feature = "std")]
+#[inline(never)]
+unsafe fn empty_branch_b_slot<T, R>(
+    parent: &AncestorFrame,
+    edge_ptr: *mut Edge,
+    edge: &Edge,
+    alloc: &NodeAlloc,
+    under_lock: impl FnOnce() -> Result<R, T>,
+) -> Result<R, OlcOutcome<T>> {
+    debug_assert_eq!(parent.edge_type, EdgeType::BranchB);
+    let b = parent.node.cast::<BranchB>();
+    let d = parent.digit;
+    let sub_idx = (d >> 5) as usize;
+    // SAFETY: `parent` is a frame the descent wrote for an EBR-live BranchB
+    // (caller contract); the population is one atomic 16-bit load.
+    let old_n = unsafe { crate::node::pop_count_at(b, sub_idx) };
+    if old_n == 0 || old_n > 32 {
+        // Torn by a concurrent writer: the lock below would fail anyway.
+        return Err(OlcOutcome::Retry);
+    }
+    let shrink = old_n > 1 && crate::leaf::cap_class(old_n - 1) != crate::leaf::cap_class(old_n);
+    let pre_alloc = if shrink {
+        Some(
+            alloc
+                .alloc_bytes(crate::mutate::sub_edges_size(old_n - 1))
+                .cast::<Edge>(),
+        )
+    } else {
+        None
+    };
+    let discard = |p: Option<core::ptr::NonNull<Edge>>| {
+        if let Some(p) = p {
+            // SAFETY: allocated above for `old_n - 1` edges and never published.
+            unsafe {
+                alloc.free_bytes_unpublished(p.cast(), crate::mutate::sub_edges_size(old_n - 1));
+            }
+        }
+    };
+    // SAFETY: version cell is within an EBR-live node allocation.
+    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+    let Ok((old_v, lock_t0)) = version_try_lock_expect_timed(p_cell, parent.version_snap) else {
+        discard(pre_alloc);
+        return Err(OlcOutcome::Retry);
+    };
+    debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
+    // SAFETY: edge_ptr points to an EBR-live edge inside the locked branch.
+    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(edge) {
+        version_unlock_timed(p_cell, old_v, false, lock_t0);
+        discard(pre_alloc);
+        return Err(OlcOutcome::Retry);
+    }
+    // The lock validated the descent's reads (step 2); restate them.
+    // SAFETY: the branch is locked and EBR-live, and this writer is its one
+    // writer until the unlock.
+    let (rank, arr) = unsafe {
+        debug_assert!(crate::bits::shared_bitmap::test::<true>(
+            &raw const (*b).bitmap,
+            d
+        ));
+        debug_assert_eq!(crate::node::pop_count_at(b, sub_idx), old_n);
+        let rank =
+            crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*b).bitmap, d) as usize;
+        let arr = crate::bits::shared_word::load_ptr::<true, Edge>(
+            (&raw const (*b).subarrays).cast::<*mut Edge>().add(sub_idx),
+        );
+        debug_assert_eq!(arr.add(rank), edge_ptr);
+        (rank, arr)
+    };
+    let r = match under_lock() {
+        Ok(r) => r,
+        Err(kept) => {
+            version_unlock_timed(p_cell, old_v, false, lock_t0);
+            discard(pre_alloc);
+            return Err(OlcOutcome::Done(kept));
+        }
+    };
+    #[cfg(debug_assertions)]
+    // SAFETY: as above.
+    let digits_before =
+        unsafe { crate::bits::shared_bitmap::count::<true>(&raw const (*b).bitmap) } as usize;
+    // Every store below is to the locked branch or to an array only it names.
+    debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
+    // SAFETY: the branch is locked and EBR-live, and this writer is its one
+    // writer until the unlock. Raw-pointer places, as in the optimistic
+    // insert into a `BranchB`, so no `&mut` aliases a concurrent reader's
+    // loads; every word a reader loads is stored atomically.
+    let retire = unsafe {
+        crate::bits::shared_bitmap::clear::<true>(&raw mut (*b).bitmap, d);
+        let slot = (&raw mut (*b).subarrays).cast::<*mut Edge>().add(sub_idx);
+        let retire = if old_n == 1 {
+            crate::bits::shared_word::store_ptr::<true, Edge>(slot, core::ptr::null_mut());
+            Some((arr, old_n))
+        } else if let Some(new_arr) = pre_alloc {
+            let new_arr = new_arr.as_ptr();
+            new_arr.copy_from_nonoverlapping(arr, rank);
+            new_arr
+                .add(rank)
+                .copy_from_nonoverlapping(arr.add(rank + 1), old_n - 1 - rank);
+            crate::bits::shared_word::store_ptr::<true, Edge>(slot, new_arr);
+            Some((arr, old_n))
+        } else {
+            crate::node::edges_shift_down_shared(arr, rank, old_n - 1 - rank);
+            None
+        };
+        crate::node::set_pop_count_at(b, sub_idx, (old_n - 1) as u16);
+        retire
+    };
+    // The branch lost exactly the one digit, and stays above its floor.
+    #[cfg(debug_assertions)]
+    {
+        // SAFETY: as above; the branch is still locked.
+        let after =
+            unsafe { crate::bits::shared_bitmap::count::<true>(&raw const (*b).bitmap) } as usize;
+        debug_assert_eq!(after, digits_before - 1);
+        debug_assert!(!crate::mutate::branch_b_below_floor(after));
+    }
+    version_unlock_timed(p_cell, old_v, true, lock_t0);
+    if let Some((old_arr, n)) = retire {
+        // SAFETY: `old_arr` was unlinked from the branch under its lock;
+        // readers may still be inside it, so it is retired through EBR.
+        unsafe {
+            alloc.free_bytes(
+                core::ptr::NonNull::new_unchecked(old_arr.cast()),
+                crate::mutate::sub_edges_size(n),
+            );
+        }
+    }
+    Ok(r)
+}
+
 /// Whether the subtree under `edge` holds no key: an early-exit census for
 /// the exclusive path, which decides a dirty string sub-map's emptiness from
 /// it rather than from a full [`fold_branch_pop0`] (Refs #1162). A dirty
 /// node's count is stale, so its emptiness is read from the tree. An
-/// optimistic removal never empties a tree: it nulls a `BranchU` slot only
-/// while the branch stays above its demotion floor, and a removal that
-/// would empty a child of any other branch falls back (Refs #1079). The
+/// optimistic removal never empties a tree: it takes an emptied child out
+/// of a `BranchU` or a `BranchB` only while the branch stays above its
+/// demotion floor (Refs #1079, #1610), and a removal that would empty a
+/// child of any other branch, or cross a floor, falls back. The
 /// walk stops at the first key it meets, so on a non-empty tree it reads
 /// one path down to a key and any null edges before it. Reads only: branch
 /// `pop0` words are left as they are.
@@ -3692,7 +3893,9 @@ impl BranchSplitKind {
 pub(crate) enum RemoveSplit {
     /// The removal would empty its child, under a `BranchL3` / `BranchL7`.
     EmptiedUnderLinear,
-    /// The removal would empty its child, under a `BranchB`.
+    /// The removal would empty its child, under a `BranchB` it would bring
+    /// to its demotion floor. Above the floor the child leaves the branch
+    /// optimistically ([`empty_branch_b_slot`]).
     EmptiedUnderBitmap,
     /// The removal would empty its child, under any other parent form.
     EmptiedUnderOther,
@@ -5956,6 +6159,25 @@ impl SyncExpanseSet {
                             }
                             return OlcOutcome::Done(true);
                         }
+                        // SAFETY: `parent` is a frame the descent wrote, under this writer's pin.
+                        if unsafe { branch_b_takes_empty(&parent) } {
+                            let alloc = self.shared.engine_alloc();
+                            // SAFETY: `parent` is the validated BranchB frame `edge` was loaded
+                            // from at `edge_ptr`, under this writer's pin.
+                            let taken = unsafe {
+                                empty_branch_b_slot(&parent, edge_ptr, &edge, alloc, || Ok(()))
+                            };
+                            if let Err(o) = taken {
+                                return o;
+                            }
+                            // SAFETY: the branch no longer names `node`, which is EBR-live and
+                            // retired through the deferred allocator.
+                            unsafe {
+                                alloc.free_node(core::ptr::NonNull::new_unchecked(node));
+                                self.shared.mark_dirty_digit(digit(key, 8));
+                            }
+                            return OlcOutcome::Done(true);
+                        }
                         return branch_split(BranchSplitKind::Remove(RemoveSplit::emptied(
                             parent.edge_type,
                         )));
@@ -6260,6 +6482,28 @@ impl SyncExpanseSet {
                         }
                         return OlcOutcome::Done(true);
                     }
+                    // SAFETY: `parent` is a frame the descent wrote, under this writer's pin.
+                    if unsafe { branch_b_takes_empty(&parent) } {
+                        let alloc = self.shared.engine_alloc();
+                        // SAFETY: `parent` is the validated BranchB frame `edge` was loaded
+                        // from at `edge_ptr`, under this writer's pin.
+                        let taken = unsafe {
+                            empty_branch_b_slot(&parent, edge_ptr, &edge, alloc, || Ok(()))
+                        };
+                        if let Err(o) = taken {
+                            return o;
+                        }
+                        // SAFETY: the branch no longer names the leaf at `keys_ptr`, which is
+                        // EBR-live and retired through the deferred allocator.
+                        unsafe {
+                            alloc.free_bytes(
+                                core::ptr::NonNull::new_unchecked(keys_ptr),
+                                crate::leaf::size_set(kb as u8, pop),
+                            );
+                            self.shared.mark_dirty_digit(digit(key, 8));
+                        }
+                        return OlcOutcome::Done(true);
+                    }
                     return branch_split(BranchSplitKind::Remove(RemoveSplit::emptied(
                         parent.edge_type,
                     )));
@@ -6285,6 +6529,23 @@ impl SyncExpanseSet {
                             unsafe { crate::mutate::read_packed(payload.as_ptr(), 0, kb as usize) };
                         if existing_k == k {
                             if parent.edge_type != EdgeType::BranchU {
+                                // SAFETY: `parent` is a frame the descent wrote, under this
+                                // writer's pin.
+                                if unsafe { branch_b_takes_empty(&parent) } {
+                                    let alloc = self.shared.engine_alloc();
+                                    // SAFETY: `parent` is the validated BranchB frame `edge` was
+                                    // loaded from at `edge_ptr`, under this writer's pin.
+                                    let taken = unsafe {
+                                        empty_branch_b_slot(&parent, edge_ptr, &edge, alloc, || {
+                                            Ok(())
+                                        })
+                                    };
+                                    if let Err(o) = taken {
+                                        return o;
+                                    }
+                                    self.shared.mark_dirty_digit(digit(key, 8));
+                                    return OlcOutcome::Done(true);
+                                }
                                 return branch_split(BranchSplitKind::Remove(
                                     RemoveSplit::emptied(parent.edge_type),
                                 ));
@@ -9352,6 +9613,38 @@ macro_rules! olc_remove_map_body {
                             return OlcOutcome::Done(Some(old));
                         }
                     }
+                    // SAFETY: `parent` is a frame the descent wrote, under this writer's pin.
+                    if unsafe { branch_b_takes_empty(&parent) } {
+                        let alloc = $host.alloc();
+                        // SAFETY: `parent` is the validated BranchB frame `edge` was loaded
+                        // from at `edge_ptr`, under this writer's pin; the closure reads the
+                        // leaf the slot still names while the branch lock excludes its writers.
+                        let (old_arr, old) = match unsafe {
+                            empty_branch_b_slot(&parent, edge_ptr, &edge, alloc, || {
+                                let old_arr = (*node).values[sub];
+                                let old = *old_arr.add(rank);
+                                if $keep_locked {
+                                    Err(Some(old))
+                                } else {
+                                    Ok((old_arr, old))
+                                }
+                            })
+                        } {
+                            Ok(read) => read,
+                            Err(o) => return o,
+                        };
+                        // SAFETY: the branch no longer names `node` or its value array, both
+                        // EBR-live and retired through the deferred allocator.
+                        unsafe {
+                            alloc.free_bytes(
+                                core::ptr::NonNull::new_unchecked(old_arr.cast()),
+                                crate::mutate::sub_vals_size(1),
+                            );
+                            alloc.free_node(core::ptr::NonNull::new_unchecked(node));
+                            $host.mark_dirty_digit(digit($key, 8));
+                            return OlcOutcome::Done(Some(old));
+                        }
+                    }
                     return branch_split(BranchSplitKind::Remove(RemoveSplit::emptied(
                         parent.edge_type,
                     )));
@@ -9863,6 +10156,36 @@ macro_rules! olc_remove_map_body {
                             return OlcOutcome::Done(Some(old));
                         }
                     }
+                    // SAFETY: `parent` is a frame the descent wrote, under this writer's pin.
+                    if unsafe { branch_b_takes_empty(&parent) } {
+                        let alloc = $host.alloc();
+                        // SAFETY: `parent` is the validated BranchB frame `edge` was loaded
+                        // from at `edge_ptr`, under this writer's pin; the closure reads the
+                        // leaf the slot still names while the branch lock excludes its writers.
+                        let old = match unsafe {
+                            empty_branch_b_slot(&parent, edge_ptr, &edge, alloc, || {
+                                let old = base.cast::<u64>().read();
+                                if $keep_locked {
+                                    Err(Some(old))
+                                } else {
+                                    Ok(old)
+                                }
+                            })
+                        } {
+                            Ok(old) => old,
+                            Err(o) => return o,
+                        };
+                        // SAFETY: the branch no longer names the leaf at `base`, which is
+                        // EBR-live and retired through the deferred allocator.
+                        unsafe {
+                            alloc.free_bytes(
+                                core::ptr::NonNull::new_unchecked(base),
+                                crate::leaf::size_map(kb as u8, 1),
+                            );
+                            $host.mark_dirty_digit(digit($key, 8));
+                            return OlcOutcome::Done(Some(old));
+                        }
+                    }
                     return branch_split(BranchSplitKind::Remove(RemoveSplit::emptied(
                         parent.edge_type,
                     )));
@@ -10025,6 +10348,29 @@ macro_rules! olc_remove_map_body {
                             }
                         }
                         if parent.edge_type != EdgeType::BranchU {
+                            // SAFETY: `parent` is a frame the descent wrote, under this
+                            // writer's pin.
+                            if unsafe { branch_b_takes_empty(&parent) } {
+                                // SAFETY: `parent` is the validated BranchB frame `edge` was
+                                // loaded from at `edge_ptr`, under this writer's pin; the closure
+                                // reads the slot's value word while the branch lock excludes its
+                                // writers.
+                                let old = match unsafe {
+                                    empty_branch_b_slot(&parent, edge_ptr, &edge, $host.alloc(), || {
+                                        let old = Edge::word0_at(edge_ptr);
+                                        if $keep_locked {
+                                            Err(Some(old))
+                                        } else {
+                                            Ok(old)
+                                        }
+                                    })
+                                } {
+                                    Ok(old) => old,
+                                    Err(o) => return o,
+                                };
+                                $host.mark_dirty_digit(digit($key, 8));
+                                return OlcOutcome::Done(Some(old));
+                            }
                             return branch_split(BranchSplitKind::Remove(RemoveSplit::emptied(
                                 parent.edge_type,
                             )));
@@ -18683,6 +19029,86 @@ mod miri_tests {
         // narrow leaf and two bitmap leaves.
         let rows = set_ordered_fixtures::run_table(set_ordered_fixtures::Table::ExactFit);
         assert_eq!(rows, 8);
+    }
+
+    /// Keys whose `0x42` subtree is a `BranchB` of eleven children of five
+    /// keys each (more than one leaf holds): digits `0..=9` share one
+    /// subexpanse, and `0x40` is alone in its own. Five singles and 40 dense
+    /// keys under other top digits keep the root a tree and the top branch a
+    /// `BranchL7`.
+    fn branch_b_empty_keys() -> Vec<u64> {
+        let mut keys: Vec<u64> = (1..=5u64).map(|i| (i << 56) | 1).collect();
+        keys.extend((0..40u64).map(|j| (6 << 56) | (7 << 24) | j));
+        for d in (0..=9u64).chain([0x40]) {
+            keys.extend(branch_b_child(d));
+        }
+        keys
+    }
+
+    /// The five keys of child `d` in [`branch_b_empty_keys`]; removing the
+    /// last of them empties the child.
+    fn branch_b_child(d: u64) -> impl Iterator<Item = u64> {
+        (1..=5u64).map(move |j| (0x42 << 56) | (d << 8) | j)
+    }
+
+    /// #1610, the optimistic removal of an emptied child from a `BranchB`
+    /// (`empty_branch_b_slot`), under Miri in the Tier-1 filter, on the set
+    /// walk and the map walk. The four removals cover the subarray's three
+    /// cases: the last edge of a subexpanse (its subarray freed), an
+    /// in-place shift (10 → 9 edges, one capacity class), a move to a
+    /// smaller array (9 → 8, across a class boundary), and an in-place shift
+    /// again (8 → 7). The branch goes from eleven digits to seven, the
+    /// lowest count an optimistic removal may leave. The tree version does
+    /// not move, so none of the four took the exclusive path; each node is
+    /// its own allocation on a shared tree, so Miri sees a read or write past
+    /// a subarray, a use of a freed one, and a leak at drop.
+    #[test]
+    fn tier1_branch_b_empty_child_under_miri() {
+        let keys = branch_b_empty_keys();
+        let gone: Vec<u64> = [0x40u64, 3, 9, 0]
+            .into_iter()
+            .flat_map(branch_b_child)
+            .collect();
+
+        let set = SyncExpanseSet::new();
+        for &k in &keys {
+            set.insert(k);
+        }
+        assert_eq!(set.with_locked(|s| s.stats()).node_counts.branch_b, 1);
+        let tree = set.shared.version().sample();
+        for &k in &gone {
+            assert!(set.remove(k));
+            assert!(!set.contains(k));
+        }
+        assert!(
+            set.shared.version().validate(tree),
+            "set: a removal took the exclusive path"
+        );
+        assert_eq!(set.with_locked(|s| s.stats()).node_counts.branch_b, 1);
+        for &k in keys.iter().filter(|k| !gone.contains(k)) {
+            assert!(set.contains(k), "set: {k:#x} lost");
+        }
+        set.with_locked(ExpanseSet::validate);
+
+        let map = SyncExpanseMap::new();
+        for &k in &keys {
+            map.insert(k, !k);
+        }
+        assert_eq!(map.with_locked(|m| m.stats()).node_counts.branch_b, 1);
+        let tree = map.shared.version().sample();
+        for &k in &gone {
+            assert_eq!(map.remove(k), Some(!k));
+            assert_eq!(map.get(k), None);
+        }
+        assert!(
+            map.shared.version().validate(tree),
+            "map: a removal took the exclusive path"
+        );
+        assert_eq!(map.with_locked(|m| m.stats()).node_counts.branch_b, 1);
+        for &k in keys.iter().filter(|k| !gone.contains(k)) {
+            assert_eq!(map.get(k), Some(!k), "map: {k:#x} lost");
+        }
+        map.with_locked(ExpanseMap::validate);
     }
 
     fn splitmix64(i: u64) -> u64 {
@@ -30047,21 +30473,23 @@ mod ordered_read_tests {
         }
     }
 
-    /// G36.4, `BranchB`, the mutation as registered, and why its row is
-    /// enforced by a source scan instead (`tests/test_validated_answers.rs`,
+    /// G36.4, `BranchB`, the mutation as registered, and the source scan that
+    /// enforces its row (`tests/test_validated_answers.rs`,
     /// `bitmap_branch_arms_sample_before_they_load`).
     ///
     /// The registered mutation takes the first digit before the sample; the
     /// writer then removes that digit's only key and inserts under the next
     /// digit, so the stale digit's rank indexes the neighbour's child, and
-    /// the composed key (`never`) was never present. On a shared set the
-    /// mutated walk cannot return it: a removal that empties a child of a
-    /// bitmap branch is made by the exclusive path, which moves the tree
-    /// version (asserted), and the walk's final check of the tree version
-    /// then sends it back. The mutation is tried here exactly as worded, in
-    /// both directions, and retries. If the removal ever stops moving the
-    /// tree version, this test fails at that assertion, and the mutation
-    /// has become one that can return `never`.
+    /// the composed key (`never`) was never present. Until #1610 a removal
+    /// that emptied a child of a bitmap branch went to the exclusive path,
+    /// which moved the tree version, and the mutated walk's final check of
+    /// the tree version sent it back. Such a removal is now optimistic: it
+    /// takes the digit out of the branch under the branch's own lock
+    /// (`empty_branch_b_slot`) and leaves the tree version alone (asserted).
+    /// The walk as written samples before it reads the digit, sees both
+    /// writes and answers correctly; the mutated walk returns `never`. The
+    /// second is the negative control that makes the first discriminating,
+    /// as for the `BranchU` cases above.
     #[test]
     fn set_ordered_read_past_a_removed_bitmap_branch_digit_restarts() {
         // (forward, probe, the key inserted under the neighbour, the answer
@@ -30100,13 +30528,25 @@ mod ordered_read_tests {
                 );
                 assert!(moved > 0, "the writes must move the branch's version");
                 assert!(
-                    !tree_held,
-                    "emptying a child of a bitmap branch moves the tree version"
+                    tree_held,
+                    "emptying a child of a bitmap branch above its floor is optimistic, and \
+                     leaves the tree version alone"
                 );
-                assert_eq!(
-                    got, None,
-                    "the read must retry (forward = {forward}, digit first = {digit_first})"
-                );
+                if digit_first {
+                    // The stale digit composed with a key of the neighbour's
+                    // child: a key the set never held.
+                    let Some(Some((k, _))) = got else {
+                        panic!("the mutated walk answered {got:?} (forward = {forward})")
+                    };
+                    let ever: BTreeSet<u64> = fx::branch_b_keys().chain([inserted]).collect();
+                    assert!(
+                        !ever.contains(&k),
+                        "the mutated walk must compose a key never present, got {k:#x} \
+                         (forward = {forward})"
+                    );
+                } else {
+                    assert_eq!(got, Some(Some((answer, 0))), "forward = {forward}");
+                }
                 assert!(model.remove(&removed) && model.insert(inserted));
                 assert!(!model.contains(&never));
                 let rd = set.reader();

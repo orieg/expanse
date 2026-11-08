@@ -633,7 +633,7 @@ fn walk<const MAP: bool, const CHECK_BRANCH_POP0: bool>(
             let b = unsafe { &*ptr.cast::<BranchB>() };
             stats.node_bytes.branch_b += size_of::<BranchB>();
             let digits = b.bitmap.count() as usize;
-            if digits <= BRANCHB_TO_L7_DOWN {
+            if crate::mutate::branch_b_below_floor(digits) {
                 return Err(format!(
                     "bitmap branch population {digits} at or below demotion threshold \
                      {BRANCHB_TO_L7_DOWN}"
