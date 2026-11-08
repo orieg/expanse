@@ -293,6 +293,8 @@ def known_limit_section(scan: dict, results_dir: Path = RESULTS) -> list[str]:
         f"(`results/baseline_scan.json`).",
         f"- Run 2: commit `{p2['commit']}`, {p2['run_id']}, pin `{p2['core_pin']}` "
         f"(`results/baseline_scan_run2.json`).",
+        "- Dispatches at the same commit that were voided or recorded no data are listed, with their causes, "
+        "in METHODOLOGY.md, section \"Known-limit outcome\" (`AGENTS.md` §8.17).",
         "",
         "Conditions: distribution `prefixed_path` (prefix length 35), Expanse timed through "
         f"`cursor_prefix`, both build orders, n of 10,000, 100,000 and 1,000,000 "

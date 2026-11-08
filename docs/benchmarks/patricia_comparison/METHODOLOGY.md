@@ -574,3 +574,17 @@ This adds one refusal to the start gate that A5.3's H0 reads. It changes no clau
 - **Earlier attempt.** Dispatch `42410700658` at the same commit was registered against none of this. Its build was refused memory under the host's strict overcommit before any harness ran, so it recorded no data, and it is not one of the two runs.
 - **Voids.** A dispatch whose load record is inadmissible under the workflow's host guard or `AGENTS.md` §8.17 is replaced by a fresh dispatch at the same commit and disclosed; its numbers are not used.
 - **Scope of the statement.** The limit describes this build, these key sets and this host; it does not say that no remedy exists (`AGENTS.md` §8.9 item 4). The 1M build-order gap's cause is what D1 and D2 recorded, and nothing here adds to it.
+
+## Known-limit outcome (appended after the dispatches; refs #1096; nothing above is edited)
+
+Every dispatch at `c1b604ade4cef755038df968261b2ccfcbb3791e`, in order:
+
+| Dispatch | Run | Result |
+|---|---|---|
+| 1 | `42410700658` | no data: the build was refused memory under the host's strict overcommit before any harness ran (the "Earlier attempt" above) |
+| 2 | `42433736053` | `VOID`: an `apt-daily` job raised foreign load on the pinned CPUs to 1.03 core-equivalents, 4 samples over the host guard's void line |
+| 3 | `42438017772` | admissible: run 1, committed as `results/baseline_*.json` |
+| 4 | `42442221339` | `VOID`: started outside its slot, and foreign load on the pinned CPUs crossed the void line twice (0.28 and 0.68) |
+| 5 | `42462421849` | admissible: run 2, its scan artifact committed as `results/baseline_scan_run2.json` |
+
+The void dispatches are disclosed here and their numbers are not used (`AGENTS.md` §8.17). The reading under the rule above, cell by cell with both intervals, is in `README.md`, section "Known limit". 5 of the 18 cells are Expanse faster in both runs, 13 are twin faster in both, and none is unconfirmed. No threshold, estimator or cell set was changed after the data.
