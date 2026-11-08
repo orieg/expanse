@@ -86,6 +86,7 @@ on:
           - reclaim_stall_free_gate
           - strmap_poll_stall
           - strmap_poll_stall_g47
+          - strmap_remove_split_g52
           - writer_scaling_1586_str_vs_base
           - point_lookup_counters
           - search_instructions
@@ -128,6 +129,11 @@ on:
           - art_small_payload
           - patricia_comparison
           - patricia_d2_paging
+          - hot_string_memory
+          - hot_string_latency
+          - masstree_string_latency
+          - masstree_memory
+          - masstree_concurrent
           - allocator_overhead
           # END GENERATED: bench-suites
   issue_comment:
@@ -1293,6 +1299,53 @@ jobs:
                   --run-id "$RUN_URL" \
                   | tee bench-output.txt
                 ;;
+              "hot_string_memory"|"hot_string_latency"|"masstree_memory"|"masstree_string_latency"|"masstree_concurrent")
+                # The HOT and Masstree comparison suites, through their own
+                # run.sh. Each script re-execs under bench_lock.py unless
+                # EXPANSE_BENCH_LOCK_HELD is set, which this step's wrapper
+                # exports, so it runs under the lock and the host guard this
+                # step already holds; it sources scripts/bench_pin.sh, which
+                # keeps the pin applied above. `run.sh strings --sensitivity`
+                # writes the HOT string memory, latency and insertion-order
+                # (sensitivity) artifacts, so its two tokens run the same command; so
+                # do the two single-threaded Masstree tokens, whose run.sh
+                # writes the integer, string, memory and sensitivity artifacts
+                # in one pass. Every missing prerequisite is fatal and named
+                # (AGENTS.md section 8.1): nothing is installed on the host.
+                case "$SUITE" in
+                  hot_*) SUBMODULES="third_party/hot" ;;
+                  *) SUBMODULES="third_party/hot third_party/masstree" ;;
+                esac
+                MISSING=""
+                for tool in git python3 "${CXX:-c++}" "${CC:-cc}"; do
+                  command -v "$tool" >/dev/null 2>&1 || MISSING="$MISSING $tool"
+                done
+                for flag in avx2 bmi2; do
+                  grep -qw "$flag" /proc/cpuinfo || MISSING="$MISSING cpu-flag:$flag"
+                done
+                if [ -n "$MISSING" ]; then
+                  echo "::error::suite '$SUITE' needs, and this runner lacks:$MISSING. No benchmark was run."
+                  echo "fail_reason=missing_prerequisite:$SUITE" >> "$GITHUB_OUTPUT"
+                  exit 1
+                fi
+                # Public upstreams pinned by the gitlinks of the ref under test;
+                # the checkout above persisted no credentials, so this fetch
+                # carries none.
+                # shellcheck disable=SC2086
+                if ! git submodule update --init --depth 1 $SUBMODULES; then
+                  echo "::error::could not fetch the pinned submodules ($SUBMODULES) for suite '$SUITE'. No benchmark was run."
+                  echo "fail_reason=missing_prerequisite:$SUITE:submodules" >> "$GITHUB_OUTPUT"
+                  exit 1
+                fi
+                case "$SUITE" in
+                  hot_string_memory|hot_string_latency)
+                    bash docs/benchmarks/hot_comparison/run.sh strings --sensitivity 2>&1 | tee bench-output.txt ;;
+                  masstree_memory|masstree_string_latency)
+                    bash docs/benchmarks/masstree_comparison/run.sh 2>&1 | tee bench-output.txt ;;
+                  masstree_concurrent)
+                    bash docs/benchmarks/masstree_comparison/run.sh --only-concurrent 2>&1 | tee bench-output.txt ;;
+                esac
+                ;;
               "patricia_d2_paging")
                 # Diagnostic D2 hardware PMU counters over 1M prefix scan under 4 KiB vs 2 MiB THP (#1096).
                 # Runs four cells: strmap_prefix_scan and strmap_prefix_scan_sorted, baseline and --hugetlb.
@@ -1586,6 +1639,13 @@ jobs:
                 # pass. Dispatch with ref set to the change's head.
                 python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --plan 47 \
                   --out docs/benchmarks/concurrency/results/gate_1586_strmap_poll_stall.json | tee strmap_poll_stall.txt
+                ;;
+              "strmap_remove_split_g52")
+                # METHODOLOGY §52 (Refs #1610): which removals take the serialised
+                # Remove fallback, on the §47 churn cell over N in {2e6 .. 5e7},
+                # both shapes, arm none, 5 rotated rounds, occ-stats build only.
+                python3 docs/benchmarks/concurrency/scripts/strmap_poll_stall.py --plan 52 \
+                  --out docs/benchmarks/concurrency/results/diagnostic_1610_strmap_remove_split.json | tee strmap_poll_stall.txt
                 ;;
               "writer_scaling_1586_str_vs_base")
                 # METHODOLOGY §47 (#1586 design B): G-scale, the str arm on the
@@ -1993,6 +2053,8 @@ jobs:
             HOST_PAUSES=docs/benchmarks/concurrency/results/baseline_strmap_poll_stall.json
           elif [ "$SUITE" = "strmap_poll_stall_g47" ]; then
             HOST_PAUSES=docs/benchmarks/concurrency/results/gate_1586_strmap_poll_stall.json
+          elif [ "$SUITE" = "strmap_remove_split_g52" ]; then
+            HOST_PAUSES=docs/benchmarks/concurrency/results/diagnostic_1610_strmap_remove_split.json
           fi
           set +e
           python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" summarize \
@@ -2400,6 +2462,7 @@ jobs:
             strmap_poll_stall.txt \
             docs/benchmarks/concurrency/results/baseline_strmap_poll_stall.json \
             docs/benchmarks/concurrency/results/gate_1586_strmap_poll_stall.json \
+            docs/benchmarks/concurrency/results/diagnostic_1610_strmap_remove_split.json \
             docs/benchmarks/concurrency/results/gate_1586_str_writer_scaling.json \
             docs/benchmarks/concurrency/results/baseline_writer_scaling.json \
             docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json \
@@ -2431,6 +2494,17 @@ jobs:
             allocator-overhead.txt \
             docs/benchmarks/patricia_comparison/results/baseline_*.json \
             docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_*.json \
+            docs/benchmarks/hot_comparison/results/baseline_string_memory.json \
+            docs/benchmarks/hot_comparison/results/baseline_string_latency.json \
+            docs/benchmarks/hot_comparison/results/baseline_string_sensitivity.json \
+            docs/benchmarks/hot_comparison/results/string_validate.log \
+            docs/benchmarks/masstree_comparison/results/baseline_memory.json \
+            docs/benchmarks/masstree_comparison/results/baseline_string_memory.json \
+            docs/benchmarks/masstree_comparison/results/baseline_latency.json \
+            docs/benchmarks/masstree_comparison/results/baseline_string_latency.json \
+            docs/benchmarks/masstree_comparison/results/baseline_sensitivity.json \
+            docs/benchmarks/masstree_comparison/results/baseline_concurrent.json \
+            docs/benchmarks/masstree_comparison/results/validate.log \
             patricia-d2-4k.md \
             patricia-d2-2m.md \
             comparative.txt \

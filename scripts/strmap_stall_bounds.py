@@ -63,6 +63,16 @@ freelist pop) adds:
 14. `paired_t_ratio(art, w)` and `g_wall_outcome(runs)` — the reference-host gate: per-round
     T_head / T_base, BCa 95%, and the PASS / NOT_DETECTED / HARM rule over two runs.
 
+§52 (#1610, which removals take the serialised `BranchSplitKind::Remove`
+fallback as N grows) adds:
+
+15. `rss_projection_bytes(rss_ref, n_ref, n)` and `mem_required_bytes(shape, n)` —
+    the resident set a churn cell of N keys is projected to need, scaled
+    linearly from the same shape's measured N = 2e7 churn cell, and the
+    `MemAvailable` the driver requires before it starts such a process;
+16. `run_seconds_bound(**DISPATCH_52)` — the sweep's length, against the
+    workflow's default job timeout (`timeout-minutes` in `bench_baremetal.yml`).
+
 Every input of 6 to 8 is a measured figure in
 `results/strmap_design_b_baseline_callgrind_f65060d8.json` or
 `results/allocator_overhead_f65060d8.txt`, or a constant below whose
@@ -1006,6 +1016,7 @@ def self_test() -> int:
     _self_test_zeroing()
     _self_test_freelist_hint()
     _self_test_charge_rmw()
+    _self_test_sweep52()
     print("strmap_stall_bounds.py self-test PASSED")
     return 0
 
@@ -1025,6 +1036,12 @@ def report() -> None:
     print(f"Dispatch bound (sizing the job timeout): {b:,.0f} s from {DISPATCH}")
     b47 = run_seconds_bound(**DISPATCH_47)
     print(f"§47 G-stall dispatch bound: {b47:,.0f} s ({b47 * 1.2 / 60:,.0f} min at 1.2x) from {DISPATCH_47}")
+    b50 = run_seconds_bound(**DISPATCH_52)
+    print(f"§52 sweep dispatch bound: {b50:,.0f} s ({b50 * 1.2 / 60:,.0f} min at 1.2x) from {DISPATCH_52}")
+    for shape in sorted(RSS_REF_2E7):
+        for n in SWEEP_52:
+            print(f"  §52 {shape} N={n:,}: projected RSS {rss_projection_bytes(RSS_REF_2E7[shape], RSS_REF_N, n):,.0f} B,"
+                  f" MemAvailable required {mem_required_bytes(shape, n):,.0f} B")
 
 
 # §44's dispatch: 24 cells x 3 arms x 5 rounds timed, plus 24 counter processes, half at
@@ -1036,12 +1053,82 @@ DISPATCH = {"processes_by_keys": {2_000_000: 192, 20_000_000: 192}, "window_s": 
             "longest_process_s": 141}
 
 
+# §52 (#1610): the N sweep of the §47 churn cell. RSS_REF_2E7 is each shape's largest
+# `max_rss_bytes` over the 15 churn rows (3 arms x 5 rounds) of
+# docs/benchmarks/concurrency/results/gate_1602_strmap_poll_stall.json (reference host,
+# f5cb17a6), the newest engine measured at N = 2e7 under churn. HOST_HELD_RSS is the largest
+# `max_rss_bytes` any committed strmap_poll_stall row reached on that host (the `short` growth
+# cell at N = 2e7 in baseline_strmap_poll_stall.json, ac7c1237): a lower bound on what the host
+# can hold, not its RAM. MEM_FACTOR is the head-room the driver asks of `MemAvailable` over a
+# projection; a projection is linear in N through the origin, so it overstates the fixed part.
+RSS_REF_N = 20_000_000
+RSS_REF_2E7 = {"short": 1_491_468_288, "routes": 2_648_702_976}
+HOST_HELD_RSS = 7_497_252_864
+MEM_FACTOR = 1.5
+SWEEP_52 = (2_000_000, 5_000_000, 10_000_000, 20_000_000, 50_000_000)
+
+
+def rss_projection_bytes(rss_ref: int, n_ref: int, n: int) -> float:
+    """`rss_ref` scaled linearly from `n_ref` keys to `n` (through the origin; a sizing, not a prediction)."""
+    for name, v in (("rss_ref", rss_ref), ("n_ref", n_ref), ("n", n)):
+        if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
+            raise ValueError(f"{name} must be a positive int, got {v!r}")
+    return rss_ref * n / n_ref
+
+
+def mem_required_bytes(shape: str, n: int, factor: float = MEM_FACTOR) -> float:
+    """The `MemAvailable` §52 requires before a churn process of `n` `shape` keys starts."""
+    if shape not in RSS_REF_2E7:
+        raise ValueError(f"unknown shape {shape!r}; expected one of {sorted(RSS_REF_2E7)}")
+    if _finite("factor", factor) < 1.0:
+        raise ValueError(f"factor must be >= 1, got {factor}")
+    return factor * rss_projection_bytes(RSS_REF_2E7[shape], RSS_REF_N, n)
+
+
+def _self_test_sweep52() -> None:
+    # 1,491,468,288 x 2.5 = 3,728,670,720 (short); 2,648,702,976 x 2.5 = 6,621,757,440 (routes).
+    assert rss_projection_bytes(RSS_REF_2E7["short"], RSS_REF_N, 50_000_000) == 3_728_670_720
+    assert rss_projection_bytes(RSS_REF_2E7["routes"], RSS_REF_N, 50_000_000) == 6_621_757_440
+    assert rss_projection_bytes(10, 10, 10) == 10
+    assert mem_required_bytes("short", 50_000_000) == 5_593_006_080
+    assert mem_required_bytes("routes", 50_000_000) == 9_932_636_160
+    assert mem_required_bytes("short", 2_000_000) == 1.5 * 149_146_828.8
+    # Both 5e7 projections are below what the host has already held; with the head-room,
+    # short stays below it and routes does not, so the driver's MemAvailable check decides routes.
+    assert rss_projection_bytes(RSS_REF_2E7["routes"], RSS_REF_N, 50_000_000) < HOST_HELD_RSS
+    assert mem_required_bytes("short", 50_000_000) < HOST_HELD_RSS < mem_required_bytes("routes", 50_000_000)
+    for bad in ((0, 1, 1), (1, 0, 1), (1, 1, -1), (1.0, 1, 1), (True, 1, 1)):
+        _raises(rss_projection_bytes, *bad)
+    _raises(mem_required_bytes, "uuid", 10)
+    _raises(mem_required_bytes, "short", 10, 0.5)
+    _raises(mem_required_bytes, "short", 10, float("nan"))
+    # Every swept N is a multiple of W = 4, as `--workload churn` requires.
+    assert all(n % 4 == 0 for n in SWEEP_52)
+    # The sweep's process counts: 2 shapes x 5 rounds per N.
+    assert DISPATCH_52["processes_by_keys"] == {n: 10 for n in SWEEP_52}
+    # The longest process the driver's guard estimates: 2.7e-06 x 5e7 x 1.5 + 30 + 30 = 262.5 s.
+    assert DISPATCH_52["longest_process_s"] == 2.7e-06 * 50_000_000 * 1.5 + 30 + 30
+    # The bound: 8.7e8 prefilled keys x 2.7e-06 = 2,349 s, 50 x 40 s, one 600 s build = 4,949 s;
+    # two hours spanned at 562.5 s each gives 6,074 s, which spans two hours: a fixed point.
+    b = run_seconds_bound(**DISPATCH_52)
+    assert abs(b - 6074.0) < 1e-6, b
+    assert b * 1.2 < 180 * 60
+
+
 # §47's G-stall dispatch: 2 shapes x 2 workloads x 3 arms x 5 rounds = 60 processes, all at
 # N = 2e7; §44's sizing constants otherwise (§44.11's run prefilled 2e7 short keys in at most
 # 9.99 s, 5.0e-07 s/key, below the 2.7e-06 used here); one build, no counters pass.
 DISPATCH_47 = {"processes_by_keys": {20_000_000: 60}, "window_s": 30,
                "prefill_s_per_key": 2.7e-06, "post_s": 10, "build_s": 600, "blackout_s": 300,
                "longest_process_s": 141}
+
+
+# §52's sweep: 2 shapes x 5 N x 5 rounds = 50 processes, one arm, one occ-stats build; §47's
+# sizing constants otherwise. The longest process is the 5e7 prefill at the driver's guard
+# margin plus the window and its post allowance.
+DISPATCH_52 = {"processes_by_keys": {n: 10 for n in SWEEP_52}, "window_s": 30,
+               "prefill_s_per_key": 2.7e-06, "post_s": 10, "build_s": 600, "blackout_s": 300,
+               "longest_process_s": 2.7e-06 * 50_000_000 * 1.5 + 30 + 30}
 
 
 def main() -> int:
