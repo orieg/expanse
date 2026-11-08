@@ -261,7 +261,7 @@ Per-tier instruction counts are deterministic: [`docs/visualizer_data.json`](doc
 
 Wall-clock latency and instructions retired through the identical C ABI on identical key streams. **Below 1.00 = libexpanse does less work / runs faster than original libjudy.**
 
-> **Provenance.** The wall-clock table (workload: `capi_bench_vs_libjudy`) is 15 paired rounds, arms interleaved, 50% hit rate, value slot dereferenced, ratios with BCa 95% intervals *(measured: reference host — Intel i9-12900F, [run 33151981386](https://github.com/orieg/expanse/actions/runs/33151981386); per-round data in [`results/baseline_vs_libjudy.json`](results/baseline_vs_libjudy.json))*. The `B/k` columns are deterministic `JudyLMemUsed` byte accounting from the same harness; that artifact does not record bytes/key, so they are unsourced pending a re-run that does.
+> **Provenance.** The wall-clock table (workload: `capi_bench_vs_libjudy`) is 15 paired rounds, arms interleaved, 50% hit rate, value slot dereferenced, ratios with BCa 95% intervals *(measured: reference host — Intel i9-12900F, [run 33151981386](https://github.com/orieg/expanse/actions/runs/33151981386); per-round data in [`results/baseline_vs_libjudy.json`](results/baseline_vs_libjudy.json))*. The `B/k` columns are deterministic `JudyLMemUsed` byte accounting from the same harness; that artifact does not record bytes/key, so they are unsourced pending a re-run that does (tracked in [#1662](https://github.com/orieg/expanse/issues/1662)).
 >
 > **Random 1M lookup is the one measured wall-clock loss: 1.031× slower than stock libjudy, BCa 95% CI [1.024, 1.038]** (workload: `capi_bench_vs_libjudy`). Full matrix and intervals: [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
 
