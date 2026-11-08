@@ -1,0 +1,4698 @@
+{
+  "provenance": {
+    "suite": "concurrency",
+    "issue": 1479,
+    "commit": "989b1e28",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "performance",
+      "scaling_governor_by_cpu": {
+        "0": "performance",
+        "1": "performance",
+        "2": "performance",
+        "3": "performance",
+        "4": "performance",
+        "5": "performance",
+        "6": "performance",
+        "7": "performance",
+        "8": "performance",
+        "9": "performance",
+        "10": "performance",
+        "11": "performance",
+        "12": "performance",
+        "13": "performance",
+        "14": "performance",
+        "15": "performance"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "\u00a751 spin-wait share of thread CPU (no ratio gate)",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "core_pin": "0-15",
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 0.46,
+        "load5": 0.13,
+        "load15": 0.04,
+        "at": "2026-11-08T15:20:21Z",
+        "stat_busy_jiffies": 52195410,
+        "stat_total_jiffies": 4879809395,
+        "child_cpu_s": 0.001,
+        "monotonic_s": 2034047.473,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W1:R2:r0",
+        "since": "start",
+        "load1": 1.63,
+        "load5": 0.44,
+        "load15": 0.14,
+        "at": "2026-11-08T15:20:43Z",
+        "stat_busy_jiffies": 52204843,
+        "stat_total_jiffies": 4879861187,
+        "child_cpu_s": 93.584,
+        "monotonic_s": 2034069.082,
+        "busy_cpus_since_prev": 4.37,
+        "own_busy_cpus_since_prev": 4.33,
+        "foreign_busy_cpus_since_prev": 0.04
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W1:R2:r0",
+        "since": "wait_share:sync:overwrite:L200000:W1:R2:r0",
+        "load1": 1.74,
+        "load5": 0.48,
+        "load15": 0.16,
+        "at": "2026-11-08T15:20:47Z",
+        "stat_busy_jiffies": 52206097,
+        "stat_total_jiffies": 4879871739,
+        "child_cpu_s": 106.052,
+        "monotonic_s": 2034073.481,
+        "busy_cpus_since_prev": 2.85,
+        "own_busy_cpus_since_prev": 2.83,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W4:R2:r0",
+        "since": "wait_share:sync:overwrite:L3600000:W1:R2:r0",
+        "load1": 1.84,
+        "load5": 0.53,
+        "load15": 0.17,
+        "at": "2026-11-08T15:20:51Z",
+        "stat_busy_jiffies": 52207225,
+        "stat_total_jiffies": 4879882199,
+        "child_cpu_s": 117.246,
+        "monotonic_s": 2034077.842,
+        "busy_cpus_since_prev": 2.59,
+        "own_busy_cpus_since_prev": 2.57,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W4:R2:r0",
+        "since": "wait_share:sync:overwrite:L200000:W4:R2:r0",
+        "load1": 1.84,
+        "load5": 0.53,
+        "load15": 0.17,
+        "at": "2026-11-08T15:20:53Z",
+        "stat_busy_jiffies": 52208104,
+        "stat_total_jiffies": 4879886336,
+        "child_cpu_s": 125.985,
+        "monotonic_s": 2034079.567,
+        "busy_cpus_since_prev": 5.1,
+        "own_busy_cpus_since_prev": 5.07,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W12:R2:r0",
+        "since": "wait_share:sync:overwrite:L3600000:W4:R2:r0",
+        "load1": 1.77,
+        "load5": 0.53,
+        "load15": 0.18,
+        "at": "2026-11-08T15:20:55Z",
+        "stat_busy_jiffies": 52208963,
+        "stat_total_jiffies": 4879891989,
+        "child_cpu_s": 134.538,
+        "monotonic_s": 2034081.924,
+        "busy_cpus_since_prev": 3.65,
+        "own_busy_cpus_since_prev": 3.63,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W12:R2:r0",
+        "since": "wait_share:sync:overwrite:L200000:W12:R2:r0",
+        "load1": 1.77,
+        "load5": 0.53,
+        "load15": 0.18,
+        "at": "2026-11-08T15:20:59Z",
+        "stat_busy_jiffies": 52210766,
+        "stat_total_jiffies": 4879899489,
+        "child_cpu_s": 152.736,
+        "monotonic_s": 2034085.089,
+        "busy_cpus_since_prev": 5.77,
+        "own_busy_cpus_since_prev": 5.75,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:full:Lfill:W4:R2:r0",
+        "since": "wait_share:sync:overwrite:L3600000:W12:R2:r0",
+        "load1": 2.11,
+        "load5": 0.63,
+        "load15": 0.21,
+        "at": "2026-11-08T15:21:01Z",
+        "stat_busy_jiffies": 52212055,
+        "stat_total_jiffies": 4879905554,
+        "child_cpu_s": 165.65,
+        "monotonic_s": 2034087.628,
+        "busy_cpus_since_prev": 5.1,
+        "own_busy_cpus_since_prev": 5.09,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "wait_share:sync:full:Lfill:W12:R2:r0",
+        "since": "wait_share:sync:full:Lfill:W4:R2:r0",
+        "load1": 2.02,
+        "load5": 0.63,
+        "load15": 0.22,
+        "at": "2026-11-08T15:21:06Z",
+        "stat_busy_jiffies": 52213991,
+        "stat_total_jiffies": 4879916292,
+        "child_cpu_s": 184.924,
+        "monotonic_s": 2034092.103,
+        "busy_cpus_since_prev": 4.33,
+        "own_busy_cpus_since_prev": 4.31,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W1:R2:r1",
+        "since": "wait_share:sync:full:Lfill:W12:R2:r0",
+        "load1": 2.02,
+        "load5": 0.63,
+        "load15": 0.22,
+        "at": "2026-11-08T15:21:10Z",
+        "stat_busy_jiffies": 52218161,
+        "stat_total_jiffies": 4879926929,
+        "child_cpu_s": 226.817,
+        "monotonic_s": 2034096.582,
+        "busy_cpus_since_prev": 9.41,
+        "own_busy_cpus_since_prev": 9.35,
+        "foreign_busy_cpus_since_prev": 0.06
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W4:R2:r1",
+        "since": "wait_share:sync:overwrite:L3600000:W1:R2:r1",
+        "load1": 1.94,
+        "load5": 0.64,
+        "load15": 0.22,
+        "at": "2026-11-08T15:21:14Z",
+        "stat_busy_jiffies": 52219292,
+        "stat_total_jiffies": 4879937398,
+        "child_cpu_s": 238.046,
+        "monotonic_s": 2034100.946,
+        "busy_cpus_since_prev": 2.59,
+        "own_busy_cpus_since_prev": 2.57,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W4:R2:r1",
+        "since": "wait_share:sync:overwrite:L200000:W4:R2:r1",
+        "load1": 2.27,
+        "load5": 0.73,
+        "load15": 0.25,
+        "at": "2026-11-08T15:21:16Z",
+        "stat_busy_jiffies": 52220171,
+        "stat_total_jiffies": 4879941562,
+        "child_cpu_s": 246.804,
+        "monotonic_s": 2034102.682,
+        "busy_cpus_since_prev": 5.07,
+        "own_busy_cpus_since_prev": 5.05,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W12:R2:r1",
+        "since": "wait_share:sync:overwrite:L3600000:W4:R2:r1",
+        "load1": 2.27,
+        "load5": 0.73,
+        "load15": 0.25,
+        "at": "2026-11-08T15:21:19Z",
+        "stat_busy_jiffies": 52221008,
+        "stat_total_jiffies": 4879947251,
+        "child_cpu_s": 255.129,
+        "monotonic_s": 2034105.054,
+        "busy_cpus_since_prev": 3.53,
+        "own_busy_cpus_since_prev": 3.51,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W12:R2:r1",
+        "since": "wait_share:sync:overwrite:L200000:W12:R2:r1",
+        "load1": 2.73,
+        "load5": 0.85,
+        "load15": 0.29,
+        "at": "2026-11-08T15:21:22Z",
+        "stat_busy_jiffies": 52222785,
+        "stat_total_jiffies": 4879954636,
+        "child_cpu_s": 273.24,
+        "monotonic_s": 2034108.176,
+        "busy_cpus_since_prev": 5.77,
+        "own_busy_cpus_since_prev": 5.8,
+        "foreign_busy_cpus_since_prev": -0.03
+      },
+      {
+        "label": "wait_share:sync:full:Lfill:W4:R2:r1",
+        "since": "wait_share:sync:overwrite:L3600000:W12:R2:r1",
+        "load1": 2.73,
+        "load5": 0.85,
+        "load15": 0.29,
+        "at": "2026-11-08T15:21:25Z",
+        "stat_busy_jiffies": 52224152,
+        "stat_total_jiffies": 4879961456,
+        "child_cpu_s": 286.971,
+        "monotonic_s": 2034111.038,
+        "busy_cpus_since_prev": 4.81,
+        "own_busy_cpus_since_prev": 4.8,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "wait_share:sync:full:Lfill:W12:R2:r1",
+        "since": "wait_share:sync:full:Lfill:W4:R2:r1",
+        "load1": 2.59,
+        "load5": 0.85,
+        "load15": 0.3,
+        "at": "2026-11-08T15:21:29Z",
+        "stat_busy_jiffies": 52226086,
+        "stat_total_jiffies": 4879972205,
+        "child_cpu_s": 306.25,
+        "monotonic_s": 2034115.518,
+        "busy_cpus_since_prev": 4.32,
+        "own_busy_cpus_since_prev": 4.3,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W1:R2:r1",
+        "since": "wait_share:sync:full:Lfill:W12:R2:r1",
+        "load1": 3.5,
+        "load5": 1.07,
+        "load15": 0.37,
+        "at": "2026-11-08T15:21:34Z",
+        "stat_busy_jiffies": 52230260,
+        "stat_total_jiffies": 4879982972,
+        "child_cpu_s": 348.234,
+        "monotonic_s": 2034120.051,
+        "busy_cpus_since_prev": 9.3,
+        "own_busy_cpus_since_prev": 9.26,
+        "foreign_busy_cpus_since_prev": 0.04
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W4:R2:r2",
+        "since": "wait_share:sync:overwrite:L200000:W1:R2:r1",
+        "load1": 3.46,
+        "load5": 1.1,
+        "load15": 0.39,
+        "at": "2026-11-08T15:21:38Z",
+        "stat_busy_jiffies": 52231486,
+        "stat_total_jiffies": 4879993288,
+        "child_cpu_s": 360.402,
+        "monotonic_s": 2034124.351,
+        "busy_cpus_since_prev": 2.85,
+        "own_busy_cpus_since_prev": 2.83,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W4:R2:r2",
+        "since": "wait_share:sync:overwrite:L200000:W4:R2:r2",
+        "load1": 3.46,
+        "load5": 1.1,
+        "load15": 0.39,
+        "at": "2026-11-08T15:21:40Z",
+        "stat_busy_jiffies": 52232370,
+        "stat_total_jiffies": 4879997521,
+        "child_cpu_s": 369.224,
+        "monotonic_s": 2034126.116,
+        "busy_cpus_since_prev": 5.01,
+        "own_busy_cpus_since_prev": 5.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W12:R2:r2",
+        "since": "wait_share:sync:overwrite:L3600000:W4:R2:r2",
+        "load1": 3.66,
+        "load5": 1.18,
+        "load15": 0.42,
+        "at": "2026-11-08T15:21:42Z",
+        "stat_busy_jiffies": 52233229,
+        "stat_total_jiffies": 4880003195,
+        "child_cpu_s": 377.771,
+        "monotonic_s": 2034128.481,
+        "busy_cpus_since_prev": 3.63,
+        "own_busy_cpus_since_prev": 3.61,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W12:R2:r2",
+        "since": "wait_share:sync:overwrite:L200000:W12:R2:r2",
+        "load1": 3.66,
+        "load5": 1.18,
+        "load15": 0.42,
+        "at": "2026-11-08T15:21:45Z",
+        "stat_busy_jiffies": 52235030,
+        "stat_total_jiffies": 4880010733,
+        "child_cpu_s": 396.021,
+        "monotonic_s": 2034131.666,
+        "busy_cpus_since_prev": 5.73,
+        "own_busy_cpus_since_prev": 5.73,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "wait_share:sync:full:Lfill:W4:R2:r2",
+        "since": "wait_share:sync:overwrite:L3600000:W12:R2:r2",
+        "load1": 3.45,
+        "load5": 1.18,
+        "load15": 0.42,
+        "at": "2026-11-08T15:21:48Z",
+        "stat_busy_jiffies": 52236272,
+        "stat_total_jiffies": 4880016645,
+        "child_cpu_s": 408.471,
+        "monotonic_s": 2034134.14,
+        "busy_cpus_since_prev": 5.04,
+        "own_busy_cpus_since_prev": 5.03,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "wait_share:sync:full:Lfill:W12:R2:r2",
+        "since": "wait_share:sync:full:Lfill:W4:R2:r2",
+        "load1": 3.66,
+        "load5": 1.26,
+        "load15": 0.45,
+        "at": "2026-11-08T15:21:52Z",
+        "stat_busy_jiffies": 52238207,
+        "stat_total_jiffies": 4880027390,
+        "child_cpu_s": 427.749,
+        "monotonic_s": 2034138.618,
+        "busy_cpus_since_prev": 4.32,
+        "own_busy_cpus_since_prev": 4.31,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W1:R2:r2",
+        "since": "wait_share:sync:full:Lfill:W12:R2:r2",
+        "load1": 4.48,
+        "load5": 1.47,
+        "load15": 0.52,
+        "at": "2026-11-08T15:21:57Z",
+        "stat_busy_jiffies": 52242373,
+        "stat_total_jiffies": 4880038035,
+        "child_cpu_s": 469.6,
+        "monotonic_s": 2034143.101,
+        "busy_cpus_since_prev": 9.39,
+        "own_busy_cpus_since_prev": 9.34,
+        "foreign_busy_cpus_since_prev": 0.05
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W1:R2:r2",
+        "since": "wait_share:sync:overwrite:L200000:W1:R2:r2",
+        "load1": 4.37,
+        "load5": 1.5,
+        "load15": 0.54,
+        "at": "2026-11-08T15:22:01Z",
+        "stat_busy_jiffies": 52243635,
+        "stat_total_jiffies": 4880048637,
+        "child_cpu_s": 482.132,
+        "monotonic_s": 2034147.521,
+        "busy_cpus_since_prev": 2.86,
+        "own_busy_cpus_since_prev": 2.84,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W4:R2:r3",
+        "since": "wait_share:sync:overwrite:L3600000:W1:R2:r2",
+        "load1": 4.37,
+        "load5": 1.5,
+        "load15": 0.54,
+        "at": "2026-11-08T15:22:05Z",
+        "stat_busy_jiffies": 52244758,
+        "stat_total_jiffies": 4880059051,
+        "child_cpu_s": 493.302,
+        "monotonic_s": 2034151.862,
+        "busy_cpus_since_prev": 2.59,
+        "own_busy_cpus_since_prev": 2.57,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W12:R2:r3",
+        "since": "wait_share:sync:overwrite:L3600000:W4:R2:r3",
+        "load1": 4.1,
+        "load5": 1.49,
+        "load15": 0.54,
+        "at": "2026-11-08T15:22:08Z",
+        "stat_busy_jiffies": 52245618,
+        "stat_total_jiffies": 4880064746,
+        "child_cpu_s": 501.883,
+        "monotonic_s": 2034154.238,
+        "busy_cpus_since_prev": 3.62,
+        "own_busy_cpus_since_prev": 3.61,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W12:R2:r3",
+        "since": "wait_share:sync:overwrite:L200000:W12:R2:r3",
+        "load1": 4.17,
+        "load5": 1.55,
+        "load15": 0.56,
+        "at": "2026-11-08T15:22:11Z",
+        "stat_busy_jiffies": 52247399,
+        "stat_total_jiffies": 4880072117,
+        "child_cpu_s": 519.911,
+        "monotonic_s": 2034157.351,
+        "busy_cpus_since_prev": 5.8,
+        "own_busy_cpus_since_prev": 5.79,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "wait_share:sync:full:Lfill:W4:R2:r3",
+        "since": "wait_share:sync:overwrite:L3600000:W12:R2:r3",
+        "load1": 4.17,
+        "load5": 1.55,
+        "load15": 0.56,
+        "at": "2026-11-08T15:22:14Z",
+        "stat_busy_jiffies": 52248784,
+        "stat_total_jiffies": 4880078924,
+        "child_cpu_s": 533.843,
+        "monotonic_s": 2034160.206,
+        "busy_cpus_since_prev": 4.88,
+        "own_busy_cpus_since_prev": 4.88,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "wait_share:sync:full:Lfill:W12:R2:r3",
+        "since": "wait_share:sync:full:Lfill:W4:R2:r3",
+        "load1": 4.32,
+        "load5": 1.62,
+        "load15": 0.59,
+        "at": "2026-11-08T15:22:18Z",
+        "stat_busy_jiffies": 52250719,
+        "stat_total_jiffies": 4880089661,
+        "child_cpu_s": 553.116,
+        "monotonic_s": 2034164.681,
+        "busy_cpus_since_prev": 4.33,
+        "own_busy_cpus_since_prev": 4.31,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W1:R2:r3",
+        "since": "wait_share:sync:full:Lfill:W12:R2:r3",
+        "load1": 5.09,
+        "load5": 1.83,
+        "load15": 0.67,
+        "at": "2026-11-08T15:22:23Z",
+        "stat_busy_jiffies": 52254893,
+        "stat_total_jiffies": 4880100317,
+        "child_cpu_s": 595.021,
+        "monotonic_s": 2034169.164,
+        "busy_cpus_since_prev": 9.4,
+        "own_busy_cpus_since_prev": 9.35,
+        "foreign_busy_cpus_since_prev": 0.05
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W1:R2:r3",
+        "since": "wait_share:sync:overwrite:L200000:W1:R2:r3",
+        "load1": 4.92,
+        "load5": 1.85,
+        "load15": 0.68,
+        "at": "2026-11-08T15:22:27Z",
+        "stat_busy_jiffies": 52256173,
+        "stat_total_jiffies": 4880111074,
+        "child_cpu_s": 607.742,
+        "monotonic_s": 2034173.65,
+        "busy_cpus_since_prev": 2.86,
+        "own_busy_cpus_since_prev": 2.84,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W4:R2:r3",
+        "since": "wait_share:sync:overwrite:L3600000:W1:R2:r3",
+        "load1": 4.77,
+        "load5": 1.87,
+        "load15": 0.69,
+        "at": "2026-11-08T15:22:32Z",
+        "stat_busy_jiffies": 52257298,
+        "stat_total_jiffies": 4880121497,
+        "child_cpu_s": 618.914,
+        "monotonic_s": 2034177.995,
+        "busy_cpus_since_prev": 2.59,
+        "own_busy_cpus_since_prev": 2.57,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W12:R2:r4",
+        "since": "wait_share:sync:overwrite:L200000:W4:R2:r3",
+        "load1": 4.77,
+        "load5": 1.87,
+        "load15": 0.69,
+        "at": "2026-11-08T15:22:33Z",
+        "stat_busy_jiffies": 52258171,
+        "stat_total_jiffies": 4880125642,
+        "child_cpu_s": 627.61,
+        "monotonic_s": 2034179.723,
+        "busy_cpus_since_prev": 5.05,
+        "own_busy_cpus_since_prev": 5.03,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W12:R2:r4",
+        "since": "wait_share:sync:overwrite:L200000:W12:R2:r4",
+        "load1": 4.95,
+        "load5": 1.95,
+        "load15": 0.72,
+        "at": "2026-11-08T15:22:36Z",
+        "stat_busy_jiffies": 52259919,
+        "stat_total_jiffies": 4880132845,
+        "child_cpu_s": 645.44,
+        "monotonic_s": 2034182.769,
+        "busy_cpus_since_prev": 5.82,
+        "own_busy_cpus_since_prev": 5.85,
+        "foreign_busy_cpus_since_prev": -0.03
+      },
+      {
+        "label": "wait_share:sync:full:Lfill:W4:R2:r4",
+        "since": "wait_share:sync:overwrite:L3600000:W12:R2:r4",
+        "load1": 4.95,
+        "load5": 1.95,
+        "load15": 0.72,
+        "at": "2026-11-08T15:22:39Z",
+        "stat_busy_jiffies": 52261221,
+        "stat_total_jiffies": 4880139295,
+        "child_cpu_s": 658.575,
+        "monotonic_s": 2034185.475,
+        "busy_cpus_since_prev": 4.84,
+        "own_busy_cpus_since_prev": 4.85,
+        "foreign_busy_cpus_since_prev": -0.01
+      },
+      {
+        "label": "wait_share:sync:full:Lfill:W12:R2:r4",
+        "since": "wait_share:sync:full:Lfill:W4:R2:r4",
+        "load1": 5.03,
+        "load5": 2.02,
+        "load15": 0.75,
+        "at": "2026-11-08T15:22:43Z",
+        "stat_busy_jiffies": 52263160,
+        "stat_total_jiffies": 4880150106,
+        "child_cpu_s": 677.88,
+        "monotonic_s": 2034189.981,
+        "busy_cpus_since_prev": 4.3,
+        "own_busy_cpus_since_prev": 4.28,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W1:R2:r4",
+        "since": "wait_share:sync:full:Lfill:W12:R2:r4",
+        "load1": 5.75,
+        "load5": 2.22,
+        "load15": 0.82,
+        "at": "2026-11-08T15:22:48Z",
+        "stat_busy_jiffies": 52267331,
+        "stat_total_jiffies": 4880160740,
+        "child_cpu_s": 719.75,
+        "monotonic_s": 2034194.456,
+        "busy_cpus_since_prev": 9.41,
+        "own_busy_cpus_since_prev": 9.36,
+        "foreign_busy_cpus_since_prev": 0.05
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W1:R2:r4",
+        "since": "wait_share:sync:overwrite:L200000:W1:R2:r4",
+        "load1": 5.53,
+        "load5": 2.23,
+        "load15": 0.84,
+        "at": "2026-11-08T15:22:52Z",
+        "stat_busy_jiffies": 52268624,
+        "stat_total_jiffies": 4880171602,
+        "child_cpu_s": 732.602,
+        "monotonic_s": 2034198.985,
+        "busy_cpus_since_prev": 2.86,
+        "own_busy_cpus_since_prev": 2.84,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L200000:W4:R2:r4",
+        "since": "wait_share:sync:overwrite:L3600000:W1:R2:r4",
+        "load1": 5.33,
+        "load5": 2.25,
+        "load15": 0.85,
+        "at": "2026-11-08T15:22:57Z",
+        "stat_busy_jiffies": 52269752,
+        "stat_total_jiffies": 4880182037,
+        "child_cpu_s": 743.8,
+        "monotonic_s": 2034203.336,
+        "busy_cpus_since_prev": 2.59,
+        "own_busy_cpus_since_prev": 2.57,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "wait_share:sync:overwrite:L3600000:W4:R2:r4",
+        "since": "wait_share:sync:overwrite:L200000:W4:R2:r4",
+        "load1": 5.33,
+        "load5": 2.25,
+        "load15": 0.85,
+        "at": "2026-11-08T15:22:59Z",
+        "stat_busy_jiffies": 52270652,
+        "stat_total_jiffies": 4880186309,
+        "child_cpu_s": 752.774,
+        "monotonic_s": 2034205.117,
+        "busy_cpus_since_prev": 5.06,
+        "own_busy_cpus_since_prev": 5.04,
+        "foreign_busy_cpus_since_prev": 0.02
+      }
+    ],
+    "cell_isolation": "process",
+    "rounds": 5,
+    "core_pin_applied": "0-15",
+    "quick": false
+  },
+  "cells": [
+    {
+      "cell": "sync:overwrite:L200000:W1:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 200000,
+      "writers": 1,
+      "readers": 2,
+      "threads": 3,
+      "cpus": 16,
+      "oversubscribed": false,
+      "rounds_raw": [
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 13,
+            "gate_wait_cycles": 20513,
+            "quiesce_calls": 18436,
+            "quiesce_drain_cycles": 506663,
+            "sample_spin_cycles": 25485247,
+            "sample_spins": 236501,
+            "thread_cpu_cycles": 30007801688,
+            "thread_cpu_ns": 12404225287,
+            "tsc_hz": 2419159681
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 4.134915685,
+          "heap_before_window": 33216003,
+          "heap_end": 241298498,
+          "heap_peak": 1108986531,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 14974975,
+            "p50_ns": 146,
+            "p999_ns": 1548,
+            "p99_ns": 915
+          },
+          "insert_top_ns": [
+            14973252,
+            14830985,
+            2200520,
+            2086281,
+            2031196,
+            1975734,
+            1917316,
+            1916313
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 75354388,
+            "max_ns": 1412095,
+            "p50_ns": 80,
+            "p999_ns": 463,
+            "p99_ns": 200
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 343474176,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W1:R2:r0",
+            "wall_s": 4.399,
+            "busy_cpus_since_prev": 2.85,
+            "own_busy_cpus": 2.83,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 30007801688,
+            "thread_cpu_ns": 12404225287,
+            "tsc_hz": 2419159681,
+            "wall_s": 4.134915685,
+            "counters": {
+              "gate_wait_cycles": 20513,
+              "gate_blocked_entries": 13,
+              "quiesce_drain_cycles": 506663,
+              "quiesce_calls": 18436,
+              "sample_spins": 236501,
+              "sample_spin_cycles": 25485247
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 6.835888950906746e-07,
+              "quiesce_drain_cycles": 1.68843757789366e-05,
+              "sample_spin_cycles": 0.0008492873708303481
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 12,
+            "gate_wait_cycles": 19178,
+            "quiesce_calls": 18430,
+            "quiesce_drain_cycles": 575257,
+            "sample_spin_cycles": 26138105,
+            "sample_spins": 250863,
+            "thread_cpu_cycles": 29278635430,
+            "thread_cpu_ns": 12102816806,
+            "tsc_hz": 2419158771
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 4.034633368,
+          "heap_before_window": 33216003,
+          "heap_end": 241298498,
+          "heap_peak": 1108986531,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 15106047,
+            "p50_ns": 139,
+            "p999_ns": 1525,
+            "p99_ns": 900
+          },
+          "insert_top_ns": [
+            15101155,
+            14821863,
+            2270800,
+            2091413,
+            2084355,
+            1958788,
+            1879464,
+            1878471
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 72695582,
+            "max_ns": 1426431,
+            "p50_ns": 81,
+            "p999_ns": 466,
+            "p99_ns": 196
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 343474273,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W1:R2:r1",
+            "wall_s": 4.3,
+            "busy_cpus_since_prev": 2.85,
+            "own_busy_cpus": 2.83,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 29278635430,
+            "thread_cpu_ns": 12102816806,
+            "tsc_hz": 2419158771,
+            "wall_s": 4.034633368,
+            "counters": {
+              "gate_wait_cycles": 19178,
+              "gate_blocked_entries": 12,
+              "quiesce_drain_cycles": 575257,
+              "quiesce_calls": 18430,
+              "sample_spins": 250863,
+              "sample_spin_cycles": 26138105
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 6.550168653129747e-07,
+              "quiesce_drain_cycles": 1.9647671127820727e-05,
+              "sample_spin_cycles": 0.0008927364481343931
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 34,
+            "gate_wait_cycles": 41301,
+            "quiesce_calls": 18459,
+            "quiesce_drain_cycles": 594661,
+            "sample_spin_cycles": 25164965,
+            "sample_spins": 236777,
+            "thread_cpu_cycles": 30164118178,
+            "thread_cpu_ns": 12468845557,
+            "tsc_hz": 2419158858
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 4.156632443,
+          "heap_before_window": 33216003,
+          "heap_end": 241298498,
+          "heap_peak": 1108986531,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 15097855,
+            "p50_ns": 147,
+            "p999_ns": 1534,
+            "p99_ns": 917
+          },
+          "insert_top_ns": [
+            15092519,
+            14930469,
+            2357820,
+            2226571,
+            2156476,
+            1948703,
+            1907628,
+            1884208
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 75340290,
+            "max_ns": 1424383,
+            "p50_ns": 80,
+            "p999_ns": 464,
+            "p99_ns": 204
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 343474370,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W1:R2:r2",
+            "wall_s": 4.42,
+            "busy_cpus_since_prev": 2.86,
+            "own_busy_cpus": 2.84,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 30164118178,
+            "thread_cpu_ns": 12468845557,
+            "tsc_hz": 2419158858,
+            "wall_s": 4.156632443,
+            "counters": {
+              "gate_wait_cycles": 41301,
+              "gate_blocked_entries": 34,
+              "quiesce_drain_cycles": 594661,
+              "quiesce_calls": 18459,
+              "sample_spins": 236777,
+              "sample_spin_cycles": 25164965
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 1.369209593871788e-06,
+              "quiesce_drain_cycles": 1.971418479701197e-05,
+              "sample_spin_cycles": 0.0008342682140250299
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 20,
+            "gate_wait_cycles": 63196,
+            "quiesce_calls": 18445,
+            "quiesce_drain_cycles": 508969,
+            "sample_spin_cycles": 26023772,
+            "sample_spins": 239077,
+            "thread_cpu_cycles": 30612307785,
+            "thread_cpu_ns": 12654123034,
+            "tsc_hz": 2419156800
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 4.218438116,
+          "heap_before_window": 33216003,
+          "heap_end": 241298498,
+          "heap_peak": 1108986531,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 14966783,
+            "p50_ns": 151,
+            "p999_ns": 1538,
+            "p99_ns": 916
+          },
+          "insert_top_ns": [
+            14964651,
+            14911185,
+            2261714,
+            2093716,
+            2063499,
+            2009715,
+            1977079,
+            1973136
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 76040150,
+            "max_ns": 1418239,
+            "p50_ns": 80,
+            "p999_ns": 464,
+            "p99_ns": 204
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 343474467,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W1:R2:r3",
+            "wall_s": 4.485,
+            "busy_cpus_since_prev": 2.86,
+            "own_busy_cpus": 2.84,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 30612307785,
+            "thread_cpu_ns": 12654123034,
+            "tsc_hz": 2419156800,
+            "wall_s": 4.218438116,
+            "counters": {
+              "gate_wait_cycles": 63196,
+              "gate_blocked_entries": 20,
+              "quiesce_drain_cycles": 508969,
+              "quiesce_calls": 18445,
+              "sample_spins": 239077,
+              "sample_spin_cycles": 26023772
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 2.0643984257523366e-06,
+              "quiesce_drain_cycles": 1.6626286511120025e-05,
+              "sample_spin_cycles": 0.0008501081389476824
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 24,
+            "gate_wait_cycles": 30057,
+            "quiesce_calls": 18446,
+            "quiesce_drain_cycles": 510161,
+            "sample_spin_cycles": 26106259,
+            "sample_spins": 240663,
+            "thread_cpu_cycles": 30931730015,
+            "thread_cpu_ns": 12786150011,
+            "tsc_hz": 2419159011
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 4.262260088,
+          "heap_before_window": 33216003,
+          "heap_end": 241298498,
+          "heap_peak": 1108986531,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 14917631,
+            "p50_ns": 154,
+            "p999_ns": 1541,
+            "p99_ns": 918
+          },
+          "insert_top_ns": [
+            14913415,
+            14801992,
+            2297623,
+            2150615,
+            1983772,
+            1978890,
+            1894368,
+            1849953
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 76893983,
+            "max_ns": 1409023,
+            "p50_ns": 80,
+            "p999_ns": 463,
+            "p99_ns": 207
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 343474564,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W1:R2:r4",
+            "wall_s": 4.528,
+            "busy_cpus_since_prev": 2.86,
+            "own_busy_cpus": 2.84,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 30931730015,
+            "thread_cpu_ns": 12786150011,
+            "tsc_hz": 2419159011,
+            "wall_s": 4.262260088,
+            "counters": {
+              "gate_wait_cycles": 30057,
+              "gate_blocked_entries": 24,
+              "quiesce_drain_cycles": 510161,
+              "quiesce_calls": 18446,
+              "sample_spins": 240663,
+              "sample_spin_cycles": 26106259
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 9.717206242723635e-07,
+              "quiesce_drain_cycles": 1.649312856903261e-05,
+              "sample_spin_cycles": 0.0008439960838705128
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        }
+      ],
+      "load": {
+        "since": "wait_share:sync:overwrite:L200000:W1:R2:r0",
+        "wall_s": 4.399,
+        "busy_cpus_since_prev": 2.85,
+        "own_busy_cpus": 2.83,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "sync:overwrite:L3600000:W1:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 3600000,
+      "writers": 1,
+      "readers": 2,
+      "threads": 3,
+      "cpus": 16,
+      "oversubscribed": false,
+      "rounds_raw": [
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 633339904,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 4,
+            "gate_wait_cycles": 15623,
+            "quiesce_calls": 26162,
+            "quiesce_drain_cycles": 750042,
+            "sample_spin_cycles": 242319425,
+            "sample_spins": 2516341,
+            "thread_cpu_cycles": 25520669365,
+            "thread_cpu_ns": 10549396936,
+            "tsc_hz": 2419159078
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.516664949,
+          "heap_before_window": 553079956,
+          "heap_end": 664696867,
+          "heap_peak": 1683244772,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 296222719,
+            "p50_ns": 227,
+            "p999_ns": 1648,
+            "p99_ns": 1015
+          },
+          "insert_top_ns": [
+            296112428,
+            294132421,
+            2179769,
+            1933560,
+            1931051,
+            1898808,
+            1767535,
+            1668816
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 30799544,
+            "max_ns": 22937599,
+            "p50_ns": 201,
+            "p999_ns": 732,
+            "p99_ns": 541
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 343474177,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W1:R2:r0",
+            "wall_s": 4.361,
+            "busy_cpus_since_prev": 2.59,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 25520669365,
+            "thread_cpu_ns": 10549396936,
+            "tsc_hz": 2419159078,
+            "wall_s": 3.516664949,
+            "counters": {
+              "gate_wait_cycles": 15623,
+              "gate_blocked_entries": 4,
+              "quiesce_drain_cycles": 750042,
+              "quiesce_calls": 26162,
+              "sample_spins": 2516341,
+              "sample_spin_cycles": 242319425
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 6.121704637350134e-07,
+              "quiesce_drain_cycles": 2.9389589640961206e-05,
+              "sample_spin_cycles": 0.009495026228909416
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 633339904,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 4,
+            "gate_wait_cycles": 8690,
+            "quiesce_calls": 26162,
+            "quiesce_drain_cycles": 694104,
+            "sample_spin_cycles": 244816976,
+            "sample_spins": 2544718,
+            "thread_cpu_cycles": 25638551274,
+            "thread_cpu_ns": 10598121485,
+            "tsc_hz": 2419159972
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.533192246,
+          "heap_before_window": 553079956,
+          "heap_end": 664696867,
+          "heap_peak": 1683244772,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 298319871,
+            "p50_ns": 227,
+            "p999_ns": 1661,
+            "p99_ns": 1016
+          },
+          "insert_top_ns": [
+            298193485,
+            293930721,
+            2262825,
+            2169314,
+            2069146,
+            2028953,
+            1900177,
+            1848966
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 30959525,
+            "max_ns": 23003135,
+            "p50_ns": 201,
+            "p999_ns": 737,
+            "p99_ns": 541
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 343474274,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W1:R2:r1",
+            "wall_s": 4.364,
+            "busy_cpus_since_prev": 2.59,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 25638551274,
+            "thread_cpu_ns": 10598121485,
+            "tsc_hz": 2419159972,
+            "wall_s": 3.533192246,
+            "counters": {
+              "gate_wait_cycles": 8690,
+              "gate_blocked_entries": 4,
+              "quiesce_drain_cycles": 694104,
+              "quiesce_calls": 26162,
+              "sample_spins": 2544718,
+              "sample_spin_cycles": 244816976
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 3.3894270807775754e-07,
+              "quiesce_drain_cycles": 2.7072668521013095e-05,
+              "sample_spin_cycles": 0.009548783524608443
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 633339904,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 8,
+            "gate_wait_cycles": 16547,
+            "quiesce_calls": 26167,
+            "quiesce_drain_cycles": 760728,
+            "sample_spin_cycles": 243837947,
+            "sample_spins": 2532260,
+            "thread_cpu_cycles": 25507274824,
+            "thread_cpu_ns": 10543859616,
+            "tsc_hz": 2419159184
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.514916015,
+          "heap_before_window": 553079956,
+          "heap_end": 664696867,
+          "heap_peak": 1683244772,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 297271295,
+            "p50_ns": 226,
+            "p999_ns": 1663,
+            "p99_ns": 1018
+          },
+          "insert_top_ns": [
+            297239781,
+            290626149,
+            2222835,
+            1970715,
+            1953274,
+            1931427,
+            1848054,
+            1690932
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 30777292,
+            "max_ns": 22839295,
+            "p50_ns": 201,
+            "p999_ns": 751,
+            "p99_ns": 542
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 343474371,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W1:R2:r2",
+            "wall_s": 4.342,
+            "busy_cpus_since_prev": 2.59,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 25507274824,
+            "thread_cpu_ns": 10543859616,
+            "tsc_hz": 2419159184,
+            "wall_s": 3.514916015,
+            "counters": {
+              "gate_wait_cycles": 16547,
+              "gate_blocked_entries": 8,
+              "quiesce_drain_cycles": 760728,
+              "quiesce_calls": 26167,
+              "sample_spins": 2532260,
+              "sample_spin_cycles": 243837947
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 6.487168901489544e-07,
+              "quiesce_drain_cycles": 2.982396219310049e-05,
+              "sample_spin_cycles": 0.00955954521533484
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 633339904,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 3,
+            "gate_wait_cycles": 10429,
+            "quiesce_calls": 26160,
+            "quiesce_drain_cycles": 688024,
+            "sample_spin_cycles": 243806642,
+            "sample_spins": 2527477,
+            "thread_cpu_cycles": 25502025966,
+            "thread_cpu_ns": 10541695390,
+            "tsc_hz": 2419157927
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.514216952,
+          "heap_before_window": 553079956,
+          "heap_end": 664696867,
+          "heap_peak": 1683244772,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 297009151,
+            "p50_ns": 225,
+            "p999_ns": 1656,
+            "p99_ns": 1019
+          },
+          "insert_top_ns": [
+            296952842,
+            295217185,
+            2221123,
+            2081024,
+            2010463,
+            1994417,
+            1981132,
+            1911564
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 30761784,
+            "max_ns": 22904831,
+            "p50_ns": 201,
+            "p999_ns": 733,
+            "p99_ns": 542
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 343474468,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W1:R2:r3",
+            "wall_s": 4.345,
+            "busy_cpus_since_prev": 2.59,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 25502025966,
+            "thread_cpu_ns": 10541695390,
+            "tsc_hz": 2419157927,
+            "wall_s": 3.514216952,
+            "counters": {
+              "gate_wait_cycles": 10429,
+              "gate_blocked_entries": 3,
+              "quiesce_drain_cycles": 688024,
+              "quiesce_calls": 26160,
+              "sample_spins": 2527477,
+              "sample_spin_cycles": 243806642
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 4.089479013904318e-07,
+              "quiesce_drain_cycles": 2.6979189846222117e-05,
+              "sample_spin_cycles": 0.009560285223026974
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 633339904,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 6,
+            "gate_wait_cycles": 11612,
+            "quiesce_calls": 26162,
+            "quiesce_drain_cycles": 787253,
+            "sample_spin_cycles": 242022729,
+            "sample_spins": 2515303,
+            "thread_cpu_cycles": 25574768268,
+            "thread_cpu_ns": 10571758603,
+            "tsc_hz": 2419159312
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.524091313,
+          "heap_before_window": 553079956,
+          "heap_end": 664696867,
+          "heap_peak": 1683244772,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 296484863,
+            "p50_ns": 227,
+            "p999_ns": 1656,
+            "p99_ns": 1020
+          },
+          "insert_top_ns": [
+            296433949,
+            293564104,
+            2174835,
+            2053052,
+            2043134,
+            1901262,
+            1877330,
+            1827485
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 30809731,
+            "max_ns": 22872063,
+            "p50_ns": 201,
+            "p999_ns": 723,
+            "p99_ns": 541
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 343474565,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W1:R2:r4",
+            "wall_s": 4.351,
+            "busy_cpus_since_prev": 2.59,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 25574768268,
+            "thread_cpu_ns": 10571758603,
+            "tsc_hz": 2419159312,
+            "wall_s": 3.524091313,
+            "counters": {
+              "gate_wait_cycles": 11612,
+              "gate_blocked_entries": 6,
+              "quiesce_drain_cycles": 787253,
+              "quiesce_calls": 26162,
+              "sample_spins": 2515303,
+              "sample_spin_cycles": 242022729
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 4.540412596633112e-07,
+              "quiesce_drain_cycles": 3.07824099030073e-05,
+              "sample_spin_cycles": 0.009463340057036876
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        }
+      ],
+      "load": {
+        "since": "wait_share:sync:overwrite:L3600000:W1:R2:r0",
+        "wall_s": 4.361,
+        "busy_cpus_since_prev": 2.59,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "sync:overwrite:L200000:W4:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 200000,
+      "writers": 4,
+      "readers": 2,
+      "threads": 6,
+      "cpus": 16,
+      "oversubscribed": false,
+      "rounds_raw": [
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 241172480,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 15065,
+            "gate_wait_cycles": 133931916,
+            "quiesce_calls": 22320,
+            "quiesce_drain_cycles": 29130249,
+            "sample_spin_cycles": 36346478,
+            "sample_spins": 323327,
+            "thread_cpu_cycles": 21010146120,
+            "thread_cpu_ns": 8684897411,
+            "tsc_hz": 2419158814
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.4706874509999999,
+          "heap_before_window": 33216003,
+          "heap_end": 243395802,
+          "heap_peak": 1114840139,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 16687103,
+            "p50_ns": 225,
+            "p999_ns": 2091,
+            "p99_ns": 1139
+          },
+          "insert_top_ns": [
+            16681612,
+            15921047,
+            15758491,
+            15726956,
+            15713065,
+            15703265,
+            15270234,
+            15264154
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 20101430,
+            "max_ns": 3651583,
+            "p50_ns": 114,
+            "p999_ns": 549,
+            "p99_ns": 383
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 343474178,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W4:R2:r0",
+            "wall_s": 1.724,
+            "busy_cpus_since_prev": 5.1,
+            "own_busy_cpus": 5.07,
+            "foreign_busy_cpus": 0.03
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 21010146120,
+            "thread_cpu_ns": 8684897411,
+            "tsc_hz": 2419158814,
+            "wall_s": 1.4706874509999999,
+            "counters": {
+              "gate_wait_cycles": 133931916,
+              "gate_blocked_entries": 15065,
+              "quiesce_drain_cycles": 29130249,
+              "quiesce_calls": 22320,
+              "sample_spins": 323327,
+              "sample_spin_cycles": 36346478
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.006374630392146935,
+              "quiesce_drain_cycles": 0.0013864848361178365,
+              "sample_spin_cycles": 0.0017299488443538727
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 245366784,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 25553,
+            "gate_wait_cycles": 204586819,
+            "quiesce_calls": 27600,
+            "quiesce_drain_cycles": 19466146,
+            "sample_spin_cycles": 43147125,
+            "sample_spins": 380419,
+            "thread_cpu_cycles": 21028689070,
+            "thread_cpu_ns": 8693741571,
+            "tsc_hz": 2418830707
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.472023004,
+          "heap_before_window": 33216003,
+          "heap_end": 247590154,
+          "heap_peak": 1114851803,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 15515647,
+            "p50_ns": 226,
+            "p999_ns": 2327,
+            "p99_ns": 1133
+          },
+          "insert_top_ns": [
+            15509245,
+            15506906,
+            15491910,
+            15465963,
+            15335650,
+            15331917,
+            15246975,
+            15240847
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 20420548,
+            "max_ns": 1457151,
+            "p50_ns": 112,
+            "p999_ns": 585,
+            "p99_ns": 378
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 343474275,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W4:R2:r1",
+            "wall_s": 1.736,
+            "busy_cpus_since_prev": 5.07,
+            "own_busy_cpus": 5.05,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 21028689070,
+            "thread_cpu_ns": 8693741571,
+            "tsc_hz": 2418830707,
+            "wall_s": 1.472023004,
+            "counters": {
+              "gate_wait_cycles": 204586819,
+              "gate_blocked_entries": 25553,
+              "quiesce_drain_cycles": 19466146,
+              "quiesce_calls": 27600,
+              "sample_spins": 380419,
+              "sample_spin_cycles": 43147125
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.009728938324161544,
+              "quiesce_drain_cycles": 0.0009256946990466867,
+              "sample_spin_cycles": 0.002051821911312325
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 243269632,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 25545,
+            "gate_wait_cycles": 91464780,
+            "quiesce_calls": 27973,
+            "quiesce_drain_cycles": 31020063,
+            "sample_spin_cycles": 44231291,
+            "sample_spins": 386044,
+            "thread_cpu_cycles": 21194959631,
+            "thread_cpu_ns": 8761288970,
+            "tsc_hz": 2419159978
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.505399844,
+          "heap_before_window": 33216003,
+          "heap_end": 245492978,
+          "heap_peak": 1112754011,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 17907711,
+            "p50_ns": 226,
+            "p999_ns": 2487,
+            "p99_ns": 1144
+          },
+          "insert_top_ns": [
+            17904294,
+            15659360,
+            15643830,
+            15632235,
+            15430547,
+            15411234,
+            15343830,
+            15336658
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 21160317,
+            "max_ns": 1487871,
+            "p50_ns": 111,
+            "p999_ns": 586,
+            "p99_ns": 377
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 343474372,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W4:R2:r2",
+            "wall_s": 1.765,
+            "busy_cpus_since_prev": 5.01,
+            "own_busy_cpus": 5.0,
+            "foreign_busy_cpus": 0.01
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 21194959631,
+            "thread_cpu_ns": 8761288970,
+            "tsc_hz": 2419159978,
+            "wall_s": 1.505399844,
+            "counters": {
+              "gate_wait_cycles": 91464780,
+              "gate_blocked_entries": 25545,
+              "quiesce_drain_cycles": 31020063,
+              "quiesce_calls": 27973,
+              "sample_spins": 386044,
+              "sample_spin_cycles": 44231291
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.004315402416064172,
+              "quiesce_drain_cycles": 0.0014635584846611214,
+              "sample_spin_cycles": 0.002086877812935618
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 245366784,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 21385,
+            "gate_wait_cycles": 99725887,
+            "quiesce_calls": 26204,
+            "quiesce_drain_cycles": 42020079,
+            "sample_spin_cycles": 44364064,
+            "sample_spins": 400097,
+            "thread_cpu_cycles": 20878299923,
+            "thread_cpu_ns": 8630395925,
+            "tsc_hz": 2419158994
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.462364166,
+          "heap_before_window": 33216003,
+          "heap_end": 247590154,
+          "heap_peak": 1114851803,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 17219583,
+            "p50_ns": 224,
+            "p999_ns": 2331,
+            "p99_ns": 1146
+          },
+          "insert_top_ns": [
+            17208047,
+            16678365,
+            16162999,
+            16146225,
+            15689310,
+            15649258,
+            15632055,
+            15505853
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 20240284,
+            "max_ns": 1474559,
+            "p50_ns": 113,
+            "p999_ns": 583,
+            "p99_ns": 384
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 343474469,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W4:R2:r3",
+            "wall_s": 1.728,
+            "busy_cpus_since_prev": 5.06,
+            "own_busy_cpus": 5.03,
+            "foreign_busy_cpus": 0.03
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 20878299923,
+            "thread_cpu_ns": 8630395925,
+            "tsc_hz": 2419158994,
+            "wall_s": 1.462364166,
+            "counters": {
+              "gate_wait_cycles": 99725887,
+              "gate_blocked_entries": 21385,
+              "quiesce_drain_cycles": 42020079,
+              "quiesce_calls": 26204,
+              "sample_spins": 400097,
+              "sample_spin_cycles": 44364064
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.00477653292498877,
+              "quiesce_drain_cycles": 0.0020126197609466154,
+              "sample_spin_cycles": 0.0021248887200402537
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 245366784,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 30631,
+            "gate_wait_cycles": 182151950,
+            "quiesce_calls": 31018,
+            "quiesce_drain_cycles": 59188409,
+            "sample_spin_cycles": 48029229,
+            "sample_spins": 422667,
+            "thread_cpu_cycles": 21570575550,
+            "thread_cpu_ns": 8916564529,
+            "tsc_hz": 2419157679
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.52508653,
+          "heap_before_window": 33216003,
+          "heap_end": 247590154,
+          "heap_peak": 1114840139,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 15777791,
+            "p50_ns": 232,
+            "p999_ns": 2691,
+            "p99_ns": 1152
+          },
+          "insert_top_ns": [
+            15774521,
+            15760472,
+            15688332,
+            15682330,
+            15306671,
+            15302124,
+            15279240,
+            15263500
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 21129168,
+            "max_ns": 4603903,
+            "p50_ns": 112,
+            "p999_ns": 605,
+            "p99_ns": 381
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 343474566,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W4:R2:r4",
+            "wall_s": 1.781,
+            "busy_cpus_since_prev": 5.06,
+            "own_busy_cpus": 5.04,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 21570575550,
+            "thread_cpu_ns": 8916564529,
+            "tsc_hz": 2419157679,
+            "wall_s": 1.52508653,
+            "counters": {
+              "gate_wait_cycles": 182151950,
+              "gate_blocked_entries": 30631,
+              "quiesce_drain_cycles": 59188409,
+              "quiesce_calls": 31018,
+              "sample_spins": 422667,
+              "sample_spin_cycles": 48029229
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.008444464060672688,
+              "quiesce_drain_cycles": 0.002743942036354241,
+              "sample_spin_cycles": 0.0022266085987677786
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        }
+      ],
+      "load": {
+        "since": "wait_share:sync:overwrite:L200000:W4:R2:r0",
+        "wall_s": 1.724,
+        "busy_cpus_since_prev": 5.1,
+        "own_busy_cpus": 5.07,
+        "foreign_busy_cpus": 0.03
+      }
+    },
+    {
+      "cell": "sync:overwrite:L3600000:W4:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 3600000,
+      "writers": 4,
+      "readers": 2,
+      "threads": 6,
+      "cpus": 16,
+      "oversubscribed": false,
+      "rounds_raw": [
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 639631360,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 20060,
+            "gate_wait_cycles": 1477143968,
+            "quiesce_calls": 30891,
+            "quiesce_drain_cycles": 18207008,
+            "sample_spin_cycles": 252751075,
+            "sample_spins": 2594070,
+            "thread_cpu_cycles": 19174963353,
+            "thread_cpu_ns": 7926296629,
+            "tsc_hz": 2419157931
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.530900361,
+          "heap_before_window": 553079956,
+          "heap_end": 670988523,
+          "heap_peak": 1683910348,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 299892735,
+            "p50_ns": 301,
+            "p999_ns": 5531,
+            "p99_ns": 1236
+          },
+          "insert_top_ns": [
+            299806565,
+            298648558,
+            298039685,
+            297747860,
+            297116599,
+            297110119,
+            296623566,
+            296614640
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 12413629,
+            "max_ns": 22986751,
+            "p50_ns": 208,
+            "p999_ns": 843,
+            "p99_ns": 563
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 343474179,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W4:R2:r0",
+            "wall_s": 2.357,
+            "busy_cpus_since_prev": 3.65,
+            "own_busy_cpus": 3.63,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 19174963353,
+            "thread_cpu_ns": 7926296629,
+            "tsc_hz": 2419157931,
+            "wall_s": 1.530900361,
+            "counters": {
+              "gate_wait_cycles": 1477143968,
+              "gate_blocked_entries": 20060,
+              "quiesce_drain_cycles": 18207008,
+              "quiesce_calls": 30891,
+              "sample_spins": 2594070,
+              "sample_spin_cycles": 252751075
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.0770350347380922,
+              "quiesce_drain_cycles": 0.0009495198329623634,
+              "sample_spin_cycles": 0.01318130680862324
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 637534208,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 35718,
+            "gate_wait_cycles": 820437423,
+            "quiesce_calls": 40332,
+            "quiesce_drain_cycles": 52178493,
+            "sample_spin_cycles": 270734920,
+            "sample_spins": 2727914,
+            "thread_cpu_cycles": 18619539676,
+            "thread_cpu_ns": 7696697376,
+            "tsc_hz": 2419159643
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.544278027,
+          "heap_before_window": 553079956,
+          "heap_end": 668891347,
+          "heap_peak": 1683910348,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 299630591,
+            "p50_ns": 293,
+            "p999_ns": 6167,
+            "p99_ns": 1284
+          },
+          "insert_top_ns": [
+            299529490,
+            298100914,
+            298081522,
+            298080036,
+            297711212,
+            297104353,
+            297074150,
+            295881893
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 12432154,
+            "max_ns": 23216127,
+            "p50_ns": 209,
+            "p999_ns": 874,
+            "p99_ns": 569
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 343474276,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W4:R2:r1",
+            "wall_s": 2.371,
+            "busy_cpus_since_prev": 3.53,
+            "own_busy_cpus": 3.51,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 18619539676,
+            "thread_cpu_ns": 7696697376,
+            "tsc_hz": 2419159643,
+            "wall_s": 1.544278027,
+            "counters": {
+              "gate_wait_cycles": 820437423,
+              "gate_blocked_entries": 35718,
+              "quiesce_drain_cycles": 52178493,
+              "quiesce_calls": 40332,
+              "sample_spins": 2727914,
+              "sample_spin_cycles": 270734920
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.0440632495365886,
+              "quiesce_drain_cycles": 0.002802351395789684,
+              "sample_spin_cycles": 0.014540365911890334
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 639631360,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 35758,
+            "gate_wait_cycles": 1536156997,
+            "quiesce_calls": 40344,
+            "quiesce_drain_cycles": 27996636,
+            "sample_spin_cycles": 272352925,
+            "sample_spins": 2724890,
+            "thread_cpu_cycles": 19151432352,
+            "thread_cpu_ns": 7916563908,
+            "tsc_hz": 2419159698
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.535091536,
+          "heap_before_window": 553079956,
+          "heap_end": 671000043,
+          "heap_peak": 1683910324,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 304349183,
+            "p50_ns": 287,
+            "p999_ns": 6091,
+            "p99_ns": 1268
+          },
+          "insert_top_ns": [
+            304147941,
+            303788577,
+            302546645,
+            302494588,
+            301683629,
+            300269857,
+            298649906,
+            298642448
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 12237446,
+            "max_ns": 23445503,
+            "p50_ns": 211,
+            "p999_ns": 870,
+            "p99_ns": 571
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 343474373,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W4:R2:r2",
+            "wall_s": 2.365,
+            "busy_cpus_since_prev": 3.63,
+            "own_busy_cpus": 3.61,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 19151432352,
+            "thread_cpu_ns": 7916563908,
+            "tsc_hz": 2419159698,
+            "wall_s": 1.535091536,
+            "counters": {
+              "gate_wait_cycles": 1536156997,
+              "gate_blocked_entries": 35758,
+              "quiesce_drain_cycles": 27996636,
+              "quiesce_calls": 40344,
+              "sample_spins": 2724890,
+              "sample_spin_cycles": 272352925
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.0802110760576912,
+              "quiesce_drain_cycles": 0.0014618559847340237,
+              "sample_spin_cycles": 0.014221021174510634
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 637534208,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 27998,
+            "gate_wait_cycles": 1501407565,
+            "quiesce_calls": 34533,
+            "quiesce_drain_cycles": 17867771,
+            "sample_spin_cycles": 263402545,
+            "sample_spins": 2644417,
+            "thread_cpu_cycles": 19243001543,
+            "thread_cpu_ns": 7954417559,
+            "tsc_hz": 2419159090
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.549219047,
+          "heap_before_window": 553079956,
+          "heap_end": 668891347,
+          "heap_peak": 1683910348,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 300154879,
+            "p50_ns": 292,
+            "p999_ns": 5871,
+            "p99_ns": 1248
+          },
+          "insert_top_ns": [
+            300038010,
+            300030553,
+            300016701,
+            300003993,
+            299274857,
+            297467905,
+            297444626,
+            297444224
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 12435085,
+            "max_ns": 23543807,
+            "p50_ns": 210,
+            "p999_ns": 844,
+            "p99_ns": 567
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 343474470,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W4:R2:r3",
+            "wall_s": 2.376,
+            "busy_cpus_since_prev": 3.62,
+            "own_busy_cpus": 3.61,
+            "foreign_busy_cpus": 0.01
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 19243001543,
+            "thread_cpu_ns": 7954417559,
+            "tsc_hz": 2419159090,
+            "wall_s": 1.549219047,
+            "counters": {
+              "gate_wait_cycles": 1501407565,
+              "gate_blocked_entries": 27998,
+              "quiesce_drain_cycles": 17867771,
+              "quiesce_calls": 34533,
+              "sample_spins": 2644417,
+              "sample_spin_cycles": 263402545
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.07802356413291278,
+              "quiesce_drain_cycles": 0.0009285334702111342,
+              "sample_spin_cycles": 0.013688225530274281
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 639631360,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 27738,
+            "gate_wait_cycles": 820295843,
+            "quiesce_calls": 34919,
+            "quiesce_drain_cycles": 54056131,
+            "sample_spin_cycles": 262636099,
+            "sample_spins": 2658621,
+            "thread_cpu_cycles": 18812406009,
+            "thread_cpu_ns": 7776424673,
+            "tsc_hz": 2419158778
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.557566936,
+          "heap_before_window": 553079956,
+          "heap_end": 670988499,
+          "heap_peak": 1683910324,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 301465599,
+            "p50_ns": 304,
+            "p999_ns": 5727,
+            "p99_ns": 1276
+          },
+          "insert_top_ns": [
+            301301197,
+            301291775,
+            299940611,
+            299917044,
+            298601815,
+            297288986,
+            297269038,
+            295660242
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 12543452,
+            "max_ns": 23265279,
+            "p50_ns": 209,
+            "p999_ns": 846,
+            "p99_ns": 566
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 343474567,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W4:R2:r4",
+            "wall_s": 2.39,
+            "busy_cpus_since_prev": 3.54,
+            "own_busy_cpus": 3.52,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 18812406009,
+            "thread_cpu_ns": 7776424673,
+            "tsc_hz": 2419158778,
+            "wall_s": 1.557566936,
+            "counters": {
+              "gate_wait_cycles": 820295843,
+              "gate_blocked_entries": 27738,
+              "quiesce_drain_cycles": 54056131,
+              "quiesce_calls": 34919,
+              "sample_spins": 2658621,
+              "sample_spin_cycles": 262636099
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.043603983595057655,
+              "quiesce_drain_cycles": 0.002873429957557748,
+              "sample_spin_cycles": 0.013960792621334712
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        }
+      ],
+      "load": {
+        "since": "wait_share:sync:overwrite:L3600000:W4:R2:r0",
+        "wall_s": 2.357,
+        "busy_cpus_since_prev": 3.65,
+        "own_busy_cpus": 3.63,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "sync:overwrite:L200000:W12:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 200000,
+      "writers": 12,
+      "readers": 2,
+      "threads": 14,
+      "cpus": 16,
+      "oversubscribed": false,
+      "rounds_raw": [
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 260046848,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 3091747,
+            "gate_wait_cycles": 6177252976,
+            "quiesce_calls": 1168617,
+            "quiesce_drain_cycles": 1159572606,
+            "sample_spin_cycles": 2088410071,
+            "sample_spins": 18426318,
+            "thread_cpu_cycles": 43867546995,
+            "thread_cpu_ns": 18133388514,
+            "tsc_hz": 2419158833
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 2.911515572,
+          "heap_before_window": 33216004,
+          "heap_end": 262270515,
+          "heap_peak": 1118713156,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 25100287,
+            "p50_ns": 290,
+            "p999_ns": 32047,
+            "p99_ns": 24975
+          },
+          "insert_top_ns": [
+            25099267,
+            22873333,
+            21098211,
+            21086122,
+            18738067,
+            17991876,
+            17359021,
+            17350438
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 32577696,
+            "max_ns": 1497087,
+            "p50_ns": 114,
+            "p999_ns": 960,
+            "p99_ns": 744
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 343474180,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W12:R2:r0",
+            "wall_s": 3.165,
+            "busy_cpus_since_prev": 5.77,
+            "own_busy_cpus": 5.75,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 43867546995,
+            "thread_cpu_ns": 18133388514,
+            "tsc_hz": 2419158833,
+            "wall_s": 2.911515572,
+            "counters": {
+              "gate_wait_cycles": 6177252976,
+              "gate_blocked_entries": 3091747,
+              "quiesce_drain_cycles": 1159572606,
+              "quiesce_calls": 1168617,
+              "sample_spins": 18426318,
+              "sample_spin_cycles": 2088410071
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.14081601090446383,
+              "quiesce_drain_cycles": 0.026433495497985505,
+              "sample_spin_cycles": 0.047607176923707084
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 260046848,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 2946525,
+            "gate_wait_cycles": 5928979047,
+            "quiesce_calls": 1133615,
+            "quiesce_drain_cycles": 1162668135,
+            "sample_spin_cycles": 2022501607,
+            "sample_spins": 17905715,
+            "thread_cpu_cycles": 43675936345,
+            "thread_cpu_ns": 18054182476,
+            "tsc_hz": 2419158907
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 2.870317922,
+          "heap_before_window": 33216004,
+          "heap_end": 262270515,
+          "heap_peak": 1116615084,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 23724031,
+            "p50_ns": 295,
+            "p999_ns": 32927,
+            "p99_ns": 24831
+          },
+          "insert_top_ns": [
+            23715386,
+            23705751,
+            22331493,
+            22312792,
+            22303925,
+            22189636,
+            21552765,
+            20476172
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 32705919,
+            "max_ns": 1504255,
+            "p50_ns": 111,
+            "p999_ns": 947,
+            "p99_ns": 737
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 343474277,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W12:R2:r1",
+            "wall_s": 3.122,
+            "busy_cpus_since_prev": 5.78,
+            "own_busy_cpus": 5.8,
+            "foreign_busy_cpus": -0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 43675936345,
+            "thread_cpu_ns": 18054182476,
+            "tsc_hz": 2419158907,
+            "wall_s": 2.870317922,
+            "counters": {
+              "gate_wait_cycles": 5928979047,
+              "gate_blocked_entries": 2946525,
+              "quiesce_drain_cycles": 1162668135,
+              "quiesce_calls": 1133615,
+              "sample_spins": 17905715,
+              "sample_spin_cycles": 2022501607
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.13574932887909905,
+              "quiesce_drain_cycles": 0.026620336787195213,
+              "sample_spin_cycles": 0.046307000519097856
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 257949696,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 3033048,
+            "gate_wait_cycles": 6121553925,
+            "quiesce_calls": 1169649,
+            "quiesce_drain_cycles": 1193798560,
+            "sample_spin_cycles": 2080530933,
+            "sample_spins": 18543828,
+            "thread_cpu_cycles": 43999303271,
+            "thread_cpu_ns": 18187848428,
+            "tsc_hz": 2419159333
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 2.9318376969999997,
+          "heap_before_window": 33216004,
+          "heap_end": 260173339,
+          "heap_peak": 1116603868,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 27066367,
+            "p50_ns": 291,
+            "p999_ns": 33215,
+            "p99_ns": 25151
+          },
+          "insert_top_ns": [
+            27065066,
+            25320447,
+            23681129,
+            22242503,
+            22234093,
+            22152664,
+            22068547,
+            21942956
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 32975534,
+            "max_ns": 5074943,
+            "p50_ns": 113,
+            "p999_ns": 948,
+            "p99_ns": 734
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 343474374,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W12:R2:r2",
+            "wall_s": 3.184,
+            "busy_cpus_since_prev": 5.73,
+            "own_busy_cpus": 5.73,
+            "foreign_busy_cpus": 0.0
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 43999303271,
+            "thread_cpu_ns": 18187848428,
+            "tsc_hz": 2419159333,
+            "wall_s": 2.9318376969999997,
+            "counters": {
+              "gate_wait_cycles": 6121553925,
+              "gate_blocked_entries": 3033048,
+              "quiesce_drain_cycles": 1193798560,
+              "quiesce_calls": 1169649,
+              "sample_spins": 18543828,
+              "sample_spin_cycles": 2080530933
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.1391284286320671,
+              "quiesce_drain_cycles": 0.027132215086388294,
+              "sample_spin_cycles": 0.047285542686565235
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 260046848,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 2960208,
+            "gate_wait_cycles": 5940663259,
+            "quiesce_calls": 1139531,
+            "quiesce_drain_cycles": 1102577171,
+            "sample_spin_cycles": 2029637191,
+            "sample_spins": 17964944,
+            "thread_cpu_cycles": 43460807605,
+            "thread_cpu_ns": 17965257103,
+            "tsc_hz": 2419158677
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 2.855050587,
+          "heap_before_window": 33216004,
+          "heap_end": 262270515,
+          "heap_peak": 1120823204,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 22364159,
+            "p50_ns": 294,
+            "p999_ns": 33375,
+            "p99_ns": 24975
+          },
+          "insert_top_ns": [
+            22358654,
+            20696012,
+            20688430,
+            20148332,
+            19922747,
+            18744240,
+            18726156,
+            18506404
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 32289682,
+            "max_ns": 1504255,
+            "p50_ns": 112,
+            "p999_ns": 952,
+            "p99_ns": 741
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 343474471,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W12:R2:r3",
+            "wall_s": 3.112,
+            "busy_cpus_since_prev": 5.8,
+            "own_busy_cpus": 5.79,
+            "foreign_busy_cpus": 0.01
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 43460807605,
+            "thread_cpu_ns": 17965257103,
+            "tsc_hz": 2419158677,
+            "wall_s": 2.855050587,
+            "counters": {
+              "gate_wait_cycles": 5940663259,
+              "gate_blocked_entries": 2960208,
+              "quiesce_drain_cycles": 1102577171,
+              "quiesce_calls": 1139531,
+              "sample_spins": 17964944,
+              "sample_spin_cycles": 2029637191
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.1366901258023689,
+              "quiesce_drain_cycles": 0.025369458870183367,
+              "sample_spin_cycles": 0.046700402105884886
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 262144000,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 2782492,
+            "gate_wait_cycles": 5535404121,
+            "quiesce_calls": 1088420,
+            "quiesce_drain_cycles": 1049900144,
+            "sample_spin_cycles": 1936009237,
+            "sample_spins": 17194140,
+            "thread_cpu_cycles": 42977147897,
+            "thread_cpu_ns": 17765323051,
+            "tsc_hz": 2419159380
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 2.7923851859999997,
+          "heap_before_window": 33216004,
+          "heap_end": 264367691,
+          "heap_peak": 1118725460,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 24870911,
+            "p50_ns": 304,
+            "p999_ns": 33247,
+            "p99_ns": 24831
+          },
+          "insert_top_ns": [
+            24859928,
+            24849923,
+            23030454,
+            21602018,
+            21594073,
+            20121057,
+            19948023,
+            19866551
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 31711820,
+            "max_ns": 1517567,
+            "p50_ns": 112,
+            "p999_ns": 949,
+            "p99_ns": 737
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 343474568,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:overwrite:L200000:W12:R2:r4",
+            "wall_s": 3.046,
+            "busy_cpus_since_prev": 5.82,
+            "own_busy_cpus": 5.85,
+            "foreign_busy_cpus": -0.03
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 42977147897,
+            "thread_cpu_ns": 17765323051,
+            "tsc_hz": 2419159380,
+            "wall_s": 2.7923851859999997,
+            "counters": {
+              "gate_wait_cycles": 5535404121,
+              "gate_blocked_entries": 2782492,
+              "quiesce_drain_cycles": 1049900144,
+              "quiesce_calls": 1088420,
+              "sample_spins": 17194140,
+              "sample_spin_cycles": 1936009237
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.12879877776594842,
+              "quiesce_drain_cycles": 0.02442926521127494,
+              "sample_spin_cycles": 0.04504741081562423
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        }
+      ],
+      "load": {
+        "since": "wait_share:sync:overwrite:L200000:W12:R2:r0",
+        "wall_s": 3.165,
+        "busy_cpus_since_prev": 5.77,
+        "own_busy_cpus": 5.75,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "sync:overwrite:L3600000:W12:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 3600000,
+      "writers": 12,
+      "readers": 2,
+      "threads": 14,
+      "cpus": 16,
+      "oversubscribed": false,
+      "rounds_raw": [
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 654311424,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 1174477,
+            "gate_wait_cycles": 5710490741,
+            "quiesce_calls": 329893,
+            "quiesce_drain_cycles": 437240857,
+            "sample_spin_cycles": 856613747,
+            "sample_spins": 7908807,
+            "thread_cpu_cycles": 29666565859,
+            "thread_cpu_ns": 12263168793,
+            "tsc_hz": 2419159873
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.6923837000000002,
+          "heap_before_window": 553079957,
+          "heap_end": 685668884,
+          "heap_peak": 1685686381,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 317718527,
+            "p50_ns": 452,
+            "p999_ns": 29855,
+            "p99_ns": 22783
+          },
+          "insert_top_ns": [
+            317506529,
+            317436769,
+            315803934,
+            314345531,
+            312745225,
+            310691778,
+            308586280,
+            308569009
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 11993129,
+            "max_ns": 23691263,
+            "p50_ns": 214,
+            "p999_ns": 1174,
+            "p99_ns": 880
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 343474181,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W12:R2:r0",
+            "wall_s": 2.539,
+            "busy_cpus_since_prev": 5.1,
+            "own_busy_cpus": 5.09,
+            "foreign_busy_cpus": 0.01
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 29666565859,
+            "thread_cpu_ns": 12263168793,
+            "tsc_hz": 2419159873,
+            "wall_s": 1.6923837000000002,
+            "counters": {
+              "gate_wait_cycles": 5710490741,
+              "gate_blocked_entries": 1174477,
+              "quiesce_drain_cycles": 437240857,
+              "quiesce_calls": 329893,
+              "sample_spins": 7908807,
+              "sample_spin_cycles": 856613747
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.1924891060239653,
+              "quiesce_drain_cycles": 0.014738505935541355,
+              "sample_spin_cycles": 0.028874718802012183
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 652214272,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 1906532,
+            "gate_wait_cycles": 5998084820,
+            "quiesce_calls": 524371,
+            "quiesce_drain_cycles": 671515592,
+            "sample_spin_cycles": 1244556331,
+            "sample_spins": 11264068,
+            "thread_cpu_cycles": 31691489201,
+            "thread_cpu_ns": 13100203559,
+            "tsc_hz": 2419160058
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 2.033975502,
+          "heap_before_window": 553079957,
+          "heap_end": 683571708,
+          "heap_peak": 1685686381,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 312213503,
+            "p50_ns": 399,
+            "p999_ns": 31759,
+            "p99_ns": 24031
+          },
+          "insert_top_ns": [
+            312191905,
+            309796347,
+            309781643,
+            308039219,
+            307857179,
+            307849673,
+            307781783,
+            307738493
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 14205285,
+            "max_ns": 23363583,
+            "p50_ns": 212,
+            "p999_ns": 1192,
+            "p99_ns": 917
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 343474278,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W12:R2:r1",
+            "wall_s": 2.862,
+            "busy_cpus_since_prev": 4.81,
+            "own_busy_cpus": 4.8,
+            "foreign_busy_cpus": 0.01
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 31691489201,
+            "thread_cpu_ns": 13100203559,
+            "tsc_hz": 2419160058,
+            "wall_s": 2.033975502,
+            "counters": {
+              "gate_wait_cycles": 5998084820,
+              "gate_blocked_entries": 1906532,
+              "quiesce_drain_cycles": 671515592,
+              "quiesce_calls": 524371,
+              "sample_spins": 11264068,
+              "sample_spin_cycles": 1244556331
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.18926484590098516,
+              "quiesce_drain_cycles": 0.021189146011441166,
+              "sample_spin_cycles": 0.039270995537840775
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 654311424,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 991300,
+            "gate_wait_cycles": 4638849949,
+            "quiesce_calls": 287868,
+            "quiesce_drain_cycles": 424666801,
+            "sample_spin_cycles": 773979934,
+            "sample_spins": 7102355,
+            "thread_cpu_cycles": 28598686221,
+            "thread_cpu_ns": 11821758656,
+            "tsc_hz": 2419156663
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.647625166,
+          "heap_before_window": 553079957,
+          "heap_end": 685668884,
+          "heap_peak": 1685686381,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 311689215,
+            "p50_ns": 471,
+            "p999_ns": 29007,
+            "p99_ns": 22463
+          },
+          "insert_top_ns": [
+            311502756,
+            309031840,
+            308621491,
+            308513391,
+            308407036,
+            307696426,
+            307599728,
+            307069120
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 11754271,
+            "max_ns": 23379967,
+            "p50_ns": 215,
+            "p999_ns": 1164,
+            "p99_ns": 873
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 343474375,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W12:R2:r2",
+            "wall_s": 2.475,
+            "busy_cpus_since_prev": 5.04,
+            "own_busy_cpus": 5.03,
+            "foreign_busy_cpus": 0.01
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 28598686221,
+            "thread_cpu_ns": 11821758656,
+            "tsc_hz": 2419156663,
+            "wall_s": 1.647625166,
+            "counters": {
+              "gate_wait_cycles": 4638849949,
+              "gate_blocked_entries": 991300,
+              "quiesce_drain_cycles": 424666801,
+              "quiesce_calls": 287868,
+              "sample_spins": 7102355,
+              "sample_spin_cycles": 773979934
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.16220500176660896,
+              "quiesce_drain_cycles": 0.014849171661884503,
+              "sample_spin_cycles": 0.027063478651395776
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 648019968,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 1871877,
+            "gate_wait_cycles": 6529782594,
+            "quiesce_calls": 525603,
+            "quiesce_drain_cycles": 649675757,
+            "sample_spin_cycles": 1234271478,
+            "sample_spins": 11119505,
+            "thread_cpu_cycles": 32184380604,
+            "thread_cpu_ns": 13303960194,
+            "tsc_hz": 2419157915
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 2.030254149,
+          "heap_before_window": 553079957,
+          "heap_end": 679377356,
+          "heap_peak": 1685686381,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 306970623,
+            "p50_ns": 402,
+            "p999_ns": 31327,
+            "p99_ns": 24143
+          },
+          "insert_top_ns": [
+            306910564,
+            306901168,
+            306898970,
+            306867117,
+            305467978,
+            305429776,
+            304065175,
+            302560193
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 14105344,
+            "max_ns": 23445503,
+            "p50_ns": 213,
+            "p999_ns": 1190,
+            "p99_ns": 916
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 343474472,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W12:R2:r3",
+            "wall_s": 2.855,
+            "busy_cpus_since_prev": 4.88,
+            "own_busy_cpus": 4.88,
+            "foreign_busy_cpus": 0.0
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 32184380604,
+            "thread_cpu_ns": 13303960194,
+            "tsc_hz": 2419157915,
+            "wall_s": 2.030254149,
+            "counters": {
+              "gate_wait_cycles": 6529782594,
+              "gate_blocked_entries": 1871877,
+              "quiesce_drain_cycles": 649675757,
+              "quiesce_calls": 525603,
+              "sample_spins": 11119505,
+              "sample_spin_cycles": 1234271478
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.2028866944603698,
+              "quiesce_drain_cycles": 0.020186057485265252,
+              "sample_spin_cycles": 0.03835001497113168
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 654311424,
+          "compactions": 2,
+          "counters": {
+            "gate_blocked_entries": 1475763,
+            "gate_wait_cycles": 5189513261,
+            "quiesce_calls": 415643,
+            "quiesce_drain_cycles": 595565164,
+            "sample_spin_cycles": 1032021751,
+            "sample_spins": 9275714,
+            "thread_cpu_cycles": 30253974226,
+            "thread_cpu_ns": 12505986331,
+            "tsc_hz": 2419159387
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 1.8797714189999999,
+          "heap_before_window": 553079957,
+          "heap_end": 685668860,
+          "heap_peak": 1685686357,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 312999935,
+            "p50_ns": 434,
+            "p999_ns": 30959,
+            "p99_ns": 23583
+          },
+          "insert_top_ns": [
+            312979336,
+            311508581,
+            311496670,
+            310102473,
+            308655844,
+            307193243,
+            305706222,
+            305688123
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 13115315,
+            "max_ns": 23232511,
+            "p50_ns": 214,
+            "p999_ns": 1204,
+            "p99_ns": 914
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 343474569,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:overwrite:L3600000:W12:R2:r4",
+            "wall_s": 2.706,
+            "busy_cpus_since_prev": 4.85,
+            "own_busy_cpus": 4.85,
+            "foreign_busy_cpus": 0.0
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 30253974226,
+            "thread_cpu_ns": 12505986331,
+            "tsc_hz": 2419159387,
+            "wall_s": 1.8797714189999999,
+            "counters": {
+              "gate_wait_cycles": 5189513261,
+              "gate_blocked_entries": 1475763,
+              "quiesce_drain_cycles": 595565164,
+              "quiesce_calls": 415643,
+              "sample_spins": 9275714,
+              "sample_spin_cycles": 1032021751
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.1715316216717134,
+              "quiesce_drain_cycles": 0.01968551832400837,
+              "sample_spin_cycles": 0.03411193991542075
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        }
+      ],
+      "load": {
+        "since": "wait_share:sync:overwrite:L3600000:W12:R2:r0",
+        "wall_s": 2.539,
+        "busy_cpus_since_prev": 5.1,
+        "own_busy_cpus": 5.09,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "cell": "sync:full:Lfill:W4:R2",
+      "map": "sync",
+      "mode": "full",
+      "live": null,
+      "writers": 4,
+      "readers": 2,
+      "threads": 6,
+      "cpus": 16,
+      "oversubscribed": false,
+      "rounds_raw": [
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "counters": {
+            "gate_blocked_entries": 1159274,
+            "gate_wait_cycles": 523501519,
+            "quiesce_calls": 571744,
+            "quiesce_drain_cycles": 138012741,
+            "sample_spin_cycles": 6554084,
+            "sample_spins": 61723,
+            "thread_cpu_cycles": 43541145331,
+            "thread_cpu_ns": 17998463035,
+            "tsc_hz": 2419159083
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.000327273,
+          "heap_before_window": 1137669994,
+          "heap_end": 1138116913,
+          "heap_peak": 1139220058,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 36591672,
+            "max_ns": 310527,
+            "p50_ns": 225,
+            "p999_ns": 856,
+            "p99_ns": 657
+          },
+          "insert_top_ns": [
+            310337,
+            308143,
+            265421,
+            221079,
+            143401,
+            142319,
+            105735,
+            102924
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 36591672,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 24517921,
+            "max_ns": 171519,
+            "p50_ns": 215,
+            "p999_ns": 636,
+            "p99_ns": 556
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 3,
+          "seed": 343474182,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:full:Lfill:W4:R2:r0",
+            "wall_s": 4.475,
+            "busy_cpus_since_prev": 4.33,
+            "own_busy_cpus": 4.31,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 43541145331,
+            "thread_cpu_ns": 17998463035,
+            "tsc_hz": 2419159083,
+            "wall_s": 3.000327273,
+            "counters": {
+              "gate_wait_cycles": 523501519,
+              "gate_blocked_entries": 1159274,
+              "quiesce_drain_cycles": 138012741,
+              "quiesce_calls": 571744,
+              "sample_spins": 61723,
+              "sample_spin_cycles": 6554084
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.01202314534953867,
+              "quiesce_drain_cycles": 0.0031697085584411356,
+              "sample_spin_cycles": 0.0001505262195143426
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "counters": {
+            "gate_blocked_entries": 1066189,
+            "gate_wait_cycles": 470681530,
+            "quiesce_calls": 552287,
+            "quiesce_drain_cycles": 135688956,
+            "sample_spin_cycles": 7114570,
+            "sample_spins": 67139,
+            "thread_cpu_cycles": 43543964232,
+            "thread_cpu_ns": 17999630485,
+            "tsc_hz": 2419158786
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.000312228,
+          "heap_before_window": 1137669994,
+          "heap_end": 1138116913,
+          "heap_peak": 1139220058,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 35346404,
+            "max_ns": 127487,
+            "p50_ns": 235,
+            "p999_ns": 889,
+            "p99_ns": 677
+          },
+          "insert_top_ns": [
+            127485,
+            96724,
+            89708,
+            84083,
+            83871,
+            83844,
+            82782,
+            82676
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 35346404,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 24604862,
+            "max_ns": 32575,
+            "p50_ns": 215,
+            "p999_ns": 635,
+            "p99_ns": 555
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 3,
+          "seed": 343474279,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:full:Lfill:W4:R2:r1",
+            "wall_s": 4.48,
+            "busy_cpus_since_prev": 4.32,
+            "own_busy_cpus": 4.3,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 43543964232,
+            "thread_cpu_ns": 17999630485,
+            "tsc_hz": 2419158786,
+            "wall_s": 3.000312228,
+            "counters": {
+              "gate_wait_cycles": 470681530,
+              "gate_blocked_entries": 1066189,
+              "quiesce_drain_cycles": 135688956,
+              "quiesce_calls": 552287,
+              "sample_spins": 67139,
+              "sample_spin_cycles": 7114570
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.010809340359831113,
+              "quiesce_drain_cycles": 0.0031161369524615678,
+              "sample_spin_cycles": 0.00016338820145299444
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "counters": {
+            "gate_blocked_entries": 1105331,
+            "gate_wait_cycles": 490403663,
+            "quiesce_calls": 562998,
+            "quiesce_drain_cycles": 138737131,
+            "sample_spin_cycles": 2954692,
+            "sample_spins": 27685,
+            "thread_cpu_cycles": 43543641078,
+            "thread_cpu_ns": 17999484880,
+            "tsc_hz": 2419160402
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.000411695,
+          "heap_before_window": 1137669994,
+          "heap_end": 1138116913,
+          "heap_peak": 1139220058,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 36031885,
+            "max_ns": 289279,
+            "p50_ns": 229,
+            "p999_ns": 903,
+            "p99_ns": 679
+          },
+          "insert_top_ns": [
+            289274,
+            197992,
+            189662,
+            189619,
+            188530,
+            150804,
+            140886,
+            140664
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 36031885,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 24566302,
+            "max_ns": 28831,
+            "p50_ns": 215,
+            "p999_ns": 631,
+            "p99_ns": 556
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 3,
+          "seed": 343474376,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:full:Lfill:W4:R2:r2",
+            "wall_s": 4.478,
+            "busy_cpus_since_prev": 4.32,
+            "own_busy_cpus": 4.31,
+            "foreign_busy_cpus": 0.01
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 43543641078,
+            "thread_cpu_ns": 17999484880,
+            "tsc_hz": 2419160402,
+            "wall_s": 3.000411695,
+            "counters": {
+              "gate_wait_cycles": 490403663,
+              "gate_blocked_entries": 1105331,
+              "quiesce_drain_cycles": 138737131,
+              "quiesce_calls": 562998,
+              "sample_spins": 27685,
+              "sample_spin_cycles": 2954692
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.011262348550998223,
+              "quiesce_drain_cycles": 0.003186162837220693,
+              "sample_spin_cycles": 6.785587807660002e-05
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "counters": {
+            "gate_blocked_entries": 1097409,
+            "gate_wait_cycles": 495782933,
+            "quiesce_calls": 549892,
+            "quiesce_drain_cycles": 141634177,
+            "sample_spin_cycles": 2854689,
+            "sample_spins": 26713,
+            "thread_cpu_cycles": 43539840327,
+            "thread_cpu_ns": 17997922169,
+            "tsc_hz": 2419159274
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.000330021,
+          "heap_before_window": 1137669994,
+          "heap_end": 1138116913,
+          "heap_peak": 1139220058,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 35193114,
+            "max_ns": 278783,
+            "p50_ns": 238,
+            "p999_ns": 897,
+            "p99_ns": 678
+          },
+          "insert_top_ns": [
+            278674,
+            265867,
+            243973,
+            205863,
+            198030,
+            162135,
+            156045,
+            139345
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 35193114,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 24587076,
+            "max_ns": 102015,
+            "p50_ns": 215,
+            "p999_ns": 631,
+            "p99_ns": 555
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 3,
+          "seed": 343474473,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:full:Lfill:W4:R2:r3",
+            "wall_s": 4.475,
+            "busy_cpus_since_prev": 4.33,
+            "own_busy_cpus": 4.31,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 43539840327,
+            "thread_cpu_ns": 17997922169,
+            "tsc_hz": 2419159274,
+            "wall_s": 3.000330021,
+            "counters": {
+              "gate_wait_cycles": 495782933,
+              "gate_blocked_entries": 1097409,
+              "quiesce_drain_cycles": 141634177,
+              "quiesce_calls": 549892,
+              "sample_spins": 26713,
+              "sample_spin_cycles": 2854689
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.011386879907608533,
+              "quiesce_drain_cycles": 0.0032529787876178677,
+              "sample_spin_cycles": 6.556498550661301e-05
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "counters": {
+            "gate_blocked_entries": 1118135,
+            "gate_wait_cycles": 513212857,
+            "quiesce_calls": 550078,
+            "quiesce_drain_cycles": 138499106,
+            "sample_spin_cycles": 2251138,
+            "sample_spins": 21056,
+            "thread_cpu_cycles": 43542977541,
+            "thread_cpu_ns": 17999215745,
+            "tsc_hz": 2419159710
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.000315966,
+          "heap_before_window": 1137669994,
+          "heap_end": 1138116913,
+          "heap_peak": 1139220058,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 35204997,
+            "max_ns": 140671,
+            "p50_ns": 240,
+            "p999_ns": 896,
+            "p99_ns": 687
+          },
+          "insert_top_ns": [
+            140659,
+            129951,
+            119865,
+            111689,
+            111665,
+            98670,
+            97783,
+            97364
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 35204997,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 24589208,
+            "max_ns": 144255,
+            "p50_ns": 215,
+            "p999_ns": 631,
+            "p99_ns": 555
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 3,
+          "seed": 343474570,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "wait_share:sync:full:Lfill:W4:R2:r4",
+            "wall_s": 4.506,
+            "busy_cpus_since_prev": 4.3,
+            "own_busy_cpus": 4.28,
+            "foreign_busy_cpus": 0.02
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 43542977541,
+            "thread_cpu_ns": 17999215745,
+            "tsc_hz": 2419159710,
+            "wall_s": 3.000315966,
+            "counters": {
+              "gate_wait_cycles": 513212857,
+              "gate_blocked_entries": 1118135,
+              "quiesce_drain_cycles": 138499106,
+              "quiesce_calls": 550078,
+              "sample_spins": 21056,
+              "sample_spin_cycles": 2251138
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.011786351921311757,
+              "quiesce_drain_cycles": 0.0031807449518028354,
+              "sample_spin_cycles": 5.169922056617125e-05
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        }
+      ],
+      "load": {
+        "since": "wait_share:sync:full:Lfill:W4:R2:r0",
+        "wall_s": 4.475,
+        "busy_cpus_since_prev": 4.33,
+        "own_busy_cpus": 4.31,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "sync:full:Lfill:W12:R2",
+      "map": "sync",
+      "mode": "full",
+      "live": null,
+      "writers": 12,
+      "readers": 2,
+      "threads": 14,
+      "cpus": 16,
+      "oversubscribed": false,
+      "rounds_raw": [
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "counters": {
+            "gate_blocked_entries": 2848288,
+            "gate_wait_cycles": 9173702619,
+            "quiesce_calls": 288895,
+            "quiesce_drain_cycles": 1380494133,
+            "sample_spin_cycles": 2596008,
+            "sample_spins": 22857,
+            "thread_cpu_cycles": 98246111139,
+            "thread_cpu_ns": 40611679699,
+            "tsc_hz": 2419159017
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.000388217,
+          "heap_before_window": 1137669995,
+          "heap_end": 1138116978,
+          "heap_peak": 1140995755,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 18489343,
+            "max_ns": 3024895,
+            "p50_ns": 1080,
+            "p999_ns": 11015,
+            "p99_ns": 7819
+          },
+          "insert_top_ns": [
+            3024744,
+            3003743,
+            2998361,
+            2997744,
+            2997652,
+            2997302,
+            2997057,
+            2996230
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 18489343,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 22713579,
+            "max_ns": 529407,
+            "p50_ns": 229,
+            "p999_ns": 702,
+            "p99_ns": 576
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 3,
+          "seed": 343474183,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:full:Lfill:W12:R2:r0",
+            "wall_s": 4.479,
+            "busy_cpus_since_prev": 9.41,
+            "own_busy_cpus": 9.35,
+            "foreign_busy_cpus": 0.06
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 98246111139,
+            "thread_cpu_ns": 40611679699,
+            "tsc_hz": 2419159017,
+            "wall_s": 3.000388217,
+            "counters": {
+              "gate_wait_cycles": 9173702619,
+              "gate_blocked_entries": 2848288,
+              "quiesce_drain_cycles": 1380494133,
+              "quiesce_calls": 288895,
+              "sample_spins": 22857,
+              "sample_spin_cycles": 2596008
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.09337471491386479,
+              "quiesce_drain_cycles": 0.014051387042148235,
+              "sample_spin_cycles": 2.642351915921772e-05
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "counters": {
+            "gate_blocked_entries": 2904488,
+            "gate_wait_cycles": 9453191901,
+            "quiesce_calls": 294534,
+            "quiesce_drain_cycles": 1405737617,
+            "sample_spin_cycles": 3146242,
+            "sample_spins": 27742,
+            "thread_cpu_cycles": 98333805288,
+            "thread_cpu_ns": 40647935429,
+            "tsc_hz": 2419158667
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.000350385,
+          "heap_before_window": 1137669995,
+          "heap_end": 1138116978,
+          "heap_peak": 1140995779,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 18850217,
+            "max_ns": 3047423,
+            "p50_ns": 935,
+            "p999_ns": 10927,
+            "p99_ns": 7795
+          },
+          "insert_top_ns": [
+            3045924,
+            3007931,
+            3004524,
+            3004427,
+            3003888,
+            3003828,
+            3003105,
+            3002447
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 18850217,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 22448544,
+            "max_ns": 393727,
+            "p50_ns": 230,
+            "p999_ns": 749,
+            "p99_ns": 583
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 3,
+          "seed": 343474280,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:full:Lfill:W12:R2:r1",
+            "wall_s": 4.533,
+            "busy_cpus_since_prev": 9.3,
+            "own_busy_cpus": 9.26,
+            "foreign_busy_cpus": 0.04
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 98333805288,
+            "thread_cpu_ns": 40647935429,
+            "tsc_hz": 2419158667,
+            "wall_s": 3.000350385,
+            "counters": {
+              "gate_wait_cycles": 9453191901,
+              "gate_blocked_entries": 2904488,
+              "quiesce_drain_cycles": 1405737617,
+              "quiesce_calls": 294534,
+              "sample_spins": 27742,
+              "sample_spin_cycles": 3146242
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.09613369352801406,
+              "quiesce_drain_cycles": 0.014295568170914126,
+              "sample_spin_cycles": 3.199552779214928e-05
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "counters": {
+            "gate_blocked_entries": 2805478,
+            "gate_wait_cycles": 9419029218,
+            "quiesce_calls": 284166,
+            "quiesce_drain_cycles": 1399478421,
+            "sample_spin_cycles": 3144488,
+            "sample_spins": 27473,
+            "thread_cpu_cycles": 98135232134,
+            "thread_cpu_ns": 40565837717,
+            "tsc_hz": 2419159511
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.000318844,
+          "heap_before_window": 1137669995,
+          "heap_end": 1138116978,
+          "heap_peak": 1140995803,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 18186670,
+            "max_ns": 4014079,
+            "p50_ns": 1118,
+            "p999_ns": 11255,
+            "p99_ns": 7987
+          },
+          "insert_top_ns": [
+            4012306,
+            4009864,
+            4009066,
+            4008389,
+            4007851,
+            4007487,
+            4007045,
+            4006846
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 18186670,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 22501293,
+            "max_ns": 28959,
+            "p50_ns": 230,
+            "p999_ns": 717,
+            "p99_ns": 580
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 3,
+          "seed": 343474377,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:full:Lfill:W12:R2:r2",
+            "wall_s": 4.483,
+            "busy_cpus_since_prev": 9.39,
+            "own_busy_cpus": 9.34,
+            "foreign_busy_cpus": 0.05
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 98135232134,
+            "thread_cpu_ns": 40565837717,
+            "tsc_hz": 2419159511,
+            "wall_s": 3.000318844,
+            "counters": {
+              "gate_wait_cycles": 9419029218,
+              "gate_blocked_entries": 2805478,
+              "quiesce_drain_cycles": 1399478421,
+              "quiesce_calls": 284166,
+              "sample_spins": 27473,
+              "sample_spin_cycles": 3144488
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.09598009820915965,
+              "quiesce_drain_cycles": 0.014260713411153543,
+              "sample_spin_cycles": 3.204239630988307e-05
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "counters": {
+            "gate_blocked_entries": 2838443,
+            "gate_wait_cycles": 9198977843,
+            "quiesce_calls": 288064,
+            "quiesce_drain_cycles": 1381798885,
+            "sample_spin_cycles": 2834473,
+            "sample_spins": 24921,
+            "thread_cpu_cycles": 98264208672,
+            "thread_cpu_ns": 40619228083,
+            "tsc_hz": 2419154999
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.000322342,
+          "heap_before_window": 1137669995,
+          "heap_end": 1138116978,
+          "heap_peak": 1140995755,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 18436150,
+            "max_ns": 3008511,
+            "p50_ns": 1010,
+            "p999_ns": 11143,
+            "p99_ns": 7947
+          },
+          "insert_top_ns": [
+            3007631,
+            3006028,
+            3003909,
+            3002588,
+            3002020,
+            3001640,
+            3000939,
+            3000888
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 18436150,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 22569701,
+            "max_ns": 742399,
+            "p50_ns": 230,
+            "p999_ns": 719,
+            "p99_ns": 579
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 3,
+          "seed": 343474474,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:full:Lfill:W12:R2:r3",
+            "wall_s": 4.484,
+            "busy_cpus_since_prev": 9.4,
+            "own_busy_cpus": 9.35,
+            "foreign_busy_cpus": 0.05
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 98264208672,
+            "thread_cpu_ns": 40619228083,
+            "tsc_hz": 2419154999,
+            "wall_s": 3.000322342,
+            "counters": {
+              "gate_wait_cycles": 9198977843,
+              "gate_blocked_entries": 2838443,
+              "quiesce_drain_cycles": 1381798885,
+              "quiesce_calls": 288064,
+              "sample_spins": 24921,
+              "sample_spin_cycles": 2834473
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.0936147348797733,
+              "quiesce_drain_cycles": 0.014062077165983814,
+              "sample_spin_cycles": 2.884542641015204e-05
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "counters": {
+            "gate_blocked_entries": 2832531,
+            "gate_wait_cycles": 9687781577,
+            "quiesce_calls": 287386,
+            "quiesce_drain_cycles": 1428923396,
+            "sample_spin_cycles": 2522315,
+            "sample_spins": 22175,
+            "thread_cpu_cycles": 98198731850,
+            "thread_cpu_ns": 40592116320,
+            "tsc_hz": 2419157727
+          },
+          "cpu_affinity": "0-15",
+          "elapsed_s": 3.000354441,
+          "heap_before_window": 1137669995,
+          "heap_end": 1138116978,
+          "heap_peak": 1140995755,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 18392720,
+            "max_ns": 3082239,
+            "p50_ns": 1024,
+            "p999_ns": 11063,
+            "p99_ns": 7875
+          },
+          "insert_top_ns": [
+            3081539,
+            3017900,
+            3008396,
+            3005064,
+            3002860,
+            3002154,
+            3001464,
+            3000395
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 18392720,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "occ_stats": true,
+          "payload_len": 128,
+          "read": {
+            "count": 22460051,
+            "max_ns": 203903,
+            "p50_ns": 231,
+            "p999_ns": 742,
+            "p99_ns": 581
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 3,
+          "seed": 343474571,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "wait_share:sync:full:Lfill:W12:R2:r4",
+            "wall_s": 4.476,
+            "busy_cpus_since_prev": 9.41,
+            "own_busy_cpus": 9.36,
+            "foreign_busy_cpus": 0.05
+          },
+          "wait": {
+            "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+            "thread_cpu_cycles": 98198731850,
+            "thread_cpu_ns": 40592116320,
+            "tsc_hz": 2419157727,
+            "wall_s": 3.000354441,
+            "counters": {
+              "gate_wait_cycles": 9687781577,
+              "gate_blocked_entries": 2832531,
+              "quiesce_drain_cycles": 1428923396,
+              "quiesce_calls": 287386,
+              "sample_spins": 22175,
+              "sample_spin_cycles": 2522315
+            },
+            "share_of_thread_cpu": {
+              "gate_wait_cycles": 0.09865485423781468,
+              "quiesce_drain_cycles": 0.014551342660745368,
+              "sample_spin_cycles": 2.568582050380114e-05
+            },
+            "note": "the counters are TSC deltas and include time a waiting thread was descheduled; thread CPU time does not, so a share can exceed the waits' CPU cost"
+          }
+        }
+      ],
+      "load": {
+        "since": "wait_share:sync:full:Lfill:W12:R2:r0",
+        "wall_s": 4.479,
+        "busy_cpus_since_prev": 9.41,
+        "own_busy_cpus": 9.35,
+        "foreign_busy_cpus": 0.06
+      }
+    }
+  ],
+  "wait_share": {
+    "threshold": 0.05,
+    "cells": [
+      {
+        "cell": "sync:overwrite:L200000:W1:R2",
+        "deciding": true,
+        "threads": 3,
+        "cpus": 16,
+        "oversubscribed": false,
+        "summed_share": {
+          "mean": 0.0008731011673992376,
+          "ci_lower": 0.0008599530992512983,
+          "ci_upper": 0.0008938754330661906,
+          "ci_method": "bc",
+          "median": 0.0008668553355043754,
+          "n": 5
+        },
+        "per_loop_share": {
+          "gate_wait_cycles": {
+            "mean": 1.1487868808600275e-06,
+            "ci_lower": 7.355008349714724e-07,
+            "ci_upper": 1.6472851266240076e-06,
+            "ci_method": "bc",
+            "median": 9.717206242723635e-07,
+            "n": 5
+          },
+          "quiesce_drain_cycles": {
+            "mean": 1.7873129356784388e-05,
+            "ci_lower": 1.6624641187848373e-05,
+            "ci_upper": 1.9121617525720397e-05,
+            "ci_method": "bc",
+            "median": 1.68843757789366e-05,
+            "n": 5
+          },
+          "sample_spin_cycles": {
+            "mean": 0.0008540792511615933,
+            "ci_lower": 0.0008402758767471572,
+            "ci_upper": 0.0008744627134442748,
+            "ci_method": "bc",
+            "median": 0.0008492873708303481,
+            "n": 5
+          }
+        },
+        "rounds_share_above_one": [],
+        "verdict": "ACCEPTABLE",
+        "per_loop_verdict": {
+          "gate_wait_cycles": "ACCEPTABLE",
+          "quiesce_drain_cycles": "ACCEPTABLE",
+          "sample_spin_cycles": "ACCEPTABLE"
+        }
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W1:R2",
+        "deciding": true,
+        "threads": 3,
+        "cpus": 16,
+        "oversubscribed": false,
+        "summed_share": {
+          "mean": 0.009554698177648775,
+          "ci_lower": 0.009516990529890057,
+          "ci_upper": 0.009584488790985867,
+          "ci_method": "bc",
+          "median": 0.009576195135837535,
+          "n": 5
+        },
+        "per_loop_share": {
+          "gate_wait_cycles": {
+            "mean": 4.925638446030937e-07,
+            "ci_lower": 3.89964495719938e-07,
+            "ci_upper": 5.878539082034612e-07,
+            "ci_method": "bc",
+            "median": 4.540412596633112e-07,
+            "n": 5
+          },
+          "quiesce_drain_cycles": {
+            "mean": 2.880956402086084e-05,
+            "ci_lower": 2.7498661275086325e-05,
+            "ci_upper": 3.012046676663536e-05,
+            "ci_method": "bc",
+            "median": 2.9389589640961206e-05,
+            "n": 5
+          },
+          "sample_spin_cycles": {
+            "mean": 0.00952539604978331,
+            "ci_lower": 0.009486765984925698,
+            "ci_upper": 0.009555536542121134,
+            "ci_method": "bc",
+            "median": 0.009548783524608443,
+            "n": 5
+          }
+        },
+        "rounds_share_above_one": [],
+        "verdict": "ACCEPTABLE",
+        "per_loop_verdict": {
+          "gate_wait_cycles": "ACCEPTABLE",
+          "quiesce_drain_cycles": "ACCEPTABLE",
+          "sample_spin_cycles": "ACCEPTABLE"
+        }
+      },
+      {
+        "cell": "sync:overwrite:L200000:W4:R2",
+        "deciding": true,
+        "threads": 6,
+        "cpus": 16,
+        "oversubscribed": false,
+        "summed_share": {
+          "mean": 0.010478482764514092,
+          "ci_lower": 0.00861016486237835,
+          "ci_upper": 0.012346800666649834,
+          "ci_method": "bca",
+          "median": 0.009491064072618644,
+          "n": 5
+        },
+        "per_loop_share": {
+          "gate_wait_cycles": {
+            "mean": 0.006727993623606822,
+            "ci_lower": 0.004911700214850564,
+            "ci_upper": 0.008544287032363079,
+            "ci_method": "bca",
+            "median": 0.006374630392146935,
+            "n": 5
+          },
+          "quiesce_drain_cycles": {
+            "mean": 0.0017064599634253,
+            "ci_lower": 0.0012329982407066904,
+            "ci_upper": 0.002341600870934092,
+            "ci_method": "bca",
+            "median": 0.0014635584846611214,
+            "n": 5
+          },
+          "sample_spin_cycles": {
+            "mean": 0.00204402917748197,
+            "ci_lower": 0.0018586980711372536,
+            "ci_upper": 0.0021433611283647506,
+            "ci_method": "bca",
+            "median": 0.002086877812935618,
+            "n": 5
+          }
+        },
+        "rounds_share_above_one": [],
+        "verdict": "ACCEPTABLE",
+        "per_loop_verdict": {
+          "gate_wait_cycles": "ACCEPTABLE",
+          "quiesce_drain_cycles": "ACCEPTABLE",
+          "sample_spin_cycles": "ACCEPTABLE"
+        }
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W4:R2",
+        "deciding": true,
+        "threads": 6,
+        "cpus": 16,
+        "oversubscribed": false,
+        "summed_share": {
+          "mean": 0.08030886214964612,
+          "ci_lower": 0.06677728934915936,
+          "ci_upper": 0.09305709811458103,
+          "ci_method": "bca",
+          "median": 0.0911658613796778,
+          "n": 5
+        },
+        "per_loop_share": {
+          "gate_wait_cycles": {
+            "mean": 0.06458738161206848,
+            "ci_lower": 0.05038204701197076,
+            "ci_upper": 0.0783054512659318,
+            "ci_method": "bca",
+            "median": 0.0770350347380922,
+            "n": 5
+          },
+          "quiesce_drain_cycles": {
+            "mean": 0.0018031381282509907,
+            "ci_lower": 0.0010435925182162038,
+            "ci_upper": 0.0025626837382857776,
+            "ci_method": "bca",
+            "median": 0.0014618559847340237,
+            "n": 5
+          },
+          "sample_spin_cycles": {
+            "mean": 0.013918342409326639,
+            "ci_lower": 0.013490633426130928,
+            "ci_upper": 0.014296713358827328,
+            "ci_method": "bca",
+            "median": 0.013960792621334712,
+            "n": 5
+          }
+        },
+        "rounds_share_above_one": [],
+        "verdict": "MATERIAL",
+        "per_loop_verdict": {
+          "gate_wait_cycles": "MATERIAL",
+          "quiesce_drain_cycles": "ACCEPTABLE",
+          "sample_spin_cycles": "ACCEPTABLE"
+        }
+      },
+      {
+        "cell": "sync:overwrite:L200000:W12:R2",
+        "deciding": true,
+        "threads": 14,
+        "cpus": 16,
+        "oversubscribed": false,
+        "summed_share": {
+          "mean": 0.20882299529757078,
+          "ci_lower": 0.20159169969950938,
+          "ci_upper": 0.21240134058845972,
+          "ci_method": "bca",
+          "median": 0.20875998677843716,
+          "n": 5
+        },
+        "per_loop_share": {
+          "gate_wait_cycles": {
+            "mean": 0.13623653439678945,
+            "ci_lower": 0.1312022243936515,
+            "ci_upper": 0.1388281404091465,
+            "ci_method": "bca",
+            "median": 0.1366901258023689,
+            "n": 5
+          },
+          "quiesce_drain_cycles": {
+            "mean": 0.025996954290605463,
+            "ci_lower": 0.024969855186297612,
+            "ci_upper": 0.02668534418919189,
+            "ci_method": "bca",
+            "median": 0.026433495497985505,
+            "n": 5
+          },
+          "sample_spin_cycles": {
+            "mean": 0.04658950661017586,
+            "ci_lower": 0.04562992701437109,
+            "ci_upper": 0.047180140149149834,
+            "ci_method": "bca",
+            "median": 0.046700402105884886,
+            "n": 5
+          }
+        },
+        "rounds_share_above_one": [],
+        "verdict": "MATERIAL",
+        "per_loop_verdict": {
+          "gate_wait_cycles": "MATERIAL",
+          "quiesce_drain_cycles": "ACCEPTABLE",
+          "sample_spin_cycles": "ACCEPTABLE"
+        }
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W12:R2",
+        "deciding": true,
+        "threads": 14,
+        "cpus": 16,
+        "oversubscribed": false,
+        "summed_share": {
+          "mean": 0.23533936342391687,
+          "ci_lower": 0.2168445087786412,
+          "ci_upper": 0.24952491772904203,
+          "ci_method": "bca",
+          "median": 0.23610233076151882,
+          "n": 5
+        },
+        "per_loop_share": {
+          "gate_wait_cycles": {
+            "mean": 0.18367545396472854,
+            "ci_lower": 0.1694822945745051,
+            "ci_upper": 0.19453616221535763,
+            "ci_method": "bca",
+            "median": 0.18926484590098516,
+            "n": 5
+          },
+          "quiesce_drain_cycles": {
+            "mean": 0.01812967988362813,
+            "ci_lower": 0.01575004155850339,
+            "ci_upper": 0.020387077231232863,
+            "ci_method": "bca",
+            "median": 0.01968551832400837,
+            "n": 5
+          },
+          "sample_spin_cycles": {
+            "mean": 0.03353422957556023,
+            "ci_lower": 0.028835418934324054,
+            "ci_upper": 0.037686596073331316,
+            "ci_method": "bca",
+            "median": 0.03411193991542075,
+            "n": 5
+          }
+        },
+        "rounds_share_above_one": [],
+        "verdict": "MATERIAL",
+        "per_loop_verdict": {
+          "gate_wait_cycles": "MATERIAL",
+          "quiesce_drain_cycles": "ACCEPTABLE",
+          "sample_spin_cycles": "ACCEPTABLE"
+        }
+      },
+      {
+        "cell": "sync:full:Lfill:W4:R2",
+        "deciding": false,
+        "threads": 6,
+        "cpus": 16,
+        "oversubscribed": false,
+        "summed_share": {
+          "mean": 0.014734566536389822,
+          "ci_lower": 0.01433976843649537,
+          "ci_upper": 0.015050386265902193,
+          "ci_method": "bca",
+          "median": 0.014705423680733012,
+          "n": 5
+        },
+        "per_loop_share": {
+          "gate_wait_cycles": {
+            "mean": 0.011453613217857659,
+            "ci_lower": 0.011052101357772624,
+            "ci_upper": 0.011768639172766614,
+            "ci_method": "bca",
+            "median": 0.011386879907608533,
+            "n": 5
+          },
+          "quiesce_drain_cycles": {
+            "mean": 0.0031811464175088198,
+            "ci_lower": 0.003141980152198075,
+            "ci_upper": 0.003219670695947175,
+            "ci_method": "bc",
+            "median": 0.0031807449518028354,
+            "n": 5
+          },
+          "sample_spin_cycles": {
+            "mean": 9.980690102334426e-05,
+            "ci_lower": 6.047685804443371e-05,
+            "ci_upper": 0.00013913694400225483,
+            "ci_method": "bc",
+            "median": 6.785587807660002e-05,
+            "n": 5
+          }
+        },
+        "rounds_share_above_one": [],
+        "verdict": "ACCEPTABLE",
+        "per_loop_verdict": {
+          "gate_wait_cycles": "ACCEPTABLE",
+          "quiesce_drain_cycles": "ACCEPTABLE",
+          "sample_spin_cycles": "ACCEPTABLE"
+        }
+      },
+      {
+        "cell": "sync:full:Lfill:W12:R2",
+        "deciding": false,
+        "threads": 14,
+        "cpus": 16,
+        "oversubscribed": false,
+        "summed_share": {
+          "mean": 0.10982483538194936,
+          "ci_lower": 0.1081178439822604,
+          "ci_upper": 0.11157251257121584,
+          "ci_method": "bca",
+          "median": 0.11027285401662307,
+          "n": 5
+        },
+        "per_loop_share": {
+          "gate_wait_cycles": {
+            "mean": 0.0955516191537253,
+            "ci_lower": 0.09399179955928716,
+            "ci_upper": 0.09714259822424628,
+            "ci_method": "bca",
+            "median": 0.09598009820915965,
+            "n": 5
+          },
+          "quiesce_drain_cycles": {
+            "mean": 0.014244217690189017,
+            "ci_lower": 0.014099666390250645,
+            "ci_upper": 0.014435090960908638,
+            "ci_method": "bca",
+            "median": 0.014260713411153543,
+            "n": 5
+          },
+          "sample_spin_cycles": {
+            "mean": 2.899853803504065e-05,
+            "ci_lower": 2.661282114723795e-05,
+            "ci_upper": 3.138425492284335e-05,
+            "ci_method": "bc",
+            "median": 2.884542641015204e-05,
+            "n": 5
+          }
+        },
+        "rounds_share_above_one": [],
+        "verdict": "MATERIAL",
+        "per_loop_verdict": {
+          "gate_wait_cycles": "MATERIAL",
+          "quiesce_drain_cycles": "ACCEPTABLE",
+          "sample_spin_cycles": "ACCEPTABLE"
+        }
+      }
+    ],
+    "outcome": "MATERIAL"
+  }
+}

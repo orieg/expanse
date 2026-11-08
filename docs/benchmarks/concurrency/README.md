@@ -6057,3 +6057,23 @@ METHODOLOGY §39 registered the measurement #1417 asks for before any engine cha
 | bytes | 8 | 12.560 [12.470, 12.643] | 12.596 [12.516, 12.669] |
 
 At W = 8 the contention label is `GROWS` for all three engines in both runs. The cause of the growth is not measured (METHODOLOGY §39.9).
+
+## 35. The spin waits' share of thread CPU on `main` — METHODOLOGY §51's outcome: `MATERIAL` (Refs #1479)
+
+`reclaim_stall.py --wait-share` runs the `occ-stats` build of the reclaim-stall harness over the `SyncExpanseBlobMap` cells of §29. Per window it takes the share of the worker threads' CPU time (`CLOCK_THREAD_CPUTIME_ID`) spent in the three spin waits: `SeqVersion::sample`, `Shared::enter_writer_blocking`, and `WriterGate::wait_drained` through `quiesce_writers`. The threshold is 0.05 of thread CPU, fixed before the runs. Four runs were taken at `989b1e28`, two per pin, and every host guard read quiet *(measured: reference host — Intel Core i9-12900F; runs [42479674379](https://github.com/orieg/expanse/actions/runs/42479674379) and [42494207528](https://github.com/orieg/expanse/actions/runs/42494207528) on pin `0-15`, [42484650638](https://github.com/orieg/expanse/actions/runs/42484650638) and [42489223239](https://github.com/orieg/expanse/actions/runs/42489223239) on pin `0,2,4,6,8,10,12,14`; artifacts `results/diag_1479_wait_share_*.json`; workload: `reclaim_stall`)*.
+
+The summed share, as a BCa 95% interval over 5 rounds, from the two runs that agree on each pin:
+
+| cell (R = 2) | pin `0-15`, 16 CPUs | pin per-core, 8 CPUs |
+|---|---|---|
+| overwrite, W = 1 (both live sets) | 0.0009–0.0096, `ACCEPTABLE` | 0.0009–0.0096, `ACCEPTABLE` |
+| overwrite 200,000, W = 4 | 0.0101 [0.0076, 0.0120] and 0.0105 [0.0086, 0.0123], `ACCEPTABLE` | 0.0105 [0.0096, 0.0114] and 0.0106 [0.0088, 0.0122], `ACCEPTABLE` |
+| overwrite 3,600,000, W = 4 | `BOUNDARY`, then `MATERIAL`: no claim | 0.0738 [0.0591, 0.0887] and 0.0881 [0.0675, 0.0951], `MATERIAL` |
+| overwrite 200,000, W = 12 | 0.1955 [0.1477, 0.2118] and 0.2088 [0.2016, 0.2124], `MATERIAL` | oversubscribed (14 threads), upper bound only |
+| overwrite 3,600,000, W = 12 | 0.2299 [0.1790, 0.2483] and 0.2353 [0.2168, 0.2495], `MATERIAL` | oversubscribed (14 threads), upper bound only |
+
+- **The spin is acceptable with one writer.** At W = 1, and at W = 4 with 200,000 live records, every run is under 0.013 of thread CPU, including the window that holds the 3,600,000-record compaction (a stall of about 300 ms, read from the same rows; that build is instrumented, so the figure is not a timing of record).
+- **It is not acceptable with several writers behind a long or frequent holder.** The loop that carries it is `enter_writer_blocking` (`gate_wait_cycles`): 0.128–0.184 of thread CPU in the W = 12 cells on `0-15`. `wait_drained` and `SeqVersion::sample` stay under the threshold in every cell whose threads fit their CPUs (at most 0.026 and 0.047).
+- **The W = 12 waits are not only the compaction.** Those windows close the gate 0.30–1.16 million times, against 18,421–26,166 at W = 1, and the split of the wait between the two compactions and the short serialised sections is not measured.
+
+Per METHODOLOGY §51.5, a park or backoff design for `enter_writer_blocking` (not `sched_yield`) is the next change to register, with its single-threaded instruction cost checked before any wall-clock cell. Nothing is built here, and the loops on `main` are unchanged.

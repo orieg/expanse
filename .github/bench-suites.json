@@ -375,6 +375,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "reclaim_stall_wait_share",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "#1479 diagnostic on main (METHODOLOGY.md \u00a751): the occ-stats build of the reclaim_stall harness over the SyncExpanseBlobMap cells, 5 rotated rounds, one process per (cell, round), and the share of the windows' thread CPU time spent in the three spin waits against the \u00a751.3 threshold; no timed pass; dispatch once per cpu_pin (0-15 and 0,2,4,6,8,10,12,14); outputs diag_1479_wait_share.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "strmap_poll_stall",
       "available": true,
       "kind": "wallclock",
