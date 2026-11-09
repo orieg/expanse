@@ -279,11 +279,14 @@ pub enum Stat {
     OrderedReadSetHwm = 66,
     /// The subset of [`Stat::BranchSplitRemove`] in which the removal would
     /// empty its child and the child's parent is a linear branch
-    /// (`BranchL3` / `BranchL7`), Refs #1610. The optimistic path nulls a
-    /// slot only in a `BranchU`, so such a child falls back.
+    /// (`BranchL3` / `BranchL7`), Refs #1610. The optimistic path takes an
+    /// emptied child out of a `BranchU`, or of a `BranchB` above its floor,
+    /// but not out of a linear branch, so such a child falls back.
     BranchSplitRemoveEmptiedLinear = 67,
     /// As [`Stat::BranchSplitRemoveEmptiedLinear`], under a bitmap branch
-    /// (`BranchB`).
+    /// (`BranchB`) the removal would bring to its demotion floor
+    /// (`BRANCHB_TO_L7_DOWN` digits). Above the floor the optimistic path
+    /// takes the child out in place (`sync::empty_branch_b_slot`, Refs #1610).
     BranchSplitRemoveEmptiedBitmap = 68,
     /// As [`Stat::BranchSplitRemoveEmptiedLinear`], under any other parent
     /// form. Expected 0: a `BranchU` parent is nulled optimistically or

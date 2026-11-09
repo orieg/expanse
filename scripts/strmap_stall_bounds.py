@@ -73,6 +73,15 @@ fallback as N grows) adds:
 16. `run_seconds_bound(**DISPATCH_52)` — the sweep's length, against the
     workflow's default job timeout (`timeout-minutes` in `bench_baremetal.yml`).
 
+§53 (#1610, an optimistic removal of an emptied child from a `BranchB` above
+its floor) adds:
+
+17. `empty_b_term(records)` and `empty_b_bounds()` — the per-arm two-sided
+    Callgrind bound against `main` at `d882511c`, from each arm's census of
+    switched removals and its exclusive remove's per-call cost in
+    `results/branchb_empty_baseline_callgrind_d882511c.json`, widened as 10 is
+    (`--empty-b` prints the table).
+
 Every input of 6 to 8 is a measured figure in
 `results/strmap_design_b_baseline_callgrind_f65060d8.json` or
 `results/allocator_overhead_f65060d8.txt`, or a constant below whose
@@ -871,6 +880,126 @@ def _self_test_charge_rmw() -> None:
     _raises(g_wall_outcome, [up, {**up, 1: (1.1, 1.0)}])
 
 
+# §53 (#1610): an optimistic removal of an emptied child from a BranchB above its floor.
+# Every constant is named in §53's silent constants.
+EB_BASELINE = REPO_ROOT / "results" / "branchb_empty_baseline_callgrind_d882511c.json"
+# Per fallback the change removes: the serialised wrapper's own instructions. Measured on
+# SyncExpanseMap at d882511c as 168.96 (the artifact's `wrapper_measurement`); the other wrappers
+# (the set's, the bytes and blob maps') share the fallback path but were not measured apart, so the
+# range is wide around the one measurement.
+EB_WRAP_IR = (100, 250)
+# Per switched removal: what the new path adds where the fallback was. The lock by snapshot and
+# the unlock, the bitmap clear, the rank and subarray reads, the shift of up to 31 edges or the
+# copy into a smaller array, the population store, the closure, the dirty mark, the child's and
+# the old subarray's retire and any allocation. The retires and allocations happen inside the
+# exclusive remove too, so they also sit in the arm's exclusive per-call figure this offsets.
+EB_HELPER_IR = (100, 450)
+
+# The arms the §53 census found reaching the change, and four bounds pinned by hand from the
+# artifact (low %, high %). The census build at d882511c counted, per arm, the removals that
+# empty a child under a BranchB above its floor; every other arm's bound is the slack alone.
+EB_ARMS = 290
+EB_MOVING = (
+    ("instructions", "sync_blobmap_churn", "random"),
+    ("instructions", "sync_blobmap_remove", "random"),
+    ("instructions", "sync_bytesmap_churn", "routes"),
+    ("instructions", "sync_bytesmap_remove", "routes"),
+    ("instructions", "sync_map_count_after_write", "one_top_byte"),
+    ("instructions", "sync_map_count_after_write", "random"),
+    ("instructions", "sync_map_drain_floor", "top"),
+    ("instructions", "sync_map_remove", "random"),
+    ("instructions", "sync_map_write_twin", "one_top_byte"),
+    ("instructions", "sync_map_write_twin", "random"),
+    ("instructions", "sync_set_drain_floor", "top"),
+    ("instructions", "sync_set_remove", "random"),
+    ("instructions", "sync_strmap_remove", "routes"),
+    ("rmw_instructions", "sync_bytesmap_cas_remove", "routes"),
+)
+# sync_map_remove/random: 33,177 switched (21,587 in place, 10,809 across a class, 781 that empty
+# their subexpanse), 256 at the floor; exclusive 23,215,117 Ir over 34,940 calls (664.42 per
+# call); base 62,253,474, slack 62,253.474. Saving per switch [664.42 + 100 - 450,
+# 664.42 + 250 - 100].
+EB_PINNED = {
+    ("instructions", "sync_map_remove", "random"): (-43.5037, -16.6569),
+    ("instructions", "sync_set_remove", "random"): (-46.458, -14.9272),
+    ("instructions", "sync_strmap_remove", "routes"): (-0.2176, 0.0368),
+    ("instructions", "sync_map_drain_floor", "top"): (-37.6538, -10.0965),
+}
+
+
+def empty_b_term(records: dict) -> tuple[float, float]:
+    """The change's instruction delta on one arm, as (low, high), from its §53 records.
+
+    Each removal the change switches from the fallback to the optimistic path (`n_switch_*`)
+    saves the wrapper's instructions (`EB_WRAP_IR`) and the arm's exclusive remove per call
+    (`excl_ir / excl_calls`), and costs `EB_HELPER_IR`. Floor removals (`n_floor`) stay
+    fallbacks and contribute nothing. An arm without records has a zero term.
+    """
+    if not records:
+        return 0.0, 0.0
+    keys = ("n_switch_inplace", "n_switch_shrink_sub", "n_switch_empty_sub", "n_floor")
+    g = {k: _nonneg_int(k, records.get(k, 0)) for k in keys}
+    n = g["n_switch_inplace"] + g["n_switch_shrink_sub"] + g["n_switch_empty_sub"]
+    if n == 0:
+        return 0.0, 0.0
+    calls = _nonneg_int("excl_calls", records.get("excl_calls", 0))
+    ir = _nonneg_int("excl_ir", records.get("excl_ir", 0))
+    if calls == 0:
+        raise ValueError("an arm that switches removals must record its exclusive remove calls")
+    if calls < n:
+        raise ValueError(f"{n} switched removals but only {calls} exclusive removes")
+    excl = ir / calls
+    save_lo = excl + EB_WRAP_IR[0] - EB_HELPER_IR[1]
+    save_hi = excl + EB_WRAP_IR[1] - EB_HELPER_IR[0]
+    return -n * save_hi, -n * save_lo
+
+
+def empty_b_bounds(path: Path = EB_BASELINE) -> list[dict]:
+    """Every arm of the §53 baseline with its bound: the term widened as §47.11's (`zeroing_bound`)."""
+    art = json.loads(Path(path).read_text())
+    out = []
+    for row in art["arms"]:
+        term = empty_b_term(row.get("records", {}))
+        lo, hi = zeroing_bound(row["base"], term)
+        out.append({"bench": row["bench"], "arm": row["arm"], "id": row["id"], "base": row["base"],
+                    "kind": hint_kind(term), "term": term, "lo": lo, "hi": hi,
+                    "lo_pct": 100 * lo / row["base"], "hi_pct": 100 * hi / row["base"]})
+    return out
+
+
+def _self_test_empty_b() -> None:
+    # The term: 10 switched removals at an exclusive 600 Ir per call save [600 + 100 - 450,
+    # 600 + 250 - 100] = [250, 750] each.
+    rec = {"n_switch_inplace": 6, "n_switch_shrink_sub": 3, "n_switch_empty_sub": 1, "n_floor": 5,
+           "excl_calls": 15, "excl_ir": 9000}
+    assert empty_b_term(rec) == (-7500.0, -2500.0)
+    assert empty_b_term({}) == (0.0, 0.0)
+    assert empty_b_term({"n_floor": 4, "excl_calls": 4, "excl_ir": 2000}) == (0.0, 0.0)
+    _raises(empty_b_term, {"n_switch_inplace": 1})
+    _raises(empty_b_term, {"n_switch_inplace": 3, "excl_calls": 2, "excl_ir": 100})
+    _raises(empty_b_term, {"n_switch_inplace": -1, "excl_calls": 2, "excl_ir": 100})
+    assert EB_WRAP_IR[0] <= 168.96 <= EB_WRAP_IR[1]
+    art = json.loads(EB_BASELINE.read_text())
+    w = art["provenance"]["wrapper_measurement"]
+    assert abs(w["per_fallback_ir"] - 168.96) < 0.01, w
+    rows = {(r["bench"], r["arm"], r["id"]): r for r in empty_b_bounds()}
+    assert len(rows) == EB_ARMS
+    r = rows[("instructions", "sync_map_remove", "random")]
+    excl = 23_215_117 / 34_940
+    n = 21_587 + 10_809 + 781
+    assert abs(r["lo"] - (-n * (excl + 250 - 100) - 62_253.474)) < 1e-3, r
+    assert abs(r["hi"] - (-n * (excl + 100 - 450) + 62_253.474)) < 1e-3, r
+    moving = {k for k, r in rows.items() if r["kind"] != "No change"}
+    assert moving == set(EB_MOVING), sorted(moving ^ set(EB_MOVING))
+    for k, (lo_pct, hi_pct) in EB_PINNED.items():
+        r = rows[k]
+        assert (round(r["lo_pct"], 4), round(r["hi_pct"], 4)) == (lo_pct, hi_pct), (k, r)
+    # Every arm the change does not reach: the slack alone.
+    for k, r in rows.items():
+        if k not in moving:
+            assert r["hi"] == -r["lo"] == max(1e-3 * r["base"], 500), r
+
+
 def _self_test_design_b() -> None:
     # G-stall: the rule, one negative control per clause.
     assert g_stall_outcome(100, 290, 100) == "PASS"
@@ -1017,6 +1146,7 @@ def self_test() -> int:
     _self_test_freelist_hint()
     _self_test_charge_rmw()
     _self_test_sweep52()
+    _self_test_empty_b()
     print("strmap_stall_bounds.py self-test PASSED")
     return 0
 
@@ -1145,6 +1275,9 @@ def main() -> int:
     ap.add_argument("--charge-rmw", action="store_true",
                     help="print METHODOLOGY §50's bound for every arm lever (b) is expected to move, "
                          "then the self-test")
+    ap.add_argument("--empty-b", action="store_true",
+                    help="print METHODOLOGY §53's bound for every arm the change is expected to move, "
+                         "then the self-test")
     args = ap.parse_args()
     if args.charge_rmw:
         print("| harness | arm | base (06d6e9c3) | charges | bound low | bound high |")
@@ -1154,6 +1287,18 @@ def main() -> int:
                 continue
             print(f"| `{r['bench']}` | `{r['arm']}` | {r['base']:,} | {r['charges']:,} | "
                   f"{r['lo_pct']:+.4f}% | {r['hi_pct']:+.4f}% |")
+    elif args.empty_b:
+        recs = {(r["bench"], r["arm"], r["id"]): r.get("records", {})
+                for r in json.loads(EB_BASELINE.read_text())["arms"]}
+        print("| harness | arm | base | switched | at floor | exclusive Ir/call | bound low | bound high |")
+        print("|---|---|---:|---:|---:|---:|---:|---:|")
+        for r in empty_b_bounds():
+            if r["kind"] == "No change":
+                continue
+            g = recs[(r["bench"], r["arm"], r["id"])]
+            n = g["n_switch_inplace"] + g["n_switch_shrink_sub"] + g["n_switch_empty_sub"]
+            print(f"| `{r['bench']}` | `{r['arm']}/{r['id']}` | {r['base']:,} | {n:,} | {g['n_floor']:,} | "
+                  f"{g['excl_ir'] / g['excl_calls']:,.2f} | {r['lo_pct']:+.4f}% | {r['hi_pct']:+.4f}% |")
     elif args.freelist_hint:
         print("| harness | arm | base (CI) | misses | hits | pushes | kind | bound low | bound high |")
         print("|---|---|---:|---:|---:|---:|---|---:|---:|")

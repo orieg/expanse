@@ -353,6 +353,88 @@ fn branch_u_null_stores_route_through_one_routine() {
     }
 }
 
+/// The census of #1610's optimistic `BranchB` removal, the twin of the one
+/// above, one assertion per clause.
+///
+/// 1. The six sites that fall back on an emptied child (three per walk) each
+///    call `sync::empty_branch_b_slot`, and each call is guarded by the floor
+///    test `sync::branch_b_takes_empty` within the eight lines above it.
+/// 2. The floor test asks the shared predicate (`mutate::branch_b_below_floor`),
+///    as do the exclusive walks' B → L7 demotions (two per walk file) and the
+///    validator; no file compares against `BRANCHB_TO_L7_DOWN` by hand
+///    outside the predicate itself.
+#[test]
+fn branch_b_empty_child_routes_through_one_routine() {
+    let sync = production_code(include_str!("../src/sync.rs"));
+    let mutate = production_code(include_str!("../src/mutate.rs"));
+    let mutate_map = production_code(include_str!("../src/mutate_map.rs"));
+    let validate = production_code(include_str!("../src/validate.rs"));
+
+    // Clause 1: the call sites, each behind the floor test.
+    let call = "empty_branch_b_slot(&parent,";
+    let guard = "branch_b_takes_empty(&parent)";
+    assert_eq!(
+        sync.matches(call).count(),
+        6,
+        "the six optimistic BranchB emptyings must each call empty_branch_b_slot"
+    );
+    assert_eq!(
+        sync.matches(guard).count(),
+        6,
+        "each optimistic BranchB emptying must be guarded by branch_b_takes_empty"
+    );
+    let lines: Vec<&str> = sync.lines().collect();
+    for (i, l) in lines.iter().enumerate() {
+        if l.contains(call) {
+            let from = i.saturating_sub(8);
+            assert!(
+                lines[from..i].iter().any(|p| p.contains(guard)),
+                "the call at production line {} has no branch_b_takes_empty in the eight lines above",
+                i + 1
+            );
+        }
+    }
+
+    // Clause 2: one predicate for the floor.
+    let pred = "branch_b_below_floor(";
+    assert_eq!(
+        sync.matches("mutate::branch_b_below_floor(").count(),
+        2,
+        "sync.rs: the floor test and the routine's debug check"
+    );
+    assert_eq!(
+        mutate.matches("branch_b_below_floor(digits)").count(),
+        2,
+        "mutate.rs: both walks' B -> L7 demotion"
+    );
+    assert_eq!(
+        mutate_map.matches(pred).count(),
+        2,
+        "mutate_map.rs: both walks' B -> L7 demotion"
+    );
+    assert_eq!(
+        validate.matches(pred).count(),
+        1,
+        "validate.rs: the BranchB floor check"
+    );
+    let by_hand = |code: &str| {
+        code.matches("<= BRANCHB_TO_L7_DOWN").count()
+            + code.matches("<= crate::types::BRANCHB_TO_L7_DOWN").count()
+    };
+    for (name, code, allowed) in [
+        ("sync.rs", &sync, 0),
+        ("mutate.rs", &mutate, 1),
+        ("mutate_map.rs", &mutate_map, 0),
+        ("validate.rs", &validate, 0),
+    ] {
+        assert_eq!(
+            by_hand(code),
+            allowed,
+            "{name}: compare against the floor through branch_b_below_floor, not by hand"
+        );
+    }
+}
+
 /// The census of the `ablation-branchu-header-count` maintenance (#1202):
 /// every change of a `BranchU` slot between null and non-null that a shared
 /// tree can make updates the header child count through one of three

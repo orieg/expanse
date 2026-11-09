@@ -1,0 +1,5557 @@
+{
+  "provenance": {
+    "suite": "concurrency",
+    "issue": 1610,
+    "commit": "8e6d15ac",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "performance",
+      "scaling_governor_by_cpu": {
+        "0": "performance",
+        "1": "performance",
+        "2": "performance",
+        "3": "performance",
+        "4": "performance",
+        "5": "performance",
+        "6": "performance",
+        "7": "performance",
+        "8": "performance",
+        "9": "performance",
+        "10": "performance",
+        "11": "performance",
+        "12": "performance",
+        "13": "performance",
+        "14": "performance",
+        "15": "performance"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "\u00a753 G53-wall: churn throughput head / base, paired per round (BCa lower bound vs floor)",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "core_pin": "0-15",
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 0.65,
+        "load5": 0.2,
+        "load15": 0.07,
+        "at": "2026-11-09T00:21:07Z",
+        "stat_busy_jiffies": 53302887,
+        "stat_total_jiffies": 4957658801,
+        "child_cpu_s": 0.001,
+        "monotonic_s": 2066493.127,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:base:r0",
+        "since": "start",
+        "load1": 3.16,
+        "load5": 0.96,
+        "load15": 0.33,
+        "at": "2026-11-09T00:22:09Z",
+        "stat_busy_jiffies": 53321909,
+        "stat_total_jiffies": 4957809267,
+        "child_cpu_s": 187.923,
+        "monotonic_s": 2066555.9,
+        "busy_cpus_since_prev": 3.03,
+        "own_busy_cpus_since_prev": 2.99,
+        "foreign_busy_cpus_since_prev": 0.04
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:head:r0",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:base:r0",
+        "load1": 3.39,
+        "load5": 1.25,
+        "load15": 0.45,
+        "at": "2026-11-09T00:22:46Z",
+        "stat_busy_jiffies": 53334649,
+        "stat_total_jiffies": 4957897865,
+        "child_cpu_s": 314.647,
+        "monotonic_s": 2066592.834,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:base:r0",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:head:r0",
+        "load1": 3.38,
+        "load5": 1.52,
+        "load15": 0.58,
+        "at": "2026-11-09T00:23:23Z",
+        "stat_busy_jiffies": 53347337,
+        "stat_total_jiffies": 4957986414,
+        "child_cpu_s": 440.967,
+        "monotonic_s": 2066629.76,
+        "busy_cpus_since_prev": 3.44,
+        "own_busy_cpus_since_prev": 3.42,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:head:r0",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:base:r0",
+        "load1": 3.13,
+        "load5": 1.72,
+        "load15": 0.7,
+        "at": "2026-11-09T00:24:08Z",
+        "stat_busy_jiffies": 53360817,
+        "stat_total_jiffies": 4958092637,
+        "child_cpu_s": 575.08,
+        "monotonic_s": 2066674.04,
+        "busy_cpus_since_prev": 3.05,
+        "own_busy_cpus_since_prev": 3.03,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r0",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:head:r0",
+        "load1": 3.18,
+        "load5": 1.92,
+        "load15": 0.81,
+        "at": "2026-11-09T00:24:52Z",
+        "stat_busy_jiffies": 53374276,
+        "stat_total_jiffies": 4958198922,
+        "child_cpu_s": 709.047,
+        "monotonic_s": 2066718.352,
+        "busy_cpus_since_prev": 3.04,
+        "own_busy_cpus_since_prev": 3.02,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r0",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r0",
+        "load1": 3.4,
+        "load5": 2.1,
+        "load15": 0.91,
+        "at": "2026-11-09T00:25:26Z",
+        "stat_busy_jiffies": 53386728,
+        "stat_total_jiffies": 4958280941,
+        "child_cpu_s": 832.96,
+        "monotonic_s": 2066752.548,
+        "busy_cpus_since_prev": 3.64,
+        "own_busy_cpus_since_prev": 3.62,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:head:r1",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r0",
+        "load1": 3.52,
+        "load5": 2.27,
+        "load15": 1.01,
+        "at": "2026-11-09T00:26:01Z",
+        "stat_busy_jiffies": 53399209,
+        "stat_total_jiffies": 4958363662,
+        "child_cpu_s": 957.169,
+        "monotonic_s": 2066787.034,
+        "busy_cpus_since_prev": 3.62,
+        "own_busy_cpus_since_prev": 3.6,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:base:r1",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:head:r1",
+        "load1": 3.38,
+        "load5": 2.39,
+        "load15": 1.1,
+        "at": "2026-11-09T00:26:37Z",
+        "stat_busy_jiffies": 53411900,
+        "stat_total_jiffies": 4958452233,
+        "child_cpu_s": 1083.607,
+        "monotonic_s": 2066823.967,
+        "busy_cpus_since_prev": 3.44,
+        "own_busy_cpus_since_prev": 3.42,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:head:r1",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:base:r1",
+        "load1": 3.42,
+        "load5": 2.52,
+        "load15": 1.2,
+        "at": "2026-11-09T00:27:14Z",
+        "stat_busy_jiffies": 53424637,
+        "stat_total_jiffies": 4958540815,
+        "child_cpu_s": 1210.366,
+        "monotonic_s": 2066860.892,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:base:r1",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:head:r1",
+        "load1": 3.28,
+        "load5": 2.61,
+        "load15": 1.29,
+        "at": "2026-11-09T00:27:59Z",
+        "stat_busy_jiffies": 53438101,
+        "stat_total_jiffies": 4958647078,
+        "child_cpu_s": 1344.26,
+        "monotonic_s": 2066905.193,
+        "busy_cpus_since_prev": 3.04,
+        "own_busy_cpus_since_prev": 3.02,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r1",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:base:r1",
+        "load1": 3.16,
+        "load5": 2.66,
+        "load15": 1.37,
+        "at": "2026-11-09T00:28:43Z",
+        "stat_busy_jiffies": 53451587,
+        "stat_total_jiffies": 4958753352,
+        "child_cpu_s": 1478.423,
+        "monotonic_s": 2066949.492,
+        "busy_cpus_since_prev": 3.05,
+        "own_busy_cpus_since_prev": 3.03,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r1",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r1",
+        "load1": 3.29,
+        "load5": 2.76,
+        "load15": 1.45,
+        "at": "2026-11-09T00:29:18Z",
+        "stat_busy_jiffies": 53464074,
+        "stat_total_jiffies": 4958836135,
+        "child_cpu_s": 1602.618,
+        "monotonic_s": 2066984.004,
+        "busy_cpus_since_prev": 3.62,
+        "own_busy_cpus_since_prev": 3.6,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:base:r2",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r1",
+        "load1": 3.57,
+        "load5": 2.88,
+        "load15": 1.53,
+        "at": "2026-11-09T00:29:52Z",
+        "stat_busy_jiffies": 53476517,
+        "stat_total_jiffies": 4958917817,
+        "child_cpu_s": 1726.44,
+        "monotonic_s": 2067018.058,
+        "busy_cpus_since_prev": 3.66,
+        "own_busy_cpus_since_prev": 3.64,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:head:r2",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:base:r2",
+        "load1": 3.41,
+        "load5": 2.93,
+        "load15": 1.61,
+        "at": "2026-11-09T00:30:28Z",
+        "stat_busy_jiffies": 53489249,
+        "stat_total_jiffies": 4959006394,
+        "child_cpu_s": 1853.16,
+        "monotonic_s": 2067054.985,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:base:r2",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:head:r2",
+        "load1": 3.52,
+        "load5": 3.0,
+        "load15": 1.68,
+        "at": "2026-11-09T00:31:05Z",
+        "stat_busy_jiffies": 53501990,
+        "stat_total_jiffies": 4959095066,
+        "child_cpu_s": 1980.012,
+        "monotonic_s": 2067091.951,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:head:r2",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:base:r2",
+        "load1": 3.28,
+        "load5": 3.01,
+        "load15": 1.75,
+        "at": "2026-11-09T00:31:50Z",
+        "stat_busy_jiffies": 53515485,
+        "stat_total_jiffies": 4959201311,
+        "child_cpu_s": 2114.181,
+        "monotonic_s": 2067136.237,
+        "busy_cpus_since_prev": 3.05,
+        "own_busy_cpus_since_prev": 3.03,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r2",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:head:r2",
+        "load1": 3.21,
+        "load5": 3.02,
+        "load15": 1.81,
+        "at": "2026-11-09T00:32:34Z",
+        "stat_busy_jiffies": 53528970,
+        "stat_total_jiffies": 4959307536,
+        "child_cpu_s": 2248.358,
+        "monotonic_s": 2067180.526,
+        "busy_cpus_since_prev": 3.05,
+        "own_busy_cpus_since_prev": 3.03,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r2",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r2",
+        "load1": 3.47,
+        "load5": 3.1,
+        "load15": 1.88,
+        "at": "2026-11-09T00:33:08Z",
+        "stat_busy_jiffies": 53541415,
+        "stat_total_jiffies": 4959389340,
+        "child_cpu_s": 2372.255,
+        "monotonic_s": 2067214.629,
+        "busy_cpus_since_prev": 3.65,
+        "own_busy_cpus_since_prev": 3.63,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:head:r3",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r2",
+        "load1": 3.46,
+        "load5": 3.15,
+        "load15": 1.95,
+        "at": "2026-11-09T00:33:42Z",
+        "stat_busy_jiffies": 53553791,
+        "stat_total_jiffies": 4959470947,
+        "child_cpu_s": 2495.495,
+        "monotonic_s": 2067248.673,
+        "busy_cpus_since_prev": 3.64,
+        "own_busy_cpus_since_prev": 3.62,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:base:r3",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:head:r3",
+        "load1": 3.35,
+        "load5": 3.17,
+        "load15": 2.0,
+        "at": "2026-11-09T00:34:26Z",
+        "stat_busy_jiffies": 53567273,
+        "stat_total_jiffies": 4959577162,
+        "child_cpu_s": 2629.668,
+        "monotonic_s": 2067292.952,
+        "busy_cpus_since_prev": 3.05,
+        "own_busy_cpus_since_prev": 3.03,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r3",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:base:r3",
+        "load1": 3.2,
+        "load5": 3.15,
+        "load15": 2.05,
+        "at": "2026-11-09T00:35:11Z",
+        "stat_busy_jiffies": 53580763,
+        "stat_total_jiffies": 4959683436,
+        "child_cpu_s": 2763.863,
+        "monotonic_s": 2067337.251,
+        "busy_cpus_since_prev": 3.05,
+        "own_busy_cpus_since_prev": 3.03,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r3",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r3",
+        "load1": 3.41,
+        "load5": 3.2,
+        "load15": 2.11,
+        "at": "2026-11-09T00:35:45Z",
+        "stat_busy_jiffies": 53593277,
+        "stat_total_jiffies": 4959766365,
+        "child_cpu_s": 2888.13,
+        "monotonic_s": 2067371.813,
+        "busy_cpus_since_prev": 3.62,
+        "own_busy_cpus_since_prev": 3.6,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:head:r3",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r3",
+        "load1": 3.52,
+        "load5": 3.24,
+        "load15": 2.16,
+        "at": "2026-11-09T00:36:19Z",
+        "stat_busy_jiffies": 53605729,
+        "stat_total_jiffies": 4959848327,
+        "child_cpu_s": 3012.032,
+        "monotonic_s": 2067405.98,
+        "busy_cpus_since_prev": 3.65,
+        "own_busy_cpus_since_prev": 3.63,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:base:r3",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:head:r3",
+        "load1": 3.67,
+        "load5": 3.3,
+        "load15": 2.22,
+        "at": "2026-11-09T00:36:56Z",
+        "stat_busy_jiffies": 53618395,
+        "stat_total_jiffies": 4959936899,
+        "child_cpu_s": 3138.15,
+        "monotonic_s": 2067442.914,
+        "busy_cpus_since_prev": 3.43,
+        "own_busy_cpus_since_prev": 3.41,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:base:r4",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:base:r3",
+        "load1": 3.46,
+        "load5": 3.29,
+        "load15": 2.27,
+        "at": "2026-11-09T00:37:33Z",
+        "stat_busy_jiffies": 53631122,
+        "stat_total_jiffies": 4960025480,
+        "child_cpu_s": 3264.847,
+        "monotonic_s": 2067479.842,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:head:r4",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:base:r4",
+        "load1": 2.99,
+        "load5": 3.2,
+        "load15": 2.29,
+        "at": "2026-11-09T00:38:18Z",
+        "stat_busy_jiffies": 53643897,
+        "stat_total_jiffies": 4960132828,
+        "child_cpu_s": 3392.745,
+        "monotonic_s": 2067524.724,
+        "busy_cpus_since_prev": 2.86,
+        "own_busy_cpus_since_prev": 2.85,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r4",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:head:r4",
+        "load1": 2.94,
+        "load5": 3.17,
+        "load15": 2.32,
+        "at": "2026-11-09T00:39:03Z",
+        "stat_busy_jiffies": 53657382,
+        "stat_total_jiffies": 4960239056,
+        "child_cpu_s": 3526.931,
+        "monotonic_s": 2067569.007,
+        "busy_cpus_since_prev": 3.05,
+        "own_busy_cpus_since_prev": 3.03,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r4",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r4",
+        "load1": 3.36,
+        "load5": 3.25,
+        "load15": 2.38,
+        "at": "2026-11-09T00:39:37Z",
+        "stat_busy_jiffies": 53669799,
+        "stat_total_jiffies": 4960321346,
+        "child_cpu_s": 3650.173,
+        "monotonic_s": 2067603.329,
+        "busy_cpus_since_prev": 3.62,
+        "own_busy_cpus_since_prev": 3.59,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:base:r4",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r4",
+        "load1": 3.5,
+        "load5": 3.29,
+        "load15": 2.42,
+        "at": "2026-11-09T00:40:11Z",
+        "stat_busy_jiffies": 53682267,
+        "stat_total_jiffies": 4960403582,
+        "child_cpu_s": 3774.163,
+        "monotonic_s": 2067637.611,
+        "busy_cpus_since_prev": 3.64,
+        "own_busy_cpus_since_prev": 3.62,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:head:r4",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:base:r4",
+        "load1": 3.37,
+        "load5": 3.29,
+        "load15": 2.46,
+        "at": "2026-11-09T00:40:48Z",
+        "stat_busy_jiffies": 53695006,
+        "stat_total_jiffies": 4960492181,
+        "child_cpu_s": 3900.91,
+        "monotonic_s": 2067674.542,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:head:r5",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:head:r4",
+        "load1": 3.41,
+        "load5": 3.32,
+        "load15": 2.5,
+        "at": "2026-11-09T00:41:25Z",
+        "stat_busy_jiffies": 53707739,
+        "stat_total_jiffies": 4960580773,
+        "child_cpu_s": 4027.709,
+        "monotonic_s": 2067711.476,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:base:r5",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:head:r5",
+        "load1": 3.22,
+        "load5": 3.28,
+        "load15": 2.52,
+        "at": "2026-11-09T00:42:09Z",
+        "stat_busy_jiffies": 53721199,
+        "stat_total_jiffies": 4960687032,
+        "child_cpu_s": 4161.589,
+        "monotonic_s": 2067755.773,
+        "busy_cpus_since_prev": 3.04,
+        "own_busy_cpus_since_prev": 3.02,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r5",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:base:r5",
+        "load1": 3.14,
+        "load5": 3.24,
+        "load15": 2.55,
+        "at": "2026-11-09T00:42:54Z",
+        "stat_busy_jiffies": 53734678,
+        "stat_total_jiffies": 4960793243,
+        "child_cpu_s": 4295.747,
+        "monotonic_s": 2067800.046,
+        "busy_cpus_since_prev": 3.05,
+        "own_busy_cpus_since_prev": 3.03,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r5",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r5",
+        "load1": 3.28,
+        "load5": 3.27,
+        "load15": 2.58,
+        "at": "2026-11-09T00:43:28Z",
+        "stat_busy_jiffies": 53747157,
+        "stat_total_jiffies": 4960876876,
+        "child_cpu_s": 4419.702,
+        "monotonic_s": 2067834.924,
+        "busy_cpus_since_prev": 3.58,
+        "own_busy_cpus_since_prev": 3.55,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:head:r5",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r5",
+        "load1": 3.36,
+        "load5": 3.31,
+        "load15": 2.62,
+        "at": "2026-11-09T00:44:03Z",
+        "stat_busy_jiffies": 53759622,
+        "stat_total_jiffies": 4960959047,
+        "child_cpu_s": 4543.699,
+        "monotonic_s": 2067869.178,
+        "busy_cpus_since_prev": 3.64,
+        "own_busy_cpus_since_prev": 3.62,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:base:r5",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:head:r5",
+        "load1": 3.4,
+        "load5": 3.33,
+        "load15": 2.66,
+        "at": "2026-11-09T00:44:40Z",
+        "stat_busy_jiffies": 53772311,
+        "stat_total_jiffies": 4961047584,
+        "child_cpu_s": 4670.075,
+        "monotonic_s": 2067906.096,
+        "busy_cpus_since_prev": 3.44,
+        "own_busy_cpus_since_prev": 3.42,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r6",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:base:r5",
+        "load1": 3.52,
+        "load5": 3.36,
+        "load15": 2.69,
+        "at": "2026-11-09T00:45:17Z",
+        "stat_busy_jiffies": 53785047,
+        "stat_total_jiffies": 4961136180,
+        "child_cpu_s": 4796.81,
+        "monotonic_s": 2067943.029,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r6",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r6",
+        "load1": 3.59,
+        "load5": 3.39,
+        "load15": 2.73,
+        "at": "2026-11-09T00:45:51Z",
+        "stat_busy_jiffies": 53797506,
+        "stat_total_jiffies": 4961218316,
+        "child_cpu_s": 4920.754,
+        "monotonic_s": 2067977.27,
+        "busy_cpus_since_prev": 3.64,
+        "own_busy_cpus_since_prev": 3.62,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:base:r6",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r6",
+        "load1": 3.7,
+        "load5": 3.43,
+        "load15": 2.77,
+        "at": "2026-11-09T00:46:25Z",
+        "stat_busy_jiffies": 53809953,
+        "stat_total_jiffies": 4961300015,
+        "child_cpu_s": 5044.568,
+        "monotonic_s": 2068011.33,
+        "busy_cpus_since_prev": 3.66,
+        "own_busy_cpus_since_prev": 3.64,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:head:r6",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:base:r6",
+        "load1": 3.69,
+        "load5": 3.45,
+        "load15": 2.8,
+        "at": "2026-11-09T00:47:02Z",
+        "stat_busy_jiffies": 53822685,
+        "stat_total_jiffies": 4961388579,
+        "child_cpu_s": 5171.309,
+        "monotonic_s": 2068048.249,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:base:r6",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:head:r6",
+        "load1": 3.32,
+        "load5": 3.39,
+        "load15": 2.81,
+        "at": "2026-11-09T00:47:39Z",
+        "stat_busy_jiffies": 53835425,
+        "stat_total_jiffies": 4961477127,
+        "child_cpu_s": 5298.104,
+        "monotonic_s": 2068085.163,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:head:r6",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:base:r6",
+        "load1": 3.09,
+        "load5": 3.34,
+        "load15": 2.82,
+        "at": "2026-11-09T00:48:23Z",
+        "stat_busy_jiffies": 53848120,
+        "stat_total_jiffies": 4961583081,
+        "child_cpu_s": 5425.543,
+        "monotonic_s": 2068129.466,
+        "busy_cpus_since_prev": 2.88,
+        "own_busy_cpus_since_prev": 2.88,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r7",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:head:r6",
+        "load1": 2.99,
+        "load5": 3.29,
+        "load15": 2.83,
+        "at": "2026-11-09T00:49:07Z",
+        "stat_busy_jiffies": 53861577,
+        "stat_total_jiffies": 4961689311,
+        "child_cpu_s": 5559.466,
+        "monotonic_s": 2068173.754,
+        "busy_cpus_since_prev": 3.04,
+        "own_busy_cpus_since_prev": 3.02,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r7",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r7",
+        "load1": 3.39,
+        "load5": 3.36,
+        "load15": 2.86,
+        "at": "2026-11-09T00:49:42Z",
+        "stat_busy_jiffies": 53874058,
+        "stat_total_jiffies": 4961771682,
+        "child_cpu_s": 5683.583,
+        "monotonic_s": 2068208.09,
+        "busy_cpus_since_prev": 3.64,
+        "own_busy_cpus_since_prev": 3.61,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:head:r7",
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r7",
+        "load1": 3.51,
+        "load5": 3.38,
+        "load15": 2.89,
+        "at": "2026-11-09T00:50:16Z",
+        "stat_busy_jiffies": 53886513,
+        "stat_total_jiffies": 4961854686,
+        "child_cpu_s": 5807.215,
+        "monotonic_s": 2068242.706,
+        "busy_cpus_since_prev": 3.6,
+        "own_busy_cpus_since_prev": 3.57,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "cell:short:N10000000:W4:T1000ms:churn:base:r7",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:head:r7",
+        "load1": 3.49,
+        "load5": 3.4,
+        "load15": 2.92,
+        "at": "2026-11-09T00:50:53Z",
+        "stat_busy_jiffies": 53899180,
+        "stat_total_jiffies": 4961943247,
+        "child_cpu_s": 5933.25,
+        "monotonic_s": 2068279.645,
+        "busy_cpus_since_prev": 3.43,
+        "own_busy_cpus_since_prev": 3.41,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:head:r7",
+        "since": "cell:short:N10000000:W4:T1000ms:churn:base:r7",
+        "load1": 3.37,
+        "load5": 3.39,
+        "load15": 2.93,
+        "at": "2026-11-09T00:51:30Z",
+        "stat_busy_jiffies": 53911913,
+        "stat_total_jiffies": 4962031832,
+        "child_cpu_s": 6059.934,
+        "monotonic_s": 2068316.575,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus_since_prev": 3.43,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:short:N20000000:W4:T1000ms:churn:base:r7",
+        "since": "cell:short:N20000000:W4:T1000ms:churn:head:r7",
+        "load1": 3.21,
+        "load5": 3.33,
+        "load15": 2.93,
+        "at": "2026-11-09T00:52:14Z",
+        "stat_busy_jiffies": 53925370,
+        "stat_total_jiffies": 4962138039,
+        "child_cpu_s": 6193.884,
+        "monotonic_s": 2068360.852,
+        "busy_cpus_since_prev": 3.04,
+        "own_busy_cpus_since_prev": 3.03,
+        "foreign_busy_cpus_since_prev": 0.01
+      }
+    ],
+    "cell_isolation": "process",
+    "rounds": 8,
+    "core_pin_applied": "0-15",
+    "preregistration": "concurrency METHODOLOGY \u00a753",
+    "quick": false,
+    "seconds": 30,
+    "bca_resamples": 2000,
+    "arm": "none",
+    "placement_rule": "writers on the first CPU of every core but the first, then their SMT siblings (arm none: the poller's CPU stays idle)",
+    "placement_cpus": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "base_commit": "c48118fafc322694a995029124075c97c0e668bd",
+    "build_labels": {
+      "base": "base c48118fafc322694a995029124075c97c0e668bd",
+      "head": "the head (this checkout)"
+    },
+    "hour_guard": {
+      "blackout_utc_minutes": [
+        15,
+        20
+      ],
+      "prefill_s_per_key_default": 5e-06,
+      "prefill_margin": 1.5,
+      "post_s": 30.0,
+      "pauses": [],
+      "processes": [
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:base:r0",
+          "start_t": 1794183729.912025,
+          "end_t": 1794183766.8461094
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:head:r0",
+          "start_t": 1794183766.8463202,
+          "end_t": 1794183803.771271
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:base:r0",
+          "start_t": 1794183803.7714875,
+          "end_t": 1794183848.0514362
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:head:r0",
+          "start_t": 1794183848.051648,
+          "end_t": 1794183892.3632612
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r0",
+          "start_t": 1794183892.3634784,
+          "end_t": 1794183926.5591393
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r0",
+          "start_t": 1794183926.5593498,
+          "end_t": 1794183961.046076
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:head:r1",
+          "start_t": 1794183961.0462945,
+          "end_t": 1794183997.9786048
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:base:r1",
+          "start_t": 1794183997.9788926,
+          "end_t": 1794184034.9031503
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:head:r1",
+          "start_t": 1794184034.903368,
+          "end_t": 1794184079.204615
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:base:r1",
+          "start_t": 1794184079.2048717,
+          "end_t": 1794184123.504058
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r1",
+          "start_t": 1794184123.5042799,
+          "end_t": 1794184158.0151541
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r1",
+          "start_t": 1794184158.0153677,
+          "end_t": 1794184192.0693161
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:base:r2",
+          "start_t": 1794184192.069536,
+          "end_t": 1794184228.9962952
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:head:r2",
+          "start_t": 1794184228.996511,
+          "end_t": 1794184265.9628496
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:base:r2",
+          "start_t": 1794184265.9632015,
+          "end_t": 1794184310.248989
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:head:r2",
+          "start_t": 1794184310.2491953,
+          "end_t": 1794184354.5371547
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r2",
+          "start_t": 1794184354.5373676,
+          "end_t": 1794184388.6408408
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r2",
+          "start_t": 1794184388.6410584,
+          "end_t": 1794184422.6845257
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:head:r3",
+          "start_t": 1794184422.684744,
+          "end_t": 1794184466.963559
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:base:r3",
+          "start_t": 1794184466.9637673,
+          "end_t": 1794184511.2626228
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r3",
+          "start_t": 1794184511.2628703,
+          "end_t": 1794184545.8251045
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r3",
+          "start_t": 1794184545.8253138,
+          "end_t": 1794184579.9917574
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:head:r3",
+          "start_t": 1794184579.9920073,
+          "end_t": 1794184616.925819
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:base:r3",
+          "start_t": 1794184616.9260495,
+          "end_t": 1794184653.8539386
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:base:r4",
+          "start_t": 1794184653.8541558,
+          "end_t": 1794184698.7355776
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:head:r4",
+          "start_t": 1794184698.7357967,
+          "end_t": 1794184743.0182526
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r4",
+          "start_t": 1794184743.0184722,
+          "end_t": 1794184777.3410149
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r4",
+          "start_t": 1794184777.3412278,
+          "end_t": 1794184811.6225524
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:base:r4",
+          "start_t": 1794184811.6227684,
+          "end_t": 1794184848.553642
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:head:r4",
+          "start_t": 1794184848.5538826,
+          "end_t": 1794184885.4873307
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:head:r5",
+          "start_t": 1794184885.4875507,
+          "end_t": 1794184929.7845018
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:base:r5",
+          "start_t": 1794184929.7847183,
+          "end_t": 1794184974.0574582
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r5",
+          "start_t": 1794184974.0577066,
+          "end_t": 1794185008.935579
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r5",
+          "start_t": 1794185008.9357932,
+          "end_t": 1794185043.1893804
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:head:r5",
+          "start_t": 1794185043.1895924,
+          "end_t": 1794185080.1077056
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:base:r5",
+          "start_t": 1794185080.1079524,
+          "end_t": 1794185117.0410786
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r6",
+          "start_t": 1794185117.0412962,
+          "end_t": 1794185151.2816432
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r6",
+          "start_t": 1794185151.28187,
+          "end_t": 1794185185.341442
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:base:r6",
+          "start_t": 1794185185.3416553,
+          "end_t": 1794185222.2603254
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:head:r6",
+          "start_t": 1794185222.260538,
+          "end_t": 1794185259.175039
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:base:r6",
+          "start_t": 1794185259.1753085,
+          "end_t": 1794185303.4775636
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:head:r6",
+          "start_t": 1794185303.4778008,
+          "end_t": 1794185347.7651525
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r7",
+          "start_t": 1794185347.765369,
+          "end_t": 1794185382.1020505
+        },
+        {
+          "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r7",
+          "start_t": 1794185382.1022656,
+          "end_t": 1794185416.7171853
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:head:r7",
+          "start_t": 1794185416.7173998,
+          "end_t": 1794185453.6561706
+        },
+        {
+          "label": "cell:short:N10000000:W4:T1000ms:churn:base:r7",
+          "start_t": 1794185453.6563807,
+          "end_t": 1794185490.5870051
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:head:r7",
+          "start_t": 1794185490.5872288,
+          "end_t": 1794185534.8636713
+        },
+        {
+          "label": "cell:short:N20000000:W4:T1000ms:churn:base:r7",
+          "start_t": 1794185534.8639436,
+          "end_t": 1794185579.2039914
+        }
+      ]
+    }
+  },
+  "throughput": [
+    {
+      "cell": "short:N10000000:W4:T1000ms:churn",
+      "shape": "short",
+      "keys": 10000000,
+      "writers": 4,
+      "period_ms": 1000,
+      "workload": "churn",
+      "gated": true,
+      "arm": "none",
+      "build": "base",
+      "rounds_raw": [
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002579281,
+          "insert": {
+            "count": 31074822,
+            "max_ns": 177407,
+            "p50_ns": 651,
+            "p999_ns": 5531,
+            "p99_ns": 3509
+          },
+          "insert_top_ns": [
+            177303,
+            155846,
+            151583,
+            149882,
+            149231,
+            148651,
+            147731,
+            147001
+          ],
+          "inserts": 31074822,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791347200,
+          "mem_used_after": 573158672,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.033908787,
+          "rejected_present": 0,
+          "remove": {
+            "count": 31074822,
+            "max_ns": 265215,
+            "p50_ns": 1871,
+            "p999_ns": 8375,
+            "p99_ns": 4847
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            264973,
+            261736,
+            259526,
+            258848,
+            256728,
+            189268,
+            170217,
+            164164
+          ],
+          "removes": 31074822,
+          "round": 0,
+          "seconds": 30,
+          "seed": 370168576,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119789800996,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:base:r0",
+            "wall_s": 36.934,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:base:r0",
+            "load1": 3.16
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002406289,
+          "insert": {
+            "count": 31137495,
+            "max_ns": 91007,
+            "p50_ns": 683,
+            "p999_ns": 5295,
+            "p99_ns": 3471
+          },
+          "insert_top_ns": [
+            90987,
+            90328,
+            89168,
+            89026,
+            86795,
+            85723,
+            84249,
+            83492
+          ],
+          "inserts": 31137495,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791543808,
+          "mem_used_after": 573131248,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.030198245,
+          "rejected_present": 0,
+          "remove": {
+            "count": 31137495,
+            "max_ns": 152703,
+            "p50_ns": 1867,
+            "p999_ns": 7599,
+            "p99_ns": 4775
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            152695,
+            107421,
+            100706,
+            93593,
+            90614,
+            88232,
+            87413,
+            86649
+          ],
+          "removes": 31137495,
+          "round": 1,
+          "seconds": 30,
+          "seed": 370168577,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119834641177,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:base:r1",
+            "wall_s": 36.924,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:base:r1",
+            "load1": 3.38
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003401398,
+          "insert": {
+            "count": 31251679,
+            "max_ns": 121471,
+            "p50_ns": 668,
+            "p999_ns": 5619,
+            "p99_ns": 3445
+          },
+          "insert_top_ns": [
+            121454,
+            118027,
+            115719,
+            99151,
+            83741,
+            82841,
+            80975,
+            76092
+          ],
+          "inserts": 31251679,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 790953984,
+          "mem_used_after": 573143648,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.033192423,
+          "rejected_present": 0,
+          "remove": {
+            "count": 31251679,
+            "max_ns": 151807,
+            "p50_ns": 1865,
+            "p999_ns": 8903,
+            "p99_ns": 4847
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            151734,
+            120293,
+            119159,
+            116970,
+            116624,
+            116605,
+            108999,
+            107121
+          ],
+          "removes": 31251679,
+          "round": 2,
+          "seconds": 30,
+          "seed": 370168578,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119792837738,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:base:r2",
+            "wall_s": 36.927,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:base:r2",
+            "load1": 3.57
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.00334163,
+          "insert": {
+            "count": 30669203,
+            "max_ns": 157311,
+            "p50_ns": 642,
+            "p999_ns": 5647,
+            "p99_ns": 3513
+          },
+          "insert_top_ns": [
+            157308,
+            151999,
+            98154,
+            80793,
+            78423,
+            77268,
+            69930,
+            66320
+          ],
+          "inserts": 30669203,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791347200,
+          "mem_used_after": 573137136,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.035273749,
+          "rejected_present": 0,
+          "remove": {
+            "count": 30669203,
+            "max_ns": 157951,
+            "p50_ns": 1889,
+            "p999_ns": 8559,
+            "p99_ns": 4915
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            157841,
+            155920,
+            155416,
+            153334,
+            152151,
+            104266,
+            102903,
+            102202
+          ],
+          "removes": 30669203,
+          "round": 3,
+          "seconds": 30,
+          "seed": 370168579,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119769028724,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:base:r3",
+            "wall_s": 36.928,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:base:r3",
+            "load1": 3.67
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003542789,
+          "insert": {
+            "count": 31091483,
+            "max_ns": 84543,
+            "p50_ns": 697,
+            "p999_ns": 5347,
+            "p99_ns": 3499
+          },
+          "insert_top_ns": [
+            84529,
+            83720,
+            83126,
+            81825,
+            81777,
+            81763,
+            80800,
+            80604
+          ],
+          "inserts": 31091483,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791150592,
+          "mem_used_after": 573161632,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.033111348,
+          "rejected_present": 0,
+          "remove": {
+            "count": 31091483,
+            "max_ns": 155903,
+            "p50_ns": 1892,
+            "p999_ns": 7655,
+            "p99_ns": 4875
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            155776,
+            86771,
+            85678,
+            85079,
+            84512,
+            83314,
+            83283,
+            83038
+          ],
+          "removes": 31091483,
+          "round": 4,
+          "seconds": 30,
+          "seed": 370168580,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119815676058,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:base:r4",
+            "wall_s": 36.931,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:base:r4",
+            "load1": 3.5
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.00329017,
+          "insert": {
+            "count": 30907078,
+            "max_ns": 101119,
+            "p50_ns": 653,
+            "p999_ns": 5563,
+            "p99_ns": 3545
+          },
+          "insert_top_ns": [
+            101093,
+            88260,
+            71007,
+            70254,
+            70127,
+            56099,
+            55761,
+            54068
+          ],
+          "inserts": 30907078,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791347200,
+          "mem_used_after": 573154544,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.025951475,
+          "rejected_present": 0,
+          "remove": {
+            "count": 30907078,
+            "max_ns": 151295,
+            "p50_ns": 1864,
+            "p999_ns": 8191,
+            "p99_ns": 4843
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            151186,
+            149963,
+            149762,
+            148323,
+            104658,
+            103829,
+            102542,
+            101345
+          ],
+          "removes": 30907078,
+          "round": 5,
+          "seconds": 30,
+          "seed": 370168581,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119800526865,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:base:r5",
+            "wall_s": 36.933,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:base:r5",
+            "load1": 3.4
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.004446728,
+          "insert": {
+            "count": 31273800,
+            "max_ns": 97087,
+            "p50_ns": 629,
+            "p999_ns": 5327,
+            "p99_ns": 3481
+          },
+          "insert_top_ns": [
+            97073,
+            82065,
+            81757,
+            81732,
+            81225,
+            79395,
+            77314,
+            63127
+          ],
+          "inserts": 31273800,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791150592,
+          "mem_used_after": 573135456,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.028337282,
+          "rejected_present": 0,
+          "remove": {
+            "count": 31273800,
+            "max_ns": 89343,
+            "p50_ns": 1872,
+            "p999_ns": 7739,
+            "p99_ns": 4827
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            89293,
+            87596,
+            87195,
+            86927,
+            86413,
+            86331,
+            85959,
+            85781
+          ],
+          "removes": 31273800,
+          "round": 6,
+          "seconds": 30,
+          "seed": 370168582,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119821941171,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:base:r6",
+            "wall_s": 36.919,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:base:r6",
+            "load1": 3.7
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003341171,
+          "insert": {
+            "count": 30487411,
+            "max_ns": 153855,
+            "p50_ns": 675,
+            "p999_ns": 5687,
+            "p99_ns": 3573
+          },
+          "insert_top_ns": [
+            153746,
+            89839,
+            85866,
+            85387,
+            84475,
+            84356,
+            84287,
+            82089
+          ],
+          "inserts": 30487411,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791347200,
+          "mem_used_after": 573147888,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.032186836,
+          "rejected_present": 0,
+          "remove": {
+            "count": 30487411,
+            "max_ns": 157695,
+            "p50_ns": 1889,
+            "p999_ns": 8367,
+            "p99_ns": 4899
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            157623,
+            152749,
+            94840,
+            92555,
+            89653,
+            85940,
+            85251,
+            84737
+          ],
+          "removes": 30487411,
+          "round": 7,
+          "seconds": 30,
+          "seed": 370168583,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119752931018,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:base:r7",
+            "wall_s": 36.931,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:base:r7",
+            "load1": 3.49
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:short:N10000000:W4:T1000ms:churn:base:r0",
+        "wall_s": 36.934,
+        "busy_cpus_since_prev": 3.45,
+        "own_busy_cpus": 3.43,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "short:N20000000:W4:T1000ms:churn",
+      "shape": "short",
+      "keys": 20000000,
+      "writers": 4,
+      "period_ms": 1000,
+      "workload": "churn",
+      "gated": true,
+      "arm": "none",
+      "build": "base",
+      "rounds_raw": [
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003566975,
+          "insert": {
+            "count": 35834022,
+            "max_ns": 152319,
+            "p50_ns": 538,
+            "p999_ns": 6183,
+            "p99_ns": 3369
+          },
+          "insert_top_ns": [
+            152194,
+            149583,
+            148670,
+            148496,
+            145645,
+            140536,
+            138284,
+            133203
+          ],
+          "inserts": 35834022,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1491075072,
+          "mem_used_after": 1118670240,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.36352624,
+          "rejected_present": 0,
+          "remove": {
+            "count": 35834022,
+            "max_ns": 167551,
+            "p50_ns": 1438,
+            "p999_ns": 9135,
+            "p99_ns": 4643
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            167518,
+            162461,
+            161928,
+            156215,
+            154153,
+            152129,
+            150971,
+            149453
+          ],
+          "removes": 35834022,
+          "round": 0,
+          "seconds": 30,
+          "seed": 370168576,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119833454611,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:base:r0",
+            "wall_s": 44.28,
+            "busy_cpus_since_prev": 3.05,
+            "own_busy_cpus": 3.03,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:base:r0",
+            "load1": 3.38
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.00348229,
+          "insert": {
+            "count": 35826023,
+            "max_ns": 118975,
+            "p50_ns": 535,
+            "p999_ns": 5987,
+            "p99_ns": 3383
+          },
+          "insert_top_ns": [
+            118953,
+            91981,
+            90712,
+            81329,
+            52273,
+            49806,
+            48869,
+            48510
+          ],
+          "inserts": 35826023,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1491271680,
+          "mem_used_after": 1118652304,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.387605629,
+          "rejected_present": 0,
+          "remove": {
+            "count": 35826023,
+            "max_ns": 96959,
+            "p50_ns": 1435,
+            "p999_ns": 8615,
+            "p99_ns": 4591
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            96957,
+            93978,
+            93884,
+            93075,
+            79705,
+            55224,
+            52858,
+            52439
+          ],
+          "removes": 35826023,
+          "round": 1,
+          "seconds": 30,
+          "seed": 370168577,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119864191636,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:base:r1",
+            "wall_s": 44.299,
+            "busy_cpus_since_prev": 3.05,
+            "own_busy_cpus": 3.03,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:base:r1",
+            "load1": 3.28
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003450233,
+          "insert": {
+            "count": 36062588,
+            "max_ns": 151807,
+            "p50_ns": 552,
+            "p999_ns": 6115,
+            "p99_ns": 3385
+          },
+          "insert_top_ns": [
+            151804,
+            148668,
+            145833,
+            138308,
+            117471,
+            115680,
+            100092,
+            98392
+          ],
+          "inserts": 36062588,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1491468288,
+          "mem_used_after": 1118673888,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.37052253,
+          "rejected_present": 0,
+          "remove": {
+            "count": 36062588,
+            "max_ns": 154239,
+            "p50_ns": 1421,
+            "p999_ns": 8743,
+            "p99_ns": 4615
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            154160,
+            150297,
+            149917,
+            149146,
+            146993,
+            137574,
+            137444,
+            136668
+          ],
+          "removes": 36062588,
+          "round": 2,
+          "seconds": 30,
+          "seed": 370168578,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119881997443,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:base:r2",
+            "wall_s": 44.286,
+            "busy_cpus_since_prev": 3.05,
+            "own_busy_cpus": 3.03,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:base:r2",
+            "load1": 3.52
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003405389,
+          "insert": {
+            "count": 35984288,
+            "max_ns": 126719,
+            "p50_ns": 550,
+            "p999_ns": 5983,
+            "p99_ns": 3387
+          },
+          "insert_top_ns": [
+            126687,
+            41786,
+            41750,
+            41130,
+            40383,
+            38593,
+            37210,
+            37108
+          ],
+          "inserts": 35984288,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1491664896,
+          "mem_used_after": 1118687200,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.360983426,
+          "rejected_present": 0,
+          "remove": {
+            "count": 35984288,
+            "max_ns": 127359,
+            "p50_ns": 1440,
+            "p999_ns": 8231,
+            "p99_ns": 4587
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            127318,
+            82432,
+            81647,
+            74468,
+            47633,
+            47074,
+            45625,
+            45420
+          ],
+          "removes": 35984288,
+          "round": 3,
+          "seconds": 30,
+          "seed": 370168579,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119895355764,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:base:r3",
+            "wall_s": 44.299,
+            "busy_cpus_since_prev": 3.05,
+            "own_busy_cpus": 3.03,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:base:r3",
+            "load1": 3.35
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003362187,
+          "insert": {
+            "count": 33594905,
+            "max_ns": 88639,
+            "p50_ns": 476,
+            "p999_ns": 7851,
+            "p99_ns": 5359
+          },
+          "insert_top_ns": [
+            88596,
+            83204,
+            82431,
+            74865,
+            49585,
+            47744,
+            44084,
+            42203
+          ],
+          "inserts": 33594905,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1487142912,
+          "mem_used_after": 1118765296,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.362862529,
+          "rejected_present": 0,
+          "remove": {
+            "count": 33594905,
+            "max_ns": 98559,
+            "p50_ns": 1403,
+            "p999_ns": 10055,
+            "p99_ns": 6735
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            98540,
+            97350,
+            84542,
+            83260,
+            82380,
+            81627,
+            81300,
+            80340
+          ],
+          "removes": 33594905,
+          "round": 4,
+          "seconds": 30,
+          "seed": 370168580,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 113014981844,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:base:r4",
+            "wall_s": 44.882,
+            "busy_cpus_since_prev": 2.86,
+            "own_busy_cpus": 2.85,
+            "foreign_busy_cpus": 0.01
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:base:r4",
+            "load1": 3.46
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003514478,
+          "insert": {
+            "count": 35957692,
+            "max_ns": 86975,
+            "p50_ns": 515,
+            "p999_ns": 5867,
+            "p99_ns": 3335
+          },
+          "insert_top_ns": [
+            86968,
+            81081,
+            50420,
+            47030,
+            46890,
+            46606,
+            45840,
+            45837
+          ],
+          "inserts": 35957692,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1491468288,
+          "mem_used_after": 1118660432,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.358120821,
+          "rejected_present": 0,
+          "remove": {
+            "count": 35957692,
+            "max_ns": 91647,
+            "p50_ns": 1429,
+            "p999_ns": 8247,
+            "p99_ns": 4535
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            91609,
+            73285,
+            64866,
+            50382,
+            49800,
+            48371,
+            48131,
+            47600
+          ],
+          "removes": 35957692,
+          "round": 5,
+          "seconds": 30,
+          "seed": 370168581,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119884904211,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:base:r5",
+            "wall_s": 44.273,
+            "busy_cpus_since_prev": 3.05,
+            "own_busy_cpus": 3.03,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:base:r5",
+            "load1": 3.22
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002570953,
+          "insert": {
+            "count": 34008370,
+            "max_ns": 158847,
+            "p50_ns": 477,
+            "p999_ns": 7723,
+            "p99_ns": 5255
+          },
+          "insert_top_ns": [
+            158830,
+            158252,
+            155549,
+            155518,
+            153471,
+            153116,
+            147073,
+            142504
+          ],
+          "inserts": 34008370,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1487929344,
+          "mem_used_after": 1118743728,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.384102709,
+          "rejected_present": 0,
+          "remove": {
+            "count": 34008370,
+            "max_ns": 224383,
+            "p50_ns": 1389,
+            "p999_ns": 10127,
+            "p99_ns": 6675
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            224271,
+            163305,
+            160706,
+            158780,
+            157443,
+            156659,
+            155037,
+            154975
+          ],
+          "removes": 34008370,
+          "round": 6,
+          "seconds": 30,
+          "seed": 370168582,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 113136393449,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:base:r6",
+            "wall_s": 44.302,
+            "busy_cpus_since_prev": 2.88,
+            "own_busy_cpus": 2.88,
+            "foreign_busy_cpus": 0.0
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:base:r6",
+            "load1": 3.32
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003475626,
+          "insert": {
+            "count": 36236870,
+            "max_ns": 80447,
+            "p50_ns": 549,
+            "p999_ns": 5891,
+            "p99_ns": 3293
+          },
+          "insert_top_ns": [
+            80422,
+            60926,
+            59494,
+            58743,
+            48586,
+            46261,
+            46105,
+            45804
+          ],
+          "inserts": 36236870,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1492058112,
+          "mem_used_after": 1118664496,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.41813584,
+          "rejected_present": 0,
+          "remove": {
+            "count": 36236870,
+            "max_ns": 89599,
+            "p50_ns": 1421,
+            "p999_ns": 8615,
+            "p99_ns": 4539
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            89539,
+            74702,
+            69090,
+            65058,
+            62403,
+            60329,
+            59439,
+            54111
+          ],
+          "removes": 36236870,
+          "round": 7,
+          "seconds": 30,
+          "seed": 370168583,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119864049381,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:base:r7",
+            "wall_s": 44.34,
+            "busy_cpus_since_prev": 3.04,
+            "own_busy_cpus": 3.03,
+            "foreign_busy_cpus": 0.01
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:base:r7",
+            "load1": 3.21
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:short:N20000000:W4:T1000ms:churn:base:r0",
+        "wall_s": 44.28,
+        "busy_cpus_since_prev": 3.05,
+        "own_busy_cpus": 3.03,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "routes:N20000000:W4:T1000ms:churn",
+      "shape": "routes",
+      "keys": 20000000,
+      "writers": 4,
+      "period_ms": 1000,
+      "workload": "churn",
+      "gated": false,
+      "arm": "none",
+      "build": "base",
+      "rounds_raw": [
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.001960628,
+          "insert": {
+            "count": 93410777,
+            "max_ns": 113791,
+            "p50_ns": 189,
+            "p999_ns": 3575,
+            "p99_ns": 1626
+          },
+          "insert_top_ns": [
+            113758,
+            109762,
+            109312,
+            107968,
+            102815,
+            100484,
+            100413,
+            98410
+          ],
+          "inserts": 93410777,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1307246592,
+          "mem_used_after": 480445872,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.125038672,
+          "rejected_present": 0,
+          "remove": {
+            "count": 93410777,
+            "max_ns": 162559,
+            "p50_ns": 234,
+            "p999_ns": 3293,
+            "p99_ns": 1605
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            162558,
+            162435,
+            113918,
+            106237,
+            101507,
+            100624,
+            99349,
+            97940
+          ],
+          "removes": 93410777,
+          "round": 0,
+          "seconds": 30,
+          "seed": 370168576,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119717119379,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r0",
+            "wall_s": 34.196,
+            "busy_cpus_since_prev": 3.64,
+            "own_busy_cpus": 3.62,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r0",
+            "load1": 3.18
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.001878551,
+          "insert": {
+            "count": 93517059,
+            "max_ns": 3717119,
+            "p50_ns": 187,
+            "p999_ns": 3579,
+            "p99_ns": 1592
+          },
+          "insert_top_ns": [
+            3715216,
+            3521553,
+            3521455,
+            3521396,
+            3257369,
+            352203,
+            351619,
+            351616
+          ],
+          "inserts": 93517059,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1363476480,
+          "mem_used_after": 480445696,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.119554621,
+          "rejected_present": 0,
+          "remove": {
+            "count": 93517059,
+            "max_ns": 3749887,
+            "p50_ns": 234,
+            "p999_ns": 3293,
+            "p99_ns": 1572
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            3749079,
+            3714968,
+            3592611,
+            3259894,
+            3256535,
+            545733,
+            107551,
+            89635
+          ],
+          "removes": 93517059,
+          "round": 1,
+          "seconds": 30,
+          "seed": 370168577,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119766197733,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r1",
+            "wall_s": 34.054,
+            "busy_cpus_since_prev": 3.66,
+            "own_busy_cpus": 3.64,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r1",
+            "load1": 3.29
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.001918074,
+          "insert": {
+            "count": 95364346,
+            "max_ns": 189311,
+            "p50_ns": 188,
+            "p999_ns": 3419,
+            "p99_ns": 1638
+          },
+          "insert_top_ns": [
+            189287,
+            186884,
+            163690,
+            163162,
+            152051,
+            150685,
+            143990,
+            141609
+          ],
+          "inserts": 95364346,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1425211392,
+          "mem_used_after": 480445072,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.116518009,
+          "rejected_present": 0,
+          "remove": {
+            "count": 95364346,
+            "max_ns": 150527,
+            "p50_ns": 234,
+            "p999_ns": 3173,
+            "p99_ns": 1608
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            150474,
+            144275,
+            143671,
+            140170,
+            137822,
+            131630,
+            130909,
+            127512
+          ],
+          "removes": 95364346,
+          "round": 2,
+          "seconds": 30,
+          "seed": 370168578,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119793418014,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r2",
+            "wall_s": 34.104,
+            "busy_cpus_since_prev": 3.65,
+            "own_busy_cpus": 3.63,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r2",
+            "load1": 3.21
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002001872,
+          "insert": {
+            "count": 93260220,
+            "max_ns": 181119,
+            "p50_ns": 190,
+            "p999_ns": 3529,
+            "p99_ns": 1631
+          },
+          "insert_top_ns": [
+            181082,
+            145740,
+            143827,
+            143776,
+            121243,
+            119957,
+            119581,
+            119094
+          ],
+          "inserts": 93260220,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1329856512,
+          "mem_used_after": 480445440,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.1151266,
+          "rejected_present": 0,
+          "remove": {
+            "count": 93260220,
+            "max_ns": 133887,
+            "p50_ns": 235,
+            "p999_ns": 3135,
+            "p99_ns": 1595
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            133805,
+            122156,
+            116604,
+            116105,
+            112871,
+            107889,
+            107519,
+            102883
+          ],
+          "removes": 93260220,
+          "round": 3,
+          "seconds": 30,
+          "seed": 370168579,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119734995586,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r3",
+            "wall_s": 34.167,
+            "busy_cpus_since_prev": 3.65,
+            "own_busy_cpus": 3.63,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r3",
+            "load1": 3.41
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002069547,
+          "insert": {
+            "count": 88637021,
+            "max_ns": 146303,
+            "p50_ns": 196,
+            "p999_ns": 3871,
+            "p99_ns": 1789
+          },
+          "insert_top_ns": [
+            146211,
+            145253,
+            142560,
+            140431,
+            136756,
+            136427,
+            135261,
+            131974
+          ],
+          "inserts": 88637021,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 2288517120,
+          "mem_used_after": 480445168,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.116770782,
+          "rejected_present": 0,
+          "remove": {
+            "count": 88637021,
+            "max_ns": 153727,
+            "p50_ns": 238,
+            "p999_ns": 3651,
+            "p99_ns": 1751
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            153717,
+            151667,
+            151264,
+            151048,
+            145171,
+            144745,
+            143730,
+            142910
+          ],
+          "removes": 88637021,
+          "round": 4,
+          "seconds": 30,
+          "seed": 370168580,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 118919046987,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r4",
+            "wall_s": 34.323,
+            "busy_cpus_since_prev": 3.62,
+            "own_busy_cpus": 3.59,
+            "foreign_busy_cpus": 0.03
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r4",
+            "load1": 2.94
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002055329,
+          "insert": {
+            "count": 92941195,
+            "max_ns": 136191,
+            "p50_ns": 189,
+            "p999_ns": 3451,
+            "p99_ns": 1629
+          },
+          "insert_top_ns": [
+            136162,
+            131128,
+            127022,
+            126792,
+            123142,
+            122790,
+            120333,
+            120098
+          ],
+          "inserts": 92941195,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1399259136,
+          "mem_used_after": 480445024,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.13212204,
+          "rejected_present": 0,
+          "remove": {
+            "count": 92941195,
+            "max_ns": 137855,
+            "p50_ns": 234,
+            "p999_ns": 3179,
+            "p99_ns": 1596
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            137782,
+            126453,
+            126433,
+            125900,
+            125825,
+            121771,
+            118342,
+            113565
+          ],
+          "removes": 92941195,
+          "round": 5,
+          "seconds": 30,
+          "seed": 370168581,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119742633257,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r5",
+            "wall_s": 34.254,
+            "busy_cpus_since_prev": 3.64,
+            "own_busy_cpus": 3.62,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r5",
+            "load1": 3.28
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002052066,
+          "insert": {
+            "count": 92712538,
+            "max_ns": 3440639,
+            "p50_ns": 188,
+            "p999_ns": 3565,
+            "p99_ns": 1637
+          },
+          "insert_top_ns": [
+            3440175,
+            3433440,
+            3433055,
+            3433025,
+            101620,
+            98447,
+            96095,
+            94509
+          ],
+          "inserts": 92712538,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1418330112,
+          "mem_used_after": 480445424,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.1164909610000002,
+          "rejected_present": 0,
+          "remove": {
+            "count": 92712538,
+            "max_ns": 989695,
+            "p50_ns": 234,
+            "p999_ns": 3283,
+            "p99_ns": 1605
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            989597,
+            949879,
+            948400,
+            123345,
+            113146,
+            112852,
+            110692,
+            105390
+          ],
+          "removes": 92712538,
+          "round": 6,
+          "seconds": 30,
+          "seed": 370168582,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119703241706,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r6",
+            "wall_s": 34.24,
+            "busy_cpus_since_prev": 3.64,
+            "own_busy_cpus": 3.62,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r6",
+            "load1": 3.52
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.001870203,
+          "insert": {
+            "count": 87824929,
+            "max_ns": 120767,
+            "p50_ns": 198,
+            "p999_ns": 3883,
+            "p99_ns": 1806
+          },
+          "insert_top_ns": [
+            120761,
+            107010,
+            101517,
+            100696,
+            97270,
+            91513,
+            90514,
+            89579
+          ],
+          "inserts": 87824929,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 2317811712,
+          "mem_used_after": 480444992,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.123737532,
+          "rejected_present": 0,
+          "remove": {
+            "count": 87824929,
+            "max_ns": 130175,
+            "p50_ns": 240,
+            "p999_ns": 3643,
+            "p99_ns": 1768
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            130117,
+            128086,
+            113830,
+            113784,
+            111578,
+            105828,
+            104734,
+            99507
+          ],
+          "removes": 87824929,
+          "round": 7,
+          "seconds": 30,
+          "seed": 370168583,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119016178766,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r7",
+            "wall_s": 34.615,
+            "busy_cpus_since_prev": 3.6,
+            "own_busy_cpus": 3.57,
+            "foreign_busy_cpus": 0.03
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:base:r7",
+            "load1": 3.39
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:base:r4",
+        "wall_s": 34.323,
+        "busy_cpus_since_prev": 3.62,
+        "own_busy_cpus": 3.59,
+        "foreign_busy_cpus": 0.03
+      }
+    }
+  ],
+  "throughput_variant": [
+    {
+      "cell": "short:N10000000:W4:T1000ms:churn",
+      "shape": "short",
+      "keys": 10000000,
+      "writers": 4,
+      "period_ms": 1000,
+      "workload": "churn",
+      "gated": true,
+      "arm": "none",
+      "build": "head",
+      "rounds_raw": [
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.00417748,
+          "insert": {
+            "count": 48779177,
+            "max_ns": 153087,
+            "p50_ns": 388,
+            "p999_ns": 9583,
+            "p99_ns": 3199
+          },
+          "insert_top_ns": [
+            153003,
+            151577,
+            149928,
+            149026,
+            145543,
+            112405,
+            84268,
+            82871
+          ],
+          "inserts": 48779177,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791937024,
+          "mem_used_after": 573124832,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.02198522,
+          "rejected_present": 0,
+          "remove": {
+            "count": 48779177,
+            "max_ns": 161023,
+            "p50_ns": 1026,
+            "p999_ns": 12599,
+            "p99_ns": 5583
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            160903,
+            151517,
+            148508,
+            146996,
+            145014,
+            142621,
+            119985,
+            113166
+          ],
+          "removes": 48779177,
+          "round": 0,
+          "seconds": 30,
+          "seed": 370168576,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119394383506,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:head:r0",
+            "wall_s": 36.925,
+            "busy_cpus_since_prev": 3.44,
+            "own_busy_cpus": 3.42,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:head:r0",
+            "load1": 3.39
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003278669,
+          "insert": {
+            "count": 48937038,
+            "max_ns": 3788799,
+            "p50_ns": 407,
+            "p999_ns": 9639,
+            "p99_ns": 3061
+          },
+          "insert_top_ns": [
+            3787314,
+            1015748,
+            113212,
+            104032,
+            103716,
+            71718,
+            66480,
+            56123
+          ],
+          "inserts": 48937038,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791937024,
+          "mem_used_after": 573103440,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.034169857,
+          "rejected_present": 0,
+          "remove": {
+            "count": 48937038,
+            "max_ns": 3911679,
+            "p50_ns": 1040,
+            "p999_ns": 13591,
+            "p99_ns": 5567
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            3910222,
+            105669,
+            105028,
+            104528,
+            104328,
+            102076,
+            89778,
+            81095
+          ],
+          "removes": 48937038,
+          "round": 1,
+          "seconds": 30,
+          "seed": 370168577,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119505182937,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:head:r1",
+            "wall_s": 36.932,
+            "busy_cpus_since_prev": 3.44,
+            "own_busy_cpus": 3.42,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:head:r1",
+            "load1": 3.52
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003529172,
+          "insert": {
+            "count": 48719892,
+            "max_ns": 98495,
+            "p50_ns": 403,
+            "p999_ns": 9823,
+            "p99_ns": 2959
+          },
+          "insert_top_ns": [
+            98439,
+            98251,
+            86687,
+            86459,
+            86324,
+            82591,
+            81570,
+            81081
+          ],
+          "inserts": 48719892,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791740416,
+          "mem_used_after": 573121792,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.065089068,
+          "rejected_present": 0,
+          "remove": {
+            "count": 48719892,
+            "max_ns": 89215,
+            "p50_ns": 1047,
+            "p999_ns": 13927,
+            "p99_ns": 5543
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            89163,
+            87460,
+            87322,
+            83407,
+            80991,
+            78812,
+            70746,
+            70601
+          ],
+          "removes": 48719892,
+          "round": 2,
+          "seconds": 30,
+          "seed": 370168578,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119884650027,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:head:r2",
+            "wall_s": 36.967,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:head:r2",
+            "load1": 3.41
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003387202,
+          "insert": {
+            "count": 48578169,
+            "max_ns": 147071,
+            "p50_ns": 390,
+            "p999_ns": 9591,
+            "p99_ns": 3359
+          },
+          "insert_top_ns": [
+            146973,
+            113140,
+            101620,
+            95168,
+            95078,
+            90498,
+            83840,
+            83106
+          ],
+          "inserts": 48578169,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791740416,
+          "mem_used_after": 573119504,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.026317357,
+          "rejected_present": 0,
+          "remove": {
+            "count": 48578169,
+            "max_ns": 146559,
+            "p50_ns": 1031,
+            "p999_ns": 12351,
+            "p99_ns": 5663
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            146473,
+            93814,
+            90427,
+            85047,
+            84988,
+            84776,
+            83908,
+            83703
+          ],
+          "removes": 48578169,
+          "round": 3,
+          "seconds": 30,
+          "seed": 370168579,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119183388250,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:head:r3",
+            "wall_s": 36.934,
+            "busy_cpus_since_prev": 3.43,
+            "own_busy_cpus": 3.41,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:head:r3",
+            "load1": 3.52
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003448567,
+          "insert": {
+            "count": 49045872,
+            "max_ns": 94143,
+            "p50_ns": 389,
+            "p999_ns": 9591,
+            "p99_ns": 3009
+          },
+          "insert_top_ns": [
+            94114,
+            88267,
+            87452,
+            84519,
+            83837,
+            82260,
+            81343,
+            80043
+          ],
+          "inserts": 49045872,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791740416,
+          "mem_used_after": 573098272,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.028039997,
+          "rejected_present": 0,
+          "remove": {
+            "count": 49045872,
+            "max_ns": 107007,
+            "p50_ns": 1029,
+            "p999_ns": 12351,
+            "p99_ns": 5515
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            106985,
+            104231,
+            99159,
+            92565,
+            89319,
+            87945,
+            84953,
+            84879
+          ],
+          "removes": 49045872,
+          "round": 4,
+          "seconds": 30,
+          "seed": 370168580,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119864998941,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:head:r4",
+            "wall_s": 36.934,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:head:r4",
+            "load1": 3.37
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002404555,
+          "insert": {
+            "count": 48571557,
+            "max_ns": 102591,
+            "p50_ns": 399,
+            "p999_ns": 9655,
+            "p99_ns": 3129
+          },
+          "insert_top_ns": [
+            102546,
+            100606,
+            97282,
+            94483,
+            91754,
+            85019,
+            81008,
+            78963
+          ],
+          "inserts": 48571557,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 792133632,
+          "mem_used_after": 573128992,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.021389812,
+          "rejected_present": 0,
+          "remove": {
+            "count": 48571557,
+            "max_ns": 95487,
+            "p50_ns": 1044,
+            "p999_ns": 12815,
+            "p99_ns": 5599
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            95484,
+            91960,
+            89638,
+            85324,
+            83417,
+            83347,
+            82809,
+            81152
+          ],
+          "removes": 48571557,
+          "round": 5,
+          "seconds": 30,
+          "seed": 370168581,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119457719294,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:head:r5",
+            "wall_s": 36.918,
+            "busy_cpus_since_prev": 3.44,
+            "own_busy_cpus": 3.42,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:head:r5",
+            "load1": 3.36
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003552335,
+          "insert": {
+            "count": 48635043,
+            "max_ns": 106495,
+            "p50_ns": 401,
+            "p999_ns": 9695,
+            "p99_ns": 2973
+          },
+          "insert_top_ns": [
+            106468,
+            106299,
+            96850,
+            89535,
+            88133,
+            86829,
+            86032,
+            84561
+          ],
+          "inserts": 48635043,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791937024,
+          "mem_used_after": 573111168,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.022002275,
+          "rejected_present": 0,
+          "remove": {
+            "count": 48635043,
+            "max_ns": 115071,
+            "p50_ns": 1045,
+            "p999_ns": 12943,
+            "p99_ns": 5523
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            115016,
+            97857,
+            96774,
+            91475,
+            90251,
+            88078,
+            84901,
+            83757
+          ],
+          "removes": 48635043,
+          "round": 6,
+          "seconds": 30,
+          "seed": 370168582,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119880498183,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:head:r6",
+            "wall_s": 36.915,
+            "busy_cpus_since_prev": 3.45,
+            "own_busy_cpus": 3.43,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:head:r6",
+            "load1": 3.69
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003442658,
+          "insert": {
+            "count": 48628409,
+            "max_ns": 94591,
+            "p50_ns": 388,
+            "p999_ns": 9615,
+            "p99_ns": 3455
+          },
+          "insert_top_ns": [
+            94529,
+            89042,
+            86466,
+            82634,
+            82368,
+            82358,
+            82146,
+            81444
+          ],
+          "inserts": 48628409,
+          "keys": 10000000,
+          "len_after": 10000000,
+          "len_before": 10000000,
+          "max_rss_bytes": 791740416,
+          "mem_used_after": 573108256,
+          "mem_used_before": 545463904,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 4.029309419,
+          "rejected_present": 0,
+          "remove": {
+            "count": 48628409,
+            "max_ns": 112511,
+            "p50_ns": 1028,
+            "p999_ns": 12543,
+            "p99_ns": 5719
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            112510,
+            106663,
+            93765,
+            91374,
+            88120,
+            87483,
+            87334,
+            87288
+          ],
+          "removes": 48628409,
+          "round": 7,
+          "seconds": 30,
+          "seed": 370168583,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119095323768,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N10000000:W4:T1000ms:churn:head:r7",
+            "wall_s": 36.939,
+            "busy_cpus_since_prev": 3.43,
+            "own_busy_cpus": 3.41,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N10000000:W4:T1000ms:churn:head:r7",
+            "load1": 3.51
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:short:N10000000:W4:T1000ms:churn:head:r0",
+        "wall_s": 36.925,
+        "busy_cpus_since_prev": 3.44,
+        "own_busy_cpus": 3.42,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "short:N20000000:W4:T1000ms:churn",
+      "shape": "short",
+      "keys": 20000000,
+      "writers": 4,
+      "period_ms": 1000,
+      "workload": "churn",
+      "gated": true,
+      "arm": "none",
+      "build": "head",
+      "rounds_raw": [
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002684086,
+          "insert": {
+            "count": 49330189,
+            "max_ns": 3614719,
+            "p50_ns": 369,
+            "p999_ns": 9287,
+            "p99_ns": 2673
+          },
+          "insert_top_ns": [
+            3612738,
+            3609039,
+            3485699,
+            1091769,
+            818827,
+            137839,
+            102951,
+            86180
+          ],
+          "inserts": 49330189,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1511718912,
+          "mem_used_after": 1118697760,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.361057676,
+          "rejected_present": 0,
+          "remove": {
+            "count": 49330189,
+            "max_ns": 943103,
+            "p50_ns": 1018,
+            "p999_ns": 12335,
+            "p99_ns": 5359
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            942600,
+            90078,
+            79959,
+            79514,
+            61435,
+            60949,
+            60495,
+            57724
+          ],
+          "removes": 49330189,
+          "round": 0,
+          "seconds": 30,
+          "seed": 370168576,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119655370190,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:head:r0",
+            "wall_s": 44.312,
+            "busy_cpus_since_prev": 3.04,
+            "own_busy_cpus": 3.02,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:head:r0",
+            "load1": 3.13
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003365558,
+          "insert": {
+            "count": 48721690,
+            "max_ns": 83135,
+            "p50_ns": 384,
+            "p999_ns": 9447,
+            "p99_ns": 2749
+          },
+          "insert_top_ns": [
+            83099,
+            80843,
+            78960,
+            73332,
+            71470,
+            67346,
+            50951,
+            49013
+          ],
+          "inserts": 48721690,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1510932480,
+          "mem_used_after": 1118696976,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.369109581,
+          "rejected_present": 0,
+          "remove": {
+            "count": 48721690,
+            "max_ns": 82815,
+            "p50_ns": 1042,
+            "p999_ns": 12223,
+            "p99_ns": 5459
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            82779,
+            72661,
+            70845,
+            65001,
+            64645,
+            57988,
+            55431,
+            53035
+          ],
+          "removes": 48721690,
+          "round": 1,
+          "seconds": 30,
+          "seed": 370168577,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119592860450,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:head:r1",
+            "wall_s": 44.301,
+            "busy_cpus_since_prev": 3.04,
+            "own_busy_cpus": 3.02,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:head:r1",
+            "load1": 3.42
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003545961,
+          "insert": {
+            "count": 49261796,
+            "max_ns": 52223,
+            "p50_ns": 389,
+            "p999_ns": 9239,
+            "p99_ns": 2511
+          },
+          "insert_top_ns": [
+            52200,
+            51418,
+            51156,
+            50339,
+            49402,
+            49283,
+            49167,
+            48228
+          ],
+          "inserts": 49261796,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1511718912,
+          "mem_used_after": 1118695952,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.354053968,
+          "rejected_present": 0,
+          "remove": {
+            "count": 49261796,
+            "max_ns": 137471,
+            "p50_ns": 1034,
+            "p999_ns": 12231,
+            "p99_ns": 5303
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            137411,
+            85701,
+            81270,
+            71273,
+            70230,
+            53755,
+            51666,
+            50884
+          ],
+          "removes": 49261796,
+          "round": 2,
+          "seconds": 30,
+          "seed": 370168578,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119887192063,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:head:r2",
+            "wall_s": 44.288,
+            "busy_cpus_since_prev": 3.05,
+            "own_busy_cpus": 3.03,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:head:r2",
+            "load1": 3.28
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003465167,
+          "insert": {
+            "count": 49219811,
+            "max_ns": 112319,
+            "p50_ns": 383,
+            "p999_ns": 9391,
+            "p99_ns": 2611
+          },
+          "insert_top_ns": [
+            112276,
+            61560,
+            54061,
+            45872,
+            45149,
+            44937,
+            44852,
+            43023
+          ],
+          "inserts": 49219811,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1511718912,
+          "mem_used_after": 1118693600,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.354806643,
+          "rejected_present": 0,
+          "remove": {
+            "count": 49219811,
+            "max_ns": 118015,
+            "p50_ns": 1036,
+            "p999_ns": 12135,
+            "p99_ns": 5383
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            118011,
+            108957,
+            107955,
+            86541,
+            79510,
+            60154,
+            56756,
+            52938
+          ],
+          "removes": 49219811,
+          "round": 3,
+          "seconds": 30,
+          "seed": 370168579,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119892957375,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:head:r3",
+            "wall_s": 44.279,
+            "busy_cpus_since_prev": 3.05,
+            "own_busy_cpus": 3.03,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:head:r3",
+            "load1": 3.46
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003524714,
+          "insert": {
+            "count": 49383742,
+            "max_ns": 90879,
+            "p50_ns": 370,
+            "p999_ns": 9311,
+            "p99_ns": 2629
+          },
+          "insert_top_ns": [
+            90838,
+            88369,
+            61319,
+            53331,
+            46373,
+            45790,
+            45786,
+            45295
+          ],
+          "inserts": 49383742,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1511915520,
+          "mem_used_after": 1118707856,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.356306243,
+          "rejected_present": 0,
+          "remove": {
+            "count": 49383742,
+            "max_ns": 104447,
+            "p50_ns": 1020,
+            "p999_ns": 12247,
+            "p99_ns": 5327
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            104409,
+            99987,
+            85819,
+            73518,
+            52098,
+            49745,
+            49595,
+            49002
+          ],
+          "removes": 49383742,
+          "round": 4,
+          "seconds": 30,
+          "seed": 370168580,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119903502334,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:head:r4",
+            "wall_s": 44.283,
+            "busy_cpus_since_prev": 3.05,
+            "own_busy_cpus": 3.03,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:head:r4",
+            "load1": 2.99
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003555056,
+          "insert": {
+            "count": 48879402,
+            "max_ns": 88895,
+            "p50_ns": 385,
+            "p999_ns": 9391,
+            "p99_ns": 2741
+          },
+          "insert_top_ns": [
+            88886,
+            48955,
+            44914,
+            42793,
+            42732,
+            42464,
+            42345,
+            41417
+          ],
+          "inserts": 48879402,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1511522304,
+          "mem_used_after": 1118697152,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.356502203,
+          "rejected_present": 0,
+          "remove": {
+            "count": 48879402,
+            "max_ns": 102335,
+            "p50_ns": 1040,
+            "p999_ns": 12231,
+            "p99_ns": 5435
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            102310,
+            82863,
+            82305,
+            79218,
+            78119,
+            72183,
+            69004,
+            49177
+          ],
+          "removes": 48879402,
+          "round": 5,
+          "seconds": 30,
+          "seed": 370168581,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119582783000,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:head:r5",
+            "wall_s": 44.297,
+            "busy_cpus_since_prev": 3.04,
+            "own_busy_cpus": 3.02,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:head:r5",
+            "load1": 3.41
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003437551,
+          "insert": {
+            "count": 48272792,
+            "max_ns": 108415,
+            "p50_ns": 389,
+            "p999_ns": 9471,
+            "p99_ns": 2731
+          },
+          "insert_top_ns": [
+            108366,
+            93363,
+            92267,
+            79190,
+            59758,
+            50973,
+            47993,
+            44900
+          ],
+          "inserts": 48272792,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1510539264,
+          "mem_used_after": 1118691504,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.356437337,
+          "rejected_present": 0,
+          "remove": {
+            "count": 48272792,
+            "max_ns": 118655,
+            "p50_ns": 1046,
+            "p999_ns": 12223,
+            "p99_ns": 5443
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            118611,
+            89825,
+            81342,
+            79522,
+            77685,
+            76492,
+            64318,
+            49324
+          ],
+          "removes": 48272792,
+          "round": 6,
+          "seconds": 30,
+          "seed": 370168582,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119635342198,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:head:r6",
+            "wall_s": 44.287,
+            "busy_cpus_since_prev": 3.04,
+            "own_busy_cpus": 3.02,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:head:r6",
+            "load1": 3.09
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.003534131,
+          "insert": {
+            "count": 49142586,
+            "max_ns": 80191,
+            "p50_ns": 383,
+            "p999_ns": 9351,
+            "p99_ns": 2705
+          },
+          "insert_top_ns": [
+            80149,
+            77679,
+            61572,
+            60948,
+            46917,
+            46698,
+            46658,
+            45223
+          ],
+          "inserts": 49142586,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1511522304,
+          "mem_used_after": 1118691152,
+          "mem_used_before": 1081392224,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 8.345448068,
+          "rejected_present": 0,
+          "remove": {
+            "count": 49142586,
+            "max_ns": 93823,
+            "p50_ns": 1034,
+            "p999_ns": 12119,
+            "p99_ns": 5411
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            93770,
+            91835,
+            86282,
+            84065,
+            82613,
+            81249,
+            80798,
+            79774
+          ],
+          "removes": 49142586,
+          "round": 7,
+          "seconds": 30,
+          "seed": 370168583,
+          "shape": "short",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119673806683,
+          "writers": 4,
+          "load": {
+            "since": "cell:short:N20000000:W4:T1000ms:churn:head:r7",
+            "wall_s": 44.277,
+            "busy_cpus_since_prev": 3.04,
+            "own_busy_cpus": 3.03,
+            "foreign_busy_cpus": 0.01
+          },
+          "load_start": {
+            "label": "cell:short:N20000000:W4:T1000ms:churn:head:r7",
+            "load1": 3.37
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:short:N20000000:W4:T1000ms:churn:head:r0",
+        "wall_s": 44.312,
+        "busy_cpus_since_prev": 3.04,
+        "own_busy_cpus": 3.02,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "routes:N20000000:W4:T1000ms:churn",
+      "shape": "routes",
+      "keys": 20000000,
+      "writers": 4,
+      "period_ms": 1000,
+      "workload": "churn",
+      "gated": false,
+      "arm": "none",
+      "build": "head",
+      "rounds_raw": [
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002116232,
+          "insert": {
+            "count": 91217106,
+            "max_ns": 129471,
+            "p50_ns": 202,
+            "p999_ns": 3543,
+            "p99_ns": 1649
+          },
+          "insert_top_ns": [
+            129460,
+            96383,
+            91352,
+            88005,
+            84656,
+            84372,
+            82070,
+            81895
+          ],
+          "inserts": 91217106,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1899233280,
+          "mem_used_after": 480445120,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.1351705069999998,
+          "rejected_present": 0,
+          "remove": {
+            "count": 91217106,
+            "max_ns": 119231,
+            "p50_ns": 243,
+            "p999_ns": 3241,
+            "p99_ns": 1613
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            119206,
+            113521,
+            102231,
+            102214,
+            89429,
+            84908,
+            83461,
+            83164
+          ],
+          "removes": 91217106,
+          "round": 0,
+          "seconds": 30,
+          "seed": 370168576,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119722024752,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r0",
+            "wall_s": 34.487,
+            "busy_cpus_since_prev": 3.62,
+            "own_busy_cpus": 3.6,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r0",
+            "load1": 3.4
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.001872776,
+          "insert": {
+            "count": 89704618,
+            "max_ns": 126207,
+            "p50_ns": 203,
+            "p999_ns": 3627,
+            "p99_ns": 1684
+          },
+          "insert_top_ns": [
+            126179,
+            110918,
+            109849,
+            109039,
+            101101,
+            100513,
+            99787,
+            98868
+          ],
+          "inserts": 89704618,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1985347584,
+          "mem_used_after": 480445072,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.139296759,
+          "rejected_present": 0,
+          "remove": {
+            "count": 89704618,
+            "max_ns": 170495,
+            "p50_ns": 242,
+            "p999_ns": 3359,
+            "p99_ns": 1642
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            170394,
+            159338,
+            142328,
+            122242,
+            106898,
+            105998,
+            98074,
+            97984
+          ],
+          "removes": 89704618,
+          "round": 1,
+          "seconds": 30,
+          "seed": 370168577,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119683147085,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r1",
+            "wall_s": 34.511,
+            "busy_cpus_since_prev": 3.62,
+            "own_busy_cpus": 3.6,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r1",
+            "load1": 3.16
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002254916,
+          "insert": {
+            "count": 89104181,
+            "max_ns": 93055,
+            "p50_ns": 203,
+            "p999_ns": 3567,
+            "p99_ns": 1616
+          },
+          "insert_top_ns": [
+            93002,
+            92746,
+            90517,
+            83034,
+            81824,
+            81397,
+            80808,
+            80767
+          ],
+          "inserts": 89104181,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1311178752,
+          "mem_used_after": 480445088,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.126089271,
+          "rejected_present": 0,
+          "remove": {
+            "count": 89104181,
+            "max_ns": 97599,
+            "p50_ns": 245,
+            "p999_ns": 3155,
+            "p99_ns": 1574
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            97589,
+            93753,
+            92191,
+            88085,
+            83319,
+            82607,
+            82124,
+            81579
+          ],
+          "removes": 89104181,
+          "round": 2,
+          "seconds": 30,
+          "seed": 370168578,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119194970276,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r2",
+            "wall_s": 34.044,
+            "busy_cpus_since_prev": 3.64,
+            "own_busy_cpus": 3.62,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r2",
+            "load1": 3.47
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.001869158,
+          "insert": {
+            "count": 89089186,
+            "max_ns": 186111,
+            "p50_ns": 204,
+            "p999_ns": 3519,
+            "p99_ns": 1651
+          },
+          "insert_top_ns": [
+            186098,
+            177631,
+            171036,
+            155327,
+            152083,
+            150806,
+            148133,
+            147679
+          ],
+          "inserts": 89089186,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1803288576,
+          "mem_used_after": 480445200,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.12515383,
+          "rejected_present": 0,
+          "remove": {
+            "count": 89089186,
+            "max_ns": 250623,
+            "p50_ns": 244,
+            "p999_ns": 3167,
+            "p99_ns": 1609
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            250587,
+            205680,
+            151394,
+            147115,
+            132663,
+            129619,
+            129527,
+            129421
+          ],
+          "removes": 89089186,
+          "round": 3,
+          "seconds": 30,
+          "seed": 370168579,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119703927518,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r3",
+            "wall_s": 34.562,
+            "busy_cpus_since_prev": 3.62,
+            "own_busy_cpus": 3.6,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r3",
+            "load1": 3.2
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.001880292,
+          "insert": {
+            "count": 91359538,
+            "max_ns": 140415,
+            "p50_ns": 199,
+            "p999_ns": 3549,
+            "p99_ns": 1606
+          },
+          "insert_top_ns": [
+            140321,
+            136757,
+            136411,
+            135676,
+            134175,
+            121319,
+            96087,
+            95324
+          ],
+          "inserts": 91359538,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1649344512,
+          "mem_used_after": 480445120,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.124813562,
+          "rejected_present": 0,
+          "remove": {
+            "count": 91359538,
+            "max_ns": 133247,
+            "p50_ns": 241,
+            "p999_ns": 3231,
+            "p99_ns": 1570
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            133152,
+            115310,
+            89521,
+            87484,
+            85630,
+            85157,
+            85147,
+            84878
+          ],
+          "removes": 91359538,
+          "round": 4,
+          "seconds": 30,
+          "seed": 370168580,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119707709064,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r4",
+            "wall_s": 34.281,
+            "busy_cpus_since_prev": 3.64,
+            "own_busy_cpus": 3.62,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r4",
+            "load1": 3.36
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.001965567,
+          "insert": {
+            "count": 89511154,
+            "max_ns": 152831,
+            "p50_ns": 204,
+            "p999_ns": 3941,
+            "p99_ns": 1771
+          },
+          "insert_top_ns": [
+            152782,
+            148441,
+            147477,
+            144873,
+            143951,
+            141042,
+            138590,
+            136734
+          ],
+          "inserts": 89511154,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 2616066048,
+          "mem_used_after": 480444880,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.12500473,
+          "rejected_present": 0,
+          "remove": {
+            "count": 89511154,
+            "max_ns": 198655,
+            "p50_ns": 245,
+            "p999_ns": 3713,
+            "p99_ns": 1730
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            198580,
+            157348,
+            154330,
+            154215,
+            153032,
+            152720,
+            148431,
+            147390
+          ],
+          "removes": 89511154,
+          "round": 5,
+          "seconds": 30,
+          "seed": 370168581,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119075905802,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r5",
+            "wall_s": 34.878,
+            "busy_cpus_since_prev": 3.58,
+            "own_busy_cpus": 3.55,
+            "foreign_busy_cpus": 0.03
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r5",
+            "load1": 3.14
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.002209381,
+          "insert": {
+            "count": 92664748,
+            "max_ns": 147839,
+            "p50_ns": 200,
+            "p999_ns": 3461,
+            "p99_ns": 1595
+          },
+          "insert_top_ns": [
+            147808,
+            140776,
+            127726,
+            100315,
+            98072,
+            92932,
+            90498,
+            85949
+          ],
+          "inserts": 92664748,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1353842688,
+          "mem_used_after": 480445216,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.128099906,
+          "rejected_present": 0,
+          "remove": {
+            "count": 92664748,
+            "max_ns": 134015,
+            "p50_ns": 242,
+            "p999_ns": 3089,
+            "p99_ns": 1562
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            133944,
+            121299,
+            103743,
+            97426,
+            89010,
+            87796,
+            87381,
+            83255
+          ],
+          "removes": 92664748,
+          "round": 6,
+          "seconds": 30,
+          "seed": 370168582,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119753153142,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r6",
+            "wall_s": 34.06,
+            "busy_cpus_since_prev": 3.66,
+            "own_busy_cpus": 3.64,
+            "foreign_busy_cpus": 0.02
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r6",
+            "load1": 3.59
+          }
+        },
+        {
+          "arm": "none",
+          "cpu_affinity": "0-15",
+          "elapsed_s": 30.001998203,
+          "insert": {
+            "count": 93305904,
+            "max_ns": 137343,
+            "p50_ns": 199,
+            "p999_ns": 3529,
+            "p99_ns": 1593
+          },
+          "insert_top_ns": [
+            137248,
+            135784,
+            134763,
+            128428,
+            101091,
+            99153,
+            98356,
+            89509
+          ],
+          "inserts": 93305904,
+          "keys": 20000000,
+          "len_after": 20000000,
+          "len_before": 20000000,
+          "max_rss_bytes": 1529413632,
+          "mem_used_after": 480445232,
+          "mem_used_before": 481595696,
+          "mode": "run",
+          "occ_stats": false,
+          "overwrites": 0,
+          "period_ms": 1000,
+          "placement": {
+            "poller": 0,
+            "writers": [
+              2,
+              4,
+              6,
+              8
+            ]
+          },
+          "polls": [],
+          "polls_fields": [
+            "at_ns",
+            "duration_ns",
+            "value"
+          ],
+          "prefill_collisions": 0,
+          "prefill_s": 3.135532113,
+          "rejected_present": 0,
+          "remove": {
+            "count": 93305904,
+            "max_ns": 140927,
+            "p50_ns": 242,
+            "p999_ns": 3203,
+            "p99_ns": 1566
+          },
+          "remove_missed": 0,
+          "remove_top_ns": [
+            140834,
+            127271,
+            120869,
+            90793,
+            87321,
+            84844,
+            83883,
+            82052
+          ],
+          "removes": 93305904,
+          "round": 7,
+          "seconds": 30,
+          "seed": 370168583,
+          "shape": "routes",
+          "workload": "churn",
+          "workload_id": "strmap_poll_stall",
+          "writer_cpu_ns": 119780139353,
+          "writers": 4,
+          "load": {
+            "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r7",
+            "wall_s": 34.337,
+            "busy_cpus_since_prev": 3.64,
+            "own_busy_cpus": 3.61,
+            "foreign_busy_cpus": 0.03
+          },
+          "load_start": {
+            "label": "cell:routes:N20000000:W4:T1000ms:churn:head:r7",
+            "load1": 2.99
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:routes:N20000000:W4:T1000ms:churn:head:r5",
+        "wall_s": 34.878,
+        "busy_cpus_since_prev": 3.58,
+        "own_busy_cpus": 3.55,
+        "foreign_busy_cpus": 0.03
+      }
+    }
+  ],
+  "verdicts": {
+    "G53_wall": {
+      "preregistration": "concurrency METHODOLOGY \u00a753",
+      "floor": 1.1,
+      "no_loss": 1.0,
+      "statistic": "BCa 95% interval of the per-round churn throughput ratio head / base",
+      "cells": {
+        "short:N10000000:W4:T1000ms:churn": {
+          "gated": true,
+          "ratio": {
+            "mean": 1.5729246398906573,
+            "ci_lower": 1.565495168204582,
+            "ci_upper": 1.581570415915688,
+            "ci_method": "bca",
+            "median": 1.5715895727301534,
+            "n": 8
+          },
+          "base_ops_s": {
+            "mean": 2065547.942110769,
+            "ci_lower": 2050641.9768998458,
+            "ci_upper": 2075276.093270415,
+            "ci_method": "bca",
+            "median": 2071998.742927765,
+            "n": 8
+          },
+          "head_ops_s": {
+            "mean": 3248757.7905367697,
+            "ci_lower": 3242436.268895549,
+            "ci_upper": 3258233.129314392,
+            "ci_method": "bca",
+            "median": 3244781.5353729497,
+            "n": 8
+          },
+          "outcome": "PASS"
+        },
+        "short:N20000000:W4:T1000ms:churn": {
+          "gated": true,
+          "ratio": {
+            "mean": 1.3844141522433047,
+            "ci_lower": 1.3648453849271662,
+            "ci_upper": 1.4222432239721698,
+            "ci_method": "bca",
+            "median": 1.3669076021675348,
+            "n": 8
+          },
+          "base_ops_s": {
+            "mean": 2362275.1673175893,
+            "ci_lower": 2306025.6627468267,
+            "ci_upper": 2398979.860357558,
+            "ci_method": "bca",
+            "median": 2392774.7315782206,
+            "n": 8
+          },
+          "head_ops_s": {
+            "mean": 3268064.256826109,
+            "ci_lower": 3248166.3953782744,
+            "ci_upper": 3281008.3899473837,
+            "ci_method": "bca",
+            "median": 3278364.1321708397,
+            "n": 8
+          },
+          "outcome": "PASS"
+        },
+        "routes:N20000000:W4:T1000ms:churn": {
+          "gated": false,
+          "ratio": {
+            "mean": 0.9851337444490961,
+            "ci_lower": 0.9618299028223362,
+            "ci_upper": 1.0170025499949844,
+            "ci_method": "bca",
+            "median": 0.9698040939656967,
+            "n": 8
+          },
+          "base_ops_s": {
+            "mean": 6146829.235821908,
+            "ci_lower": 6014179.186710285,
+            "ci_upper": 6237719.107785682,
+            "ci_method": "bca",
+            "median": 6206294.173096707,
+            "n": 8
+          },
+          "head_ops_s": {
+            "mean": 6049229.381470246,
+            "ci_lower": 5986094.131554056,
+            "ci_upper": 6126313.78879182,
+            "ci_method": "bca",
+            "median": 6030323.0120982025,
+            "n": 8
+          }
+        }
+      },
+      "voids": [],
+      "verdict": "PASS"
+    }
+  }
+}

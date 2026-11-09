@@ -206,14 +206,80 @@ fn emptied_cases<T: Tree>(name: &str) {
     );
     t.check();
 
+    // Above the floor, the emptied child leaves the `BranchB` optimistically
+    // (Refs #1610): no fallback, and the branch keeps its form.
     let t = T::build(&keys);
     let d = delta(|| assert!(t.rm((0x42 << 56) | (10 << 8) | 1)));
+    assert_none(
+        &format!("{name}: one-key immediate under a BranchB of 40 digits"),
+        &d,
+    );
+    assert_eq!(t.counts().branch_b, 1, "{name}: the BranchB keeps its form");
+    assert!(
+        !t.rm((0x42 << 56) | (10 << 8) | 1),
+        "{name}: the key is gone"
+    );
+    t.check();
+
+    // At the floor it still falls back: a `BranchB` of eight digits takes one
+    // optimistic emptying down to seven, and the next, which would leave six
+    // (`BRANCHB_TO_L7_DOWN`), falls back for the exclusive B → L7 demotion.
+    // Each child holds `FLOOR_CHILD_KEYS` keys; only the removal of a child's
+    // last key empties it.
+    let t = T::build(&floor_keys());
+    assert_eq!(
+        t.counts().branch_b,
+        1,
+        "{name}: fixture needs a BranchB: {:?}",
+        t.counts()
+    );
+    for j in 1..=FLOOR_CHILD_KEYS {
+        let d = delta(|| assert!(t.rm(floor_key(7, j))));
+        assert_none(
+            &format!("{name}: digit 7's key {j}, eight digits to seven"),
+            &d,
+        );
+    }
+    assert_eq!(
+        t.counts().branch_b,
+        1,
+        "{name}: seven digits stay a BranchB"
+    );
+    t.check();
+    for j in 1..FLOOR_CHILD_KEYS {
+        let d = delta(|| assert!(t.rm(floor_key(6, j))));
+        assert_none(&format!("{name}: digit 6's key {j}"), &d);
+    }
+    let d = delta(|| assert!(t.rm(floor_key(6, FLOOR_CHILD_KEYS))));
     assert_one(
-        &format!("{name}: one-key immediate under BranchB"),
+        &format!("{name}: the last key under a BranchB at its floor"),
         &d,
         Stat::BranchSplitRemoveEmptiedBitmap,
     );
+    assert_eq!(
+        t.counts().branch_b,
+        0,
+        "{name}: the exclusive path demoted the BranchB"
+    );
     t.check();
+}
+
+/// Keys per child in [`floor_keys`]: eight children of five keys are more
+/// than one leaf holds, so the eight become a `BranchB`.
+const FLOOR_CHILD_KEYS: u64 = 5;
+
+fn floor_key(d: u64, j: u64) -> u64 {
+    (0x42 << 56) | (d << 8) | j
+}
+
+/// The top digits of [`emptied_keys`] with eight children under `0x42`: a
+/// `BranchB` one digit above the count a removal may leave optimistically.
+/// The 40 `0x06` keys of [`prefix_keys`] keep the root a tree.
+fn floor_keys() -> Vec<u64> {
+    let mut keys: Vec<u64> = (1..=5u64).map(|i| (i << 56) | 1).collect();
+    keys.extend((0..40u64).map(narrow_key));
+    keys.extend((0..8u64).flat_map(|d| (1..=FLOOR_CHILD_KEYS).map(move |j| floor_key(d, j))));
+    keys
 }
 
 /// Prefix mismatch at a narrow bitmap leaf and at the narrow linear leaf it

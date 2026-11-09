@@ -354,14 +354,19 @@ fn phased(phases: &[Vec<SetOp>]) -> Vec<Step> {
 /// remove the three, which condenses the tree to a root leaf; both read.
 /// Twice, under two free readers.
 pub fn root_leaf() -> History {
-    let key = |i: u64| (i + 1) << 32;
-    let prepop: Vec<u64> = (0..ROOT_LEAF_CAP as u64 - 1).map(key).collect();
-    // Each written key is alone under its own digit of the top branch, so
-    // its removal empties a child. That removal takes the exclusive path
-    // (an optimistic one never condenses the root), and the exclusive path
-    // is what returns a tree below the cap to a root leaf.
-    let (a, b, c) = (key(35), key(36), key(37));
-    let probes = [a, b, c, key(0), key(15), key(29), key(40)];
+    // The prefill shares one top digit; each written key is alone under a
+    // top digit of its own. The inserts make the root a tree whose top
+    // branch is linear (four digits), so a written key's removal empties a
+    // child of a linear branch. That removal takes the exclusive path (an
+    // optimistic one never condenses the root), and the exclusive path is
+    // what returns a tree below the cap to a root leaf. Under a `BranchB`
+    // above its floor the child would leave optimistically instead
+    // (Refs #1610), and the tree would stay a tree.
+    let pre = |i: u64| (1 << 56) | ((i + 1) << 8);
+    let solo = |d: u64| d << 56;
+    let prepop: Vec<u64> = (0..ROOT_LEAF_CAP as u64 - 1).map(pre).collect();
+    let (a, b, c) = (solo(35), solo(36), solo(37));
+    let probes = [a, b, c, pre(0), pre(15), pre(29), solo(40)];
     let mut w0 = Vec::new();
     let mut w1 = Vec::new();
     for _ in 0..2 {

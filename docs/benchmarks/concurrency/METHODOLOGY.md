@@ -8879,3 +8879,182 @@ The table gives `paired_t_ratio`: per-round T_head(W) / T_base(W), BCa 95%, n = 
   - Wall clock at W = 1: about +0.3–0.4%, not separable from 1.0 in both runs on this instrument.
   - A further attempt needs either a larger cut or a more sensitive instrument, since §50.4 already sized this one at its detection limit. The larger cut is gating `live_allocs` off the hot path, an API removal that is the maintainer's decision (§50.1).
 - **Separable from the lever, also reverted with it:** the `debug_assert!` on a negative derived live count. `NodeAlloc::live_allocs()` on `main` still clamps a negative per-shard sum to 0 without an assertion (AGENTS.md §8.22.3). That is a correctness item of its own, not a performance one.
+
+## 53. Pre-registration for #1610 — an optimistic removal takes an emptied child out of a `BranchB` above its floor (appended 2026-11-08, locked before any measurement of the change build; §50 and §51 are claimed by open pull requests, so this is the next number after them, and may be renumbered at merge)
+
+### 53.1 The change
+
+§52.8 measured the cause. On `short` keys every `Remove` fallback of the churn cell is a child emptied under a `BranchB`, about 21% of removals at N = 2·10⁷ and about 38–40% at 10⁷. Those removals took the serialised path because the optimistic removal had no form for them.
+
+**What changes.** A removal that would empty a child of a `BranchB` holding more than `BRANCHB_TO_L7_DOWN + 1` digits takes the digit out of the branch in place (`sync::empty_branch_b_slot`, guarded by `sync::branch_b_takes_empty`):
+1. Read the subexpanse's population. If the removal crosses a capacity class (`leaf::cap_class`), allocate the smaller subarray before the lock, as the optimistic insert into a `BranchB` does in the other direction.
+2. Lock the branch by compare-exchange from the descent's version snapshot. That validates every pre-lock read: the digit count, the population, the subarray pointer and the rank.
+3. Re-check the slot, then clear the digit's bit and remove its edge from the subarray. Depending on the population, the edges shift down in place, move into the smaller array, or the subarray is freed because this edge was its last. Store the population, and unlock with the version advanced.
+4. Retire the replaced subarray through EBR. The caller frees the emptied child and marks its top digit dirty, exactly as after `sync::null_branch_u_slot`.
+
+The branch keeps its form, and an optimistic writer still never changes the form of the branch it locks. A removal that would leave the branch at the floor still falls back for the exclusive B → L7 demotion. One predicate, `mutate::branch_b_below_floor`, now decides the floor for the optimistic test, for both exclusive walks' demotions and for the validator. The exclusive walks change in nothing else.
+
+**Where.** The six sites that fall back on an emptied child: three in `olc_remove_set`, three in `olc_remove_map_body!` (a one-key bitmap leaf, a one-key linear leaf and a one-key immediate in each).
+
+**No new entry point, so no `by_mode!` twin.** The change is a branch inside the existing optimistic walks, not a new mutation entry point (AGENTS.md §2.1 invariant 5). Every caller reaches it through those walks:
+- `SyncExpanseSet::remove` → `olc_remove_set`;
+- `SyncExpanseMap::remove` → `olc_remove_map`;
+- the conditional removal → `olc_cas_remove_map`;
+- the bytes and blob maps' bucket removals → `olc_cas_remove_bucket_map` and `olc_cas_remove_bucket_cas_map`;
+- `SyncExpanseStrMap`'s sub-maps → `olc_remove_map` through their `OlcHost`.
+
+All of these instantiate `olc_remove_map_body!` (`sync.rs`). The flat walks and every plain-tree path are untouched.
+
+**A consequence the gates do not cover.** The exclusive path is what condenses a tree that falls to `ROOT_LEAF_CAP` keys back into a root leaf. A drain whose last removals now go through a `BranchB` above its floor leaves the tree a tree until a later exclusive operation, as optimistic `BranchU` removals already did. The set's ordered-read root-leaf history (`tests/set_ordered_histories`) relied on those removals falling back. It is re-keyed so its written keys sit under a linear top branch, which keeps its registered crossing in both directions.
+
+### 53.2 The profile (measured before this lock)
+
+`results/branchb_empty_baseline_callgrind_d882511c.json` was produced at the merge base `d882511c` by x86_64 Callgrind in Docker on the development laptop (valgrind 3.24.0, rustc 1.99.1). It holds every `instructions` and `rmw_instructions` arm's total, plus a census build of the same tree: at each of the six sites, under a `BranchB` parent, one of four out-of-line marker functions counts the removal as at the floor, or above it in place, across a class, or emptying its subexpanse. Absolute counts sit below CI's; the gate's percentages are CI's.
+
+**The arms that reach the change.** Fourteen of 290 arms reach it; the table in §53.3 lists them. The drain arms `sync_map_remove/random` and `sync_set_remove/random` switch 33,177 of 50,000 removals each:
+- 21,587 in place;
+- 10,809 across a class;
+- 781 emptying their subexpanse;
+- 256 at the floor, which stay fallbacks.
+
+The strmap's own Callgrind arms at 50,000 keys barely reach it (`sync_strmap_remove/routes`: 93 removals). The §52 cell is reached only at millions of keys, which is why G53-wall and G53-share exist.
+
+**What a fallback costs, on `sync_map_remove/random`.**
+- `SyncExpanseMap::remove_tree` has 12,456,713 Ir of its own. The churn arm, whose 50,000 removals are all optimistic, has 6,553,124. The difference over 34,940 fallbacks is **168.96 Ir per fallback** for the serialised wrapper.
+- The exclusive `map_remove_occ` costs **664.42 Ir per call** (23,215,117 Ir over 34,940 calls).
+- In the same profile `Collector::retire` costs 136–138 Ir per call (3,199,877 Ir over 23,498 calls from the exclusive remove; 2,004,000 over 14,507 from the optimistic one), and `pop_freelist` 39–46 per call.
+
+### 53.3 G53-instr (CI, deterministic)
+
+**Bound** (`strmap_stall_bounds.empty_b_bounds`, self-tested; `--empty-b` prints the table). Per arm, each switched removal saves the wrapper's instructions and the arm's exclusive remove per call, and costs the new path's:
+- saving per switch ∈ [E + 100 − 450, E + 250 − 100], where E is the arm's exclusive remove Ir per call (`excl_ir / excl_calls`);
+- the wrapper range `EB_WRAP_IR` = [100, 250] brackets the one measured value, 168.96 on the map. The set's and the bytes and blob maps' wrappers share the fallback path but were not measured apart;
+- the new-path range `EB_HELPER_IR` = [100, 450] covers the lock, the bitmap and subarray stores, the shift or copy, the closure, the dirty mark, and the child's and old subarray's retire and any allocation. The retires and allocations sit inside E too, which is why the range runs as high as it does;
+- the term, Σ over switched removals, is widened on both sides by max(0.1% of the base, 500 Ir), as §47.11's;
+- every arm the census does not reach is **No change**: ± that slack.
+
+| harness | arm | base | switched | at floor | exclusive Ir/call | bound low | bound high |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `instructions` | `sync_blobmap_churn/random` | 134,831,094 | 23,297 | 0 | 523.99 | -11.7457% | -2.9063% |
+| `instructions` | `sync_blobmap_remove/random` | 64,588,488 | 33,177 | 256 | 626.87 | -40.0054% | -14.1220% |
+| `instructions` | `sync_bytesmap_churn/routes` | 296,935,431 | 23,317 | 0 | 515.52 | -5.3260% | -1.1998% |
+| `instructions` | `sync_bytesmap_remove/routes` | 181,698,385 | 33,180 | 256 | 627.71 | -14.3018% | -4.9713% |
+| `instructions` | `sync_map_count_after_write/one_top_byte` | 1,709,849,516 | 470 | 0 | 702.41 | -0.1234% | +0.0903% |
+| `instructions` | `sync_map_count_after_write/random` | 32,019,359 | 470 | 0 | 565.09 | -1.1497% | -0.2157% |
+| `instructions` | `sync_map_drain_floor/top` | 239,501 | 130 | 0 | 539.85 | -37.6538% | -10.0965% |
+| `instructions` | `sync_map_remove/random` | 62,253,474 | 33,177 | 256 | 664.43 | -43.5037% | -16.6569% |
+| `instructions` | `sync_map_write_twin/one_top_byte` | 2,039,435 | 470 | 0 | 702.41 | -19.7443% | -8.0215% |
+| `instructions` | `sync_map_write_twin/random` | 1,807,400 | 470 | 0 | 565.06 | -18.6947% | -5.4926% |
+| `instructions` | `sync_set_drain_floor/top` | 238,450 | 130 | 0 | 529.44 | -37.2521% | -9.5733% |
+| `instructions` | `sync_set_remove/random` | 52,946,172 | 33,177 | 256 | 589.81 | -46.4580% | -14.9272% |
+| `instructions` | `sync_strmap_remove/routes` | 85,555,642 | 93 | 31 | 931.83 | -0.2176% | +0.0368% |
+| `rmw_instructions` | `sync_bytesmap_cas_remove/routes` | 195,494,389 | 33,180 | 256 | 627.53 | -13.2965% | -4.6103% |
+
+(derived from the artifact above; local Callgrind at `d882511c`)
+
+**Instrument of record:** CI's `instruction-counts` job on the PR, its second `Baselines: |main_base` pass (head against merge base), for both harnesses.
+
+### 53.4 G53-wall (reference host)
+
+- **Cells.** The §52 churn cell (`--workload churn`, W = 4, D = 30 s, arm `none`, §44's pin and placement) on the default build:
+  - `short` at N = 10⁷ and 2·10⁷, which are gated;
+  - `routes` at N = 2·10⁷, a control that decides nothing.
+- **Design.** `strmap_poll_stall.py --plan 53 --base-ref <merge base>`, suite `strmap_branchb_remove_g53`.
+  - The base is built from a detached worktree of the merge base, carrying the head's harness.
+  - 8 rounds. Each (cell, build, round) is its own process. Within a cell the two builds run back to back, base first on even rounds and head first on odd rounds; cells rotate per round.
+- **Statistic.** Per round, churn throughput = (inserts + removals) / window, and the ratio head / base. BCa 95% interval over the 8 rounds (2,000 resamples, `ci_method` recorded).
+- **Verdict per gated cell:**
+  - `PASS` iff the ratio's lower bound ≥ **1.10**;
+  - `FAIL` iff its upper bound < **1.00**;
+  - `INTERMEDIATE` otherwise.
+- **Verdict per run:** `PASS` iff both gated cells pass, `FAIL` iff either fails. Two dispatches at one head. G53-wall is met only if both runs `PASS` (`docs/BENCHMARKING.md` rule 18).
+- **Why 1.10.** At 10⁷ about 39% of removals, and at 2·10⁷ about 21%, now leave the serialised path. Each such fallback took the fallback mutex, closed the writer gate and drained every writer, so it paused all four writers. A 10% gain is the smallest gain worth the change's complexity. It is set below what removing that path should give, so that a `PASS` does not depend on a prediction of the size.
+- **Voids.** §44.8's rules, plus §47's churn clauses (population moved by more than W, a removal that found no key, no removal) on every row of either build. A void gated cell voids the run. A void control is reported.
+
+### 53.5 G53-share (reference host, deterministic counts)
+
+The §52 sweep (`strmap_remove_split_g52`, its driver unchanged) is dispatched once at the head. On the `short` cells at N = 10⁷ and 2·10⁷, the share of removals that take the `Remove` fallback (`branch_split_remove / removes`) must have a BCa upper bound **≤ 0.001**, at both N.
+
+- **Why that bound.** At the base the share was about 0.38–0.40 and 0.21, all of it emptied children under `BranchB` (§52.8). A local single-threaded census of uniform short-key churn at N = 10⁷ and 2·10⁷ found none of those removals at a floor (development laptop, a temporary census build not committed). The change should leave essentially no `Remove` fallback on these cells.
+- **What it is for.** It shows the change reaches the cell's removals, independently of any timing.
+
+### 53.6 Falsifiers, and what follows each
+
+- **G53-share fails.** The change does not reach the §52 cell's removals. The engine change is reverted and the result recorded. G53-wall is not read.
+- **G53-wall `FAIL` in either run.** Removing the fallback made the shared map slower on the cell it targets. That is a negative: recorded here with its numbers and reverted (AGENTS.md §6).
+- **G53-wall `INTERMEDIATE`, or the two runs disagree.** Nothing is claimed for the wall clock. The change stands or falls on G53-instr and G53-share, and the maintainer decides.
+- **A moving arm outside its G53-instr bound.**
+  - **Above the bound (saves less):** attributed with a base-against-head `callgrind_annotate` diff before anything else.
+  - **Below it (saves more):** recorded as a departure.
+  - The bound does not move.
+- **A No-change arm outside ± the slack.** The change perturbed code it does not reach. The plain paths' disassembly is read (§2.1 invariant 5), and the arm is disclosed with the diff. Above the §6 review threshold it is a blocker until attributed.
+- **Plain paths.** `objdump -d -C` of the plain (non-OCC) walks, merge base against head, must show identical normalised bodies and no added `%fs:` reads. A difference is a falsifier of "the plain paths are untouched".
+
+### 53.7 Not predicted
+
+- The wall-clock ratio at other N.
+- The `routes` control's ratio. Its share of fallbacks was 0.56–0.59% and 40% of them were under a `BranchB`, so little change is expected, but nothing rests on it.
+- Throughput on the `occ-stats` build.
+- Memory, including the trees a drain no longer condenses.
+
+### 53.8 Silent constants, fixed here
+
+- **G53-instr:** `EB_WRAP_IR` = [100, 250], `EB_HELPER_IR` = [100, 450], the slack max(0.1%, 500 Ir), and the census at `d882511c`.
+- **G53-wall:**
+  - the floor 1.10 and the no-loss bound 1.00;
+  - W = 4, D = 30 s, arm `none`;
+  - N = 10⁷ and 2·10⁷ `short` gated, `routes` 2·10⁷ as the control;
+  - 8 rounds, the build order alternating by round, the seed `0x1610_5300 + round` (churn ignores it);
+  - BCa with 2,000 resamples, two runs.
+- **G53-share:** the bound 0.001 on the upper bound, the §52 driver unchanged, one run.
+
+The verification that the change is correct is not a gate here; the PR carries it. It comprises:
+- `loom_branch_b_shrink_in_place_readers_validate` and `loom_branch_b_removals_stay_above_the_floor`, each with a negative control;
+- the Tier-1 Miri test `sync::miri_tests::tier1_branch_b_empty_child_under_miri`;
+- the attribution and census tests;
+- fail-then-pass demonstrations of each.
+
+Nothing in §53 moves after the first measurement of the change build. An outcome no rule above covers is reported as unexplained (§8.20.4).
+
+### 53.9 Outcome: G53-share PASS, G53-wall PASS in both runs, G53-instr outside its bounds on 12 arms (appended 2026-11-09; §53.1 to §53.8 are not rewritten, and no bound moves)
+
+**The base.** The branch was rebased onto `main` before the reference-host runs, which moved its merge base from `d882511c` to `c48118fa`. §53.4's base is read as the rebased branch's merge base, `c48118fa`. No commit between the two touches `crates/` or `include/`, so the base build's engine is the one §53.2 profiled. The G53-instr bounds keep their census at `d882511c` (§53.8).
+
+**G53-share: PASS.** One dispatch of `strmap_remove_split_g52` at `8e6d15ac`, run [42529648179](https://github.com/orieg/expanse/actions/runs/42529648179). Host guard `quiet`; the worst foreign busy CPU during the run was 0.12 core-equivalents (0.12 on the pinned CPUs). No run was discarded.
+
+| cell | `Remove` share, BCa upper bound | removals per round | bound |
+|---|---:|---:|---:|
+| `short` N = 10⁷ | 0.00000 (0 in all 5 rounds; `ci_method` `degenerate`) | 44.0–44.7 million | ≤ 0.001 |
+| `short` N = 2·10⁷ | 0.00000 (0 in all 5 rounds; `ci_method` `degenerate`) | 43.9–44.2 million | ≤ 0.001 |
+
+(measured: reference host i9-12900F, `8e6d15ac`; `results/diagnostic_1610_strmap_remove_split_g53_share.json`)
+
+- At the base the same cells' shares were about 0.38–0.40 and 0.21 (§52.8). The change reaches every one of those removals.
+- Not gated and not predicted (§53.7):
+  - `short` at N = 5·10⁶ keeps a share with upper bound 0.00004, all of it emptied linear or bitmap leaves, none a `BranchB` child;
+  - the `routes` shares (0.0039–0.0041) are all emptied linear or bitmap leaves.
+
+**G53-wall: PASS in both runs.** Two dispatches of `strmap_branchb_remove_g53` at `8e6d15ac` against `c48118fa`, 8 rounds each. Both were admitted: host guard `quiet`, no row void, and neither run spanned the host's hourly activity.
+
+| run | worst foreign busy CPU (on pin) | artifact |
+|---|---|---|
+| [42539548803](https://github.com/orieg/expanse/actions/runs/42539548803) | 0.18 (0.16) | `results/gate_1610_strmap_branchb_remove_run1.json` |
+| [42544949583](https://github.com/orieg/expanse/actions/runs/42544949583) | 0.17 (0.16) | `results/gate_1610_strmap_branchb_remove_run2.json` |
+
+Per-round churn throughput ratio head / base, mean and BCa 95% interval, n = 8 per run:
+
+| cell | run 1 | run 2 | verdict |
+|---|---|---|---|
+| `short` N = 10⁷ (gated) | 1.5729 [1.5655, 1.5816] | 1.6221 [1.5923, 1.6531] | PASS, PASS |
+| `short` N = 2·10⁷ (gated) | 1.3844 [1.3648, 1.4222] | 1.4064 [1.3757, 1.4270] | PASS, PASS |
+| `routes` N = 2·10⁷ (control) | 0.9851 [0.9618, 1.0170] | 1.0022 [0.9767, 1.0199] | decides nothing |
+
+(measured: reference host i9-12900F, §44's pin and placement, `8e6d15ac` vs `c48118fa`; `results/gate_1610_strmap_branchb_remove_run{1,2}.json`)
+
+- Every gated lower bound clears 1.10 in both runs, and both gated cells moved in the same direction in both runs (`docs/BENCHMARKING.md` rule 18).
+- The control's intervals contain 1.0 in both runs.
+- The size of the gain was not predicted; §53.4 set the floor below it on purpose. Beyond G53-share's count, its mechanism is unmeasured here: the serialised removals are gone from the cell, but no counter in these runs attributes the throughput change to the paused-writer cost §53.4 names.
+
+**G53-instr: outside its bounds on 12 arms; the one loss is attributed and the bound does not move.** CI run [42524072492](https://github.com/orieg/expanse/actions/runs/42524072492) at `8e6d15ac` trips the automated gate on one arm only: `sync_map_count_after_write/random`, +8.97% (34,957,844 against 32,080,713). CI run 42438019031 at the pre-rebase head `020de10b` measured the same counts. The pull request carries the per-arm table and the attribution: the optimistic removal marks the top digit dirty, so the arm's `count_below` under `with_locked` folds the dirty subtree after each switched removal. §53's model has no term for a later exclusive reader's fold. That is a defect of this pre-registration, recorded here and not reconciled into §53.3.
+
+**What follows (§53.6).** G53-share and G53-wall pass, so the change is not reverted. §53 does not cover the `sync_map_count_after_write/random` loss; whether to accept it is decided outside this pre-registration, and the pull request records the decision.
