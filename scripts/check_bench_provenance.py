@@ -189,6 +189,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py",
     "docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py",
     "docs/benchmarks/set_algebra/scripts/harvest_domain.py",
+    # The stress-ng x Judy comparison (#1666 item 4): per-cell two-sample E/S
+    # intervals over a run's rounds, each recorded with its `ci_method`.
+    "docs/benchmarks/stressng_comparison/scripts/analyze.py",
     "scripts/bench_baseline.py",
     "scripts/bench_counters.py",
     "scripts/esp32_bench_harvest.py",
