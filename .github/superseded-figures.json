@@ -458,7 +458,7 @@
         "(?<![\\w.])0\\.407\\s*\\[0\\.406,\\s*0\\.409\\]",
         "(?<![\\w.])1\\.63×\\s*[–-]\\s*12\\.93×",
         "(?<![\\w.])111\\s+of\\s+144(?!\\d)",
-        "(?<![\\w.])1\\.822(?![\\d])",
+        "(?<![\\w.])1\\.822(?![\\d\\]])",
         "28\\s+of\\s+HOT's\\s+29\\s+integer-key",
         "(?<![\\w.])0\\.41\\s*[–-]\\s*0\\.53(?![\\d])"
       ],
@@ -598,7 +598,7 @@
         "(?<![\\w.])2\\.149 \\[2\\.140",
         "(?<![\\w.])0\\.089 \\[0\\.088",
         "(?<![\\w.])72\\.53(?![\\d])",
-        "(?<![\\w.])88\\.52(?![\\d])",
+        "(?<![\\w.])88\\.52(?![\\d])(?!\\s*\\()",
         "(?<![\\w.])81\\.20(?![\\d])",
         "(?<![\\w.])47\\.84(?![\\d])",
         "(?<![\\w.])41\\.33(?![\\d])",
@@ -1443,6 +1443,55 @@
       "replacement": "docs/benchmarks/concurrency/README.md sections 12 and 26: the serialised removal on the repaired harness at d1c3ca2a (runs 36615302601, 36628995380), 4.60 and 4.60 M ops/s at sixteen threads, C(16) 0.45 and 0.44; the optimistic removal at 8fd8e540 (runs 36619261906, 36625125183), 13.43 and 13.34 M ops/s, C(16) 1.13 [1.12, 1.14] in both runs",
       "provenance": "commit d1c3ca2a, docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json",
       "rationale": "The pre-#1280 core_concurrency blob arms discarded the insert Result; the arena reached its 1 GiB cap within the first rounds and every later insert failed with OffsetOverflow while counting as a write (#1280)"
+    },
+    {
+      "id": "strmap_memory_pre_design_b_b868fb2e",
+      "patterns": [
+        "(?<![\\w.])36\\.2 vs 48\\.2(?![\\d])",
+        "(?<![\\w.])33\\.9 vs 48\\.2(?![\\d])",
+        "(?<![\\w.])33\\.91 against \\*{0,2}48\\.20(?![\\d])",
+        "(?<![\\w.])36\\.23 against 48\\.19(?![\\d])",
+        "(?<![\\w.])63\\.97 against 68\\.93(?![\\d])",
+        "(?<![\\w.])41\\.71 against\\s+HOT"
+      ],
+      "context": [
+        "hot",
+        "masstree",
+        "expanse",
+        "expansestrmap",
+        "b/key",
+        "short",
+        "prefixed",
+        "skewed",
+        "memory",
+        "ownership"
+      ],
+      "replacement": "ExpanseStrMap census at c1b604ad after design B (#1586), two runs each, identical: HOT suite Arm C ownership short 36.23 vs 54.64, skewed 41.98 vs 42.91 (HOT ahead), prefixed 148.23 vs 56.46 (docs/benchmarks/hot_comparison/results/baseline_string_memory.json and _run2); Masstree suite short 33.91 vs 54.64, prefixed 69.09 vs 56.46, skewed 46.63 vs 42.91 (docs/benchmarks/masstree_comparison/results/baseline_string_memory.json and _run2); README.md section 3 cells HOT 36.2 vs 54.6 and Masstree 33.9 vs 54.6",
+      "provenance": "#1586, #1611; runs 42420035139, 42475222558, 42509410606, 42514428711",
+      "rationale": "Design B made ExpanseStrMap's node shells and suffix leaves blocks of the map's own allocator, which moves both the allocator census and mem_used; the b868fb2e string memory figures describe the engine before it. Superseded next to their replacements in the suite READMEs, not silently overwritten (section 8.7)."
+    },
+    {
+      "id": "masstree_concurrent_pre_c1b604ad",
+      "patterns": [
+        "(?<![\\w.])0\\.643\\s*[–-]\\s*0\\.847(?![\\d])",
+        "(?<![\\w.])0\\.678\\s*[–-]\\s*0\\.726(?![\\d])",
+        "(?<![\\w.])0\\.743\\s*[–-]\\s*0\\.751(?![\\d])",
+        "(?<![\\w.])2\\.355\\s*[–-]\\s*2\\.625(?![\\d])",
+        "(?<![\\w.])1\\.034\\s*[–-]\\s*1\\.054(?![\\d])",
+        "(?<![\\w.])1\\.189\\s*[–-]\\s*1\\.299(?![\\d])",
+        "(?<![\\w.])25\\.41\\s*[–-]\\s*26\\.52\\s*M"
+      ],
+      "context": [
+        "masstree",
+        "expanse",
+        "writer",
+        "reader",
+        "insert",
+        "lookups"
+      ],
+      "replacement": "docs/benchmarks/masstree_comparison/README.md section 7 (sections 1, 2 and 8): results/baseline_concurrent.json and results/baseline_concurrent_run2.json, two runs at c1b604ad under pin 0-15 (runs 42470920286, 42519511477); the retired pair is kept at results/at_929574b5/",
+      "provenance": "#1586, #1611",
+      "rationale": "Masstree concurrent figures from the two runs at 929574b5, before design B changed the string map's allocator. At c1b604ad the readers-only string cell is Masstree's in both runs (0.982-0.987, an UNPREDICTED LOSS where 929574b5 had 1.034-1.054), the string writers at sixteen are BOUNDARY_RESULT, and the integer single writer is Masstree's in both runs. The pairs are separate runs at two commits, so no difference is attributed to design B."
     }
   ]
 }

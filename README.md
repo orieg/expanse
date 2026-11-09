@@ -182,11 +182,11 @@ Measured at 1M keys unless noted, ratios above 1 = Expanse faster. Full suites: 
 |---|---|---|---|---|
 | **ART** (integer keys) | **Expanse** 1.54×–3.21× | **Expanse** 4.84× (sequential) | **Expanse**: k = 10 by 1.50×–1.53× on structured keys, 2.67× on random | see suite |
 | **HOT** (integer keys) | **Expanse** in most cells; **HOT** on uniform-random map lookup, 0.946 [0.934, 0.960] | mostly **Expanse** | **HOT**: 0.39–0.52 on random keys at k = 1000 (100k keys) | **HOT** flat 11.7–12.1 B/key (set); Expanse lower only for λ ∈ [8, 23] |
-| **HOT** (string keys) | **Expanse** on `skewed` 1.22×–2.00×; **HOT** on `prefixed` 0.80× | **Expanse** on `prefixed` 1.34×–1.43× (`ExpanseStrMap`); **HOT** 0.74× (`ExpanseBytesMap`) | **HOT** in 72 of 72 cells, 0.646 [0.643, 0.650] down to 0.050 [0.049, 0.050] | **HOT** 36.2 vs 48.2 B/key (workload: `hot_str_ptr`) |
+| **HOT** (string keys) | **Expanse** on `skewed` 1.22×–2.00×; **HOT** on `prefixed` 0.80× | **Expanse** on `prefixed` 1.34×–1.43× (`ExpanseStrMap`); **HOT** 0.74× (`ExpanseBytesMap`) | **HOT** in 72 of 72 cells, 0.646 [0.643, 0.650] down to 0.050 [0.049, 0.050] | **HOT** 36.2 vs 54.6 B/key (workload: `hot_str_ptr`) |
 | **Masstree** (integer keys) | **Expanse** 2.9×–13.5× | **Masstree** 0.68×–0.75× on sorted `random`/`sparse`; **Expanse** 1.89× on shuffled `random` | **Expanse** 1.08×–2.54× on structured keys and `random` at 1M; **Masstree** 0.49×–0.67× on `random` at 10k–100k | **Masstree** flat 22.8 B/key; Expanse 17.6–20.0 for λ ∈ [8, 30], 23.8–24.7 past it |
-| **Masstree** (string keys) | **Expanse** on `short` 1.33×, `skewed` 1.47×, `prefixed` 1.12×; **Masstree** on `counter` 0.95× | **Masstree** 0.43×–0.96× | **Masstree** in 33 of 36 cells, 0.09×–0.83×; **Expanse** on `prefixed` k = 10, 1.53×–2.27× | **Masstree** 33.9 vs 48.2 B/key (workload: `masstree_str_map`) |
+| **Masstree** (string keys) | **Expanse** on `short` 1.33×, `skewed` 1.47×, `prefixed` 1.12×; **Masstree** on `counter` 0.95× | **Masstree** 0.43×–0.96× | **Masstree** in 33 of 36 cells, 0.09×–0.83×; **Expanse** on `prefixed` k = 10, 1.53×–2.27× | **Masstree** 33.9 vs 54.6 B/key (workload: `masstree_str_map`) |
 
-The two string-key Memory cells were measured before design B ([#1586](https://github.com/orieg/expanse/issues/1586)) moved `ExpanseStrMap`'s node shells and suffix leaves into its allocator, and are pending re-measurement (#1586, re-measurement tracked in #1611; concurrency `METHODOLOGY.md` §47).
+The two string-key Memory cells are deterministic allocator censuses at `c1b604ad`, after design B ([#1586](https://github.com/orieg/expanse/issues/1586)) moved `ExpanseStrMap`'s node shells and suffix leaves into its allocator. Before it they read 36.2 vs 48.2 (HOT) and 33.9 vs 48.2 (Masstree), now superseded (two runs each, identical; [hot_comparison §6](docs/benchmarks/hot_comparison/README.md), [masstree_comparison §1](docs/benchmarks/masstree_comparison/README.md)).
 
 Across the HOT integer suite, 112 of 144 latency cells go to Expanse, 31 to HOT (28 of them scans) and 1 to parity, identically in two runs.
 
@@ -242,10 +242,10 @@ How to read it:
 | Competitor | Writers only | Eight readers alongside writers | Details |
 |---|---|---|---|
 | **HOT-ROWEX** (integer keys) | **Expanse** at one to eight writers, 1.11×–1.45× | **Expanse** in every cell, 1.200–2.094 | [hot_comparison §7](docs/benchmarks/hot_comparison/README.md) |
-| **Masstree** (integer keys) | **Masstree** from two writers, 0.743–0.751 at eight; one writer is direction-only at 0.977 [0.956, 1.000] and 0.977 [0.958, 0.999] | **Expanse**, 2.355–2.625 | [masstree_comparison §7](docs/benchmarks/masstree_comparison/README.md) |
-| **Masstree** (`short` string keys) | **Masstree** in every cell, 0.678–0.726 at one writer | **Expanse**, 1.189–1.299 | [masstree_comparison §7](docs/benchmarks/masstree_comparison/README.md) |
+| **Masstree** (integer keys) | **Masstree** in every cell, 0.921–0.936 at one writer and 0.689–0.723 at eight | **Expanse**, 2.243–2.564 | [masstree_comparison §7](docs/benchmarks/masstree_comparison/README.md) |
+| **Masstree** (`short` string keys) | **Masstree** from one to eight writers, 0.803–0.816 at one; `BOUNDARY_RESULT` at sixteen | **Expanse**, 1.241–1.337 | [masstree_comparison §7](docs/benchmarks/masstree_comparison/README.md) |
 
-Ratios are competitor-relative throughput, above 1 = Expanse faster; each range covers two runs of 15 interleaved rounds, with BCa 95% intervals per cell in the linked sections *(measured: reference host; workloads: `hot_rowex_set_63bit`, `hot_rowex_map_64bit`, `masstree_conc_map_64bit`, `masstree_conc_str`)*. Neither arm carries hardware counters, so what sets these levels is unmeasured.
+Ratios are competitor-relative throughput, above 1 = Expanse faster; each range covers two runs of 15 interleaved rounds, with BCa 95% intervals per cell in the linked sections *(measured: reference host; Masstree rows at `c1b604ad`, after design B; workloads: `hot_rowex_set_63bit`, `hot_rowex_map_64bit`, `masstree_conc_map_64bit`, `masstree_conc_str`)*. Neither arm carries hardware counters, so what sets these levels is unmeasured.
 
 ---
 
