@@ -2044,7 +2044,12 @@ jobs:
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|instruction-counts|')
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # Raised from 45 for #1666's two 4 Mi-key arms (`map_ins_slot/gen_4m`,
+    # `map_remove_revgen/gen_4m`): 6.7 G measured instructions between them,
+    # plus a 4 Mi-key build in setup, the largest arms in `instructions.rs`,
+    # run in every pass that carries them. PR runs before them already used
+    # about 0.73 of the old limit (#1656, #1663).
+    timeout-minutes: 60
     permissions:
       contents: read
       pull-requests: write
