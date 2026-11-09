@@ -75,6 +75,7 @@ jobs:
       go: ${{ steps.filter.outputs.go }}
       integrations: ${{ steps.filter.outputs.integrations }}
       esp-component: ${{ steps.filter.outputs.esp-component }}
+      packaging: ${{ steps.filter.outputs.packaging }}
       # Push only: 'true' when the pushed tree is the merged pull request's
       # head tree and that head passed a full run (scripts/push_tree_verified.py).
       push-verified: ${{ steps.pushtree.outputs.push-verified }}
@@ -354,6 +355,16 @@ jobs:
               - 'components/**'
               - 'crates/expanse-capi/**'
               - 'include/**'
+            # The .deb/.rpm layout: what the `packaging` job builds and links
+            # against. `rust-src` already wakes it for crates/ and include/
+            # (build.rs carries the SONAME); these are the inputs outside it.
+            packaging:
+              - 'scripts/package_deb.sh'
+              - 'scripts/package_rpm.sh'
+              - 'scripts/test_packaging.sh'
+              - 'extra/pkgconfig/**'
+              - 'man/**'
+              - '.github/workflows/release.yml'
 
       - name: Which ci.yml job definitions changed
         id: jobdiff
@@ -380,7 +391,7 @@ jobs:
     # filter lint does not read would run none of that filter's lanes.
     # `scripts/check_ci_filters.py` fails when a gated job reads a filter
     # this condition does not.
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || needs.detect-changes.outputs.concurrency-instrument == 'true' || needs.detect-changes.outputs.ablation-plan == 'true' || needs.detect-changes.outputs.ycsb-concurrent-instrument == 'true' || needs.detect-changes.outputs.python == 'true' || needs.detect-changes.outputs.node == 'true' || needs.detect-changes.outputs.dotnet == 'true' || needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.integrations == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || needs.detect-changes.outputs.concurrency-instrument == 'true' || needs.detect-changes.outputs.ablation-plan == 'true' || needs.detect-changes.outputs.ycsb-concurrent-instrument == 'true' || needs.detect-changes.outputs.python == 'true' || needs.detect-changes.outputs.node == 'true' || needs.detect-changes.outputs.dotnet == 'true' || needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.integrations == 'true' || needs.detect-changes.outputs.esp-component == 'true' || needs.detect-changes.outputs.packaging == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -2402,6 +2413,46 @@ jobs:
             fi
           fi
 
+  packaging:
+    name: Packaging / -lJudy Builds Against the Debian and RPM Packages
+    needs: [detect-changes, fast-lane]
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.packaging == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|packaging|')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Install rpmbuild and rpm2cpio
+        uses: ./.github/actions/apt-install
+        with:
+          packages: rpm rpm2cpio cpio
+          install-recommends: 'false'
+
+      # Stages dist/ as release.yml does, with the SONAME the release job sets,
+      # then builds both package sets and links an unmodified `-lJudy` consumer
+      # against them: extracted, and installed for real with `dpkg -i`
+      # (docs/COMPAT.md, "Library names and SONAME"). The `libjudy-compat`
+      # `libJudy.so.1` name is checked too (AGENTS.md §4.1).
+      - name: Build libexpanse with its SONAME and stage dist/
+        env:
+          EXPANSE_LINK_SONAME: '1'
+        run: |
+          cargo build --release --locked -p expanse-capi
+          mkdir -p dist/lib
+          cp target/release/libexpanse.so dist/lib/libexpanse.so.1.0.0
+          ln -sf libexpanse.so.1.0.0 dist/lib/libexpanse.so.1
+          ln -sf libexpanse.so.1 dist/lib/libexpanse.so
+          cp target/release/libexpanse.a dist/lib/
+
+      - name: -lJudy build, DT_NEEDED and libJudy.so.1 against the packages
+        run: bash scripts/test_packaging.sh dist --install
+
   differential-oracle:
     name: Compat / Stock libjudy Oracle (Linux)
     needs: [detect-changes, fast-lane]
@@ -3813,6 +3864,7 @@ jobs:
       - instruction-counts
       - callgrind-smoke
       - differential-oracle
+      - packaging
       - memory-budget
       - writer-scaling-selftest
       - ycsb-concurrent-selftest

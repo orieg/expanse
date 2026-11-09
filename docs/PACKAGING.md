@@ -115,7 +115,7 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat
 
 - **Packages Available**:
   - `libexpanse1`: Runtime shared libraries (`libexpanse.so.1.0.0`, plus `glibc-hwcaps/x86-64-v{2,3,4}/` on `amd64` — the release job populates `dist/lib/glibc-hwcaps/` before packaging, and the packagers stage it — #762).
-  - `libexpanse-dev`: Development headers (`expanse.h`, `Judy.h`), static library (`libexpanse.a`), pkg-config, and Section 3 man pages (`expanse(3)`, `expanse_set(3)`, etc.).
+  - `libexpanse-dev`: Development headers (`expanse.h`, `Judy.h`), static library (`libexpanse.a`), the dev links `libexpanse.so`, `libJudy.so` and `libJudy.a` (so an unmodified `-lJudy` build links `libexpanse.so.1`), pkg-config, and Section 3 man pages (`expanse(3)`, `expanse_set(3)`, etc.). Conflicts with `libjudy-dev`. Names and SONAME: [COMPAT.md](COMPAT.md#library-names-and-soname).
   - `libjudy-compat`: Drop-in replacement creating system-wide `/usr/lib/.../libJudy.so.1` symlinks to Expanse, pkg-config, and Judy compatibility man pages (`Judy(3)`, `Judy1(3)`, `JudyL(3)`, etc.).
 
 ---
@@ -143,7 +143,7 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat
 
 - **Packages Available**:
   - `libexpanse`: Runtime shared library (`/usr/lib64/libexpanse.so.1` with `glibc-hwcaps/` variants).
-  - `libexpanse-devel`: Development headers (`/usr/include/expanse.h`, `Judy.h`), static library (`libexpanse.a`), pkg-config, and Section 3 man pages (`expanse(3)`, `expanse_map(3)`, etc.).
+  - `libexpanse-devel`: Development headers (`/usr/include/expanse.h`, `Judy.h`), static library (`libexpanse.a`), the dev links `libexpanse.so`, `libJudy.so` and `libJudy.a`, pkg-config, and Section 3 man pages (`expanse(3)`, `expanse_map(3)`, etc.). Conflicts with `Judy-devel`.
   - `libjudy-compat`: Drop-in replacement creating system-wide `/usr/lib64/libJudy.so.1` symlinks to Expanse, pkg-config, and Judy compatibility man pages (`Judy(3)`, `Judy1(3)`, `JudyL(3)`, etc.).
 - **Repository Verification**: The repository metadata (`repodata/repomd.xml`) is cryptographically signed with GPG (`repodata/repomd.xml.asc`) and pins every package's SHA-256 hash. `expanse.repo` enables `repo_gpgcheck=1` with public key `https://orieg.github.io/expanse/rpm/RPM-GPG-KEY-expanse`.
 

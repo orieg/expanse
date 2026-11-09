@@ -43,7 +43,7 @@ graph TD
 
 ## 2. Job Catalog (rolled up by the CI Gate)
 
-`ci.yml` defines **48 jobs** — 47 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while the daily `schedule` and `workflow_dispatch` runs on `main` run everything. Every job other than `detect-changes`, `lint`, `docs-lint` and `ci-gate` also needs `fast-lane`, and skips with it.
+`ci.yml` defines **49 jobs** — 48 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while the daily `schedule` and `workflow_dispatch` runs on `main` run everything. Every job other than `detect-changes`, `lint`, `docs-lint` and `ci-gate` also needs `fast-lane`, and skips with it.
 
 > `bench-baremetal` appears in the Performance table below for completeness but lives in `bench_baremetal.yml`; it is `/bench`-triggered and is **not** one of `ci-gate`'s dependencies.
 
@@ -94,6 +94,7 @@ graph TD
 | Job | Name | Role |
 |---|---|---|
 | `differential-oracle` | Compat / Stock libjudy Oracle (Linux) | Black-box differential testing of `libexpanse` vs stock C `libjudy` via `dlopen`. |
+| `packaging` | Packaging / -lJudy Builds Against the Debian and RPM Packages | `scripts/test_packaging.sh`: builds `libexpanse` with `EXPANSE_LINK_SONAME=1`, builds the `.deb` and `.rpm` sets, and links an unmodified `-lJudy` consumer against each extracted tree and against a real `dpkg -i` install. Fails unless the library carries `DT_SONAME libexpanse.so.1`, the consumer records `DT_NEEDED libexpanse.so.1`, a binary recording `DT_NEEDED libJudy.so.1` still loads, and a static `-lJudy` link resolves. Its own `packaging` filter covers the package scripts, `extra/pkgconfig/`, `man/` and `release.yml`. |
 | `php-judy-compat` | Compat / PHP-Judy Extension (Linux) | Builds `php-judy` (pinned SHA) against `libexpanse.so`, runs the upstream suite. |
 | `php-judy-windows` | Compat / PHP-Judy Extension (Windows x64) | Same against `expanse.dll` under MSVC. |
 
