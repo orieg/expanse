@@ -826,6 +826,7 @@
       "package": "expanse-trie",
       "target": "compare",
       "result_pattern": "time:\\s+\\[",
+      "windows": "criterion",
       "summary": "Standing container comparison harness across the core map and set types."
     },
     {
