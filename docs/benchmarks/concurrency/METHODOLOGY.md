@@ -9015,3 +9015,46 @@ The verification that the change is correct is not a gate here; the PR carries i
 - fail-then-pass demonstrations of each.
 
 Nothing in §53 moves after the first measurement of the change build. An outcome no rule above covers is reported as unexplained (§8.20.4).
+
+### 53.9 Outcome: G53-share PASS, G53-wall PASS in both runs, G53-instr outside its bounds on 12 arms (appended 2026-11-09; §53.1 to §53.8 are not rewritten, and no bound moves)
+
+**The base.** The branch was rebased onto `main` before the reference-host runs, which moved its merge base from `d882511c` to `c48118fa`. §53.4's base is read as the rebased branch's merge base, `c48118fa`. No commit between the two touches `crates/` or `include/`, so the base build's engine is the one §53.2 profiled. The G53-instr bounds keep their census at `d882511c` (§53.8).
+
+**G53-share: PASS.** One dispatch of `strmap_remove_split_g52` at `8e6d15ac`, run [42529648179](https://github.com/orieg/expanse/actions/runs/42529648179). Host guard `quiet`; the worst foreign busy CPU during the run was 0.12 core-equivalents (0.12 on the pinned CPUs). No run was discarded.
+
+| cell | `Remove` share, BCa upper bound | removals per round | bound |
+|---|---:|---:|---:|
+| `short` N = 10⁷ | 0.00000 (0 in all 5 rounds; `ci_method` `degenerate`) | 44.0–44.7 million | ≤ 0.001 |
+| `short` N = 2·10⁷ | 0.00000 (0 in all 5 rounds; `ci_method` `degenerate`) | 43.9–44.2 million | ≤ 0.001 |
+
+(measured: reference host i9-12900F, `8e6d15ac`; `results/diagnostic_1610_strmap_remove_split_g53_share.json`)
+
+- At the base the same cells' shares were about 0.38–0.40 and 0.21 (§52.8). The change reaches every one of those removals.
+- Not gated and not predicted (§53.7):
+  - `short` at N = 5·10⁶ keeps a share with upper bound 0.00004, all of it emptied linear or bitmap leaves, none a `BranchB` child;
+  - the `routes` shares (0.0039–0.0041) are all emptied linear or bitmap leaves.
+
+**G53-wall: PASS in both runs.** Two dispatches of `strmap_branchb_remove_g53` at `8e6d15ac` against `c48118fa`, 8 rounds each. Both were admitted: host guard `quiet`, no row void, and neither run spanned the host's hourly activity.
+
+| run | worst foreign busy CPU (on pin) | artifact |
+|---|---|---|
+| [42539548803](https://github.com/orieg/expanse/actions/runs/42539548803) | 0.18 (0.16) | `results/gate_1610_strmap_branchb_remove_run1.json` |
+| [42544949583](https://github.com/orieg/expanse/actions/runs/42544949583) | 0.17 (0.16) | `results/gate_1610_strmap_branchb_remove_run2.json` |
+
+Per-round churn throughput ratio head / base, mean and BCa 95% interval, n = 8 per run:
+
+| cell | run 1 | run 2 | verdict |
+|---|---|---|---|
+| `short` N = 10⁷ (gated) | 1.5729 [1.5655, 1.5816] | 1.6221 [1.5923, 1.6531] | PASS, PASS |
+| `short` N = 2·10⁷ (gated) | 1.3844 [1.3648, 1.4222] | 1.4064 [1.3757, 1.4270] | PASS, PASS |
+| `routes` N = 2·10⁷ (control) | 0.9851 [0.9618, 1.0170] | 1.0022 [0.9767, 1.0199] | decides nothing |
+
+(measured: reference host i9-12900F, §44's pin and placement, `8e6d15ac` vs `c48118fa`; `results/gate_1610_strmap_branchb_remove_run{1,2}.json`)
+
+- Every gated lower bound clears 1.10 in both runs, and both gated cells moved in the same direction in both runs (`docs/BENCHMARKING.md` rule 18).
+- The control's intervals contain 1.0 in both runs.
+- The size of the gain was not predicted; §53.4 set the floor below it on purpose. Beyond G53-share's count, its mechanism is unmeasured here: the serialised removals are gone from the cell, but no counter in these runs attributes the throughput change to the paused-writer cost §53.4 names.
+
+**G53-instr: outside its bounds on 12 arms; the one loss is attributed and the bound does not move.** CI run [42524072492](https://github.com/orieg/expanse/actions/runs/42524072492) at `8e6d15ac` trips the automated gate on one arm only: `sync_map_count_after_write/random`, +8.97% (34,957,844 against 32,080,713). CI run 42438019031 at the pre-rebase head `020de10b` measured the same counts. The pull request carries the per-arm table and the attribution: the optimistic removal marks the top digit dirty, so the arm's `count_below` under `with_locked` folds the dirty subtree after each switched removal. §53's model has no term for a later exclusive reader's fold. That is a defect of this pre-registration, recorded here and not reconciled into §53.3.
+
+**What follows (§53.6).** G53-share and G53-wall pass, so the change is not reverted. §53 does not cover the `sync_map_count_after_write/random` loss; whether to accept it is decided outside this pre-registration, and the pull request records the decision.
