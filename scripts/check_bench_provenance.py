@@ -22,10 +22,12 @@ arms measured against them, the `ordered_readers_*`, `count_cells_*` and `branch
 `provenance.estimators`, load snapshots with a busy-CPU delta and per-cell
 `rounds_raw`, **unless it is grandfathered below**.
 
-Two repository-root artifacts are governed as well, under a relative path
-prefixed `results/`: `results/baseline_comparative.json`, the criterion
-harvest `scripts/bench_baseline.py` writes, and `results/baseline_vs_libjudy.json`,
-the paired-ratio series of `bench_vs_libjudy` (#1214). Their cells are not under
+Four repository-root artifacts are governed as well, under a relative path
+prefixed `results/`: `results/baseline_comparative.json` and the `compare`
+suite's pair `results/baseline_compare.json` / `results/baseline_compare_run2.json`,
+the criterion harvests `scripts/bench_baseline.py` writes, and
+`results/baseline_vs_libjudy.json`, the paired-ratio series of
+`bench_vs_libjudy` (#1214). Their cells are not under
 a `CELL_KEYS` key: a harvest keeps its arms under `arms`, each with its
 per-iteration `samples_ns`, and the vs-libjudy series under `series`, each with
 its per-round `ratios` — the raw rows a published interval is recomputed from,
@@ -126,7 +128,8 @@ RESULTS = REPO_ROOT / "results"
 # what a suite artifact owes. Named, not globbed: `results/` also holds
 # Callgrind counts, fuel counts and pin-exposure diagnostics, which have no
 # load window to carry. The relative path a finding names is `results/<name>`.
-ROOT_ARTIFACTS = ("baseline_comparative.json", "baseline_vs_libjudy.json")
+ROOT_ARTIFACTS = ("baseline_comparative.json", "baseline_compare.json",
+                  "baseline_compare_run2.json", "baseline_vs_libjudy.json")
 ROOT_PREFIX = "results/"
 
 # The cell lists of a root artifact, and the raw rows each cell carries in
@@ -1385,7 +1388,7 @@ def _self_test() -> int:
     expect("`results` cells without raw rows", under_results_bad, "rounds_raw")
 
     # --- repository-root artifacts (#1214) ---------------------------------
-    # The two root artifacts are selected, and named `results/<name>`: before,
+    # The root artifacts are selected, and named `results/<name>`: before,
     # `run()` named every artifact `relative_to(docs/benchmarks)`, which raises
     # for a path outside it, so they could not be selected at all.
     for name in ROOT_ARTIFACTS:
@@ -1455,8 +1458,11 @@ def _self_test() -> int:
     exempt, note = grandfather_status("results/baseline_vs_libjudy.json", old_shape)
     if exempt or not note:
         failures.append("a re-measured vs-libjudy artifact in the old shape was exempt")
-    # Both committed root artifacts are exempt at their recorded commits.
+    # The grandfathered root artifacts are exempt at their recorded commits;
+    # the others are held to the full check by `run()`.
     for name in ROOT_ARTIFACTS:
+        if ROOT_PREFIX + name not in GRANDFATHERED:
+            continue
         path = RESULTS / name
         if path.is_file() and not grandfather_status(ROOT_PREFIX + name,
                                                      json.loads(path.read_text()))[0]:
