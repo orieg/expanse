@@ -787,3 +787,71 @@ Locked on 2026-10-04, **before any candidate Gate G1 evaluation data exists**
 §15.3 cites "GEMINI.md §1.6, D203, B-12 pre-registration discipline". None of the three resolves to anything in this repository. The rule it relies on is `AGENTS.md` §8.19: a threshold, method or sample size changed after results exist forces an `INTERMEDIATE` relabel and fresh runs.
 
 §15.3 changes the denominator of Gate G1's first clause from the `mem_held` released (the form issue #1108 states) to the bytes handed back to the operating system. It was written before any candidate measurement of G1, and after the baseline in `results/allocator_overhead_a4b03ad5.txt` had shown the original form at 1.48 / 4.31 = 34% on the random shape at 10,000,000 keys. A PASS on the amended clause is therefore a PASS on the amended gate, not on the gate as #1108 states it, and any report of it says so.
+
+## 16. Pre-registration: a small slab page while a tree is small (Issue #1666, PR #1670)
+
+A separate pre-registration (AGENTS.md §8.8 commit 2), appended for item 2 of issue [#1666](https://github.com/orieg/expanse/issues/1666) and committed before any measurement of the rule it describes. It does not amend §1–§15. Outcomes are reported in PR [#1670](https://github.com/orieg/expanse/pull/1670) and, for the footprint, in `docs/COMPAT.md`'s small-array table, never reconciled into this section. A bound, method or arm list changed after the measurement relabels the result `INTERMEDIATE` (§8.19).
+
+### 16.1 The question
+
+A plain tree carves a slab page the first time each size class of 256 B or less is used, and keeps it. With 4 KiB pages, a 20-key JudyL array holds 20,864 B against 384 B live (`bytes_per_key` small-array rows, deterministic). The rule under test is: **a page carved while the handle's `bytes_in_use` (after the allocation that triggers the carve) is below `SLAB_PAGE_SIZE` is a 512 B page; every other page is 4 KiB.** Does it hold the small-array floor down at a bounded, named instruction cost?
+
+### 16.2 Where the rule comes from, and what was seen first
+
+- The rule was proposed by a synthetic LLM review panel. That is adversarial brainstorming, not peer review (AGENTS.md C-c), and it carries no evidential weight.
+- Option D, on PR #1670's head `b6100fafe` (equal in tree to `196f9003f`), is the rule's predecessor. Its first page per class is 512 B, marked by a per-class bit in a new handle word. It was measured against main `467968370` before this section was written:
+  - footprint 512 B at 1 key and 2,944 B at 20 keys;
+  - worst arm `set_subtree_condense/wide` +4.06%;
+  - 7 arms above 0.5% and 43 below −0.5%.
+- Moving option D's carve out of line was also measured: 23 arms above 0.5%, reverted.
+- The bounds below are therefore informed by option D's per-arm deltas. They are not blind predictions.
+
+### 16.3 The design under test
+
+- **No handle state.** The per-class bit and its handle word go, so `size_of::<ExpanseMap>()` returns to 712 B. The carve reads `bytes_in_use`, a counter the plain allocation path has just updated. `release_all_unused` no longer needs a reset.
+- **No history.** The page size depends on the tree's live bytes now, not on whether the class has carved before. A small tree that shrinks (`shrink_to_fit`, `compact`) and regrows therefore carves 512 B pages again.
+- **Pages are still sized per page.** `SlabPage.size` and every page walker are unchanged from option D. The carve stays inline in `alloc_raw_body!`, as on main.
+- **Small trees can carve several small pages.** A class may carve several 512 B pages while the tree stays below 4 KiB live. A 512 B page holds `(512 − 64) / step` blocks: 7 of the 64 B class, 1 of the 256 B class.
+- **The proposal under test is this rule.** Its implementation is one commit on top of `b6100fafe`.
+
+### 16.4 Predictions (derived)
+
+- **1-key array.** One 16 B leaf, and `bytes_in_use` is 16 at the carve, so the tree holds one 512 B page: `mem_used` 16 B, `mem_held` 512 B.
+- **20-key array.** The root leaf grows through five classes. At each carve, `bytes_in_use` is at most the new leaf plus the one it replaces: 384 + 256 B, below 4,096. Each class therefore carves one 512 B page, and `mem_held` is 5 × 512 + 384 = 2,944 B, with `mem_used` 384 B.
+- **Handle.** `size_of::<ExpanseMap>()` is 712 B, so `JudyLMemUsed` reads 728 B at 1 key and 1,096 B at 20 keys.
+- **Census.** Every `bytes_per_key` distribution stays within its ceiling ("memory budget: all distributions within ceilings").
+
+### 16.5 Expected losses (instructions; Callgrind, against main `467968370`)
+
+Each arm below may regress by at most its bound. "D" is option D's measured delta on the same instrument (§16.2).
+
+| Arm | D | Mechanism expected | Bound |
+|---|---|---|---|
+| `set_subtree_condense/wide` | +4.06% | a slab carve lands inside the measured region (page phase); one 4 KiB carve is about 21,300 Ir on this 525,491 Ir arm | ≤ +5.00% |
+| `set_subtree_condense/h1` | +0.84% | page phase, as above | ≤ +4.00% |
+| `strmap_oscillate/routes` | +1.05% | option D's +2 Ir per shell for the handle word goes; the carve's page-size test remains | ≤ +1.00% |
+| `strmap_prefix_seek/paths` | +0.69% | glibc `malloc` bookkeeping on a 151,171 Ir arm | ≤ +1.50% |
+| `set_subtree_boundary_oscillate/band9` | +0.65% | carve-block codegen in `insert_with_path_flat` / `remove` | ≤ +1.00% |
+| `set_insert/random` | +0.53% | as above | ≤ +1.00% |
+| `set_refill/random` | +0.52% | as above | ≤ +1.00% |
+| `set_clear_refill/random` | +0.50% | as above | ≤ +1.00% |
+| `set_remove/random` | +0.49% | as above | ≤ +1.00% |
+| `set_subtree_split/e1024` | +0.43% | as above | ≤ +1.00% |
+
+Every other arm is expected at or below +0.50%.
+
+### 16.6 Gate and falsifiers
+
+The result is **within pre-registration** only if all of these hold on the instrument in §16.7:
+
+1. every arm in §16.5 is at or below its bound;
+2. every arm not in §16.5 is at or below +0.50%;
+3. no arm is above +5.00%;
+4. the footprint, handle and census match §16.4 exactly.
+
+Any one failing falsifies the result. The implementation is then reverted to `b6100fafe` and the negative is recorded (AGENTS.md §6). No bound, arm or threshold here is revised after the measurement.
+
+### 16.7 Instruments
+
+- **Primary: one run.** `cargo bench -p expanse-trie --bench instructions` and `cargo run --release -p expanse-trie --example bytes_per_key`, in the container on the x86-64 build host used for every #1670 measurement (rustc 1.98.1, valgrind 3.22.0, `CARGO_PROFILE_BENCH_DEBUG=1`), against the stored main `467968370` counts. Callgrind counts are exact, so one run is the measurement.
+- **Confirmation: CI.** The PR's own `instruction-counts` job at the same head is AGENTS.md §6's authority. An `allow-regression:` line for this change cites that run and this section, and names every arm it approves. If the CI run puts any arm outside §16.6, that falsifies the result as surely as the primary run would.
