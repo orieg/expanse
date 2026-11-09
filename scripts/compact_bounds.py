@@ -12,12 +12,15 @@ pages (crates/expanse/src/alloc.rs, `NodeAlloc::alloc_raw` and
 `NodeAlloc::census`):
 
   * `no_free_held` — the `mem_held()` of an allocator that has only ever
-    allocated. A slab class carves a new page only when its freelist is empty,
-    its first page small (512 B) and every later one 4 KiB, so with no free a
-    class with live blocks holds its first page plus
-    ceil((live - first-page blocks) / blocks_per_page) full pages, and the
-    system-served classes hold their live bytes and no free block. This is a
-    floor for any allocator holding the same live blocks.
+    allocated. A slab class carves a new 4 KiB page only when its freelist is
+    empty, so with no free every class has exactly ceil(live / blocks_per_page)
+    pages, and the system-served classes hold their live bytes and no free
+    block. The engine carves 512 B pages instead while the tree holds less
+    than 4 KiB live (`alloc::SLAB_SMALL_PAGE_SIZE`); which classes take them
+    depends on allocation order, which a per-class census does not record, so
+    the model counts every page at 4 KiB. That is exact for the committed
+    artifact's engine, which predates the small page, and leaves out a prefix
+    of at most a few KiB on every tree it is applied to.
   * `predicted_compact_over_fresh` — the G-held prediction: a builder that
     never frees, emitting the fresh build's per-class live blocks, holds
     `no_free_held(fresh census)`, so its ratio to the fresh build's
@@ -59,11 +62,10 @@ import sys
 from pathlib import Path
 
 SLAB_PAGE_SIZE = 4096
-# The first page a handle carves for each class (`alloc::SLAB_FIRST_PAGE_SIZE`).
-SLAB_FIRST_PAGE_SIZE = 512
-# The first-page size of the engine the committed census artifact was measured
-# on (`a154bc57`, before the small first page): every page was 4 KiB.
-ARTIFACT_FIRST_PAGE_SIZE = SLAB_PAGE_SIZE
+# The page carved while a tree holds less than 4 KiB live
+# (`alloc::SLAB_SMALL_PAGE_SIZE`). Mirrored for the engine-sync check; the
+# bounds below count every page at `SLAB_PAGE_SIZE` (module docs).
+SLAB_SMALL_PAGE_SIZE = 512
 CACHE_LINE = 64
 SLAB_HEADER = CACHE_LINE
 FLAVORS = ("set", "map")
@@ -93,65 +95,47 @@ def floor_pages(live_blocks: int, blocks_per_page: int) -> int:
     return -(-live_blocks // blocks_per_page)
 
 
-def class_no_free_bytes(live_blocks: int, block: int, first_page: int = SLAB_FIRST_PAGE_SIZE) -> int:
-    """Slab bytes one class holds with `live_blocks` live and no free: none
-    without a live block, else its first page of `first_page` bytes, plus
-    the 4 KiB pages the blocks beyond it fit on."""
-    if live_blocks < 0:
-        raise ValueError("live_blocks >= 0")
-    if live_blocks == 0:
-        return 0
-    first = slab_blocks(block, first_page)
-    rest = max(live_blocks - first, 0)
-    return first_page + floor_pages(rest, slab_blocks(block)) * SLAB_PAGE_SIZE
-
-
-def no_free_held(classes, system_live_bytes: int, first_page: int = SLAB_FIRST_PAGE_SIZE) -> int:
-    """`mem_held()` of an allocator that never freed a block.
+def no_free_held(classes, system_live_bytes: int) -> int:
+    """`mem_held()` of an allocator that never freed a block, every page 4 KiB.
 
     `classes` is an iterable of (live_blocks, block), one per slab class. With
     no free, a class's freelist holds only the uncarved rest of its newest
     page, and a page is carved only when that freelist is empty
-    (`NodeAlloc::alloc_raw`), so the class holds its first page and the full
-    pages its remaining blocks fit on (`class_no_free_bytes`). The
-    system-served classes hold their live bytes and, with no free, no freelist
-    block."""
+    (`NodeAlloc::alloc_raw`), so the class holds ceil(live / blocks_per_page)
+    pages. The system-served classes hold their live bytes and, with no free,
+    no freelist block."""
     if system_live_bytes < 0:
         raise ValueError("system_live_bytes >= 0")
-    slab = sum(class_no_free_bytes(live, block, first_page) for live, block in classes)
-    return slab + system_live_bytes
+    pages = sum(floor_pages(live, slab_blocks(block)) for live, block in classes)
+    return pages * SLAB_PAGE_SIZE + system_live_bytes
 
 
-def census_floor(census: dict, first_page: int = SLAB_FIRST_PAGE_SIZE) -> int:
+def census_floor(census: dict) -> int:
     """`no_free_held` of the live blocks a census records (the artifact's
     `census.*` objects: `classes[].live_blocks`, `classes[].block`,
-    `system_live_bytes`), on an engine whose first page per class is
-    `first_page` bytes."""
+    `system_live_bytes`)."""
     return no_free_held(
         ((c["live_blocks"], c["block"]) for c in census["classes"]),
         census["system_live_bytes"],
-        first_page,
     )
 
 
 def census_held(census: dict) -> int:
     """`AllocCensus::held`: the slab pages' bytes plus the system-served live
     and free bytes. A census without `slab_page_bytes` predates the small
-    first page, when every page was 4 KiB."""
+    page, when every page was 4 KiB."""
     pages = census.get("slab_page_bytes", census["slab_pages"] * SLAB_PAGE_SIZE)
     return pages + census["system_live_bytes"] + census["system_free_bytes"]
 
 
-def predicted_compact_over_fresh(
-    fresh_census: dict, held_fresh: int, first_page: int = SLAB_FIRST_PAGE_SIZE
-) -> float:
+def predicted_compact_over_fresh(fresh_census: dict, held_fresh: int) -> float:
     """Predicted `mem_held()` after `compact()` over the fresh build's
     `mem_held()`, for a builder that never frees and emits the fresh build's
     per-class live blocks. At most 1: the fresh build holds at least the floor
     of its own live blocks."""
     if held_fresh <= 0:
         raise ValueError("held_fresh > 0")
-    return census_floor(fresh_census, first_page) / held_fresh
+    return census_floor(fresh_census) / held_fresh
 
 
 def peak_no_free(held_before: int, held_after: int) -> int:
@@ -224,7 +208,7 @@ def engine_source_problems(text: str) -> list[str]:
     contents so the self-test can hand in a mutated copy."""
     problems = []
     src = _strip_comments(text)
-    for name, want in (("SLAB_PAGE_SIZE", SLAB_PAGE_SIZE), ("SLAB_FIRST_PAGE_SIZE", SLAB_FIRST_PAGE_SIZE)):
+    for name, want in (("SLAB_PAGE_SIZE", SLAB_PAGE_SIZE), ("SLAB_SMALL_PAGE_SIZE", SLAB_SMALL_PAGE_SIZE)):
         m = re.search(rf"^const {name}: usize = (\d+);", src, re.M)
         if not m:
             problems.append(f"alloc.rs: `const {name}: usize = <literal>;` not found")
@@ -253,8 +237,8 @@ def test_engine_sync() -> None:
     assert not problems, "\n".join(problems)
     mutations = (
         ("const SLAB_PAGE_SIZE: usize = 4096;", "const SLAB_PAGE_SIZE: usize = 8192;", "SLAB_PAGE_SIZE"),
-        ("const SLAB_FIRST_PAGE_SIZE: usize = 512;", "const SLAB_FIRST_PAGE_SIZE: usize = 1024;",
-         "SLAB_FIRST_PAGE_SIZE"),
+        ("const SLAB_SMALL_PAGE_SIZE: usize = 512;", "const SLAB_SMALL_PAGE_SIZE: usize = 1024;",
+         "SLAB_SMALL_PAGE_SIZE"),
         ("const SLAB_HEADER: usize = CACHE_LINE;", "const SLAB_HEADER: usize = 2 * CACHE_LINE;", "SLAB_HEADER"),
         ("(size - SLAB_HEADER) / accounted_size(bytes, align)",
          "(size - 2 * SLAB_HEADER) / accounted_size(bytes, align)", "slab_blocks"),
@@ -284,23 +268,21 @@ def test_artifact_pins() -> None:
     its held bytes equal the formula on every set cell. The map's rebuild is an
     ascending insert, which frees as leaves step up their size classes: it
     holds at least the formula. Every census holds at least its floor, and the
-    predicted ratio is at most 1 everywhere. The artifact predates the small
-    first page, so its floors use `ARTIFACT_FIRST_PAGE_SIZE`."""
-    fp = ARTIFACT_FIRST_PAGE_SIZE
+    predicted ratio is at most 1 everywhere."""
     cells = _cells()
     assert len(cells) == 42, len(cells)
     for c in cells:
         for tree in ("drained", "shrunk", "fresh", "rebuilt"):
             cs = c["census"][tree]
-            assert census_held(cs) >= census_floor(cs, fp), (c["cell"], c["flavor"], tree)
+            assert census_held(cs) >= census_floor(cs), (c["cell"], c["flavor"], tree)
         rb = c["census"]["rebuilt"]
         assert census_held(rb) == c["held_rebuilt"], (c["cell"], c["flavor"])
         if c["flavor"] == "set":
-            assert census_floor(rb, fp) == c["held_rebuilt"], (c["cell"], "set rebuild is no-free")
+            assert census_floor(rb) == c["held_rebuilt"], (c["cell"], "set rebuild is no-free")
         else:
-            assert census_floor(rb, fp) <= c["held_rebuilt"], (c["cell"], "map floor")
+            assert census_floor(rb) <= c["held_rebuilt"], (c["cell"], "map floor")
         assert census_held(c["census"]["fresh"]) == c["held_fresh"]
-        p = predicted_compact_over_fresh(c["census"]["fresh"], c["held_fresh"], fp)
+        p = predicted_compact_over_fresh(c["census"]["fresh"], c["held_fresh"])
         assert 0.0 < p <= 1.0, (c["cell"], c["flavor"], p)
     by = {(c["cell"], c["flavor"]): c for c in cells}
     # Reference values, computed from the artifact by the functions above.
@@ -314,9 +296,9 @@ def test_artifact_pins() -> None:
     }
     for key, want in pins.items():
         c = by[key]
-        got = predicted_compact_over_fresh(c["census"]["fresh"], c["held_fresh"], fp)
+        got = predicted_compact_over_fresh(c["census"]["fresh"], c["held_fresh"])
         assert round(got, 4) == want, (key, got)
-    worst = max(predicted_compact_over_fresh(c["census"]["fresh"], c["held_fresh"], fp) for c in cells)
+    worst = max(predicted_compact_over_fresh(c["census"]["fresh"], c["held_fresh"]) for c in cells)
     assert round(worst, 4) == 0.9982, worst
     # G-peak on the headline set with the rebuild as the stand-in for the new
     # tree: 94,650,432 B held drained (no shrink) + 8,368,192 B rebuilt.
@@ -331,22 +313,15 @@ def test_pins() -> None:
     assert slab_blocks(128) == 31
     assert slab_blocks(256) == 15
     assert slab_blocks(32) == 126
-    assert slab_blocks(16, SLAB_FIRST_PAGE_SIZE) == 28
-    assert slab_blocks(128, SLAB_FIRST_PAGE_SIZE) == 3
-    assert slab_blocks(256, SLAB_FIRST_PAGE_SIZE) == 1
-    assert class_no_free_bytes(0, 128) == 0
-    assert class_no_free_bytes(3, 128) == 512
-    assert class_no_free_bytes(4, 128) == 512 + 4096
+    assert slab_blocks(16, SLAB_SMALL_PAGE_SIZE) == 28
+    assert slab_blocks(128, SLAB_SMALL_PAGE_SIZE) == 3
+    assert slab_blocks(256, SLAB_SMALL_PAGE_SIZE) == 1
     assert floor_pages(0, 31) == 0
     assert floor_pages(31, 31) == 1
     assert floor_pages(32, 31) == 2
-    # One 128 B class with 62 live (3 on the 512 B first page, 59 on two
-    # 31-block pages), one 16 B class with 1 live (its first page), and 4,160 B
-    # of system-served live bytes.
-    assert no_free_held([(62, 128), (1, 16)], 4160) == 2 * 512 + 2 * 4096 + 4160
-    # The same with 4 KiB first pages, the engine before the small first page:
-    # 3 pages + 4,160 B.
-    assert no_free_held([(62, 128), (1, 16)], 4160, SLAB_PAGE_SIZE) == 3 * 4096 + 4160
+    # One 128 B class (31 blocks per page) with 62 live, one 16 B class (252)
+    # with 1 live, 4,160 B of system-served live bytes: 3 pages + 4,160 B.
+    assert no_free_held([(62, 128), (1, 16)], 4160) == 3 * 4096 + 4160
     assert no_free_held([], 0) == 0
     assert peak_no_free(100, 40) == 140
     assert peak_ceiling(100, 40) == 100 + 1.10 * 40
@@ -363,8 +338,7 @@ def test_pins() -> None:
     for bad in (
         lambda: slab_blocks(0),
         lambda: slab_blocks(4096),
-        lambda: slab_blocks(SLAB_FIRST_PAGE_SIZE - SLAB_HEADER + 1, SLAB_FIRST_PAGE_SIZE),
-        lambda: class_no_free_bytes(-1, 16),
+        lambda: slab_blocks(SLAB_SMALL_PAGE_SIZE - SLAB_HEADER + 1, SLAB_SMALL_PAGE_SIZE),
         lambda: floor_pages(-1, 1),
         lambda: floor_pages(1, 0),
         lambda: no_free_held([], -1),

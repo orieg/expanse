@@ -465,6 +465,30 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         k.extend_from_slice(b"abc");
         k
     };
+    // A slab page carved while the map holds less than 4 KiB live is a small
+    // one (alloc.rs, `SLAB_SMALL_PAGE_SIZE`). The leafy map crosses 4 KiB
+    // sooner than the flat one, so measured from empty their node pages
+    // would differ in size and node storage would not cancel. Both maps first
+    // take the same leafless keys under a first byte no measured key uses,
+    // past 4 KiB live, so every page either carves in the measured window is
+    // a 4 KiB one. Not under Miri, where every block is its own allocation.
+    let ballast: u32 = if cfg!(miri) { 0 } else { 512 };
+    let prime = |m: &mut ExpanseStrMap| {
+        if ballast == 0 {
+            return;
+        }
+        for i in 0..ballast {
+            let mut k = vec![b'z'];
+            k.extend_from_slice(&digits(i));
+            k.extend_from_slice(b"ab");
+            m.insert(tk(&k), 0);
+        }
+        assert!(
+            m.mem_used() >= 4096,
+            "ballast below 4 KiB live: {}",
+            m.mem_used()
+        );
+    };
 
     // More than one population: one allocation per leaf is a slope, and a
     // slope needs more than one point. Node storage cancels in the difference
@@ -483,6 +507,7 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         let flat: Vec<Vec<u8>> = (0..n).map(no_leaf).collect();
 
         let mut a = ExpanseStrMap::new();
+        prime(&mut a);
         let with = allocations_during(|| {
             for (i, k) in leafy.iter().enumerate() {
                 a.insert(tk(k), i as u64);
@@ -498,21 +523,25 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         drop(a);
 
         let mut b = ExpanseStrMap::new();
+        prime(&mut b);
         let without = allocations_during(|| {
             for (i, k) in flat.iter().enumerate() {
                 b.insert(tk(k), i as u64);
             }
         });
-        assert_eq!(b.len(), u64::from(n), "terminal arm lost keys at n={n}");
+        assert_eq!(
+            b.len(),
+            u64::from(n + ballast),
+            "terminal arm lost keys at n={n}"
+        );
         drop(b);
 
         let per_leaf = with - without;
         // A leaf is a block of the tree's own allocator (the default since
         // #1586; `ablation-unpacked-suffix` restores the global allocation):
         // a 4-byte suffix is a 20-byte request, served from the 32-byte slab
-        // class. The class's first page is 512 B, (512 - 64) / 32 = 14 blocks,
-        // and every later one 4 KiB, (4096 - 64) / 32 = 126 blocks, so the
-        // leaves cost one global allocation per page they fill. Under Miri the tree's
+        // class, (4096 - 64) / 32 = 126 blocks per 4 KiB page, so the leaves
+        // cost one global allocation per page they fill. Under Miri the tree's
         // allocator serves every block from the system allocator at its exact
         // size (`alloc.rs` module docs), so there each leaf is one global
         // allocation, the unpacked shape (Refs #1608).
@@ -526,11 +555,10 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         } else if !cfg!(feature = "ablation-unpacked-suffix") {
             assert_eq!(
                 per_leaf,
-                1 + (n as usize - 14).div_ceil(126),
+                (n as usize).div_ceil(126),
                 "at n={n}, {n} packed suffix leaves cost {per_leaf} global \
                  allocations ({with} with leaves, {without} without); one per \
-                 slab page (14 blocks on the first, 126 on each later one) is \
-                 the packed shape"
+                 126-block slab page is the packed shape"
             );
         } else {
             assert_eq!(

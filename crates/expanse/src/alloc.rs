@@ -31,9 +31,10 @@
 //! For size classes $\le 256$ bytes, `NodeAlloc` allocates memory in slab
 //! pages, embedding an intrusive `SlabPage` header and pre-slicing the
 //! remaining capacity into local freelist blocks. This avoids system `libc`
-//! `malloc`/`free` overhead on tree growth and churn. A class's first page
-//! is 512 B and every later one 4 KiB, so a small tree, which keeps one page
-//! for each class it has touched, holds 512 B per class rather than 4 KiB.
+//! `malloc`/`free` overhead on tree growth and churn. A page carved while the
+//! tree holds less than 4 KiB live is 512 B and every other page 4 KiB, so a
+//! small tree, which keeps a page for each class it has touched, holds 512 B
+//! per class rather than 4 KiB.
 //! See `docs/HARDWARE.md` §1.7 and [#431](https://github.com/orieg/expanse/issues/431)
 //! for the 4KB page granularity and STLB reach trade-offs at 1M+ keys.
 //!
@@ -59,7 +60,7 @@
 use crate::occ::Collector;
 use crate::types::{CACHE_LINE, RAW_ALIGN};
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicPtr, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 #[cfg(feature = "std")]
 use std::alloc::{Layout, alloc as alloc_uninit, alloc_zeroed, dealloc, handle_alloc_error};
 #[cfg(feature = "std")]
@@ -158,17 +159,14 @@ macro_rules! alloc_raw_body {
                 if $bytes <= 256 {
                     #[cfg(debug_assertions)]
                     let _bookkeeping = $s.enter_bookkeeping();
-                    // Pre-populate freelist from an intrusive slab page: the
-                    // class's first page is a small one, every later one 4 KiB.
-                    let seen = &$s.first_page_carved[class / 32];
-                    let bit = 1u32 << (class % 32);
-                    let carved = seen.load(Ordering::Relaxed);
-                    let page_size = if carved & bit == 0 {
-                        seen.store(carved | bit, Ordering::Relaxed);
-                        SLAB_FIRST_PAGE_SIZE
-                    } else {
-                        SLAB_PAGE_SIZE
-                    };
+                    // Pre-populate freelist from an intrusive slab page: a
+                    // small one while the tree holds less than a full page.
+                    let page_size =
+                        if $s.bytes_in_use.load(Ordering::Relaxed) < SLAB_PAGE_SIZE {
+                            SLAB_SMALL_PAGE_SIZE
+                        } else {
+                            SLAB_PAGE_SIZE
+                        };
                     let page_align = $align.max(CACHE_LINE);
                     let page_layout = Layout::from_size_align(page_size, page_align)
                         .expect("valid slab page layout");
@@ -242,8 +240,9 @@ pub(crate) struct SlabPage {
     /// fixes the page's layout ([`slab_page_layout`]) and lets
     /// [`NodeAlloc::bytes_held`] count the blocks the page holds.
     pub(crate) class: usize,
-    /// Bytes of the page: [`SLAB_FIRST_PAGE_SIZE`] for the first page a
-    /// handle carves for its class, [`SLAB_PAGE_SIZE`] for every later one.
+    /// Bytes of the page: [`SLAB_SMALL_PAGE_SIZE`] when the handle held less
+    /// than [`SLAB_PAGE_SIZE`] live bytes as it was carved, else
+    /// [`SLAB_PAGE_SIZE`].
     pub(crate) size: usize,
 }
 
@@ -269,8 +268,9 @@ pub struct SlabClassCensus {
     /// Bytes one block occupies on a page, which is also what `mem_used()`
     /// charges a live block of the class.
     pub block: usize,
-    /// Blocks carved from one 4 KiB page. The class's first page is smaller
-    /// and holds fewer ([`Self::page_bytes`] counts what the pages hold).
+    /// Blocks carved from one 4 KiB page. A page carved while the tree was
+    /// small is smaller and holds fewer ([`Self::page_bytes`] counts what the
+    /// pages hold).
     pub blocks_per_page: usize,
     /// Slab pages of this class.
     pub pages: usize,
@@ -362,13 +362,17 @@ impl AllocCensus {
 const SLAB_HEADER: usize = CACHE_LINE;
 /// Bytes of one slab page.
 const SLAB_PAGE_SIZE: usize = 4096;
-/// Bytes of the first slab page a handle carves for a class. A small tree
-/// touches a few classes and keeps one page of each, so this, not
-/// [`SLAB_PAGE_SIZE`], sets its floor (docs/COMPAT.md, small JudyL arrays).
-const SLAB_FIRST_PAGE_SIZE: usize = 512;
+/// Bytes of a slab page carved while the handle holds less than
+/// [`SLAB_PAGE_SIZE`] live bytes. A small tree touches a few classes and keeps
+/// a page of each, so this, not [`SLAB_PAGE_SIZE`], sets its floor
+/// (docs/COMPAT.md, small JudyL arrays). The size depends on the tree's live
+/// bytes at the carve, not on its history, so a tree shrunk and regrown small
+/// carves small pages again (docs/benchmarks/remove_retention/METHODOLOGY.md
+/// §16).
+const SLAB_SMALL_PAGE_SIZE: usize = 512;
 
-// The first page of the largest slab class still holds a block.
-const _: () = assert!(SLAB_FIRST_PAGE_SIZE - SLAB_HEADER >= 256);
+// A small page of the largest slab class still holds a block.
+const _: () = assert!(SLAB_SMALL_PAGE_SIZE - SLAB_HEADER >= 256);
 
 /// The layout a slab page of `class` and `size` bytes is allocated and
 /// freed with.
@@ -834,10 +838,6 @@ pub struct NodeAlloc {
     freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
     /// See [`Self::freelists`] — same single-writer domain.
     slab_pages: AtomicPtr<SlabPage>,
-    /// One bit per class, set once the class's first (small) slab page is
-    /// carved. Same single-writer domain; load/store only, so it builds on
-    /// targets without atomic read-modify-write.
-    first_page_carved: [AtomicU32; 2],
     /// Set while a thread is inside the single-writer region above.
     #[cfg(debug_assertions)]
     bookkeeping_busy: core::sync::atomic::AtomicBool,
@@ -865,7 +865,6 @@ impl Default for NodeAlloc {
             total_allocs: AtomicUsize::new(0),
             freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
             slab_pages: AtomicPtr::new(core::ptr::null_mut()),
-            first_page_carved: [const { AtomicU32::new(0) }; 2],
             #[cfg(debug_assertions)]
             bookkeeping_busy: core::sync::atomic::AtomicBool::new(false),
             #[cfg(miri)]
@@ -1208,10 +1207,6 @@ impl NodeAlloc {
                 released += size;
                 page = next;
             }
-        }
-        // As a new handle: the next page of every class is a first page.
-        for w in self.first_page_carved.iter_mut() {
-            *w.get_mut() = 0;
         }
         for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
             // Slab-class blocks lived on the pages just freed.
@@ -2231,9 +2226,9 @@ mod tests {
         {
             let classes = NUM_CLASSES * size_of::<usize>();
             // bytes_in_use, live_allocs, total_allocs, slab_pages, tree_word,
-            // the first-page bits, one word shared by root_cover and the
-            // debug-only bookkeeping flag, and the two-word cell.
-            assert_eq!(size_of::<NodeAlloc>(), 9 * 8 + classes);
+            // one word shared by root_cover and the debug-only
+            // bookkeeping flag, and the two-word cell.
+            assert_eq!(size_of::<NodeAlloc>(), 8 * 8 + classes);
         }
     }
 
@@ -2565,16 +2560,17 @@ mod tests {
     /// `release_free` frees exactly the slab pages with no live block and
     /// every free system-class block, keeps a page that still holds a live
     /// block (and its free blocks on the freelist), and `bytes_held` falls
-    /// by exactly the bytes it reports.
+    /// by exactly the bytes it reports. A live 4 KiB ballast block holds the
+    /// handle at a full page live, so every slab page here is 4 KiB.
     #[test]
     fn release_free_returns_free_pages_and_system_blocks() {
         let class = class_for_raw(64).expect("64 is a raw class");
-        let first = slab_blocks(class, SLAB_FIRST_PAGE_SIZE);
         let per_page = slab_blocks(class, SLAB_PAGE_SIZE);
         let mut a = pooled_alloc();
-        // Three pages: the small first page and a 4 KiB one full, a second
-        // 4 KiB one holding the last block.
-        let n = first + per_page + 1;
+        assert!(class_for_raw(SLAB_PAGE_SIZE).is_none());
+        let ballast = a.alloc_bytes(SLAB_PAGE_SIZE);
+        // Three pages: two full, one holding the last block.
+        let n = 2 * per_page + 1;
         let blocks: core_alloc::vec::Vec<_> = (0..n).map(|_| a.alloc_bytes(64)).collect();
         let big = a.alloc_bytes(300);
         assert!(class_for_raw(300).is_some_and(|c| !is_slab_class(c)));
@@ -2584,21 +2580,21 @@ mod tests {
             // SAFETY: each block came from `alloc_bytes(64)` and is freed once.
             unsafe { a.free_bytes(b, 64) };
         }
-        assert_eq!(a.bytes_in_use(), 64);
+        assert_eq!(a.bytes_in_use(), SLAB_PAGE_SIZE + 64);
         assert_eq!(
             a.bytes_held(),
-            SLAB_FIRST_PAGE_SIZE + 2 * SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN)
+            SLAB_PAGE_SIZE + 3 * SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN)
         );
 
         let released = a.release_free();
         assert_eq!(
             released,
-            SLAB_FIRST_PAGE_SIZE + SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN)
+            2 * SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN)
         );
         assert_eq!(
             a.bytes_held(),
-            SLAB_PAGE_SIZE,
-            "the page with a live block stays"
+            2 * SLAB_PAGE_SIZE,
+            "the ballast and the page with a live block stay"
         );
         assert_eq!(
             a.release_free(),
@@ -2608,7 +2604,7 @@ mod tests {
 
         // The kept page's free blocks are still served, then everything goes.
         let again = a.alloc_bytes(64);
-        assert_eq!(a.bytes_held(), SLAB_PAGE_SIZE, "reuse, not a new page");
+        assert_eq!(a.bytes_held(), 2 * SLAB_PAGE_SIZE, "reuse, not a new page");
         // A system-class block on its freelist too, so the release with
         // nothing live (the drop-style path) frees both kinds.
         let big = a.alloc_bytes(300);
@@ -2618,6 +2614,7 @@ mod tests {
             a.free_bytes(big, 300);
             a.free_bytes(again, 64);
             a.free_bytes(blocks[n - 1], 64);
+            a.free_bytes(ballast, SLAB_PAGE_SIZE);
         }
         assert_eq!(a.bytes_in_use(), 0);
         assert_eq!(
@@ -2626,34 +2623,26 @@ mod tests {
         );
         assert_eq!(a.bytes_held(), 0);
         assert_eq!(a.bytes_in_use(), 0);
-
-        // Released as a new handle: the class's next page is a first page.
-        let fresh = a.alloc_bytes(64);
-        assert_eq!(a.bytes_held(), SLAB_FIRST_PAGE_SIZE);
-        // SAFETY: `fresh` came from `alloc_bytes(64)` and is freed once.
-        unsafe { a.free_bytes(fresh, 64) };
     }
 
-    /// A handle carves a small first page per class, then 4 KiB pages: a
-    /// tree touching a few classes holds one small page of each.
+    /// While the handle holds less than a full page live, a carve takes a
+    /// small page, and past it a 4 KiB one. The size reads the tree's live
+    /// bytes, not its history: a class whose pages `release_free` returned
+    /// carves small pages again while the tree is small
+    /// (docs/benchmarks/remove_retention/METHODOLOGY.md §16).
     #[test]
-    fn first_slab_page_per_class_is_small() {
-        let a = pooled_alloc();
+    fn small_slab_pages_while_the_tree_is_small() {
+        let mut a = pooled_alloc();
         let c64 = class_for_raw(64).expect("64 is a raw class");
-        let first = slab_blocks(c64, SLAB_FIRST_PAGE_SIZE);
-        let blocks: core_alloc::vec::Vec<_> = (0..first).map(|_| a.alloc_bytes(64)).collect();
-        assert_eq!(a.bytes_held(), SLAB_FIRST_PAGE_SIZE, "one small page");
-        let b32 = a.alloc_bytes(32);
+        let small = slab_blocks(c64, SLAB_SMALL_PAGE_SIZE);
+        // 64 blocks of 64 B reach a full page live on the last one: the 63
+        // before it fill small pages, and the last carves a 4 KiB page.
+        let n = SLAB_PAGE_SIZE / 64;
+        let blocks: core_alloc::vec::Vec<_> = (0..n).map(|_| a.alloc_bytes(64)).collect();
+        let small_pages = (n - 1).div_ceil(small);
         assert_eq!(
             a.bytes_held(),
-            2 * SLAB_FIRST_PAGE_SIZE,
-            "another class starts on its own small page"
-        );
-        let next = a.alloc_bytes(64);
-        assert_eq!(
-            a.bytes_held(),
-            2 * SLAB_FIRST_PAGE_SIZE + SLAB_PAGE_SIZE,
-            "the class's second page is a full one"
+            small_pages * SLAB_SMALL_PAGE_SIZE + SLAB_PAGE_SIZE
         );
         let c = a.census();
         assert_eq!(c.held(), a.bytes_held());
@@ -2664,32 +2653,55 @@ mod tests {
             .expect("class censused");
         assert_eq!(
             (k.pages, k.page_bytes, k.live_blocks),
-            (2, SLAB_FIRST_PAGE_SIZE + SLAB_PAGE_SIZE, first + 1)
+            (
+                small_pages + 1,
+                small_pages * SLAB_SMALL_PAGE_SIZE + SLAB_PAGE_SIZE,
+                n
+            )
         );
-        // SAFETY: every block came from `alloc_bytes` with the size it is
-        // freed with, and each is freed once.
+
+        // Past a full page live, another class carves a 4 KiB page.
+        let kept = a.alloc_bytes(32);
+        let held_32 = SLAB_PAGE_SIZE;
+        assert_eq!(
+            a.bytes_held(),
+            small_pages * SLAB_SMALL_PAGE_SIZE + SLAB_PAGE_SIZE + held_32
+        );
+
+        // Shrink: every 64 B page goes, the 32 B page stays.
+        for &b in &blocks {
+            // SAFETY: each block came from `alloc_bytes(64)` and is freed once.
+            unsafe { a.free_bytes(b, 64) };
+        }
+        assert_eq!(
+            a.release_free(),
+            small_pages * SLAB_SMALL_PAGE_SIZE + SLAB_PAGE_SIZE
+        );
+        assert_eq!(a.bytes_held(), held_32);
+
+        // Regrow small: the class carves a small page again.
+        let again = a.alloc_bytes(64);
+        assert_eq!(a.bytes_held(), held_32 + SLAB_SMALL_PAGE_SIZE);
+        // SAFETY: both came from `alloc_bytes` with these sizes, freed once.
         unsafe {
-            a.free_bytes(next, 64);
-            a.free_bytes(b32, 32);
-            for &b in &blocks {
-                a.free_bytes(b, 64);
-            }
+            a.free_bytes(again, 64);
+            a.free_bytes(kept, 32);
         }
         assert_eq!(a.bytes_in_use(), 0);
     }
 
     /// The census classifies each page by its live blocks and its parts sum
-    /// to `bytes_held` and `bytes_in_use` exactly.
+    /// to `bytes_held` and `bytes_in_use` exactly. A live 4 KiB ballast block
+    /// holds the handle at a full page live, so every slab page is 4 KiB.
     #[test]
     fn census_classifies_pages_and_sums_to_held() {
         let class = class_for_raw(64).expect("64 is a raw class");
-        let first = slab_blocks(class, SLAB_FIRST_PAGE_SIZE);
         let per_page = slab_blocks(class, SLAB_PAGE_SIZE);
         let mut a = pooled_alloc();
-        // Four pages of 64-byte blocks: page 0 (the small first page) full,
-        // page 1 with one live block, page 2 with none, page 3 holding the
-        // last block alone.
-        let n = first + 2 * per_page + 1;
+        let ballast = a.alloc_bytes(SLAB_PAGE_SIZE);
+        // Four pages of 64-byte blocks: page 0 full, page 1 with one live
+        // block, page 2 with none, page 3 holding the last block alone.
+        let n = 3 * per_page + 1;
         let blocks: core_alloc::vec::Vec<_> = (0..n).map(|_| a.alloc_bytes(64)).collect();
         let big = a.alloc_bytes(300);
         let kept_system = a.alloc_bytes(300);
@@ -2698,7 +2710,7 @@ mod tests {
         // are not used again.
         unsafe {
             a.free_bytes(big, 300);
-            for &b in &blocks[first + 1..first + 2 * per_page] {
+            for &b in &blocks[per_page + 1..3 * per_page] {
                 a.free_bytes(b, 64);
             }
         }
@@ -2715,22 +2727,25 @@ mod tests {
             (k.pages, k.pages_full, k.pages_partial, k.pages_free),
             (4, 1, 2, 1)
         );
-        assert_eq!(k.live_blocks, first + 2);
-        assert_eq!(k.free_blocks, 3 * per_page - 2);
+        assert_eq!(k.live_blocks, per_page + 2);
+        assert_eq!(k.free_blocks, 4 * per_page - (per_page + 2));
         assert_eq!(
             (k.page_bytes, k.free_page_bytes),
-            (SLAB_FIRST_PAGE_SIZE + 3 * SLAB_PAGE_SIZE, SLAB_PAGE_SIZE)
+            (4 * SLAB_PAGE_SIZE, SLAB_PAGE_SIZE)
         );
         let mut hist = [0usize; CENSUS_BUCKETS];
         hist[0] = 1;
         hist[1] = 2;
         hist[CENSUS_BUCKETS - 1] = 1;
         assert_eq!(k.live_hist, hist);
-        assert_eq!(c.system_live_bytes, accounted_size(300, RAW_ALIGN));
+        assert_eq!(
+            c.system_live_bytes,
+            SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN)
+        );
         assert_eq!(c.system_free_bytes(), accounted_size(300, RAW_ALIGN));
         assert_eq!(
             c.slab_live_bytes() + c.slab_free_bytes() + c.slab_overhead_bytes(),
-            SLAB_FIRST_PAGE_SIZE + 3 * SLAB_PAGE_SIZE
+            4 * SLAB_PAGE_SIZE
         );
 
         // `release_free` returns exactly the free page and the system block.
@@ -2749,10 +2764,8 @@ mod tests {
         // SAFETY: the remaining live blocks, each freed once.
         unsafe {
             a.free_bytes(kept_system, 300);
-            for &b in blocks[..=first]
-                .iter()
-                .chain(&blocks[first + 2 * per_page..])
-            {
+            a.free_bytes(ballast, SLAB_PAGE_SIZE);
+            for &b in blocks[..=per_page].iter().chain(&blocks[3 * per_page..]) {
                 a.free_bytes(b, 64);
             }
         }
@@ -2882,10 +2895,10 @@ mod tests {
         let node = a.alloc_node_zeroed::<BranchL3>();
         let class =
             class_for(size_of::<BranchL3>(), align_of::<BranchL3>()).expect("BranchL3 is a class");
-        assert!(is_slab_class(class) && slab_blocks(class, SLAB_FIRST_PAGE_SIZE) >= 2);
+        assert!(is_slab_class(class) && slab_blocks(class, SLAB_SMALL_PAGE_SIZE) >= 2);
         assert_eq!(
             a.bytes_held(),
-            SLAB_FIRST_PAGE_SIZE,
+            SLAB_SMALL_PAGE_SIZE,
             "the node is on a slab page"
         );
         // SAFETY: the node is the first of at least two blocks carved from
