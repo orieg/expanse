@@ -109,6 +109,19 @@ chunk-geometry fields) is `CorruptedHeader`, a different error.
 ## Non-goals
 
 - **`Judy1MemUsed`/`JudyLMemUsed` byte equality.** Internal geometry differs (64-byte-line nodes, different allocator). Guarantee: same order of magnitude and monotonic behavior — not the same number. Documented in `Judy(3)` (`man/man3/Judy.3`, *Memory Accounting*); the shipped `Judy.h` declares the two functions without comment.
+
+### What `Judy1MemUsed` / `JudyLMemUsed` count, and the small-array floor
+
+- **They return `mem_used` plus the handle**: the live node and leaf bytes (`ExpanseMap::mem_used`, an O(1) counter read) plus `size_of` the boxed `ExpanseMap` / `ExpanseSet` (712 B for the map). They do **not** count slab-page reservation. `expanse_map_mem_held` / `expanse_set_mem_held` (`expanse.h`) do, and they are the figures to compare with resident memory.
+- **Decision: they stay on `mem_used`.** It is what they have always returned, and a `Judy.h` symbol does not change what it reports (`AGENTS.md` §4.1). It grows with every insert, which is the monotonic behaviour the guarantee above names. It costs one counter read, where `mem_held` walks the allocator's pages and freelists. A consumer that needs the resident figure includes `expanse.h` beside `Judy.h`.
+- **The two differ most on small arrays.** A tree carves a whole 4 KiB slab page the first time it allocates from each size class of 256 B or less (`docs/ARCHITECTURE.md` §2, *Allocator* row). A root leaf growing to 20 keys passes through five classes and keeps each page after it moves on:
+
+  | JudyL array (keys uniform on `[0, 500)`) | `mem_used` | `mem_held` | slab pages with no live block | `JudyLMemUsed` |
+  |---|---|---|---|---|
+  | 1 key | 16 B | 4,096 B | 0 B | 728 B |
+  | 20 keys | 384 B | 20,864 B | 20,480 B | 1,096 B |
+
+  Each row is per array, box excluded except in the last column. The values are deterministic allocator accounting from the `bytes_per_key` small-array rows, which the `memory-budget` CI job gates at exactly these values. An array emptied by deleting every key frees its tree, pages included. stress-ng's `sparsematrix hashjudy` method keeps one such array per matrix row, and the resident-memory comparison against stock libjudy that motivated these rows is tracked in [#1666](https://github.com/orieg/expanse/issues/1666).
 - **Internal structure equality** — no attempt to match libjudy's node layouts, only its observable behavior.
 - **`JErrno` legacy globals** beyond what the documented macro layer requires.
 
