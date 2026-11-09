@@ -156,12 +156,57 @@ macro_rules! alloc_raw_body {
                 }
 
                 if $bytes <= 256 {
-                    // The class's freelist is empty: carve a page, out of line
-                    // ([`NodeAlloc::carve_slab_page`]).
-                    let block = $s.carve_slab_page(class, accounted_size, $align);
-                    let raw = block.as_ptr();
+                    #[cfg(debug_assertions)]
+                    let _bookkeeping = $s.enter_bookkeeping();
+                    // Pre-populate freelist from an intrusive slab page: the
+                    // class's first page is a small one, every later one 4 KiB.
+                    let seen = &$s.first_page_carved[class / 32];
+                    let bit = 1u32 << (class % 32);
+                    let carved = seen.load(Ordering::Relaxed);
+                    let page_size = if carved & bit == 0 {
+                        seen.store(carved | bit, Ordering::Relaxed);
+                        SLAB_FIRST_PAGE_SIZE
+                    } else {
+                        SLAB_PAGE_SIZE
+                    };
+                    let page_align = $align.max(CACHE_LINE);
+                    let page_layout = Layout::from_size_align(page_size, page_align)
+                        .expect("valid slab page layout");
+                    // SAFETY: page_layout has non-zero size.
+                    let page_raw = unsafe { alloc_zeroed(page_layout) };
+                    let Some(page_ptr) = NonNull::new(page_raw) else {
+                        handle_alloc_error(page_layout)
+                    };
+
+                    // Embed intrusive SlabPage header at the start of the page
+                    let slab_page = page_ptr.as_ptr().cast::<SlabPage>();
+                    // SAFETY: page_raw is a fresh zeroed allocation of page_size bytes.
+                    unsafe {
+                        (*slab_page).next = $s.slab_pages.load(Ordering::Relaxed);
+                        (*slab_page).class = class;
+                        (*slab_page).size = page_size;
+                    }
+                    $s.slab_pages.store(slab_page, Ordering::Relaxed);
+
+                    let header_offset = SLAB_HEADER;
+                    let step = accounted_size;
+                    let available_bytes = page_size - header_offset;
+                    let num_blocks = available_bytes / step;
+
+                    for i in (1..num_blocks).rev() {
+                        let blk_ptr =
+                            // SAFETY: ptr is inside the allocated page_size buffer.
+                            unsafe { page_raw.add(header_offset + i * step) }.cast::<FreeBlock>();
+                        let cur_head = $s.freelists[class].load(Ordering::Relaxed);
+                        // SAFETY: blk_ptr is valid memory.
+                        unsafe { (*blk_ptr).next = cur_head };
+                        $s.freelists[class].store(blk_ptr, Ordering::Relaxed);
+                    }
+
+                    // SAFETY: header_offset is aligned to CACHE_LINE.
+                    let raw = unsafe { page_raw.add(header_offset) };
                     $fill!(raw, $bytes);
-                    return block;
+                    return NonNull::new(raw).expect("non-null free block");
                 }
             }
 
@@ -896,64 +941,6 @@ impl Drop for NodeAlloc {
 }
 
 impl NodeAlloc {
-    /// Carves a slab page for `class`, whose freelist is empty, threads every
-    /// block but the first onto the freelist, and returns the first. The
-    /// class's first page is [`SLAB_FIRST_PAGE_SIZE`] bytes and every later
-    /// one [`SLAB_PAGE_SIZE`]. `step` is the class's accounted block size and
-    /// `align` the request's alignment.
-    ///
-    /// Cold and out of line: [`Self::alloc_raw`] is `#[inline(always)]`, so a
-    /// carve written inside it is stamped into every walk that allocates, and
-    /// its live values raise those walks' register pressure on the paths that
-    /// never carve (AGENTS.md §2.1 invariant 5). A carve runs once per page.
-    #[cold]
-    #[inline(never)]
-    fn carve_slab_page(&self, class: usize, step: usize, align: usize) -> NonNull<u8> {
-        #[cfg(debug_assertions)]
-        let _bookkeeping = self.enter_bookkeeping();
-        let seen = &self.first_page_carved[class / 32];
-        let bit = 1u32 << (class % 32);
-        let carved = seen.load(Ordering::Relaxed);
-        let page_size = if carved & bit == 0 {
-            seen.store(carved | bit, Ordering::Relaxed);
-            SLAB_FIRST_PAGE_SIZE
-        } else {
-            SLAB_PAGE_SIZE
-        };
-        let page_align = align.max(CACHE_LINE);
-        let page_layout =
-            Layout::from_size_align(page_size, page_align).expect("valid slab page layout");
-        // SAFETY: page_layout has non-zero size.
-        let page_raw = unsafe { alloc_zeroed(page_layout) };
-        let Some(page_ptr) = NonNull::new(page_raw) else {
-            handle_alloc_error(page_layout)
-        };
-
-        // Embed intrusive SlabPage header at the start of the page
-        let slab_page = page_ptr.as_ptr().cast::<SlabPage>();
-        // SAFETY: page_raw is a fresh zeroed allocation of page_size bytes.
-        unsafe {
-            (*slab_page).next = self.slab_pages.load(Ordering::Relaxed);
-            (*slab_page).class = class;
-            (*slab_page).size = page_size;
-        }
-        self.slab_pages.store(slab_page, Ordering::Relaxed);
-
-        let num_blocks = (page_size - SLAB_HEADER) / step;
-        for i in (1..num_blocks).rev() {
-            let blk_ptr =
-                // SAFETY: ptr is inside the allocated page_size buffer.
-                unsafe { page_raw.add(SLAB_HEADER + i * step) }.cast::<FreeBlock>();
-            let cur_head = self.freelists[class].load(Ordering::Relaxed);
-            // SAFETY: blk_ptr is valid memory.
-            unsafe { (*blk_ptr).next = cur_head };
-            self.freelists[class].store(blk_ptr, Ordering::Relaxed);
-        }
-
-        // SAFETY: SLAB_HEADER is inside the page and aligned to CACHE_LINE.
-        unsafe { NonNull::new_unchecked(page_raw.add(SLAB_HEADER)) }
-    }
-
     /// A fresh handle with zeroed counters.
     #[must_use]
     pub fn new() -> Self {

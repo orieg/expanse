@@ -236,15 +236,13 @@ def engine_source_problems(text: str) -> list[str]:
         got = _fn_body(text, fn)
         if got != want:
             problems.append(f"alloc.rs: `fn {fn}` body is {got!r}, model mirrors {want!r}")
-    # A page is carved only once the class freelist is empty: the carve call
-    # sits after the freelist pop returns, inside `alloc_raw`'s body, which the
-    # `alloc_raw_body!` macro stamps for the zeroed and non-zeroing variants,
-    # and the out-of-line `carve_slab_page` allocates the page.
+    # A page is carved only once the class freelist is empty: the carve sits
+    # after the freelist pop returns, inside `alloc_raw`'s body, which the
+    # `alloc_raw_body!` macro stamps for the zeroed and non-zeroing variants.
     body = _fn_body(text, "alloc_raw_body", kind="macro_rules!") or ""
     pop = body.find("$s.freelists[class].store(next,Ordering::Relaxed);")
-    carve = body.find("$s.carve_slab_page(class,")
-    carver = _fn_body(text, "carve_slab_page") or ""
-    if pop < 0 or carve < 0 or carve < pop or "alloc_zeroed(page_layout)" not in carver:
+    carve = body.find("alloc_zeroed(page_layout)")
+    if pop < 0 or carve < 0 or carve < pop:
         problems.append("alloc.rs: `alloc_raw_body!` no longer pops the freelist before carving a page")
     return problems
 
@@ -263,8 +261,6 @@ def test_engine_sync() -> None:
         ("+ self.system_free_bytes()\n", "\n", "fn held"),
         ("let page_raw = unsafe { alloc_zeroed(page_layout) };",
          "let page_raw = unsafe { core::ptr::null_mut::<u8>() };", "alloc_raw_body"),
-        ("let block = $s.carve_slab_page(class, accounted_size, $align);",
-         "let block = NonNull::<u8>::dangling();", "alloc_raw_body"),
     )
     for old, new, expect in mutations:
         assert old in text, f"negative control out of date: {old!r} not in alloc.rs"
