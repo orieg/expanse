@@ -630,10 +630,11 @@ fn census_json(c: &AllocCensus) -> String {
         .expect("write to a String");
     }
     format!(
-        "{{\"slab_pages\": {pages}, \"slab_pages_dense_floor\": {dense}, \"pages_free\": {}, \
+        "{{\"slab_pages\": {pages}, \"slab_page_bytes\": {}, \"slab_pages_dense_floor\": {dense}, \"pages_free\": {}, \
          \"pages_partial\": {}, \"pages_full\": {}, \"slab_live_bytes\": {}, \"slab_free_bytes\": {}, \
          \"slab_overhead_bytes\": {}, \"system_live_bytes\": {}, \"system_free_bytes\": {}, \
          \"live_allocs\": {}, \"total_allocs\": {}, \"live_hist\": {hist:?},\n        \"classes\": [{classes}]}}",
+        sum(|k| k.page_bytes),
         sum(|k| k.pages_free),
         sum(|k| k.pages_partial),
         sum(|k| k.pages_full),

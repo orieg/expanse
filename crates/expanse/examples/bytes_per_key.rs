@@ -270,7 +270,7 @@ fn small_array_row(nkeys: usize) -> (usize, usize, usize) {
         .iter()
         .map(|m| {
             let c = m.alloc_census();
-            c.slab.iter().map(|s| s.pages_free).sum::<usize>() * 4096
+            c.slab.iter().map(|s| s.free_page_bytes).sum::<usize>()
         })
         .sum();
     (
@@ -281,17 +281,18 @@ fn small_array_row(nkeys: usize) -> (usize, usize, usize) {
 }
 
 /// Small-array footprint rows (#1666): what one JudyL array of 1 or 20 keys
-/// holds. A tree carves one 4 KiB slab page per size class on that class's
-/// first allocation (`alloc.rs`, "Slab Allocation & Freelist Pooling"). A root
-/// leaf growing to 20 keys passes through five classes, and each class keeps
-/// its page after the leaf moves on, so `mem_held` is that floor rather than
+/// holds. A tree carves one 512 B slab page per size class on that class's
+/// first allocation, and 4 KiB pages after it (`alloc.rs`, "Slab Allocation &
+/// Freelist Pooling"). A root leaf growing to 20 keys passes through five
+/// classes, and each class keeps its page after the leaf moves on, so
+/// `mem_held` is that floor rather than
 /// `mem_used`. The ceilings are the measured values: the floor is structural,
 /// so any change to it is deliberate and lowers or raises the ceiling with the
 /// docs/COMPAT.md and docs/ARCHITECTURE.md rows in the same commit.
 fn small_array_rows(over: &mut Vec<String>) {
     const BOX: usize = core::mem::size_of::<ExpanseMap>();
     // keys, mem_used ceiling, mem_held ceiling (B per array, box excluded)
-    let budget: &[(usize, usize, usize)] = &[(1, 16, 4_096), (20, 384, 20_864)];
+    let budget: &[(usize, usize, usize)] = &[(1, 16, 512), (20, 384, 2_944)];
     println!(
         "\nsmall JudyL arrays ({SMALL_ARRAYS} maps per row, keys uniform on [0, 500), \
          +{BOX} B boxed ExpanseMap each)"

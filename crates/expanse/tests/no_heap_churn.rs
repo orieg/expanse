@@ -510,8 +510,9 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         // A leaf is a block of the tree's own allocator (the default since
         // #1586; `ablation-unpacked-suffix` restores the global allocation):
         // a 4-byte suffix is a 20-byte request, served from the 32-byte slab
-        // class, (4096 - 64) / 32 = 126 blocks per 4 KiB page, so the leaves
-        // cost one global allocation per page they fill. Under Miri the tree's
+        // class. The class's first page is 512 B, (512 - 64) / 32 = 14 blocks,
+        // and every later one 4 KiB, (4096 - 64) / 32 = 126 blocks, so the
+        // leaves cost one global allocation per page they fill. Under Miri the tree's
         // allocator serves every block from the system allocator at its exact
         // size (`alloc.rs` module docs), so there each leaf is one global
         // allocation, the unpacked shape (Refs #1608).
@@ -525,10 +526,11 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         } else if !cfg!(feature = "ablation-unpacked-suffix") {
             assert_eq!(
                 per_leaf,
-                (n as usize).div_ceil(126),
+                1 + (n as usize - 14).div_ceil(126),
                 "at n={n}, {n} packed suffix leaves cost {per_leaf} global \
                  allocations ({with} with leaves, {without} without); one per \
-                 126-block slab page is the packed shape"
+                 slab page (14 blocks on the first, 126 on each later one) is \
+                 the packed shape"
             );
         } else {
             assert_eq!(
