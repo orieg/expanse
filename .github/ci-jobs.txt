@@ -16,6 +16,7 @@ miri-ub-sites-pr
 msrv
 pack-dotnet
 pack-java
+packaging
 php-judy-compat
 php-judy-windows
 public-api
