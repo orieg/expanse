@@ -284,7 +284,8 @@ pub struct AllocCensus {
     /// ceiling, and requests no class serves.
     pub system_live_bytes: usize,
     /// Free blocks of the classes above the slab ceiling, kept on their
-    /// freelists, as (class bytes, blocks, bytes).
+    /// freelists, as (class bytes, blocks, bytes), and the parked root-leaf
+    /// block as one more entry of one block.
     pub system_free: core_alloc::vec::Vec<(usize, usize, usize)>,
     /// [`NodeAlloc::live_allocs`] when the census was taken.
     pub live_allocs: usize,
@@ -826,6 +827,15 @@ pub struct NodeAlloc {
     /// block must be freed the way it was allocated. Shares the word that
     /// holds `root_cover`.
     system_root_leaves: bool,
+    /// The last root-leaf block freed on the system path, parked for the
+    /// next root-leaf allocation of the same size, or null; its first word
+    /// holds its size while parked. One block, so a map emptied and refilled
+    /// by one key, or oscillating across one capacity-class boundary, reuses
+    /// it instead of calling the system allocator each time. Counted in
+    /// [`Self::bytes_held`], returned by [`Self::release_free`], and freed on
+    /// drop. Single-writer, as [`Self::freelists`]; only an allocator with
+    /// `system_root_leaves` and no collector ever sets it.
+    spare_root_leaf: AtomicPtr<u8>,
 }
 
 impl Default for NodeAlloc {
@@ -847,6 +857,7 @@ impl Default for NodeAlloc {
             #[cfg(miri)]
             exact_size: true,
             system_root_leaves: false,
+            spare_root_leaf: AtomicPtr::new(core::ptr::null_mut()),
         }
     }
 }
@@ -889,6 +900,7 @@ impl NodeAlloc {
 
 impl Drop for NodeAlloc {
     fn drop(&mut self) {
+        self.release_spare_root_leaf();
         let mut cur_page = *self.slab_pages.get_mut();
         while !cur_page.is_null() {
             // SAFETY: cur_page is the raw base pointer of an allocated 4096-byte slab page.
@@ -1026,7 +1038,7 @@ impl NodeAlloc {
         }
         // Live bytes not on a slab page came from the system allocator.
         let live_system = self.bytes_in_use().saturating_sub(slab_carved_live);
-        slab_total + live_system + free_system
+        slab_total + live_system + free_system + self.spare_root_leaf_bytes()
     }
 
     /// Returns retained memory to the system allocator: every freed block
@@ -1053,7 +1065,7 @@ impl NodeAlloc {
         if *self.bytes_in_use.get_mut() == 0 {
             return self.release_all_unused();
         }
-        let mut released = 0;
+        let mut released = self.release_spare_root_leaf();
 
         // Classes above the slab ceiling: each free block is its own
         // system allocation.
@@ -1172,7 +1184,7 @@ impl NodeAlloc {
     /// as a new one. Only sound when no byte is live: the caller checks.
     fn release_all_unused(&mut self) -> usize {
         debug_assert_eq!(*self.bytes_in_use.get_mut(), 0);
-        let mut released = 0;
+        let mut released = self.release_spare_root_leaf();
         let mut page = core::mem::replace(self.slab_pages.get_mut(), core::ptr::null_mut());
         while !page.is_null() {
             // SAFETY: a detached slab-list entry is a live page this handle
@@ -1289,6 +1301,10 @@ impl NodeAlloc {
                 slab_carved_live += c.live_blocks * step;
                 out.slab.push(c);
             }
+        }
+        let spare = self.spare_root_leaf_bytes();
+        if spare > 0 {
+            out.system_free.push((spare, 1, spare));
         }
         out.system_live_bytes = self.bytes_in_use().saturating_sub(slab_carved_live);
         out.live_allocs = self.live_allocs();
@@ -1600,6 +1616,11 @@ impl NodeAlloc {
     /// holding a live block, for a 20-key map (Refs #1666). Every other
     /// allocator, and a deferred tree, take [`Self::alloc_bytes_dispatch`].
     ///
+    /// On that path a freed block is parked as the allocator's one spare
+    /// (`spare_root_leaf`) and taken back, zeroed, by the next root-leaf
+    /// allocation of the same size; the spare it displaces goes to the system
+    /// allocator.
+    ///
     /// Free only with [`Self::free_root_leaf_dispatch`]: on the system path
     /// the block is not on a slab page, so a per-tree freelist must never
     /// hold it.
@@ -1613,6 +1634,17 @@ impl NodeAlloc {
             .fetch_add(accounted_size(bytes, RAW_ALIGN), Ordering::Relaxed);
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
         self.total_allocs.fetch_add(1, Ordering::Relaxed);
+        let spare = self.spare_root_leaf.load(Ordering::Relaxed);
+        // SAFETY: a parked block is a free root-leaf block of this handle,
+        // at least 16 bytes at RAW_ALIGN, whose first word holds its size.
+        if !spare.is_null() && unsafe { spare.cast::<usize>().read() } == bytes {
+            self.spare_root_leaf
+                .store(core::ptr::null_mut(), Ordering::Relaxed);
+            // SAFETY: the unparked block holds `bytes` bytes and this call
+            // now owns it.
+            unsafe { core::ptr::write_bytes(spare, 0, bytes) };
+            return NonNull::new(spare).expect("non-null spare block");
+        }
         Self::alloc_system(bytes, RAW_ALIGN)
     }
 
@@ -1640,12 +1672,59 @@ impl NodeAlloc {
         self.bytes_in_use
             .fetch_sub(accounted_size(bytes, RAW_ALIGN), Ordering::Relaxed);
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
-        // SAFETY: per this function's contract `ptr` is an unfreed root-leaf
-        // block of this handle. `system_root_leaves` is fixed at construction
-        // and no collector is attached, nor was one when the block was
-        // allocated (a collector is never detached), so the block came from
-        // `alloc_system(bytes, RAW_ALIGN)`, whose layout this is.
-        unsafe { dealloc(ptr.as_ptr(), Self::layout_for(bytes, RAW_ALIGN)) };
+        // The block is parked in place of the previous spare. Per this
+        // function's contract `ptr` is an unfreed root-leaf block of this
+        // handle. `system_root_leaves` is fixed at construction and no
+        // collector is attached, nor was one when the block was allocated (a
+        // collector is never detached), so it came from `alloc_system(bytes,
+        // RAW_ALIGN)` or a spare of that layout: at least 16 bytes at
+        // RAW_ALIGN, room for the size word.
+        // SAFETY: as above; nothing uses `ptr` after this call.
+        unsafe { ptr.as_ptr().cast::<usize>().write(bytes) };
+        let old = self.spare_root_leaf.load(Ordering::Relaxed);
+        self.spare_root_leaf.store(ptr.as_ptr(), Ordering::Relaxed);
+        if !old.is_null() {
+            // SAFETY: `old` was the parked block, now unreachable.
+            unsafe { Self::dealloc_spare(old) };
+        }
+    }
+
+    /// Frees a parked root-leaf block, reading its size from its first word.
+    ///
+    /// # Safety
+    ///
+    /// `spare` was parked by [`Self::free_root_leaf_dispatch`] and is no
+    /// longer reachable from `spare_root_leaf`.
+    unsafe fn dealloc_spare(spare: *mut u8) {
+        // SAFETY: caller contract; the parked block's first word is its size.
+        let bytes = unsafe { spare.cast::<usize>().read() };
+        // SAFETY: it was allocated by `alloc_system(bytes, RAW_ALIGN)`.
+        unsafe { dealloc(spare, Self::layout_for(bytes, RAW_ALIGN)) };
+    }
+
+    /// Accounted bytes of the parked root-leaf block, 0 when none is parked.
+    fn spare_root_leaf_bytes(&self) -> usize {
+        let spare = self.spare_root_leaf.load(Ordering::Relaxed);
+        if spare.is_null() {
+            return 0;
+        }
+        // SAFETY: a parked block's first word is its size; `&self` excludes a
+        // plain tree's writer.
+        accounted_size(unsafe { spare.cast::<usize>().read() }, RAW_ALIGN)
+    }
+
+    /// Frees the parked root-leaf block, if any, and returns its accounted
+    /// bytes.
+    fn release_spare_root_leaf(&self) -> usize {
+        let released = self.spare_root_leaf_bytes();
+        let spare = self
+            .spare_root_leaf
+            .swap(core::ptr::null_mut(), Ordering::Relaxed);
+        if !spare.is_null() {
+            // SAFETY: detached from `spare_root_leaf` just above.
+            unsafe { Self::dealloc_spare(spare) };
+        }
+        released
     }
 
     /// Whether this root-leaf call is on a deferred tree. `OCC = false`
@@ -1975,6 +2054,9 @@ impl NodeAlloc {
              corruption). Rebuild the structure through a pre-deferred \
              allocator instead."
         );
+        // A deferred tree never reads the spare: free it now, while no reader
+        // can hold it.
+        self.release_spare_root_leaf();
         for head in &self.freelists {
             assert!(
                 head.load(Ordering::Relaxed).is_null(),
@@ -2272,9 +2354,10 @@ mod tests {
         {
             let classes = NUM_CLASSES * size_of::<usize>();
             // bytes_in_use, live_allocs, total_allocs, slab_pages, tree_word,
-            // one word shared by root_cover, system_root_leaves and the
-            // debug-only bookkeeping flag, and the two-word cell.
-            assert_eq!(size_of::<NodeAlloc>(), 8 * 8 + classes);
+            // spare_root_leaf, one word shared by root_cover,
+            // system_root_leaves and the debug-only bookkeeping flag, and the
+            // two-word cell.
+            assert_eq!(size_of::<NodeAlloc>(), 9 * 8 + classes);
         }
     }
 

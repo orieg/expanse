@@ -6090,20 +6090,31 @@ mod tests {
         map.clear();
     }
 
-    /// A map in root-leaf form holds its leaf alone: the leaf's blocks come
-    /// from the system allocator, so no slab page is carved for the
-    /// capacity classes it grows and shrinks through (Refs #1666). A 20-key
-    /// map used to hold five 4 KiB pages beside its 384-byte leaf.
+    /// A map in root-leaf form carves no slab page: the leaf's blocks come
+    /// from the system allocator, and the one freed block the allocator
+    /// parks is all it holds beyond the leaf (Refs #1666). A 20-key map used
+    /// to hold five 4 KiB pages beside its 384-byte leaf.
     #[test]
     fn root_leaf_map_holds_no_slab_page() {
+        let check = |m: &ExpanseMap, at: &str| {
+            assert!(
+                m.alloc().census().slab.is_empty(),
+                "{at}: a slab page was carved"
+            );
+            assert!(
+                m.mem_held() - m.mem_used() <= leaf_size(ROOT_LEAF_CAP),
+                "{at}: more than one spare leaf held"
+            );
+            assert_eq!(m.alloc().census().held(), m.mem_held(), "{at}: census");
+        };
         let mut m = ExpanseMap::new();
         for k in 0..ROOT_LEAF_CAP as u64 {
             m.insert(k * 7, k);
-            assert_eq!(m.mem_held(), m.mem_used(), "growing to {} keys", k + 1);
+            check(&m, &format!("growing to {} keys", k + 1));
         }
         for k in (1..ROOT_LEAF_CAP as u64).rev() {
             m.remove(k * 7);
-            assert_eq!(m.mem_held(), m.mem_used(), "shrinking to {k} keys");
+            check(&m, &format!("shrinking to {k} keys"));
         }
         // Through tree form and back (key 0 is the one key left from above):
         // the tree's nodes pool as before, and the leaf it condenses into is
@@ -6116,6 +6127,36 @@ mod tests {
         }
         assert!(m.is_empty());
         assert_eq!(m.mem_used(), 0);
+    }
+
+    /// Emptying a map and refilling it by one key reuses the parked leaf:
+    /// the map holds the one 16-byte block across every cycle, and
+    /// `shrink_to_fit` returns it.
+    #[test]
+    fn root_leaf_spare_is_reused_and_released() {
+        let mut m = ExpanseMap::new();
+        for k in 0..100u64 {
+            m.insert(k, k);
+            assert_eq!((m.mem_used(), m.mem_held()), (16, 16), "cycle {k}, one key");
+            assert_eq!(m.remove(k), Some(k));
+            assert_eq!((m.mem_used(), m.mem_held()), (0, 16), "cycle {k}, empty");
+        }
+        assert_eq!(m.shrink_to_fit(), 16);
+        assert_eq!(m.mem_held(), 0);
+        // A spare of another size is displaced, not kept beside the new one.
+        m.insert(1, 1);
+        m.insert(2, 2);
+        assert_eq!(
+            (m.mem_used(), m.mem_held()),
+            (32, 48),
+            "two keys, 16-byte spare"
+        );
+        m.insert(3, 3);
+        assert_eq!(
+            m.mem_held() - m.mem_used(),
+            32,
+            "the 32-byte leaf displaced the 16"
+        );
     }
 
     #[test]
