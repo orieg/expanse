@@ -2470,17 +2470,7 @@ not: the two arms that regressed reach *none* of the code paths the change
 touched. Re-run it whenever a distribution or population changes; promoting it
 out of a throwaway probe is tracked in issue #1.
 
-### libexpanse vs stock libjudy, JudyL surface (measured: GitHub `ubuntu-latest` runner, 2 cores, load 0.42 at start — the standing reference environment; commit with this section; interleaved A/B medians of 5 rounds; harness: `crates/expanse-capi/examples/bench_vs_libjudy.rs`, nightly `bench-report` job)
-
-| dist | pop | get ratio (ours/stock) | insert ratio | B/key ratio |
-|---|---|---|---|---|
-| sequential | 1M | 1.60× slower | 2.88× slower | 1.03 |
-| random | 1M | 1.47× slower | 2.38× slower | **0.93 (smaller)** |
-| clustered | 1M | 1.55× slower | 2.48× slower | **0.92 (smaller)** |
-
-**This CI table is the reproducible instruction-baseline reference** (`x86-64-v1`, no runtime SIMD). The **quiet-host table below is the wall-clock reference** for absolute numbers. A CI runner is not a quiet host, but it is freshly booted, unshared with a desktop session, and reproducible. Only ratios transfer between machines — the paired interleaved arms normalize away machine speed (rule 3).
-
-Cross-machine sanity check: bytes/key columns are byte-identical to the local run (deterministic accounting), which is what makes the timing columns' disagreement attributable to hardware rather than to the build.
+A wall-clock table of `bench_vs_libjudy` ratios taken on a 2-core GitHub `ubuntu-latest` runner stood here. It is withdrawn: it named no commit, carried no intervals and had no committed artifact, and it labelled wall-clock ratios as an instruction baseline. The wall-clock reference is the quiet-host table below; the instruction reference is the `capi_vs_stock` Callgrind suite (`crates/expanse-capi/benches/vs_stock.rs`, artifact [`results/baseline_vs_stock.json`](../results/baseline_vs_stock.json)).
 
 ### libexpanse vs stock libjudy, JudyL surface — dedicated quiet host *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0, commit `4c4e852a`, [run 33151981386](https://github.com/orieg/expanse/actions/runs/33151981386); harness `crates/expanse-capi/examples/bench_vs_libjudy.rs`, 15 paired rounds with arms interleaved per round, load average 0.16 at start; stock `libJudy.so.1` `dlopen`'d; workload: `capi_bench_vs_libjudy`)*
 

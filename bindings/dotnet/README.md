@@ -145,7 +145,7 @@ ulong pruned = blobMap.Prune((key, hotMeta) => hotMeta == 10);
 Console.WriteLine($"Pruned {pruned} entries.");
 ```
 
-### 5. Concurrent One-Writer / Lock-Free Readers (`ExpanseSyncMap`)
+### 5. Concurrent Map with Optimistic Readers (`ExpanseSyncMap`)
 
 ```csharp
 using Expanse;

@@ -1492,6 +1492,64 @@
       "replacement": "docs/benchmarks/masstree_comparison/README.md section 7 (sections 1, 2 and 8): results/baseline_concurrent.json and results/baseline_concurrent_run2.json, two runs at c1b604ad under pin 0-15 (runs 42470920286, 42519511477); the retired pair is kept at results/at_929574b5/",
       "provenance": "#1586, #1611",
       "rationale": "Masstree concurrent figures from the two runs at 929574b5, before design B changed the string map's allocator. At c1b604ad the readers-only string cell is Masstree's in both runs (0.982-0.987, an UNPREDICTED LOSS where 929574b5 had 1.034-1.054), the string writers at sixteen are BOUNDARY_RESULT, and the integer single writer is Masstree's in both runs. The pairs are separate runs at two commits, so no difference is attributed to design B."
+    },
+    {
+      "id": "vs_stock_github_runner_wallclock_ratios",
+      "patterns": [
+        "(?<![\\w.])1\\.60[x×]\\s*slower",
+        "(?<![\\w.])2\\.88[x×]\\s*slower",
+        "(?<![\\w.])1\\.47[x×]\\s*slower",
+        "(?<![\\w.])2\\.38[x×]\\s*slower",
+        "(?<![\\w.])1\\.55[x×]\\s*slower",
+        "(?<![\\w.])2\\.48[x×]\\s*slower"
+      ],
+      "context": [
+        "stock",
+        "libjudy",
+        "judy",
+        "insert",
+        "get",
+        "runner"
+      ],
+      "replacement": "quiet-host wall-clock ratios with BCa 95% intervals (results/baseline_vs_libjudy.json)",
+      "provenance": "docs/BENCHMARKING.md, libexpanse vs stock libjudy section",
+      "rationale": "GitHub-runner wall-clock table with no commit, no intervals and no committed artifact; withdrawn"
+    },
+    {
+      "id": "vs_stock_unsourced_stock_instruction_counts",
+      "patterns": [
+        "(?<![\\w.])12\\.84M",
+        "(?<![\\w.])389\\.7M",
+        "(?<![\\w.])50\\.78M",
+        "(?<![\\w.])10\\.38M",
+        "(?<![\\w.])5\\.07M\\s*inst",
+        "(?<![\\w.])5\\.09M\\s*inst",
+        "(?<![\\w.])3\\.83M\\s*inst"
+      ],
+      "context": [
+        "stock",
+        "inst",
+        "judy",
+        "capi_vs_stock"
+      ],
+      "replacement": "stock counts from results/baseline_vs_stock.json (e.g. judyl_insert_stock/sequential 14,707,234)",
+      "provenance": "README.md Performance vs Stock libjudy table",
+      "rationale": "Stock Callgrind counts with no committed artifact, on mislabelled populations (100k/3M; the harness runs 30k/1.5M)"
+    },
+    {
+      "id": "sync_map_16t_reads_unsourced",
+      "patterns": [
+        "(?<![\\w.])348[–-]354\\s*M"
+      ],
+      "context": [
+        "reads",
+        "thread",
+        "syncexpansemap",
+        "concurren"
+      ],
+      "replacement": "322.8 [322.1, 323.5] and 321.6 [321.2, 322.1] M reads/s (docs/benchmarks/concurrency/results/baseline_concurrent_mixed{,_run2}.json)",
+      "provenance": "README.md Key Features",
+      "rationale": "16-thread read figure that matches neither committed concurrent_mixed run"
     }
   ]
 }
