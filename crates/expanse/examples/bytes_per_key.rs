@@ -281,11 +281,11 @@ fn small_array_row(nkeys: usize) -> (usize, usize, usize) {
 }
 
 /// Small-array footprint rows (#1666): what one JudyL array of 1 or 20 keys
-/// holds. A tree carves a slab page per size class on that class's first
-/// allocation, 512 B while it holds less than 4 KiB live (`alloc.rs`, "Slab
-/// Allocation & Freelist Pooling"). A root leaf growing to 20 keys passes
-/// through five classes, and each class keeps its page after the leaf moves
-/// on, so `mem_held` is that floor rather than
+/// holds. A tree carves one 512 B slab page per size class on that class's
+/// first allocation, and 4 KiB pages after it (`alloc.rs`, "Slab Allocation &
+/// Freelist Pooling"). A root leaf growing to 20 keys passes through five
+/// classes, and each class keeps its page after the leaf moves on, so
+/// `mem_held` is that floor rather than
 /// `mem_used`. The ceilings are the measured values: the floor is structural,
 /// so any change to it is deliberate and lowers or raises the ceiling with the
 /// docs/COMPAT.md and docs/ARCHITECTURE.md rows in the same commit.
