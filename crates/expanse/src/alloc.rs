@@ -1287,6 +1287,13 @@ impl NodeAlloc {
             let total = d.shards.iter().fold(inline as isize, |acc, s| {
                 acc.saturating_add(s.live_allocs.load(Ordering::Relaxed))
             });
+            // As in `bytes_in_use`: every caller excludes writers, so a
+            // negative sum is an over-free, and the clamp would report it as
+            // the clean zero a leak assertion expects (AGENTS.md §8.22.3).
+            debug_assert!(
+                total >= 0,
+                "NodeAlloc accounting sums to {total} live allocations: more freed than allocated"
+            );
             return if total < 0 { 0 } else { total as usize };
         }
         inline
@@ -2110,6 +2117,49 @@ mod tests {
         assert_eq!(a.live_allocs(), 0);
         assert_eq!(a.bytes_in_use(), 0);
         assert_eq!(a.total_allocs(), stripes.len());
+    }
+
+    /// A deferred tree whose shards sum negative has freed more than it
+    /// allocated. The summing readers panic on it in debug builds rather
+    /// than clamping it to the zero a leak assertion expects.
+    #[cfg(all(
+        feature = "std",
+        debug_assertions,
+        not(feature = "ablation-unsharded-alloc")
+    ))]
+    fn over_freed_alloc() -> NodeAlloc {
+        let a = NodeAlloc::new();
+        a.defer_to(Arc::new(Collector::new()));
+        let sh = &a
+            .deferred
+            .get()
+            .expect("defer_to publishes the shards")
+            .shards;
+        sh[0].live_allocs.store(-1, Ordering::Relaxed);
+        sh[0].bytes_in_use.store(-32, Ordering::Relaxed);
+        a
+    }
+
+    #[test]
+    #[cfg(all(
+        feature = "std",
+        debug_assertions,
+        not(feature = "ablation-unsharded-alloc")
+    ))]
+    #[should_panic(expected = "live allocations: more freed than allocated")]
+    fn live_allocs_panics_on_a_negative_sum() {
+        let _ = over_freed_alloc().live_allocs();
+    }
+
+    #[test]
+    #[cfg(all(
+        feature = "std",
+        debug_assertions,
+        not(feature = "ablation-unsharded-alloc")
+    ))]
+    #[should_panic(expected = "bytes: more freed than allocated")]
+    fn bytes_in_use_panics_on_a_negative_sum() {
+        let _ = over_freed_alloc().bytes_in_use();
     }
 
     /// The shards ride in the collector's cell, boxed, so an allocator that
