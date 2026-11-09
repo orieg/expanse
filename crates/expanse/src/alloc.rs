@@ -1630,6 +1630,16 @@ impl NodeAlloc {
         if !self.system_root_leaves || self.root_leaf_deferred::<OCC>() {
             return self.alloc_raw::<OCC>(bytes, RAW_ALIGN);
         }
+        self.alloc_root_leaf_system(bytes)
+    }
+
+    /// The system path of [`Self::alloc_root_leaf_dispatch`]: the parked
+    /// spare when it has this size, else a fresh zeroed block. Out of line,
+    /// so the walks that inline the dispatch carry only its two tests: the
+    /// whole body inlined into `SyncExpanseMap::insert`, which never takes
+    /// it, moved a pointer to the stack there (AGENTS.md §2.1 invariant 5).
+    #[inline(never)]
+    fn alloc_root_leaf_system(&self, bytes: usize) -> NonNull<u8> {
         self.bytes_in_use
             .fetch_add(accounted_size(bytes, RAW_ALIGN), Ordering::Relaxed);
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
@@ -1669,6 +1679,20 @@ impl NodeAlloc {
             unsafe { self.free_raw::<OCC>(ptr, bytes, RAW_ALIGN) };
             return;
         }
+        // SAFETY: forwarded contract; this allocator has `system_root_leaves`
+        // and no collector.
+        unsafe { self.free_root_leaf_system(ptr, bytes) };
+    }
+
+    /// The system path of [`Self::free_root_leaf_dispatch`], out of line for
+    /// the reason [`Self::alloc_root_leaf_system`] is.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::free_root_leaf_dispatch`], on an allocator with
+    /// `system_root_leaves` and no collector attached.
+    #[inline(never)]
+    unsafe fn free_root_leaf_system(&self, ptr: NonNull<u8>, bytes: usize) {
         self.bytes_in_use
             .fetch_sub(accounted_size(bytes, RAW_ALIGN), Ordering::Relaxed);
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
