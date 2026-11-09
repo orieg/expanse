@@ -62,8 +62,8 @@ avx512 = []
 # form: `NodeAlloc` keeps its three inline atomics and allocates one
 # cache-line-aligned accounting shard per writer slot only in `defer_to`, in the
 # same boxed cell as the collector handle, so a tree that never becomes
-# concurrent carries no shard word (`size_of::<ExpanseMap>()` measured 712 B
-# against the inline layout's 4,864 B when this was decided). Kept
+# concurrent carries no extra word and `size_of::<ExpanseMap>()` stays 712 B
+# rather than the inline layout's 4,864 B. Kept
 # declared so Cargo does not reject an old `--features ablation-sharded-alloc`
 # invocation; `lib.rs` turns it into a compiler error naming the inverse, and it
 # is never a no-op (AGENTS.md §2.7).

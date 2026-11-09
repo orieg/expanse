@@ -425,7 +425,7 @@ fn leaf_state_insert<const OCC: bool, const NESTED: bool>(
 ) -> LeafStateInsert {
     match root {
         Root::Empty => {
-            let ptr = alloc.alloc_root_leaf_dispatch::<OCC>(leaf_size(1));
+            let ptr = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(1));
             // SAFETY: fresh allocation: key slot then value slot.
             unsafe {
                 ptr.as_ptr().cast::<u64>().write(key);
@@ -491,7 +491,7 @@ fn leaf_state_insert<const OCC: bool, const NESTED: bool>(
                         tree_pop: None,
                     };
                 }
-                let new = alloc.alloc_root_leaf_dispatch::<OCC>(leaf_size(pop + 1));
+                let new = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(pop + 1));
                 // SAFETY: copy keys and values around the insertion
                 // point into the fresh (pop + 1)-entry leaf.
                 unsafe {
@@ -505,7 +505,7 @@ fn leaf_state_insert<const OCC: bool, const NESTED: bool>(
                     nv.add(at).write(val);
                     nv.add(at + 1)
                         .copy_from_nonoverlapping(vals.add(at), pop - at);
-                    alloc.free_root_leaf_dispatch::<OCC>(ptr, leaf_size(pop));
+                    alloc.free_bytes_dispatch::<OCC>(ptr, leaf_size(pop));
                 }
                 LeafStateInsert {
                     old: None,
@@ -518,7 +518,7 @@ fn leaf_state_insert<const OCC: bool, const NESTED: bool>(
             } else {
                 let top = promote_leaf::<OCC, NESTED>(alloc, keys, vals, key, val, path);
                 // SAFETY: old root leaf no longer referenced.
-                unsafe { alloc.free_root_leaf_dispatch::<OCC>(ptr, leaf_size(pop)) };
+                unsafe { alloc.free_bytes_dispatch::<OCC>(ptr, leaf_size(pop)) };
                 LeafStateInsert {
                     old: None,
                     root: Some(Root::Tree { top }),
@@ -576,7 +576,7 @@ fn leaf_state_remove<const OCC: bool>(
             let old = unsafe { *vals.add(at) };
             if pop == 1 {
                 // SAFETY: last entry removed; free the leaf.
-                unsafe { alloc.free_root_leaf_dispatch::<OCC>(ptr, leaf_size(1)) };
+                unsafe { alloc.free_bytes_dispatch::<OCC>(ptr, leaf_size(1)) };
                 (Some(old), Some(Root::Empty))
             } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
                 // Fast path: capacity class unchanged — shift surviving entries in-place.
@@ -588,7 +588,7 @@ fn leaf_state_remove<const OCC: bool>(
                 }
                 (Some(old), Some(Root::Leaf { ptr, pop: pop - 1 }))
             } else {
-                let new = alloc.alloc_root_leaf_dispatch::<OCC>(leaf_size(pop - 1));
+                let new = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(pop - 1));
                 // SAFETY: copy the surviving keys/values into the
                 // smaller leaf.
                 unsafe {
@@ -600,7 +600,7 @@ fn leaf_state_remove<const OCC: bool>(
                     nv.copy_from_nonoverlapping(vals, at);
                     nv.add(at)
                         .copy_from_nonoverlapping(vals.add(at + 1), pop - 1 - at);
-                    alloc.free_root_leaf_dispatch::<OCC>(ptr, leaf_size(pop));
+                    alloc.free_bytes_dispatch::<OCC>(ptr, leaf_size(pop));
                 }
                 (
                     Some(old),
@@ -637,7 +637,7 @@ fn leaf_state_insert_shared(
 ) -> LeafStateInsert {
     match root {
         Root::Empty => {
-            let ptr = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(1));
+            let ptr = alloc.alloc_bytes_dispatch::<true>(leaf_size(1));
             // SAFETY: fresh allocation: key slot then value slot.
             unsafe {
                 ptr.as_ptr().cast::<u64>().write(key);
@@ -703,7 +703,7 @@ fn leaf_state_insert_shared(
                         tree_pop: None,
                     };
                 }
-                let new = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(pop + 1));
+                let new = alloc.alloc_bytes_dispatch::<true>(leaf_size(pop + 1));
                 // SAFETY: copy keys and values around the insertion
                 // point into the fresh (pop + 1)-entry leaf.
                 unsafe {
@@ -717,7 +717,7 @@ fn leaf_state_insert_shared(
                     nv.add(at).write(val);
                     nv.add(at + 1)
                         .copy_from_nonoverlapping(vals.add(at), pop - at);
-                    alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(pop));
+                    alloc.free_bytes_dispatch::<true>(ptr, leaf_size(pop));
                 }
                 LeafStateInsert {
                     old: None,
@@ -730,7 +730,7 @@ fn leaf_state_insert_shared(
             } else {
                 let top = promote_leaf::<true, true>(alloc, keys, vals, key, val, path);
                 // SAFETY: old root leaf no longer referenced.
-                unsafe { alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(pop)) };
+                unsafe { alloc.free_bytes_dispatch::<true>(ptr, leaf_size(pop)) };
                 LeafStateInsert {
                     old: None,
                     root: Some(Root::Tree { top }),
@@ -766,7 +766,7 @@ fn leaf_state_remove_shared(
             let old = unsafe { *vals.add(at) };
             if pop == 1 {
                 // SAFETY: last entry removed; free the leaf.
-                unsafe { alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(1)) };
+                unsafe { alloc.free_bytes_dispatch::<true>(ptr, leaf_size(1)) };
                 (Some(old), Some(Root::Empty))
             } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
                 // Fast path: capacity class unchanged — shift surviving entries in-place.
@@ -778,7 +778,7 @@ fn leaf_state_remove_shared(
                 }
                 (Some(old), Some(Root::Leaf { ptr, pop: pop - 1 }))
             } else {
-                let new = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(pop - 1));
+                let new = alloc.alloc_bytes_dispatch::<true>(leaf_size(pop - 1));
                 // SAFETY: copy the surviving keys/values into the
                 // smaller leaf.
                 unsafe {
@@ -790,7 +790,7 @@ fn leaf_state_remove_shared(
                     nv.copy_from_nonoverlapping(vals, at);
                     nv.add(at)
                         .copy_from_nonoverlapping(vals.add(at + 1), pop - 1 - at);
-                    alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(pop));
+                    alloc.free_bytes_dispatch::<true>(ptr, leaf_size(pop));
                 }
                 (
                     Some(old),
@@ -1445,7 +1445,7 @@ impl MapCore {
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
             }
             Root::Empty => {
-                let ptr = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(1));
+                let ptr = alloc.alloc_bytes(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -1527,7 +1527,7 @@ impl MapCore {
                             core::ptr::NonNull::new(slot).expect("slot")
                         }
                     } else {
-                        let new = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(pop_val + 1));
+                        let new = alloc.alloc_bytes(leaf_size(pop_val + 1));
                         // SAFETY: copy keys and values around insertion point into new leaf.
                         unsafe {
                             let nk = new.as_ptr().cast::<u64>();
@@ -1544,7 +1544,7 @@ impl MapCore {
                             slot.write(0);
                             nv.add(at + 1)
                                 .copy_from_nonoverlapping(vals.add(at), pop_val - at);
-                            alloc.free_root_leaf_dispatch::<true>(ptr_val, leaf_size(pop_val));
+                            alloc.free_bytes(ptr_val, leaf_size(pop_val));
                             self.root = Root::Leaf {
                                 ptr: new,
                                 pop: pop_val + 1,
@@ -1690,7 +1690,7 @@ impl MapCore {
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
             }
             Root::Empty => {
-                let ptr = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(1));
+                let ptr = alloc.alloc_bytes(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -1772,7 +1772,7 @@ impl MapCore {
                             core::ptr::NonNull::new(slot).expect("slot")
                         }
                     } else {
-                        let new = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(pop_val + 1));
+                        let new = alloc.alloc_bytes(leaf_size(pop_val + 1));
                         // SAFETY: copy keys and values around insertion point into new leaf.
                         unsafe {
                             let nk = new.as_ptr().cast::<u64>();
@@ -1789,7 +1789,7 @@ impl MapCore {
                             slot.write(0);
                             nv.add(at + 1)
                                 .copy_from_nonoverlapping(vals.add(at), pop_val - at);
-                            alloc.free_root_leaf_dispatch::<true>(ptr_val, leaf_size(pop_val));
+                            alloc.free_bytes(ptr_val, leaf_size(pop_val));
                             self.root = Root::Leaf {
                                 ptr: new,
                                 pop: pop_val + 1,
@@ -1927,7 +1927,7 @@ impl MapCore {
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
             }
             Root::Empty => {
-                let ptr = alloc.alloc_root_leaf_dispatch::<false>(leaf_size(1));
+                let ptr = alloc.alloc_bytes_plain(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -2009,7 +2009,7 @@ impl MapCore {
                             core::ptr::NonNull::new(slot).expect("slot")
                         }
                     } else {
-                        let new = alloc.alloc_root_leaf_dispatch::<false>(leaf_size(pop_val + 1));
+                        let new = alloc.alloc_bytes_plain(leaf_size(pop_val + 1));
                         // SAFETY: copy keys and values around insertion point into new leaf.
                         unsafe {
                             let nk = new.as_ptr().cast::<u64>();
@@ -2026,7 +2026,7 @@ impl MapCore {
                             slot.write(0);
                             nv.add(at + 1)
                                 .copy_from_nonoverlapping(vals.add(at), pop_val - at);
-                            alloc.free_root_leaf_dispatch::<false>(ptr_val, leaf_size(pop_val));
+                            alloc.free_bytes_plain(ptr_val, leaf_size(pop_val));
                             self.root = Root::Leaf {
                                 ptr: new,
                                 pop: pop_val + 1,
@@ -2058,7 +2058,7 @@ impl MapCore {
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
             }
             Root::Empty => {
-                let ptr = alloc.alloc_root_leaf_dispatch::<OCC>(leaf_size(1));
+                let ptr = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -2139,7 +2139,7 @@ impl MapCore {
                             core::ptr::NonNull::new(slot).expect("slot")
                         }
                     } else {
-                        let new = alloc.alloc_root_leaf_dispatch::<OCC>(leaf_size(pop_val + 1));
+                        let new = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(pop_val + 1));
                         // SAFETY: copy keys and values around insertion point into new leaf.
                         unsafe {
                             let nk = new.as_ptr().cast::<u64>();
@@ -2156,7 +2156,7 @@ impl MapCore {
                             slot.write(0);
                             nv.add(at + 1)
                                 .copy_from_nonoverlapping(vals.add(at), pop_val - at);
-                            alloc.free_root_leaf_dispatch::<OCC>(ptr_val, leaf_size(pop_val));
+                            alloc.free_bytes_dispatch::<OCC>(ptr_val, leaf_size(pop_val));
                             self.root = Root::Leaf {
                                 ptr: new,
                                 pop: pop_val + 1,
@@ -2558,7 +2558,7 @@ impl MapCore {
                 RootSnapshot::Empty => {}
                 RootSnapshot::Leaf { ptr, pop } => {
                     root_word::store(rp, Root::Empty);
-                    alloc.free_root_leaf_dispatch::<true>(
+                    alloc.free_bytes_dispatch::<true>(
                         core::ptr::NonNull::new(ptr.cast_mut()).expect("leaf"),
                         leaf_size(pop),
                     );
@@ -2576,7 +2576,7 @@ impl MapCore {
     /// privately: the condense step of a removal.
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     fn condensed_leaf(alloc: &NodeAlloc, top: &Edge, n: usize) -> Root {
-        let new = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(n));
+        let new = alloc.alloc_bytes_dispatch::<true>(leaf_size(n));
         let mut written = 0usize;
         let mut from = Some(0u64);
         // SAFETY: engine-maintained trie; the caller excludes its writers.
@@ -2673,7 +2673,7 @@ impl MapCore {
     ) -> Option<u64> {
         match &mut self.root {
             Root::Empty => {
-                let ptr = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(1));
+                let ptr = alloc.alloc_bytes(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -2730,7 +2730,7 @@ impl MapCore {
                         self.root = Root::Leaf { ptr, pop: pop + 1 };
                         return None;
                     }
-                    let new = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(pop + 1));
+                    let new = alloc.alloc_bytes(leaf_size(pop + 1));
                     // SAFETY: copy keys and values around the insertion
                     // point into the fresh (pop + 1)-entry leaf.
                     unsafe {
@@ -2744,7 +2744,7 @@ impl MapCore {
                         nv.add(at).write(val);
                         nv.add(at + 1)
                             .copy_from_nonoverlapping(vals.add(at), pop - at);
-                        alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(pop));
+                        alloc.free_bytes(ptr, leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         ptr: new,
@@ -2762,7 +2762,7 @@ impl MapCore {
                     // build marks that node obsolete, which needs it even).
                     let top = by_mode!(alloc, promote_leaf(alloc, keys, vals, key, val, path));
                     // SAFETY: old root leaf no longer referenced.
-                    unsafe { alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(pop)) };
+                    unsafe { alloc.free_bytes(ptr, leaf_size(pop)) };
                     self.tree_pop = pop as u64 + 1;
                     self.root = Root::Tree { top };
                     None
@@ -2911,7 +2911,7 @@ impl MapCore {
     ) -> Option<u64> {
         match &mut self.root {
             Root::Empty => {
-                let ptr = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(1));
+                let ptr = alloc.alloc_bytes(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -2968,7 +2968,7 @@ impl MapCore {
                         self.root = Root::Leaf { ptr, pop: pop + 1 };
                         return None;
                     }
-                    let new = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(pop + 1));
+                    let new = alloc.alloc_bytes(leaf_size(pop + 1));
                     // SAFETY: copy keys and values around the insertion
                     // point into the fresh (pop + 1)-entry leaf.
                     unsafe {
@@ -2982,7 +2982,7 @@ impl MapCore {
                         nv.add(at).write(val);
                         nv.add(at + 1)
                             .copy_from_nonoverlapping(vals.add(at), pop - at);
-                        alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(pop));
+                        alloc.free_bytes(ptr, leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         ptr: new,
@@ -3000,7 +3000,7 @@ impl MapCore {
                     // build marks that node obsolete, which needs it even).
                     let top = by_mode!(alloc, promote_leaf(alloc, keys, vals, key, val, path));
                     // SAFETY: old root leaf no longer referenced.
-                    unsafe { alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(pop)) };
+                    unsafe { alloc.free_bytes(ptr, leaf_size(pop)) };
                     self.tree_pop = pop as u64 + 1;
                     self.root = Root::Tree { top };
                     None
@@ -3144,7 +3144,7 @@ impl MapCore {
     ) -> Option<u64> {
         match &mut self.root {
             Root::Empty => {
-                let ptr = alloc.alloc_root_leaf_dispatch::<false>(leaf_size(1));
+                let ptr = alloc.alloc_bytes_plain(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -3201,7 +3201,7 @@ impl MapCore {
                         self.root = Root::Leaf { ptr, pop: pop + 1 };
                         return None;
                     }
-                    let new = alloc.alloc_root_leaf_dispatch::<false>(leaf_size(pop + 1));
+                    let new = alloc.alloc_bytes_plain(leaf_size(pop + 1));
                     // SAFETY: copy keys and values around the insertion
                     // point into the fresh (pop + 1)-entry leaf.
                     unsafe {
@@ -3215,7 +3215,7 @@ impl MapCore {
                         nv.add(at).write(val);
                         nv.add(at + 1)
                             .copy_from_nonoverlapping(vals.add(at), pop - at);
-                        alloc.free_root_leaf_dispatch::<false>(ptr, leaf_size(pop));
+                        alloc.free_bytes_plain(ptr, leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         ptr: new,
@@ -3225,7 +3225,7 @@ impl MapCore {
                 } else {
                     let top = promote_leaf::<false, false>(alloc, keys, vals, key, val, path);
                     // SAFETY: old root leaf no longer referenced.
-                    unsafe { alloc.free_root_leaf_dispatch::<false>(ptr, leaf_size(pop)) };
+                    unsafe { alloc.free_bytes_plain(ptr, leaf_size(pop)) };
                     self.tree_pop = pop as u64 + 1;
                     self.root = Root::Tree { top };
                     None
@@ -3441,7 +3441,7 @@ impl MapCore {
                 let old = unsafe { *vals.add(at) };
                 if pop == 1 {
                     // SAFETY: last entry removed; free the leaf.
-                    unsafe { alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(1)) };
+                    unsafe { alloc.free_bytes(ptr, leaf_size(1)) };
                     self.root = Root::Empty;
                 } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
                     // Fast path: capacity class unchanged — shift surviving entries in-place.
@@ -3453,7 +3453,7 @@ impl MapCore {
                     }
                     self.root = Root::Leaf { ptr, pop: pop - 1 };
                 } else {
-                    let new = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(pop - 1));
+                    let new = alloc.alloc_bytes(leaf_size(pop - 1));
                     // SAFETY: copy the surviving keys/values into the
                     // smaller leaf.
                     unsafe {
@@ -3465,7 +3465,7 @@ impl MapCore {
                         nv.copy_from_nonoverlapping(vals, at);
                         nv.add(at)
                             .copy_from_nonoverlapping(vals.add(at + 1), pop - 1 - at);
-                        alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(pop));
+                        alloc.free_bytes(ptr, leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         ptr: new,
@@ -3521,7 +3521,7 @@ impl MapCore {
                 let old = unsafe { *vals.add(at) };
                 if pop == 1 {
                     // SAFETY: last entry removed; free the leaf.
-                    unsafe { alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(1)) };
+                    unsafe { alloc.free_bytes(ptr, leaf_size(1)) };
                     self.root = Root::Empty;
                 } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
                     // Fast path: capacity class unchanged — shift surviving entries in-place.
@@ -3533,7 +3533,7 @@ impl MapCore {
                     }
                     self.root = Root::Leaf { ptr, pop: pop - 1 };
                 } else {
-                    let new = alloc.alloc_root_leaf_dispatch::<true>(leaf_size(pop - 1));
+                    let new = alloc.alloc_bytes(leaf_size(pop - 1));
                     // SAFETY: copy the surviving keys/values into the
                     // smaller leaf.
                     unsafe {
@@ -3545,7 +3545,7 @@ impl MapCore {
                         nv.copy_from_nonoverlapping(vals, at);
                         nv.add(at)
                             .copy_from_nonoverlapping(vals.add(at + 1), pop - 1 - at);
-                        alloc.free_root_leaf_dispatch::<true>(ptr, leaf_size(pop));
+                        alloc.free_bytes(ptr, leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         ptr: new,
@@ -3639,7 +3639,7 @@ impl MapCore {
             Root::Empty => {}
             Root::Leaf { ptr, pop } => {
                 // SAFETY: freeing the root leaf exactly once.
-                unsafe { alloc.free_root_leaf_dispatch::<OCC>(*ptr, leaf_size(*pop)) };
+                unsafe { alloc.free_bytes_dispatch::<OCC>(*ptr, leaf_size(*pop)) };
             }
             Root::Tree { top, .. } => {
                 // SAFETY: freeing the whole owned trie exactly once.
@@ -4320,7 +4320,7 @@ impl MapCore {
         };
         let n = self.tree_pop as usize;
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
-        let new = alloc.alloc_root_leaf_dispatch::<OCC>(leaf_size(n));
+        let new = alloc.alloc_bytes_dispatch::<OCC>(leaf_size(n));
         let mut written = 0usize;
         let mut from = Some(0u64);
         // SAFETY: engine-maintained trie per this type's invariants.
@@ -4416,7 +4416,7 @@ impl ExpanseMap {
     pub fn new() -> Self {
         Self {
             core: MapCore::new(),
-            alloc: NodeAlloc::with_system_root_leaves(),
+            alloc: NodeAlloc::new(),
             path: core::cell::UnsafeCell::new(crate::mutate_map::InsertPathMap::empty()),
         }
     }
@@ -4628,7 +4628,7 @@ impl ExpanseMap {
             return out;
         }
         if n <= ROOT_LEAF_CAP {
-            let ptr = out.alloc.alloc_root_leaf_dispatch::<OCC>(leaf_size(n));
+            let ptr = out.alloc.alloc_bytes_dispatch::<OCC>(leaf_size(n));
             // SAFETY: a fresh root leaf of `leaf_size(n)` bytes holds `n` keys
             // from offset 0 and `n` values from `leaf_values_offset(n)`.
             unsafe {
@@ -6088,75 +6088,6 @@ mod tests {
         }
         nav_differential(&map, &model, &probes);
         map.clear();
-    }
-
-    /// A map in root-leaf form carves no slab page: the leaf's blocks come
-    /// from the system allocator, and the one freed block the allocator
-    /// parks is all it holds beyond the leaf (Refs #1666). A 20-key map used
-    /// to hold five 4 KiB pages beside its 384-byte leaf.
-    #[test]
-    fn root_leaf_map_holds_no_slab_page() {
-        let check = |m: &ExpanseMap, at: &str| {
-            assert!(
-                m.alloc().census().slab.is_empty(),
-                "{at}: a slab page was carved"
-            );
-            assert!(
-                m.mem_held() - m.mem_used() <= leaf_size(ROOT_LEAF_CAP),
-                "{at}: more than one spare leaf held"
-            );
-            assert_eq!(m.alloc().census().held(), m.mem_held(), "{at}: census");
-        };
-        let mut m = ExpanseMap::new();
-        for k in 0..ROOT_LEAF_CAP as u64 {
-            m.insert(k * 7, k);
-            check(&m, &format!("growing to {} keys", k + 1));
-        }
-        for k in (1..ROOT_LEAF_CAP as u64).rev() {
-            m.remove(k * 7);
-            check(&m, &format!("shrinking to {k} keys"));
-        }
-        // Through tree form and back (key 0 is the one key left from above):
-        // the tree's nodes pool as before, and the leaf it condenses into is
-        // freed once when the map empties.
-        for k in 0..(4 * ROOT_LEAF_CAP as u64) {
-            m.insert(k << 9, k);
-        }
-        for k in 0..(4 * ROOT_LEAF_CAP as u64) {
-            assert_eq!(m.remove(k << 9), Some(k));
-        }
-        assert!(m.is_empty());
-        assert_eq!(m.mem_used(), 0);
-    }
-
-    /// Emptying a map and refilling it by one key reuses the parked leaf:
-    /// the map holds the one 16-byte block across every cycle, and
-    /// `shrink_to_fit` returns it.
-    #[test]
-    fn root_leaf_spare_is_reused_and_released() {
-        let mut m = ExpanseMap::new();
-        for k in 0..100u64 {
-            m.insert(k, k);
-            assert_eq!((m.mem_used(), m.mem_held()), (16, 16), "cycle {k}, one key");
-            assert_eq!(m.remove(k), Some(k));
-            assert_eq!((m.mem_used(), m.mem_held()), (0, 16), "cycle {k}, empty");
-        }
-        assert_eq!(m.shrink_to_fit(), 16);
-        assert_eq!(m.mem_held(), 0);
-        // A spare of another size is displaced, not kept beside the new one.
-        m.insert(1, 1);
-        m.insert(2, 2);
-        assert_eq!(
-            (m.mem_used(), m.mem_held()),
-            (32, 48),
-            "two keys, 16-byte spare"
-        );
-        m.insert(3, 3);
-        assert_eq!(
-            m.mem_held() - m.mem_used(),
-            32,
-            "the 32-byte leaf displaced the 16"
-        );
     }
 
     #[test]
