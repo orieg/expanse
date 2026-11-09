@@ -840,4 +840,109 @@ mod oracle {
             }
         }
     }
+
+    /// What `Judy1Count`/`JudyLCount` write to `*PJError`, case by case.
+    /// The man pages (`Judy1_funcs(3)`) document only that a 0 return
+    /// with `JU_ERRNO_NONE` is a real empty count; whether a nonzero count
+    /// or a reversed range writes it is settled here (COMPAT.md D7).
+    /// Each call starts from a sentinel errno, so "left untouched" and
+    /// "written" are told apart.
+    #[test]
+    fn count_errno_matches_stock_libjudy() {
+        const SENTINEL: c_int = 99;
+        let lib = Lib::open();
+        let o_set: F2i = lib.sym(c"Judy1Set");
+        let o_count1: FCount = lib.sym(c"Judy1Count");
+        let o_free1: FFree = lib.sym(c"Judy1FreeArray");
+        let o_ins: FpIns = lib.sym(c"JudyLIns");
+        let o_countl: FCount = lib.sym(c"JudyLCount");
+        let o_freel: FFree = lib.sym(c"JudyLFreeArray");
+        let ranges: [(Word, Word); 7] = [
+            (0, Word::MAX),
+            (10, 30),
+            (11, 19),
+            (25, 25),
+            (31, Word::MAX),
+            (30, 10),
+            (Word::MAX, 0),
+        ];
+        // Our entry points take `*mut JError`; the probe takes the stock
+        // library's untyped signature.
+        unsafe extern "C" fn our_count1(
+            p: *const c_void,
+            a: Word,
+            b: Word,
+            pj: *mut c_void,
+        ) -> Word {
+            // SAFETY: forwarded unchanged; `pj` is null or a live JError.
+            unsafe { Judy1Count(p, a, b, pj.cast()) }
+        }
+        unsafe extern "C" fn our_countl(
+            p: *const c_void,
+            a: Word,
+            b: Word,
+            pj: *mut c_void,
+        ) -> Word {
+            // SAFETY: as above.
+            unsafe { JudyLCount(p, a, b, pj.cast()) }
+        }
+        let probe = |count: FCount, array: *const c_void, a: Word, b: Word| {
+            let mut je = JError {
+                je_errno: SENTINEL,
+                je_err_id: 0,
+                je_reserved: [0; 4],
+            };
+            // SAFETY: `array` is null or a live array of the family
+            // `count` belongs to; `je` is a live, writable JError.
+            let rc = unsafe { count(array, a, b, (&raw mut je).cast()) };
+            // SAFETY: a null PJError is part of the documented contract.
+            let rc_null = unsafe { count(array, a, b, null_mut()) };
+            assert_eq!(rc, rc_null, "count {a:#x}..={b:#x} with a null PJError");
+            (a, b, rc, je.je_errno)
+        };
+        // SAFETY: both libraries' entry points driven through their C
+        // contracts with identical sequences and valid pointers.
+        unsafe {
+            for populated in [false, true] {
+                let (mut ours1, mut theirs1) = (null_mut::<c_void>(), null_mut::<c_void>());
+                let (mut oursl, mut theirsl) = (null_mut::<c_void>(), null_mut::<c_void>());
+                if populated {
+                    for k in [10, 20, 30] {
+                        assert_eq!(Judy1Set(&raw mut ours1, k, null_mut()), 1);
+                        assert_eq!(o_set(&raw mut theirs1, k, null_mut()), 1);
+                        *JudyLIns(&raw mut oursl, k, null_mut()).cast::<Word>() = k;
+                        *o_ins(&raw mut theirsl, k, null_mut()).cast::<Word>() = k;
+                    }
+                }
+                let ours: Vec<_> = ranges
+                    .iter()
+                    .flat_map(|&(a, b)| {
+                        [
+                            probe(our_count1, ours1, a, b),
+                            probe(our_countl, oursl, a, b),
+                        ]
+                    })
+                    .collect();
+                let theirs: Vec<_> = ranges
+                    .iter()
+                    .flat_map(|&(a, b)| {
+                        [
+                            probe(o_count1, theirs1, a, b),
+                            probe(o_countl, theirsl, a, b),
+                        ]
+                    })
+                    .collect();
+                assert_eq!(
+                    ours, theirs,
+                    "(index1, index2, count, errno) per call, Judy1 then JudyL; populated = {populated}"
+                );
+                if populated {
+                    assert!(Judy1FreeArray(&raw mut ours1, null_mut()) > 0);
+                    assert!(o_free1(&raw mut theirs1, null_mut()) > 0);
+                    assert!(JudyLFreeArray(&raw mut oursl, null_mut()) > 0);
+                    assert!(o_freel(&raw mut theirsl, null_mut()) > 0);
+                }
+            }
+        }
+    }
 }

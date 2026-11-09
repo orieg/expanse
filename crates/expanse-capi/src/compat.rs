@@ -17,8 +17,8 @@
 #[cfg(not(feature = "std"))]
 use crate::core_alloc::boxed::Box;
 use crate::{
-    ExpanseBytesMap, ExpanseMap, ExpanseSet, ExpanseStrMap, JError, JU_ERRNO_NULLPINDEX,
-    JU_ERRNO_NULLPPARRAY, Word,
+    ExpanseBytesMap, ExpanseMap, ExpanseSet, ExpanseStrMap, JError, JU_ERRNO_NONE,
+    JU_ERRNO_NULLPINDEX, JU_ERRNO_NULLPPARRAY, Word,
 };
 use core::ffi::{c_int, c_void};
 use core::ptr::{NonNull, null_mut};
@@ -37,6 +37,20 @@ unsafe fn set_err(pj: *mut JError, code: c_int) {
             (*pj).je_err_id = 0;
         }
     }
+}
+
+/// The return of `Judy1Count` / `JudyLCount`. A zero count writes
+/// `JU_ERRNO_NONE`: `Judy1_funcs(3)` has the caller read the error record
+/// when the count is 0, and the classic `J1C`/`JLC` macros treat anything
+/// else as an error and call `JUDYERROR`. A nonzero count leaves the record
+/// untouched, as stock libjudy does (COMPAT.md doc-gap D7).
+#[inline]
+unsafe fn count_result(n: u64, pj: *mut JError) -> Word {
+    if n == 0 {
+        // SAFETY: caller passed a valid JError pointer or null.
+        unsafe { set_err(pj, JU_ERRNO_NONE) };
+    }
+    n as Word
 }
 
 /// The shared body of the four `*FreeArray` entry points. A null `pparray`
@@ -208,17 +222,19 @@ pub unsafe extern "C" fn Judy1Test(parray: *const c_void, index: Word, _pj: *mut
     }
 }
 
-/// Number of set indexes in `index1..=index2`.
+/// Number of set indexes in `index1..=index2`; 0 for a reversed range.
+/// A zero count writes `JU_ERRNO_NONE` to `pj` (see [`count_result`]).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Judy1Count(
     parray: *const c_void,
     index1: Word,
     index2: Word,
-    _pj: *mut JError,
+    pj: *mut JError,
 ) -> Word {
     // SAFETY: forwarded C contract.
     unsafe {
-        set_handle(parray).map_or(0, |s| s.count_range(index1 as u64..=index2 as u64)) as Word
+        let n = set_handle(parray).map_or(0, |s| s.count_range(index1 as u64..=index2 as u64));
+        count_result(n, pj)
     }
 }
 
@@ -479,17 +495,19 @@ pub unsafe extern "C" fn JudyLGet(
     }
 }
 
-/// Number of keys in `index1..=index2`.
+/// Number of keys in `index1..=index2`; 0 for a reversed range. A zero
+/// count writes `JU_ERRNO_NONE` to `pj` (see [`count_result`]).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JudyLCount(
     parray: *const c_void,
     index1: Word,
     index2: Word,
-    _pj: *mut JError,
+    pj: *mut JError,
 ) -> Word {
     // SAFETY: forwarded C contract.
     unsafe {
-        map_handle(parray).map_or(0, |m| m.count_range(index1 as u64..=index2 as u64)) as Word
+        let n = map_handle(parray).map_or(0, |m| m.count_range(index1 as u64..=index2 as u64));
+        count_result(n, pj)
     }
 }
 

@@ -2497,6 +2497,24 @@ jobs:
           diff stock.out preload.out
           grep -q '^ok$' stock.out
 
+      # J1C/JLC through the classic macros, which exit via JUDYERROR when a
+      # zero count leaves the error record unwritten (COMPAT.md D7). Run
+      # preloaded, relinked against libexpanse, and built on its Judy.h.
+      - name: Count errno smoke (COMPAT.md D7)
+        run: |
+          cargo build --release -p expanse-capi
+          cc crates/expanse-capi/smoke/count_errno_smoke.c -lJudy -o count_smoke
+          cc crates/expanse-capi/smoke/count_errno_smoke.c -Ltarget/release -lexpanse -o count_relink
+          cc crates/expanse-capi/smoke/count_errno_smoke.c -Iinclude -Ltarget/release -lexpanse -o count_own
+          ./count_smoke > count_stock.out
+          grep -q '^ok$' count_stock.out
+          LD_PRELOAD="$PWD/target/release/libexpanse.so" ./count_smoke > count_preload.out
+          LD_LIBRARY_PATH="$PWD/target/release" ./count_relink > count_relink.out
+          LD_LIBRARY_PATH="$PWD/target/release" ./count_own > count_own.out
+          diff count_stock.out count_preload.out
+          diff count_stock.out count_relink.out
+          diff count_stock.out count_own.out
+
   memory-budget:
     name: Perf / Memory Budget Invariants
     needs: [detect-changes, fast-lane]
