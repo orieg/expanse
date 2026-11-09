@@ -303,7 +303,7 @@ Bench targets deliberately **not** reachable from a slash command:
    hardware counters, not on this model.
 
 1. **Interleaved A/B arms.** Any A-vs-B comparison (regression check, libjudy comparison, before/after a change) alternates arms per benchmark group over several rounds — never suite-A-then-suite-B. Runner/thermal drift then hits both arms and cancels in the paired ratio. (Learned the hard way in php-judy — back-to-back suites reported false regressions; see php-judy issue #87 and its `bench-compare` harness.)
-2. **System-load hygiene.** Before the first run and between comparison runs, snapshot load (`ps -A -o %cpu,%mem,command | sort -rn | head`; load average vs core count). A non-target process above ~100% CPU, or a load-average shift > 2 between arms, contaminates the run: discard it, don't reinterpret it. Laptops running concurrent sessions are shared infrastructure. The snapshot is not advisory: it is recorded in the artifact and gated (`AGENTS.md` §8.17, `scripts/check_bench_provenance.py`), because a load average lags a newly started process by about thirty seconds and a green pre-check can sit in front of a contended run. A bare-metal suite that runs as one bench process takes its snapshots inside the process: its `.github/bench-suites.json` entry names a `windows` mode, and `scripts/bench_windowed.py` builds the target, runs the binary once, and records the host's busy CPU and the harness's own CPU around every timed case — from criterion's progress lines (`criterion`) or from the `BENCH_WINDOW` markers a custom-main harness prints (`markers`). The record is the `load-<suite>.json` artifact, folded into `baseline-<suite>.json` by the harvest; a case whose window could not attribute makes it inadmissible, and the job fails on that after the harvest, never before it. `bench_vs_libjudy`, an example rather than a bench target, runs through the same driver (`--example`) with one window per (distribution, population) cell, recorded in `load-vs_libjudy.json` for every suite that runs it. `scripts/bench_report.py` builds each sweep variant before its first cell and takes one window per harness process, recorded in `head-to-head-load.json`. The local runners that write committed artifacts take the same windows: `art_comparison` and `hashbrown_comparison` one per bench process (`bench_windowed.run_bench_window`), judged by `check_bench_provenance.findings_for` before the run reports success, and `set_algebra/run.sh` one per criterion case through the driver, carried per repetition by its harvest. The gate also governs `results/baseline_comparative.json` and `results/baseline_vs_libjudy.json`, so a re-harvest of either carries the same record.
+2. **System-load hygiene.** Before the first run and between comparison runs, snapshot load (`ps -A -o %cpu,%mem,command | sort -rn | head`; load average vs core count). A non-target process above ~100% CPU, or a load-average shift > 2 between arms, contaminates the run: discard it, don't reinterpret it. Laptops running concurrent sessions are shared infrastructure. The snapshot is not advisory: it is recorded in the artifact and gated (`AGENTS.md` §8.17, `scripts/check_bench_provenance.py`), because a load average lags a newly started process by about thirty seconds and a green pre-check can sit in front of a contended run. A bare-metal suite that runs as one bench process takes its snapshots inside the process: its `.github/bench-suites.json` entry names a `windows` mode, and `scripts/bench_windowed.py` builds the target, runs the binary once, and records the host's busy CPU and the harness's own CPU around every timed case — from criterion's progress lines (`criterion`) or from the `BENCH_WINDOW` markers a custom-main harness prints (`markers`). The record is the `load-<suite>.json` artifact, folded into `baseline-<suite>.json` by the harvest; a case whose window could not attribute makes it inadmissible, and the job fails on that after the harvest, never before it. `bench_vs_libjudy`, an example rather than a bench target, runs through the same driver (`--example`) with one window per (distribution, population) cell, recorded in `load-vs_libjudy.json` for every suite that runs it. `scripts/bench_report.py` builds each sweep variant before its first cell and takes one window per harness process, recorded in `head-to-head-load.json`. The local runners that write committed artifacts take the same windows: `art_comparison` and `hashbrown_comparison` one per bench process (`bench_windowed.run_bench_window`), judged by `check_bench_provenance.findings_for` before the run reports success, and `set_algebra/run.sh` one per criterion case through the driver, carried per repetition by its harvest. The gate also governs `results/baseline_comparative.json`, the `compare` pair `results/baseline_compare.json` and `results/baseline_compare_run2.json`, and `results/baseline_vs_libjudy.json`, so a re-harvest of any of them carries the same record.
 
    **The reference host is a hybrid part, and the wall-clock arms pin to its
    performance cores.** It is a 12th Gen Intel Core i9-12900F. Its core
@@ -2360,35 +2360,86 @@ Moved to the suite that owns it:
 Every figure, its provenance tag and the surrounding caveats moved verbatim;
 nothing was re-measured or re-worded.
 
-### vs stdlib & 3rd-party collections (measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/compare.rs` + `benches/comparative.rs`, criterion medians)
+### vs stdlib & 3rd-party collections
 
-**Point lookup, hit, 1,000,000 keys (ns/op)** — the engine's strongest arm:
+**`benches/compare.rs` (workload: `core_compare`)** *(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0, pinned to CPUs 0-15; commit `82eb56af`; runs [42686709479](https://github.com/orieg/expanse/actions/runs/42686709479) and [42691800559](https://github.com/orieg/expanse/actions/runs/42691800559); artifacts [`results/baseline_compare.json`](../results/baseline_compare.json) and [`results/baseline_compare_run2.json`](../results/baseline_compare_run2.json))*. Every cell is the union of the two runs' BCa 95% intervals of the mean (rule 18: the claim ceiling is the union, never one run's interval), in ns per operation unless the header says otherwise. Each artifact carries criterion's 100 per-iteration samples per arm and a load window per arm; the worst foreign load in any window was 0.04 core-equivalents in run 1 and 0.03 in run 2. Ratios are Expanse's time over the competitor's, so below 1 means Expanse is faster; each is the union of the two runs' two-sample BCa intervals of the ratio of means (`bca_bootstrap_ratio_ci`, the construction `gate_speedup` uses), recomputed from the committed samples. One of those 138 ratio intervals is not a plain BCa interval: `set_insert_build/sequential` against `HashSet` and against `BTreeSet` came out bias-corrected (`bc`) in one run.
+
+**Between-run spread.** The two runs measured the same commit, and 56 of the 106 cells' intervals do not overlap between them (marked †), with a median absolute difference of 0.33% across all 106; the largest are `map_iter/sparse/10000/btree` (+7.7%) and `map_iter/sequential/10000/btree` (−6.4%). Whether that spread is the host or the engine is not measured. **Every head-to-head direction held:** in all 69 Expanse-vs-competitor pairs, both runs' ratio intervals sit on the same side of 1.
+
+**Point lookup, hit, 1,000,000 keys:**
 
 | dist | `ExpanseSet` | `BTreeSet` | `HashSet` | `ExpanseMap` | `BTreeMap` | `HashMap` |
 |---|---:|---:|---:|---:|---:|---:|
-| sequential | **6.75** | 97.8 | 12.0 | **11.9** | 108.9 | 12.1 |
-| random | 36.5 | 104.5 | **11.9** | 38.6 | 111.9 | **12.4** |
-| clustered | **8.19** | 101.6 | 12.0 | **12.9** | 110.2 | 12.4 |
-| sparse | **7.47** | 103.5 | 12.6 | **8.53** | 111.9 | 12.3 |
+| sequential | [5.72, 5.76] | [97.74, 98.32] | [11.78, 11.84] † | [11.46, 11.91] † | [106.4, 107.4] | [12.06, 12.25] † |
+| random | [36.53, 37.01] † | [104.3, 104.8] | [11.51, 11.74] † | [40.36, 40.87] † | [109.2, 110.2] † | [12.10, 12.20] † |
+| clustered | [7.97, 8.03] † | [101.9, 102.7] | [11.78, 11.93] † | [12.79, 12.85] | [107.7, 108.5] | [12.21, 12.36] † |
+| sparse | [7.39, 7.44] † | [103.0, 104.2] † | [11.70, 11.78] | [8.34, 8.53] † | [108.8, 109.4] | [11.93, 12.06] † |
 
-- **vs `BTreeMap`/`BTreeSet`: Expanse wins every cell** — 2.9× (random) to ~14.5× (sequential/sparse) faster.
-- **vs `HashMap`/`HashSet` (Swiss table)**: near parity on sequential/clustered; **~3× slower on uniform-random 1M** (hash O(1) probe beats trie descent under cache misses); faster on sparse. Expanse buys ordering + prefix search for that.
-- **Random lookup is a working-set-vs-cache crossover** — `benches/compare.rs` measures it at both 10k (cache-resident: ~1.1× hashbrown, 10.0 ns vs 8.9 ns; workload: `core_compare`) and 1M (out-of-cache: ~2.9×, dominated by the out-of-cache working set; the mechanism is **unmeasured** trie descent vs single hash probe) *(measured: reference host, commit 4a12f046)*. Never quote a single random-key ratio without its population: the widening from ~1.1× to ~2.9× is a scale/cache effect (verified stable, not a regression), not a fixed weakness.
+**Point lookup, hit, 10,000 keys:**
 
-**Cold-build insert, 100,000 keys (`set_insert_build`)**:
+| dist | `ExpanseSet` | `BTreeSet` | `HashSet` | `ExpanseMap` | `BTreeMap` | `HashMap` |
+|---|---:|---:|---:|---:|---:|---:|
+| sequential | [4.85, 4.87] | [43.85, 44.02] | [8.73, 8.79] † | [7.12, 7.14] | [45.35, 45.66] | [8.77, 8.82] |
+| random | [9.14, 9.30] † | [45.97, 46.19] | [8.76, 8.79] | [10.08, 10.24] † | [45.22, 45.96] † | [8.78, 8.84] † |
+| clustered | [5.25, 5.37] † | [45.77, 45.99] | [8.80, 8.84] | [7.30, 7.34] | [46.01, 46.29] | [8.76, 8.86] † |
+| sparse | [5.73, 5.78] | [44.30, 44.74] † | [8.76, 8.79] | [7.14, 7.16] | [45.70, 46.02] | [8.77, 8.80] |
 
-| dist | `ExpanseSet` | `BTreeSet` | `HashSet` |
-|---|---:|---:|---:|
-| sequential | **484 µs** | 4.46 ms | 1.81 ms |
-| random | 4.17 ms | 7.45 ms | **1.81 ms** |
-| clustered | **1.04 ms** | 4.59 ms | 1.81 ms |
-| sparse | 2.88 ms | 4.47 ms | **1.81 ms** |
+**Lookup time ratios, hit (Expanse ÷ competitor):**
 
-Expanse beats `BTreeSet` on every distribution (1.6×–9.2×); beats `HashSet` on sequential/clustered but is ~1.6×–2.3× slower on random/sparse cold builds.
+| dist | set 10k ÷ `BTreeSet` | set 10k ÷ `HashSet` | set 1M ÷ `BTreeSet` | set 1M ÷ `HashSet` | map 10k ÷ `BTreeMap` | map 10k ÷ `HashMap` | map 1M ÷ `BTreeMap` | map 1M ÷ `HashMap` |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| sequential | [0.110, 0.111] | [0.553, 0.558] | [0.058, 0.059] | [0.484, 0.488] | [0.156, 0.157] | [0.807, 0.813] | [0.107, 0.112] | [0.936, 0.986] |
+| random | [0.198, 0.202] | [1.041, 1.060] | [0.349, 0.354] | [3.139, 3.180] | [0.222, 0.224] | [1.142, 1.164] | [0.367, 0.374] | [3.315, 3.375] |
+| clustered | [0.114, 0.117] | [0.594, 0.610] | [0.078, 0.079] | [0.668, 0.682] | [0.158, 0.159] | [0.826, 0.836] | [0.118, 0.119] | [1.037, 1.050] |
+| sparse | [0.128, 0.130] | [0.653, 0.659] | [0.071, 0.072] | [0.628, 0.635] | [0.155, 0.156] | [0.812, 0.815] | [0.076, 0.078] | [0.697, 0.709] |
 
-> ✅ **Re-measured (#382).** The `set_insert_build` figures above were originally taken on a harness that executed `Drop::drop` inside the timed closure across all three arms. Because deallocation work differs by allocator free pattern, AGENTS.md §8.10 classed the ratios **provisional** rather than sound — structurally symmetric, but not magnitude-symmetric — and required re-measurement rather than assuming they held.
->
-> They held. Re-run on the corrected `iter_batched` harness, all four ratios land within **±2.5%** of the published values: sequential 0.109 → 0.111, random 0.560 → 0.549, clustered 0.227 → 0.230, sparse 0.644 → 0.641 *(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0; commit `9244de91`; [run 33219099007](https://github.com/orieg/expanse/actions/runs/33219099007)).* The absolute build durations are lower than the originals by the deallocation cost that is no longer timed.
+- **vs `BTreeMap`/`BTreeSet`, Expanse is faster in every lookup cell**, from 2.7× (map, random, 1M: ratio [0.367, 0.374]) to 17× (set, sequential, 1M: ratio [0.058, 0.059]).
+- **vs `HashMap`/`HashSet`, it depends on the key distribution and the population.** On hits, uniform-random keys lose at both sizes: 1.04–1.16× slower at 10k and 3.1–3.4× slower at 1M. Sequential, clustered and sparse keys win, except the map at 1M on clustered keys (ratio [1.037, 1.050]), where `HashMap` is faster. On sequential keys at 1M the map is faster in both runs, ratio [0.936, 0.986]. An earlier pair of runs at the same commit, whose artifacts carried no load window and are not committed (below), put that cell's point estimates on opposite sides of parity, so its direction rests on these two runs alone.
+- **Random lookup gets worse with scale.** Against `HashMap` the random-key ratio goes from [1.142, 1.164] at 10k keys to [3.315, 3.375] at 1M. Never quote a random-key ratio without its population. That this is the working set falling out of cache is a hypothesis, not measured here. Misses and the cold-DRAM arm do not follow the hit pattern: a random-key set miss is faster than `HashSet` at 10k (ratio [0.702, 0.710]) and 3.9× slower at 1M ([3.898, 3.951]), and at 4M keys `ExpanseMap` is marginally faster than `HashMap` on hits and 1.6× slower on misses (table below).
+
+**Set lookup, miss** (half of each set probe stream misses; misses are drawn from the population's generator and rejected on membership):
+
+| dist | `ExpanseSet` 10k | `BTreeSet` 10k | `HashSet` 10k | `ExpanseSet` 1M | `BTreeSet` 1M | `HashSet` 1M |
+|---|---:|---:|---:|---:|---:|---:|
+| sequential | [3.90, 3.97] | [18.84, 18.90] | [8.88, 8.96] † | [5.18, 5.20] | [31.32, 31.59] † | [9.57, 9.61] † |
+| random | [6.29, 6.34] | [46.93, 47.25] | [8.91, 8.98] † | [37.31, 37.57] | [106.8, 107.7] † | [9.49, 9.58] † |
+| clustered | [3.55, 3.62] | [12.49, 12.55] | [8.84, 8.89] † | [3.66, 3.73] | [16.67, 16.73] | [9.44, 9.51] † |
+| sparse | [4.15, 4.23] † | [18.84, 18.89] | [8.80, 8.88] † | [4.06, 4.08] | [31.29, 31.59] † | [9.47, 9.58] † |
+
+**Cold-DRAM point lookup, random keys, 4,000,000 keys (`map_get_cold_dram`):**
+
+| probe | `ExpanseMap` | `BTreeMap` | `HashMap` | Expanse ÷ `BTreeMap` | Expanse ÷ `HashMap` |
+|---|---:|---:|---:|---:|---:|
+| hit | [50.68, 50.93] | [234.3, 236.2] † | [51.50, 51.87] † | [0.215, 0.217] | [0.980, 0.985] |
+| miss | [23.67, 23.82] | [246.3, 247.7] | [14.93, 15.10] | [0.096, 0.097] | [1.570, 1.593] |
+
+**Cold-build insert, 100,000 keys (`set_insert_build`;** `iter_batched`, so `Drop` lands outside the timed region):
+
+| dist | `ExpanseSet` (µs) | `BTreeSet` (µs) | `HashSet` (µs) | Expanse ÷ `BTreeSet` | Expanse ÷ `HashSet` |
+|---|---:|---:|---:|---:|---:|
+| sequential | [462.5, 462.8] | [4265.8, 4285.2] † | [1800.4, 1804.7] † | [0.108, 0.108] | [0.256, 0.257] |
+| random | [3588.9, 3607.6] † | [6858.7, 6873.8] | [1800.4, 1805.5] † | [0.523, 0.525] | [1.988, 2.003] |
+| clustered | [887.6, 890.5] † | [4230.5, 4243.6] † | [1801.1, 1807.2] † | [0.209, 0.210] | [0.493, 0.493] |
+| sparse | [2460.7, 2493.9] † | [4203.1, 4213.2] | [1801.0, 1805.5] † | [0.584, 0.592] | [1.363, 1.385] |
+
+Expanse builds faster than `BTreeSet` on every distribution and faster than `HashSet` on sequential and clustered keys. It is 1.4× (sparse) and 2.0× (random) slower than `HashSet`.
+
+**Full ordered iteration (`map_iter`, `ExpanseMap::iter()` vs `BTreeMap::iter()`):**
+
+| dist | `ExpanseMap` 10k (µs) | `BTreeMap` 10k (µs) | Expanse ÷ `BTreeMap` 10k | `ExpanseMap` 1M (ms) | `BTreeMap` 1M (ms) | Expanse ÷ `BTreeMap` 1M |
+|---|---:|---:|---:|---:|---:|---:|
+| sequential | [11.77, 11.86] † | [9.71, 10.78] † | [1.092, 1.221] | [1.88, 1.89] | [2.54, 2.56] † | [0.737, 0.742] |
+| random | [66.99, 67.38] † | [10.43, 10.46] | [6.407, 6.456] | [4.08, 4.11] † | [7.27, 7.34] † | [0.558, 0.562] |
+| clustered | [11.95, 11.96] | [10.01, 10.07] † | [1.187, 1.194] | [2.10, 2.12] | [2.79, 2.81] | [0.751, 0.758] |
+| sparse | [33.08, 33.14] † | [10.19, 11.00] † | [3.009, 3.251] | [3.33, 3.35] † | [3.08, 3.11] | [1.074, 1.088] |
+
+At 1M keys Expanse iterates faster than `BTreeMap` on sequential, clustered and random keys and is slower on sparse keys (ratio [1.074, 1.088]). At 10k keys it is slower on every distribution, by 1.09–1.22× on sequential and clustered keys, 3.0–3.3× on sparse keys and 6.4–6.5× on random keys. The `sparse` distribution is `keys(i) = i << 40`, so all variation sits in bytes 5–7. [#270](https://github.com/orieg/expanse/issues/270) gave the stack iterator a fast path for those immediates.
+
+**Superseded.** This section previously published criterion medians at commits `695b98d`, `4a12f046`, `46529f19`, `1feefadf` and `9244de91` with no committed artifact (among them `ExpanseMap` sequential 11.9 ns vs `BTreeMap` 108.9 ns at 1M, "2.9× to ~14.5×" over `BTreeMap`, and sparse iteration "~2.4× slower"). The tables above replace them. With no artifact behind the old figures, no cross-run change against them is claimed: the cells were re-measured, not shown to have moved.
+
+**Runs not committed.** Five other `compare` runs at `82eb56af` were dispatched to the same host. [42586241801](https://github.com/orieg/expanse/actions/runs/42586241801) and [42604330098](https://github.com/orieg/expanse/actions/runs/42604330098) were discarded by the host guard for foreign load (the second during a Tailscale auto-update) (AGENTS.md §8.17). [42583846403](https://github.com/orieg/expanse/actions/runs/42583846403) and [42653560246](https://github.com/orieg/expanse/actions/runs/42653560246) passed the guard, but their baselines carried no per-case load window (the manifest entry named no `windows` mode then), so `scripts/check_bench_provenance.py` rejects them and they are not used here. [42686737861](https://github.com/orieg/expanse/actions/runs/42686737861) was cancelled while queued and measured nothing.
+
+**`benches/comparative.rs`** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; criterion medians)*:
 
 **`ExpanseSet` vs `RoaringBitmap` (`comparative.rs`, 100k)**:
 
@@ -2399,19 +2450,6 @@ Expanse beats `BTreeSet` on every distribution (1.6×–9.2×); beats `HashSet` 
 | `select` (ns) | 343 vs 235 → 1.5× slower | 217 vs 66 → 3.3× slower | 208 vs 376 → 1.8× faster |
 
 Expanse wins membership on sparse/clustered; Roaring's specialized rank index wins `rank`/`select`.
-
-**Full ordered iteration — now faster than `BTreeMap` for dense keys (post-#245).** [#245](https://github.com/orieg/expanse/pull/245) replaced the per-step allocating descent with a stack-based zero-allocation iterator, flipping the earlier result. Full ordered `map.iter()` vs `BTreeMap::iter()` over 1M keys, as a ratio of Expanse's time to `BTreeMap::iter()`'s (< 1 means Expanse is faster):
-
-| key distribution | pre-#245 | post-#245 | post-#270 |
-|---|---|---|---|
-| sequential | 6.8× slower | **0.7× (faster)** | **0.7× (faster)** |
-| clustered | 6.4× slower | **0.8× (faster)** | **0.8× (faster)** |
-| random | 2.1× slower | **0.5× (2× faster)** | **0.5× (2× faster)** |
-| sparse | 10.4× slower | 4.7× slower | **2.4× slower** |
-
-*(post-#245 measured: reference host — Intel i9-12900F, 24 threads, commit 46529f19; post-#270 measured: same host, commit 1feefadf; `benches/compare.rs`, criterion mean of the 1M-key `map_iter` grid; ratios are Expanse's `map.iter()` time over `BTreeMap::iter()`'s, so < 1 means Expanse is faster)*. Across the four distributions #245 delivered a **2.2×–9.4× speedup**. Dense (sequential/clustered/random) iteration beats `BTreeMap::iter()` and is unchanged by #270.
-
-**Sparse-key iteration:** the `sparse` distribution `keys(i) = i << 40` puts all variation in bytes 5–7 with bytes 0–4 always zero, so at 1M keys the trie is a three-level dense `BranchU` spine over **1,000,000 single-key immediate leaves** (one 16-byte edge per isolated key — the structural floor; immediates absorb the zero remainders, so there is no separate leaf allocation or pointer chain to remove). [#270](https://github.com/orieg/expanse/issues/270) added a single-key-immediate fast path to the stack iterator: the post-#245 iterator decoded every immediate through the general multi-key path, zeroing two `[u64; 15]` staging arrays and copying a 240-byte cursor to carry one 16-byte key/value. Decoding single-key immediates directly cut the Expanse arm from **14.34 ms → 7.09 ms** (~2.0× faster; criterion CIs [14.18, 14.42] vs [7.09, 7.10] separate cleanly), narrowing the gap from ~4.7× to ~2.4× slower than `BTreeMap`. The residual ~2.4× is the remaining structural floor: the trie still visits ≈3,900 branch nodes (~16 MB of `BranchU` pages) and re-descends per key, where a B-tree walks contiguous 11-wide leaf arrays. Point lookups and prefix seeks, where the trie skips empty expanses, remain the engine's other advantage.
 
 ### Standing measurement caveats
 
