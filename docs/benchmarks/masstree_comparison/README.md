@@ -25,31 +25,46 @@ independent measurement of write concurrency beside the one
 
 ## 1. The losses first
 
-**Write concurrency is a loss on integer and on string keys, at 0.643–0.847
-of Masstree's rate from two writers up.** `SyncExpanseMap` admits concurrent
+**Write concurrency is a loss on integer and on string keys, at 0.679–0.850
+of Masstree's rate from two to eight writers.** `SyncExpanseMap` admits concurrent
 writers through optimistic lock coupling over per-node version words, and since
 #1001 `SyncExpanseStrMap` runs the same write bodies under each `StrNode`'s
 cover word (`docs/ARCHITECTURE.md` §4.2); Masstree's per-node locks admit
 writers on both. With eight writers inserting 2²⁰ fresh keys into a 2²⁰
-prefill, Masstree sustains 32.62 M inserts/s against Expanse's 25.19 in run 1,
-ratio 0.751 [0.719, 0.774] and 0.743 [0.704, 0.766] in run 2; at sixteen,
-0.847 [0.780, 0.894] and 0.812 [0.745, 0.859] — sixteen threads on eight
+prefill, Masstree sustains 32.16 M inserts/s against Expanse's 22.44 in run 1,
+ratio 0.689 [0.649, 0.719] and 0.723 [0.684, 0.748] in run 2; at sixteen,
+0.739 [0.676, 0.784] and 0.707 [0.640, 0.765] — sixteen threads on eight
 physical P-cores with SMT *(workload: `masstree_conc_map_64bit`)*. Expanse's
-aggregate integer insert rate runs 4.90 → 7.64 → 13.47 → 25.19 → 29.09 M/s
+aggregate integer insert rate runs 4.75 → 7.50 → 12.30 → 22.44 → 27.93 M/s
 from one to sixteen writers (run 1) and Masstree's
-5.15 → 9.82 → 18.50 → 32.62 → 33.27. The single-writer integer cell is
-direction-only: `BOUNDARY_RESULT` in run 1, 0.977 [0.956, 1.000], and
-Masstree's in run 2, 0.977 [0.958, 0.999]. Both outcomes lie inside the
-registration "Masstree wins or `BOUNDARY_RESULT`", which is **`CONFIRMED`**.
-On `short` string keys Masstree wins every writer cell in both runs:
-0.726 [0.686, 0.782] and 0.678 [0.662, 0.728] with one writer, 0.643–0.660 at
-two, 0.653–0.658 at four, 0.760–0.766 at eight and 0.802–0.804 at sixteen,
-where the Expanse string writers run at 25.41–26.52 M inserts/s against
-Masstree's 31.71–31.93 *(workload: `masstree_conc_str`; measured before design B, #1586, which costs shared string inserts about 3–5% of throughput, METHODOLOGY §47.13, so these figures are pending re-measurement, #1586, tracked in #1611)*. What limits either
+5.12 → 9.60 → 17.90 → 32.16 → 34.42. The single-writer integer cell is
+Masstree's in both runs, 0.936 [0.909, 0.962] and 0.921 [0.894, 0.946],
+inside the registration "Masstree wins or `BOUNDARY_RESULT`", which is
+**`CONFIRMED`**. On `short` string keys Masstree wins every writer cell from one
+to eight writers in both runs: 0.803 [0.742, 0.869] and 0.816 [0.750, 0.881]
+with one writer, 0.745–0.758 at two, 0.754–0.764 at four and 0.838–0.850 at
+eight. At sixteen the cell is `BOUNDARY_RESULT` in both runs, 0.983
+[0.894, 1.079] and 0.950 [0.866, 1.045], with the Expanse string writers at
+26.47–27.01 M inserts/s against Masstree's 24.74–28.70 *(workload:
+`masstree_conc_str`)*. Every string writer-only cell is bimodal by round in
+both runs: both arms run slower in the odd rounds. The medians above pool the
+two modes, and §7 table O gives each mode. These are two runs at `c1b604ad`, after design B
+([#1586](https://github.com/orieg/expanse/issues/1586)). What limits either
 Expanse arm's scaling is **unmeasured** — this arm carries no hardware counters
 (§8.9) — and no mechanism is claimed. §6.1 rows 1 and 2 are **`CONFIRMED`**.
 
-> **Correction (AGENTS.md §8.7).** These cells were previously published from
+> **Correction: the `929574b5` pair is superseded.** §7 table C sets every
+> cell against it. That pair had eight integer writers at 0.751 [0.719, 0.774]
+> and 0.743 [0.704, 0.766], and the string writers at 0.726 and 0.678 with one
+> writer, 0.760–0.766 at eight and 0.802–0.804 at sixteen, a Masstree win, with
+> Expanse previously at 25.41–26.52 M inserts/s against 31.71–31.93. The two pairs are
+> separate runs at two commits, not an interleaved A/B
+> (`docs/BENCHMARKING.md` rule 18). No difference between them is attributed
+> to design B. Design B's own cost on shared string inserts was measured by its
+> gate, a paired comparison in another harness (concurrency `METHODOLOGY.md`
+> §47.13). The pair is kept at `results/at_929574b5/`.
+
+> **Correction (AGENTS.md §8.7).** Before the `929574b5` pair, these cells were published from
 > two runs at `6f8d6ba5`, a commit that precedes #997 (the deferred-gated
 > allocator shards and the padded writer state promoted to the default), #1001
 > (the per-node optimistic write path for `SyncExpanseStrMap`, whose writers
@@ -59,8 +74,8 @@ Expanse arm's scaling is **unmeasured** — this arm carries no hardware counter
 > 0.282 [0.261, 0.300] and 0.284 [0.262, 0.302], and the string writers
 > previously fell with writer count, from 2.44–2.56 M inserts/s at two to
 > 0.46–0.50 at sixteen, 0.017 [0.016, 0.018] and 0.016 [0.015, 0.017]. Every
-> writer-only cell at W ≥ 2, on both arms, moved up in both new runs, each new
-> interval clear of both earlier ones (§7, table C): eight string writers went
+> writer-only cell at W ≥ 2, on both arms, moved up in both `929574b5` runs, each
+> interval clear of both earlier ones (`results/at_929574b5/` against `results/at_6f8d6ba5/`): eight string writers went
 > from 1.89–2.02 to 18.39–18.55 M inserts/s and sixteen from 0.46–0.50 to
 > 25.41–26.52, eight integer writers from 11.56–11.64 to 24.66–25.19. The two
 > pairs are separate runs at two commits with every change between them, not
@@ -71,15 +86,15 @@ Expanse arm's scaling is **unmeasured** — this arm carries no hardware counter
 >
 > **The string single writer is not claimed to have regressed by the
 > difference of the two published medians.** Its Expanse median was previously
-> 3.66 and 3.88 M inserts/s and is 2.83 and 2.79, and the verdict went from
-> `BOUNDARY_RESULT` in both earlier runs to Masstree in both new ones, both new
+> 3.66 and 3.88 M inserts/s and was 2.83 and 2.79 at `929574b5` (3.35 and 3.36 at `c1b604ad`), and the verdict went from
+> `BOUNDARY_RESULT` in both `6f8d6ba5` runs to Masstree in both `929574b5` runs, both
 > intervals below both earlier ones. But the earlier cell is bimodal by round
-> order (§7, table O): Expanse ran at 3.00 M inserts/s in the rounds it was
+> order (`results/at_6f8d6ba5/`, split by round order as in §7 table O): Expanse ran at 3.00 M inserts/s in the rounds it was
 > timed first and 4.11–4.12 in the rounds it was timed second, so the earlier
 > median sat between two modes and described neither. At `929574b5` the
 > timed-first median is 2.79–2.80 under pin `0-15` and the timed-second median
 > 3.29 in run 1 and 2.80 in run 2, with single rounds up to 3.77. Mode against
-> mode, the timed-first level is about 7% lower; in three of the four new runs
+> mode, the timed-first level is about 7% lower; in three of the four `929574b5` runs
 > (both pins) the timed-second median is within 3% of the timed-first one,
 > though single rounds reach 3.62–3.77 in all four, and whether the upper mode
 > went with the engine or with whatever produced it is **unmeasured**. The
@@ -91,26 +106,30 @@ Expanse arm's scaling is **unmeasured** — this arm carries no hardware counter
 
 ![Writer throughput vs writer count](results/chart_concurrent_writers.svg)
 
-**String readers under writer load are Expanse's, where they were previously
+**String readers under writer load are Expanse's, where they were once
 Masstree's by an order of magnitude.** With one writer inserting, Expanse's
-eight `short`-key readers run at 31.91–31.97 M lookups/s across the two runs
-against Masstree's 25.25–25.52 — 1.251 [1.220, 1.304] and
-1.232 [1.194, 1.252] — and the ratio stays at 1.189–1.299 with two to eight
-writers *(workload: `masstree_conc_str`)*. The registered Masstree win (§6.1
+eight `short`-key readers run at 31.51–31.60 M lookups/s across the two runs
+against Masstree's 25.56–25.82, which is 1.241 [1.207, 1.290] and
+1.252 [1.227, 1.343]. The ratio stays at 1.251–1.337 with two to eight writers
+*(workload: `masstree_conc_str`; `c1b604ad`)*. The registered Masstree win (§6.1
 row 3) is **`REFUTED`** in Expanse's favour on all four string cells in both
-runs. **Correction (AGENTS.md §8.7):** the pair previously published at
-`6f8d6ba5` had these readers at 1.07–1.10 M lookups/s under one writer,
-0.045 [0.041, 0.053] and 0.045 [0.043, 0.049], and at 0.200–0.281 with two to
-eight; all four cells moved up in both new runs, each interval clear of both
-earlier ones. Which of the changes between the two commits moved them is not
-isolated by this suite, what sets the readers' level now is **unmeasured**, and
-the §7 health rows count events without pricing them. The
-writer still pays for the readers: with eight readers probing, Expanse's
-single string writer runs at 2.19–2.20 M inserts/s against Masstree's
-2.89–2.90, and the integer single writer at 2.88–2.93 against 3.84–3.85 —
-integer writer ratios 0.750 [0.710, 0.778] and 0.733 [0.698, 0.759]
+runs. **Correction (AGENTS.md §8.7):** the pair published at `6f8d6ba5` had
+these readers at 1.07–1.10 M lookups/s under one writer, 0.045 [0.041, 0.053]
+and 0.045 [0.043, 0.049], and at 0.200–0.281 with two to eight. The `929574b5`
+pair had them at 1.232–1.251 under one writer and 1.189–1.299 with two to
+eight. Which change between those commits moved them is not isolated by this
+suite, and what sets the readers' level now is **unmeasured**. The §7 health
+rows count events without pricing them.
+
+The writer still pays for the readers. With eight readers probing, Expanse's
+single string writer runs at 1.98–2.03 M inserts/s against Masstree's
+2.88–2.90, and the integer single writer at 2.72–2.81 against 3.76–3.84.
+The integer writer ratios are 0.848 [0.780, 0.926] and 0.737 [0.707, 0.794]
 *(workload: `masstree_conc_map_64bit`)*. Every writer cell under readers is
-Masstree's in both runs, 0.606–0.750 on integers and 0.678–0.846 on strings.
+Masstree's in both runs, 0.580–0.848 on integers and 0.716–0.834 on strings,
+except the string cell with eight writers. That cell is `BOUNDARY_RESULT` in
+run 1, 0.926 [0.868, 1.002], and Masstree's in run 2, 0.920 [0.859, 0.975],
+so it carries a direction only (rule 18).
 
 ![Reader throughput alongside writers](results/chart_concurrent_readers.svg)
 
@@ -154,11 +173,13 @@ Masstree's. At 10⁵ it is Expanse's in both runs, 1.088 [1.074, 1.107] and
 `7fe02c0b` measurement, which had it at `BOUNDARY_RESULT`, 1.005
 [0.995, 1.017]; at 10⁴ it is `BOUNDARY_RESULT` in both runs, 1.002
 [0.971, 1.068]. The §10.2 sensitivity rows say what is being measured: on a
-shuffled permutation of the same keys `short` insertion is 1.089
-[1.087, 1.093] and `prefixed` 1.297 [1.292, 1.300], both Expanse's. This
-README earlier quoted 0.969 and 1.208 for those two cells, figures the
-`7fe02c0b` artifact already contradicted (1.091 [1.088, 1.095] and 1.268
-[1.264, 1.276]). Sorted insertion is a B+-tree's best case (every leaf fills,
+shuffled permutation of the same keys `short` insertion is 1.118
+[1.113, 1.123] and `prefixed` 1.368 [1.355, 1.376], both Expanse's (run 2
+1.141 [1.137, 1.144] and 1.361 [1.356, 1.367]; sensitivity set at `c1b604ad`,
+after design B). This README earlier quoted 0.969 and 1.208 for those two
+cells, figures the `7fe02c0b` artifact already contradicted (1.091 [1.088,
+1.095] and 1.268 [1.264, 1.276]); the `b868fb2e` set read 1.089 and 1.297, and
+is superseded. Sorted insertion is a B+-tree's best case (every leaf fills,
 no split lands mid-leaf) and the shared generator hands both arms the
 population sorted.
 
@@ -171,8 +192,9 @@ parity (0.996 [0.990, 1.003]), so that third cell is a direction only (rule
 18); `sequential` is Expanse's at 1.656 [1.639, 1.672] *(workload:
 `masstree_map_64bit`)*. Masstree inserts at a flat 20.4–20.6 ns at that
 population whatever the distribution. On the shuffled permutation the same
-`random` cell is 1.891 [1.874, 1.921] in Expanse's favour, and with Masstree's
-concurrent table 1.137 [1.131, 1.141] (§10.3): the registered win exists, in
+`random` cell is 1.939 [1.920, 1.968] in Expanse's favour (run 2 1.957
+[1.938, 1.989]), and with Masstree's concurrent table 1.193 [1.185, 1.200]
+(1.185 [1.175, 1.194]) (§10.3; sensitivity set at `c1b604ad`): the registered win exists, in
 the insertion order and the configuration the pre-registration did not name.
 At N = 10⁵ `clustered` insertion is `BOUNDARY_RESULT` in both runs, 0.993
 [0.970, 1.026], a correction of the earlier `7fe02c0b` measurement's
@@ -193,7 +215,22 @@ its median fell from 147.66 to 144.22 ns (146.06 in run 2) while
 unmeasured *(measured: reference host, `results/baseline_string_latency.json`
 at `b868fb2e` against the `7fe02c0b` artifact in history)*.
 
-> **Pending re-measurement (design B, [#1586](https://github.com/orieg/expanse/issues/1586); tracked in [#1611](https://github.com/orieg/expanse/issues/1611)).** The `ExpanseStrMap` memory figures in the next paragraph (`prefixed`) and in the `counter` / `short` / `skewed` paragraph below were measured before node shells and suffix leaves became blocks of the map's allocator (concurrency `METHODOLOGY.md` §47). That change moves both instruments: `mem_used` now counts every block at its accounted size (a shell at 48 bytes, where it counted 40), and the allocator census sees slab pages where it saw one allocation per shell and suffix. The figures are kept as measured, at the commits their tags name, and are stale until the suite re-runs on a build with the change. `ExpanseBytesMap` and the integer maps are not affected.
+> **The string memory census and the insertion-order set are re-measured after design B.**
+> Design B ([#1586](https://github.com/orieg/expanse/issues/1586), concurrency
+> `METHODOLOGY.md` §47) made `ExpanseStrMap`'s node shells and suffix leaves
+> blocks of the map's own allocator. `mem_used` now counts every block at its
+> accounted size, and the allocator census sees slab pages where it saw one
+> allocation per shell and suffix. The string memory figures below, the §3
+> string tables and the §6 sensitivity set come from
+> `results/baseline_string_memory.json` / `_run2.json` and
+> `results/baseline_sensitivity.json` / `_run2.json` at `c1b604ad`. Those are two
+> runs of `run.sh` dispatched as `masstree_memory`:
+> [42509410606](https://github.com/orieg/expanse/actions/runs/42509410606) and
+> [42514428711](https://github.com/orieg/expanse/actions/runs/42514428711),
+> reference host, pin `0-15`. The busy CPU outside the benchmark was at most
+> 0.06 core-equivalents in either run. The integer memory, integer latency and
+> string latency tables are still the `b868fb2e` runs. The figures measured
+> before design B are given next to their replacements as superseded.
 
 **Memory at the ends of the density sweep goes to Masstree by a few bytes per
 key.** Masstree holds 22.76 B/key structurally at
@@ -206,13 +243,15 @@ at λ = 38, 46 and 61 (23.99, 24.72, 23.82) — the `LEAF_CAP` cascade
 `hot_comparison` §9.4 documents. §6.2 row 1 (λ ∈ [8, 23]) is **`CONFIRMED`**;
 row 2 (outside the band) is an **`UNPREDICTED LOSS`** above the cascade and
 parity-by-magnitude at λ = 4 (24.05 vs 22.80). **`prefixed` string memory is
-not a loss:** `ExpanseStrMap` holds 63.97 against Masstree's 68.93 B/key
-(69.05 in run 2), so the medium-confidence row is **`CONFIRMED`** by magnitude
-— a correction of this README's earlier reading, 72.53 against 69.06 and an
-`UNPREDICTED LOSS`, which the `7fe02c0b` artifact had already reversed (63.46
-against 69.00) *(workload: `masstree_str_map`)*. §10.2 records that the
+not a loss:** `ExpanseStrMap` holds 56.46 against Masstree's 69.09 B/key
+(69.08 in run 2; the `ExpanseStrMap` column is identical in both), so the
+medium-confidence row is **`CONFIRMED`** by magnitude *(workload:
+`masstree_str_map`; census at `c1b604ad`)*. Before design B the census read
+63.97 against 68.93, and this README's first reading was 72.53 against 69.06
+and an `UNPREDICTED LOSS`, which the `7fe02c0b` artifact had already reversed
+(63.46 against 69.00); those figures are superseded. §10.2 records that the
 registration leaned on a shuffled-order figure (84.2 B/key structural, which
-the sensitivity table reproduces at 88.51 allocator). Memory cells carry no
+the sensitivity table reproduces at 88.52 allocator). Memory cells carry no
 interval, so these labels are by magnitude, and the taxonomy is the
 wall-clock one: a registered Expanse win that landed the other way is an
 `UNPREDICTED LOSS`, never a `REFUTED`, which the derived tables reserve for a
@@ -271,33 +310,35 @@ in history)* — which is consistent with a colder descent per start and is not
 measured further.
 
 **Integer readers, alone and alongside writers.** Eight readers alone:
-2.314 [2.290, 2.344] and 2.293 [2.269, 2.332] across the two runs —
-**`CONFIRMED`**. With one to eight writers inserting, every cell goes to
-Expanse in both runs, 2.355–2.625, each interval clear of parity — the
-registered Masstree win (§6.1 row 3) is **`REFUTED`** in Expanse's favour on
-all four integer cells *(measured: reference host — Intel i9-12900F, commit
-`929574b5`, two runs, pin `0-15`; workload: `masstree_conc_map_64bit`)*.
-Against the pair previously published at `6f8d6ba5` (2.200–2.259 alone,
-2.261–2.546 alongside writers) no integer reader cell is claimed to have
-moved: every new point estimate is above both earlier ones, but in none of the
-five cells do both new intervals lie clear of both earlier intervals (§7,
-table C; `docs/BENCHMARKING.md` rule 18). What sets these reader levels is
-**unmeasured**.
+2.240 [2.219, 2.270] and 2.227 [2.202, 2.256] across the two runs, which is
+**`CONFIRMED`**. With one to eight writers inserting, every cell goes to Expanse
+in both runs, 2.243–2.564, each interval clear of parity. The registered
+Masstree win (§6.1 row 3) is **`REFUTED`** in Expanse's favour on all four
+integer cells *(measured: reference host — Intel i9-12900F, commit `c1b604ad`,
+two runs, pin `0-15`; workload: `masstree_conc_map_64bit`)*. Against the
+`929574b5` pair (2.293–2.314 alone, 2.355–2.625 alongside writers) no integer
+reader cell is claimed to have moved. In none of the five cells do both new
+intervals lie clear of both earlier ones (§7, table C; `docs/BENCHMARKING.md`
+rule 18). What sets these reader levels is **unmeasured**.
 
 **String readers, alone and alongside writers.** Alongside one to eight
-writers the string readers are Expanse's in both runs, 1.189–1.299; §1 carries
-the correction, since the pair previously published had them as Masstree's.
-Alone, the cell depends on the pin. Under `0-15` it is Expanse's in both runs,
-1.034 [1.015, 1.046] and 1.054 [1.045, 1.068] — **`CONFIRMED`** against the
-registered Expanse win — and under the per-core pin, eight readers on eight
-physical cores, it claims no winner in either run, 0.998 [0.970, 1.028] and
-1.005 [0.975, 1.049] *(workload: `masstree_conc_str`)*. The two are separate
-placements, each cell comparable only with cells under its own pin (AGENTS.md
-§8.20.5 step 0), so the claim this cell carries is "no loss under either pin,
-a win of three to five per cent under `0-15`". The pair previously published
-at `6f8d6ba5` was direction-only, 0.996 [0.978, 1.006] and
-1.013 [1.009, 1.018]; the new `0-15` intervals do not both clear both of
-those, so no change in level is claimed.
+writers the string readers are Expanse's in both runs, 1.241–1.337 (§1).
+**Alone, the cell is now a loss under `0-15`.** It is Masstree's in both runs,
+0.982 [0.975, 0.985] and 0.987 [0.981, 0.991], an **`UNPREDICTED LOSS`**
+against the registered Expanse win. Under the per-core pin, eight readers on
+eight physical cores, it is `BOUNDARY_RESULT` in both runs, 0.989 [0.938, 1.045] and 0.975 [0.933, 1.017] *(workload: `masstree_conc_str`)*. The two
+are separate placements, and each cell is comparable only with cells under its
+own pin (AGENTS.md §8.20.5 step 0).
+
+**Correction:** the `929574b5` pair had this cell as Expanse's under `0-15`,
+1.034 [1.015, 1.046] and 1.054 [1.045, 1.068], and as no winner under the
+per-core pin, 0.998 [0.970, 1.028] and 1.005 [0.975, 1.049]. Under `0-15` both
+new intervals lie below both earlier ones (§7, table C). The two pairs are
+separate runs at two commits, so the move is not attributed to design B or to
+any other change between them (rule 18). In table C, Expanse's readers moved from 35.67–35.96 to 33.88–34.07 M lookups/s and Masstree's from 34.27–34.28 to 34.44–34.48.
+The
+cause of either move is **unmeasured**. The `6f8d6ba5` pair before that was
+direction-only, 0.996 [0.978, 1.006] and 1.013 [1.009, 1.018].
 
 **Memory on structured integer keys and in the density band.** `sequential`
 and `clustered` at N = 10⁶: 8.91 and 8.96 B/key against Masstree's flat 23.08
@@ -332,11 +373,23 @@ a tenth above parity in both runs (run 2: 1.098 [1.097, 1.100]) *(workload:
 > of this**: they are deterministic byte and allocation counts and they
 > reproduced to the digit across both runs.
 
-**`counter` and `short`-key memory** *(workload: `masstree_str_map`)*. `counter`:
-20.54 against 25.18 B/key (**`CONFIRMED`**). The one string memory cell that was
-registered as a loss is still a loss: `short` at 33.91 against **48.20**
-(**`CONFIRMED`** for Masstree). `skewed` is now **41.76 against Masstree's
-46.63 — Expanse ahead**, where the pre-registration counted a Masstree win.
+**`counter` and `short`-key memory** *(workload: `masstree_str_map`; census at
+`c1b604ad`, identical in both runs)*. `counter`: 20.55 against 25.18 B/key
+(**`CONFIRMED`**). The one string memory cell that was registered as a loss is
+still a loss: `short` at 33.91 against **54.64** (**`CONFIRMED`** for
+Masstree). `skewed` is **42.91 against Masstree's 46.63, Expanse ahead**, where
+the pre-registration counted a Masstree win.
+
+> **Correction: design B moved these cells; the `b868fb2e` figures are
+> superseded.** The allocator column read 20.54 (`counter`), 48.20 (`short`),
+> 41.76 (`skewed`), 63.97 (`prefixed`) and 48.19 (`beyond`). It now reads 20.55,
+> 54.64, 42.91, 56.46 and 56.50. `mem_used` moved 43.25 → 53.47 on `short`,
+> 38.18 → 41.89 on `skewed` and 47.25 → 55.25 on `beyond`, and held at 19.56 on
+> `counter` and 55.25 on `prefixed`. Allocations for 10⁶ `short` keys fell from
+> 1,049,567 to 57,063, because shells and suffix leaves are now carved from slab
+> pages. No cell changed winner. Masstree's columns are unchanged except the
+> slab-quantized `prefixed` figure, which moves by about 0.1 B/key between runs
+> as before.
 
 > **Superseded by [#723](https://github.com/orieg/expanse/issues/723).** These
 > string memory cells were **69.17** (`short`) and **47.74** (`skewed`) B/key
@@ -363,16 +416,17 @@ the process holds; on Masstree it is quantized to the 2 MiB pool slab, so at
 λ = 1 and λ = 2 and on every string cell below N ≈ 150k the figure is mostly
 slab and is flagged `QUANTUM_DOMINATED`. Where it is not flagged, the measured
 slack above Masstree's own node census is 0.2–3.5 B/key on the integer cells
-and the N = 10⁶ string cells (3.6 on `prefixed` in run 2), and 5.2–12.3 B/key
-on the unflagged string cells of the population sweep below 10⁶. Masstree's structural
+(`b868fb2e` runs), 1.9–3.7 B/key on the N = 10⁶ string cells, and 5.2–12.3 B/key
+on the unflagged string cells of the population sweep below 10⁶ (string census
+at `c1b604ad`, the same in both runs). Masstree's structural
 figure is 22.76 B/key on every integer cell in the sorted build order: 66,667
 leaves at 100% fill plus 4,448 internodes for 10⁶ keys, exactly what `masstree_envelope.structural_bytes`
 gives for those counts — and 33.10 B/key at 70.7% fill on the shuffled
-permutation (§10.2). The RCU settle step (§10.4) reclaimed 11.3 B/key of
-suffix bags left behind on `prefixed` in both runs (80.27 → 68.93 and 80.33 →
-69.05), and nothing on integer keys, which allocate no bags; that settled
-`prefixed` figure is the one §3 memory cell whose two runs differ, by 0.12
-B/key. `ExpanseMap`'s own census moved between the earlier `7fe02c0b`
+permutation (§10.2). The RCU settle step (§10.4) reclaimed 11.3 and 7.6 B/key of
+suffix bags left behind on `prefixed` in the two `c1b604ad` runs (80.34 → 69.09
+and 76.70 → 69.08), and nothing on integer keys, which allocate no bags. That
+settled `prefixed` figure is the one string memory cell whose two runs differ,
+by 0.01 B/key (0.12 between the `b868fb2e` runs). `ExpanseMap`'s own census moved between the earlier `7fe02c0b`
 artifacts and these — `random` at λ = 15 from 16.75 to 17.60 B/key `mem_used`
 (16.72 → 17.84 allocator), at λ = 23 from 16.20 to 17.18 — identically in both
 runs, so the tables below are current; which engine commit moved it is not
@@ -406,28 +460,28 @@ Both sides copy key bytes into their own nodes, so the index column is the owner
 
 | Shape | N | mean len | Masstree allocator, settled (unsettled) | Expanse allocator | Masstree structural | Expanse `mem_used` | Masstree slack | layers | flag |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `beyond` | 1,000,000 | 272.0 | withheld (1,000,000 keys > 255 B) | 48.19 | withheld (1,000,000 keys > 255 B) | 47.25 | withheld (1,000,000 keys > 255 B) | — | `NOT_REPRESENTABLE_MASSTREE` |
-| `counter` | 1,000,000 | 12.0 | 25.18 (25.18) | 20.54 | 22.82 | 19.56 | 2.36 | 100 | `ok` |
-| `prefixed` | 1,000,000 | 120.0 | 68.93 (80.27) | 63.97 | 65.43 | 55.25 | 3.50 | 12 | `ok` |
-| `short` | 1,000,000 | 12.0 | 33.91 (34.02) | 48.20 | 32.02 | 43.25 | 1.89 | 0 | `ok` |
-| `skewed` | 998,150 | 14.3 | 46.63 (49.26) | 41.76 | 43.24 | 38.18 | 3.38 | 0 | `ok` |
+| `beyond` | 1,000,000 | 272.0 | withheld (1,000,000 keys > 255 B) | 56.50 | withheld (1,000,000 keys > 255 B) | 55.25 | withheld (1,000,000 keys > 255 B) | — | `NOT_REPRESENTABLE_MASSTREE` |
+| `counter` | 1,000,000 | 12.0 | 25.18 (25.18) | 20.55 | 22.82 | 19.56 | 2.36 | 100 | `ok` |
+| `prefixed` | 1,000,000 | 120.0 | 69.09 (80.34) | 56.46 | 65.43 | 55.25 | 3.66 | 12 | `ok` |
+| `short` | 1,000,000 | 12.0 | 33.91 (34.02) | 54.64 | 32.02 | 53.47 | 1.89 | 0 | `ok` |
+| `skewed` | 998,150 | 14.3 | 46.63 (49.26) | 42.91 | 43.24 | 41.89 | 3.38 | 0 | `ok` |
 
 #### String map, allocator column across the population sweep (Masstree / Expanse B/key)
 
 | N | `beyond` | `counter` | `prefixed` | `short` | `skewed` |
 |---:|---:|---:|---:|---:|---:|
-| 1,000 | — / 87.0 | 2109.6† / 90.8 | 4241.4† / 102.3 | 6304.4† / 86.1 | 6315.7† / 80.2 |
-| 2,000 | — / 67.9 | 1054.8† / 55.8 | 2138.0† / 82.4 | 3152.1† / 68.5 | 3164.7† / 61.6 |
-| 5,000 | — / 61.5 | 421.9† / 34.1 | 876.8† / 76.7 | 1261.3† / 60.4 | 1273.8† / 53.9 |
-| 10,000 | — / 54.5 | 211.0† / 27.5 | 456.2† / 70.6 | 630.9† / 54.4 | 643.2† / 48.0 |
-| 20,000 | — / 49.6 | 105.5† / 24.0 | 246.0† / 65.4 | 315.6† / 49.5 | 327.6† / 42.9 |
-| 50,000 | — / 44.0 | 42.2† / 21.8 | 119.9† / 59.4 | 126.4† / 44.1 | 138.9† / 37.2 |
-| 100,000 | — / 43.6 | 42.1† / 21.1 | 98.8† / 59.2 | 84.3† / 43.6 | 97.1† / 37.1 |
-| 125,000 | — / 47.0 | 33.7† / 21.0 | 86.2† / 62.9 | 67.5† / 47.0 | 80.3† / 40.7 |
-| 150,000 | — / 50.0 | 28.0 / 20.9 | 91.7† / 65.9 | 70.3† / 50.2 | 69.1† / 43.7 |
-| 200,000 | — / 51.2 | 42.0† / 20.8 | 77.8 / 66.8 | 52.8† / 51.2 | 65.5† / 44.6 |
-| 500,000 | — / 50.0 | 29.4† / 20.6 | 73.5 / 65.7 | 38.1 / 50.0 | 50.8 / 43.5 |
-| 1,000,000 | — / 48.2 | 25.2 / 20.5 | 68.9 / 64.0 | 33.9 / 48.2 | 46.6 / 41.8 |
+| 1,000 | — / 164.2 | 2109.6† / 98.9 | 4241.4† / 127.4 | 6304.4† / 98.9 | 6315.7† / 169.7 |
+| 2,000 | — / 108.3 | 1054.8† / 59.9 | 2138.0† / 89.2 | 3152.1† / 78.8 | 3164.7† / 99.2 |
+| 5,000 | — / 81.9 | 421.9† / 35.7 | 876.8† / 74.3 | 1261.3† / 68.7 | 1273.8† / 65.4 |
+| 10,000 | — / 69.0 | 211.0† / 28.3 | 456.2† / 65.8 | 630.9† / 61.6 | 643.2† / 53.9 |
+| 20,000 | — / 60.8 | 105.5† / 24.4 | 246.0† / 59.1 | 315.6† / 56.4 | 327.6† / 45.9 |
+| 50,000 | — / 53.1 | 42.2† / 22.0 | 119.9† / 52.5 | 126.4† / 50.4 | 138.9† / 38.8 |
+| 100,000 | — / 52.1 | 42.1† / 21.2 | 98.8† / 51.7 | 84.3† / 49.9 | 97.1† / 38.4 |
+| 125,000 | — / 55.5 | 33.7† / 21.1 | 86.2† / 55.4 | 67.5† / 53.3 | 80.3† / 41.8 |
+| 150,000 | — / 58.4 | 28.0 / 21.0 | 91.7† / 58.3 | 70.3† / 56.4 | 69.1† / 44.9 |
+| 200,000 | — / 59.5 | 42.0† / 20.8 | 77.8 / 59.3 | 52.8† / 57.5 | 65.5† / 45.7 |
+| 500,000 | — / 58.3 | 29.4† / 20.6 | 73.5 / 58.2 | 38.1 / 56.4 | 50.8 / 44.6 |
+| 1,000,000 | — / 56.5 | 25.2 / 20.5 | 69.1 / 56.5 | 33.9 / 54.6 | 46.6 / 42.9 |
 
 † `QUANTUM_DOMINATED`: the allocator figure is mostly the 2 MiB slab, not the index (§3.3).
 
@@ -540,34 +594,53 @@ Sorted / single is the order the shared generator produces and the table configu
 
 | Arm | Shape | Order | Table | N | Masstree allocator, settled (unsettled) | Masstree structural | leaf fill | Expanse allocator | Expanse `mem_used` | lookup_hit ratio [BCa 95%] | insert ratio [BCa 95%] |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| map | `random` | sorted | single | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 17.84 | 17.58 | 3.003 [2.977, 3.033] | 0.750 [0.743, 0.756] |
-| map | `random` | sorted | concurrent | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 17.84 | 17.58 | 3.195 [3.167, 3.225] | 1.137 [1.131, 1.141] |
-| map | `random` | shuffled | single | 1,000,000 | 33.57 (33.57) | 33.10 | 0.707 | 24.76 | 17.58 | 3.100 [3.067, 3.136] | 1.891 [1.874, 1.921] |
-| str | `prefixed` | sorted | single | 1,000,000 | 69.08 (78.42) | 65.43 | 1.000 | 63.96 | 55.25 | 1.114 [1.106, 1.118] | 0.970 [0.966, 0.973] |
-| str | `prefixed` | shuffled | single | 1,000,000 | 88.51 (92.63) | 84.20 | 0.706 | 66.74 | 55.25 | 1.124 [1.120, 1.126] | 1.297 [1.292, 1.300] |
-| str | `short` | sorted | single | 1,000,000 | 33.91 (34.02) | 32.02 | 1.000 | 48.20 | 43.25 | 1.346 [1.342, 1.349] | 0.478 [0.472, 0.484] |
-| str | `short` | sorted | concurrent | 1,000,000 | 33.91 (34.02) | 32.02 | 1.000 | 48.20 | 43.25 | 1.480 [1.477, 1.484] | 0.597 [0.585, 0.607] |
-| str | `short` | shuffled | single | 1,000,000 | 50.62 (50.92) | 47.99 | 0.707 | 50.95 | 43.25 | 1.493 [1.485, 1.497] | 1.089 [1.087, 1.093] |
+| map | `random` | sorted | single | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 17.84 | 17.58 | 2.989 [2.963, 3.017] | 0.786 [0.781, 0.791] |
+| map | `random` | sorted | concurrent | 1,000,000 | 23.08 (23.08) | 22.76 | 1.000 | 17.84 | 17.58 | 3.086 [3.058, 3.115] | 1.193 [1.185, 1.200] |
+| map | `random` | shuffled | single | 1,000,000 | 33.57 (33.57) | 33.10 | 0.707 | 24.75 | 17.58 | 3.176 [3.143, 3.213] | 1.939 [1.920, 1.968] |
+| str | `prefixed` | sorted | single | 1,000,000 | 68.97 (81.03) | 65.43 | 1.000 | 56.46 | 55.25 | 1.132 [1.130, 1.135] | 1.045 [1.038, 1.049] |
+| str | `prefixed` | shuffled | single | 1,000,000 | 88.52 (91.57) | 84.20 | 0.706 | 59.16 | 55.25 | 1.134 [1.131, 1.137] | 1.368 [1.355, 1.376] |
+| str | `short` | sorted | single | 1,000,000 | 33.91 (34.02) | 32.02 | 1.000 | 54.64 | 53.47 | 1.316 [1.312, 1.319] | 0.510 [0.501, 0.517] |
+| str | `short` | sorted | concurrent | 1,000,000 | 33.91 (34.02) | 32.02 | 1.000 | 54.64 | 53.47 | 1.462 [1.457, 1.467] | 0.640 [0.627, 0.651] |
+| str | `short` | shuffled | single | 1,000,000 | 50.62 (50.93) | 47.99 | 0.707 | 57.35 | 53.47 | 1.513 [1.510, 1.517] | 1.118 [1.113, 1.123] |
+
+*(measured: reference host, pin `0-15`, `c1b604ad`, runs 42509410606 and 42514428711; the table is run 1, `results/baseline_sensitivity.json`, and run 2 is `results/baseline_sensitivity_run2.json`. The census columns of the two runs are identical apart from Masstree's slab-quantized unsettled figures. Every ratio cell has the same winner in both runs.)*
 
 The shuffled rows are the regime the Step 0 gate measured and the §6
-predictions leaned on; the sorted rows are the suite's cells in the shared
-generator's order, with the table configuration §10.3 assigns. The
-difference between them is the finding, and it cuts both ways: **Masstree's
-insertion cost (20.4 → 124.9 ns on `random`), leaf fill (1.000 → 0.707) and
-footprint (23.08 → 33.57 B/key) depend on insertion order — and so do
-Expanse's insertion cost (27.2 → 66.5 ns) and its allocator footprint (17.84
-→ 24.76 B/key), while Expanse's own node census (`mem_used`, 17.58 in both
-orders) is the one figure that is order-invariant.** The 7 B/key the allocator
-holds beyond `mem_used` on the shuffled build is capacity the engine
-instrument does not see; its cause is unmeasured. Lookup ratios move far less
-with order than insertion does (3.003 sorted, 3.100 shuffled on `random`), but
-every latency verdict above is a sorted-order verdict all the same. The
-concurrent-table rows show the protocol's own single-threaded cost: on
-`random` integer keys the insertion ratio moves from 0.750 [0.743, 0.756] with
-the single-threaded table to 1.137 [1.131, 1.141] with the concurrent one, and
-the lookup ratio from 3.003 [2.977, 3.033] to 3.195 [3.167, 3.225] — which is
-why the single-threaded pairings use the single-threaded configuration
-(§10.3) *(workload: `masstree_map_64bit`)*.
+predictions leaned on. The sorted rows are the suite's cells in the shared
+generator's order, with the table configuration §10.3 assigns. The difference
+between them is the finding, and it cuts both ways. **Masstree's insertion
+cost (20.3 → 123.7 ns on `random`), leaf fill (1.000 → 0.707) and footprint
+(23.08 → 33.57 B/key) depend on insertion order. So do Expanse's insertion
+cost (25.8 → 64.1 ns) and its allocator footprint (17.84 → 24.75 B/key). Its
+own node census (`mem_used`, 17.58 in both orders) is the one figure that is
+order-invariant.** On `short` string keys, `mem_used` is 53.47 B/key in both
+orders, against 54.64 sorted and 57.35 shuffled on the allocator. The 7 B/key
+the allocator holds beyond `mem_used` on the shuffled integer build is capacity
+the engine instrument does not see; its cause is unmeasured. Lookup ratios move
+far less with order than insertion does (2.989 sorted, 3.176 shuffled on
+`random`), but every latency verdict above is a sorted-order verdict all the
+same.
+
+The concurrent-table rows show the protocol's own single-threaded cost. On
+`random` integer keys the insertion ratio moves from 0.786 [0.781, 0.791] with
+the single-threaded table to 1.193 [1.185, 1.200] with the concurrent one, and
+the lookup ratio from 2.989 [2.963, 3.017] to 3.086 [3.058, 3.115]. That is why
+the single-threaded pairings use the single-threaded configuration (§10.3)
+*(workload: `masstree_map_64bit`)*.
+
+**`prefixed` sorted insertion in this set is Expanse's in both runs**, 1.045
+[1.038, 1.049] and 1.040 [1.037, 1.044], where the `b868fb2e` set read 0.970.
+The §5 string insertion table, a separate measurement at `b868fb2e`, has the
+same cell on Masstree's side. That a design-B effect moved this cell is not
+claimed: the two sets are different measurements on different engines, and no
+paired comparison of the two builds was run (`docs/BENCHMARKING.md` rule 18).
+
+> **Correction: the `b868fb2e` sensitivity set is superseded.** It read, on
+> `random` integer keys, lookup 3.003 / 3.195 / 3.100 and insertion 0.750 /
+> 1.137 / 1.891 (sorted single / sorted concurrent / shuffled single). On
+> `short` strings it read an Expanse allocator figure of 48.20 sorted and 50.95
+> shuffled, with `mem_used` 43.25. On `prefixed` it read 63.96 and 66.74, with
+> insertion 0.970 sorted and 1.297 shuffled.
 
 #### Why a string lookup costs about four times a `u64` lookup (#724)
 
@@ -746,42 +819,38 @@ cell in this suite was measured on.
 
 ## 7. The concurrent arm
 
-> **Re-measured at `929574b5`, two runs under each of two pins.** Every cell
-> in this section — MC1 and MC2, C1, C2, the H health cells and the M census —
-> was taken four times under the standing conditions (host lock, a load
-> snapshot per cell with the runner's own CPU subtracted, foreign load ≤ 0.03
-> core-equivalents at every cell): twice under the P-core pin `0-15` (eight
-> P-cores with SMT, sixteen CPUs) and twice under the per-core pin
-> `0,2,4,6,8,10,12,14` (one CPU per physical P-core). The MC1, MC2 and M
-> tables are run 1 under `0-15`, the pin this section has always published;
-> run 2 is
+> **Re-measured at `c1b604ad`, after design B, two runs under each of two pins.**
+> Every cell in this section (MC1 and MC2, C1, C2, the H health cells and the M
+> census) was taken four times under the standing conditions: host lock, host
+> guard, and a load snapshot per cell with the runner's own CPU subtracted.
+> Foreign load was at most 0.05 core-equivalents at any cell. Two runs used the
+> P-core pin `0-15` (eight P-cores with SMT, sixteen CPUs): runs
+> [42470920286](https://github.com/orieg/expanse/actions/runs/42470920286) and
+> [42519511477](https://github.com/orieg/expanse/actions/runs/42519511477),
+> dispatched as `masstree_concurrent`. Two used the per-core pin
+> `0,2,4,6,8,10,12,14`, one CPU per physical P-core: runs [42524607358](https://github.com/orieg/expanse/actions/runs/42524607358) and [42550264513](https://github.com/orieg/expanse/actions/runs/42550264513), dispatched with `cpu_pin`. The MC1, MC2
+> and M tables are run 1 under `0-15`, the pin this section has always
+> published. Run 2 is
 > [`results/baseline_concurrent_run2.json`](results/baseline_concurrent_run2.json),
-> the per-core pair is `results/baseline_concurrent_percore.json` and
-> `results/baseline_concurrent_percore_run2.json`, the H table carries both
-> `0-15` runs, table R sets the two `0-15` runs side by side, table P is the
-> per-core pair and table O splits cells by which arm a round timed first.
+> and the per-core pair is `results/baseline_concurrent_percore.json` and
+> `results/baseline_concurrent_percore_run2.json`. The H table carries both
+> `0-15` runs. Table R sets the two `0-15` runs side by side, table C sets them
+> against the `929574b5` pair, table P is the per-core pair, and table O splits
+> cells by which arm a round timed first.
 >
-> **Correction (AGENTS.md §8.7).** This section previously published two runs
-> at `6f8d6ba5`, which precedes #997, #1001 and #1010 (§1), so every cell on a
-> write path was stale. Those figures are superseded; the pair is kept at
-> `results/at_6f8d6ba5/`, which `scripts/reader_scaling_bounds.py` reads for
-> `docs/benchmarks/concurrency/README.md` §13, and table C sets every new cell
-> against it. The single-writer engine's pair before that, at `a1982ff2`, stays
-> at `results/step0/`, the data `docs/benchmarks/concurrency/README.md` §3–§5
-> and §8 read.
->
-> **Re-measured at `c746f9a5`, after [#1014](https://github.com/orieg/expanse/pull/1014)
-> and [#1015](https://github.com/orieg/expanse/pull/1015), which change `occ.rs`
-> and `sync.rs` (a zero-sized marker field and `Send` / not-`Sync` assertions on
-> the reader handles these cells use; a conditional-publish mode in the OLC
-> bodies).** The same sweep ran again at that head, two runs under each pin,
-> and no cell separates from its `929574b5` pair under
-> `docs/BENCHMARKING.md` rule 18: for every reader and writer ratio, the
-> `c746f9a5` interval overlaps the `929574b5` interval in at least one of the
-> two runs, and no cell separates in both runs in the same direction. The
-> tables keep the `929574b5` pair; the confirming pair is at
-> `results/at_c746f9a5/` (`baseline_concurrent{,_run2,_percore,_percore_run2}.json`;
-> measured: reference host, `c746f9a5`).
+> **Correction: the `929574b5` pairs are superseded.** Design B
+> ([#1586](https://github.com/orieg/expanse/issues/1586)) changed the string
+> map's allocator, which every MC2 cell exercises, so the `929574b5` string
+> figures were stale. The integer cells were re-measured with them, since the
+> arm runs both in one process. The `0-15` pair is kept at
+> `results/at_929574b5/`, and table C sets every new cell against it. The
+> per-core pair it replaces is at the same path. The pair before that, at
+> `6f8d6ba5`, stays at `results/at_6f8d6ba5/`, which
+> `scripts/reader_scaling_bounds.py` reads for
+> `docs/benchmarks/concurrency/README.md` §13. The single-writer engine's pair at
+> `a1982ff2` stays at `results/step0/`, the data
+> `docs/benchmarks/concurrency/README.md` §3–§5 and §8 read. The `c746f9a5`
+> confirming pair of the `929574b5` tables stays at `results/at_c746f9a5/`.
 
 #### MC1 — `u64` keys, Masstree vs `SyncExpanseMap`
 
@@ -789,21 +858,21 @@ cell in this suite was measured on.
 
 | W | Masstree M/s | Expanse M/s | ratio [BCa 95%] | verdict |
 |--:|---:|---:|---|---|
-| 1 | 5.15 | 4.90 | 0.977 [0.956, 1.000] | `BOUNDARY_RESULT` — `CONFIRMED` |
-| 2 | 9.82 | 7.64 | 0.782 [0.770, 0.797] | Masstree — `CONFIRMED` |
-| 4 | 18.50 | 13.47 | 0.729 [0.716, 0.740] | Masstree — `CONFIRMED` |
-| 8 | 32.62 | 25.19 | 0.751 [0.719, 0.774] | Masstree — `CONFIRMED` |
-| 16 | 33.27 | 29.09 | 0.847 [0.780, 0.894] | Masstree — `not pre-registered` |
+| 1 | 5.12 | 4.75 | 0.936 [0.909, 0.962] | Masstree — `CONFIRMED` |
+| 2 | 9.60 | 7.50 | 0.777 [0.759, 0.792] | Masstree — `CONFIRMED` |
+| 4 | 17.90 | 12.30 | 0.679 [0.658, 0.696] | Masstree — `CONFIRMED` |
+| 8 | 32.16 | 22.44 | 0.689 [0.649, 0.719] | Masstree — `CONFIRMED` |
+| 16 | 34.42 | 27.93 | 0.739 [0.676, 0.784] | Masstree — `not pre-registered` |
 
 **C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference; the reader window is the writers' fixed work, so the two arms' windows differ in length by the writer ratio and the population grows at different rates inside them)
 
 | W | Masstree readers M/s | Expanse readers M/s | ratio [BCa 95%] | verdict | Masstree writers M/s | Expanse writers M/s | writer ratio |
 |--:|---:|---:|---|---|---:|---:|---|
-| 0 | 58.85 | 135.69 | 2.314 [2.290, 2.344] | Expanse — `CONFIRMED` | — | — | — |
-| 1 | 40.77 | 107.67 | 2.625 [2.585, 2.666] | Expanse — **`REFUTED`** | 3.84 | 2.93 | 0.750 [0.710, 0.778] |
-| 2 | 38.97 | 101.89 | 2.593 [2.537, 2.632] | Expanse — **`REFUTED`** | 7.52 | 4.88 | 0.646 [0.621, 0.667] |
-| 4 | 35.91 | 92.96 | 2.547 [2.485, 2.591] | Expanse — **`REFUTED`** | 14.09 | 8.79 | 0.616 [0.601, 0.628] |
-| 8 | 31.29 | 74.32 | 2.355 [2.272, 2.443] | Expanse — **`REFUTED`** | 20.62 | 15.70 | 0.722 [0.660, 0.786] |
+| 0 | 57.37 | 129.20 | 2.240 [2.219, 2.270] | Expanse — `CONFIRMED` | — | — | — |
+| 1 | 41.01 | 103.20 | 2.510 [2.464, 2.554] | Expanse — **`REFUTED`** | 3.76 | 2.81 | 0.848 [0.780, 0.926] |
+| 2 | 38.78 | 98.30 | 2.534 [2.492, 2.572] | Expanse — **`REFUTED`** | 7.29 | 4.63 | 0.642 [0.626, 0.657] |
+| 4 | 36.02 | 88.91 | 2.464 [2.423, 2.499] | Expanse — **`REFUTED`** | 13.69 | 8.34 | 0.598 [0.585, 0.608] |
+| 8 | 29.79 | 71.18 | 2.370 [2.273, 2.449] | Expanse — **`REFUTED`** | 24.15 | 14.96 | 0.645 [0.612, 0.696] |
 
 #### MC2 — `short` string keys, Masstree vs `SyncExpanseStrMap`
 
@@ -811,27 +880,27 @@ cell in this suite was measured on.
 
 | W | Masstree M/s | Expanse M/s | ratio [BCa 95%] | verdict |
 |--:|---:|---:|---|---|
-| 1 | 4.22 | 2.83 | 0.726 [0.686, 0.782] | Masstree — `CONFIRMED` |
-| 2 | 7.93 | 5.03 | 0.643 [0.623, 0.672] | Masstree — `CONFIRMED` |
-| 4 | 14.89 | 9.68 | 0.658 [0.639, 0.680] | Masstree — `CONFIRMED` |
-| 8 | 24.14 | 18.39 | 0.760 [0.741, 0.783] | Masstree — `CONFIRMED` |
-| 16 | 31.93 | 25.41 | 0.804 [0.768, 0.848] | Masstree — `not pre-registered` |
+| 1 | 4.20 | 3.35 | 0.803 [0.742, 0.869] | Masstree — `CONFIRMED` |
+| 2 | 7.88 | 5.62 | 0.758 [0.696, 0.824] | Masstree — `CONFIRMED` |
+| 4 | 14.73 | 10.30 | 0.764 [0.705, 0.834] | Masstree — `CONFIRMED` |
+| 8 | 24.12 | 17.95 | 0.850 [0.776, 0.936] | Masstree — `CONFIRMED` |
+| 16 | 24.74 | 26.47 | 0.983 [0.894, 1.079] | `BOUNDARY_RESULT` |
 
 **C2 — reader throughput alongside writers** (8 readers probe 50/50 while W writers insert; W = 0 is the reader-only reference; the reader window is the writers' fixed work, so the two arms' windows differ in length by the writer ratio and the population grows at different rates inside them)
 
 | W | Masstree readers M/s | Expanse readers M/s | ratio [BCa 95%] | verdict | Masstree writers M/s | Expanse writers M/s | writer ratio |
 |--:|---:|---:|---|---|---:|---:|---|
-| 0 | 34.28 | 35.67 | 1.034 [1.015, 1.046] | Expanse — `CONFIRMED` | — | — | — |
-| 1 | 25.25 | 31.97 | 1.251 [1.220, 1.304] | Expanse — **`REFUTED`** | 2.90 | 2.19 | 0.760 [0.687, 0.848] |
-| 2 | 23.79 | 30.46 | 1.286 [1.261, 1.323] | Expanse — **`REFUTED`** | 4.90 | 3.32 | 0.697 [0.642, 0.763] |
-| 4 | 21.00 | 26.75 | 1.299 [1.259, 1.346] | Expanse — **`REFUTED`** | 9.32 | 6.74 | 0.746 [0.685, 0.814] |
-| 8 | 17.68 | 21.12 | 1.189 [1.158, 1.220] | Expanse — **`REFUTED`** | 14.82 | 12.74 | 0.846 [0.803, 0.892] |
+| 0 | 34.48 | 33.88 | 0.982 [0.975, 0.985] | Masstree — **`UNPREDICTED LOSS`** | — | — | — |
+| 1 | 25.82 | 31.51 | 1.241 [1.207, 1.290] | Expanse — **`REFUTED`** | 2.88 | 2.03 | 0.834 [0.737, 0.938] |
+| 2 | 23.59 | 30.24 | 1.337 [1.289, 1.400] | Expanse — **`REFUTED`** | 4.99 | 3.62 | 0.716 [0.668, 0.768] |
+| 4 | 21.39 | 27.34 | 1.296 [1.263, 1.352] | Expanse — **`REFUTED`** | 8.37 | 6.32 | 0.772 [0.709, 0.831] |
+| 8 | 17.72 | 22.46 | 1.251 [1.201, 1.302] | Expanse — **`REFUTED`** | 14.10 | 12.85 | 0.926 [0.868, 1.002] |
 
 The W = 0 row is the readers-only string cell. Which of its two committed level
 families is current is not resolved, and no re-measurement is planned (#1061
 closed with the difference disclosed). Its committed Expanse reader levels come
 from two procedures: one harness
-process running every round of the cell (this table's pair at `929574b5`, the
+process running every round of the cell (this table's pair at `c1b604ad`, the `929574b5` pair kept at `results/at_929574b5/`, the
 `6f8d6ba5` pair kept at `results/at_6f8d6ba5/` and the `a1982ff2` pair kept at
 `results/step0/`), and one process per round
 (`results/baseline_concurrent_ab.json` and its run 2, from `scripts/bench_ab.py`).
@@ -892,44 +961,47 @@ cell's own rounds.
 
 | Arm | W | R | run | restart share, median [min, max] | fallback share, median | `sample_spins` ÷ `read_ops` (medians) | `locked_reads` ÷ `read_ops` | unconditional lock share | handoffs ÷ write | branch replacements ÷ write | deep-cascade share | root-rewrite share | spin time ÷ reader wall | §6.3 |
 |---|--:|--:|--:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| map | 1 | 8 | 1 | 0.18% [0.18%, 0.23%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 2 in a round) |
-| map | 1 | 8 | 2 | 0.18% [0.18%, 0.24%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 2 in a round) |
-| map | 2 | 8 | 1 | 0.30% [0.28%, 0.31%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.058 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 6 in a round) |
-| map | 2 | 8 | 2 | 0.28% [0.27%, 0.32%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.058 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 10 in a round) |
-| map | 4 | 8 | 1 | 0.48% [0.45%, 0.49%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.061 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 4 in a round) |
-| map | 4 | 8 | 2 | 0.46% [0.45%, 0.49%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.061 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 8 in a round) |
-| map | 8 | 8 | 1 | 0.84% [0.81%, 0.90%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.067 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 8 in a round) |
-| map | 8 | 8 | 2 | 0.81% [0.75%, 0.84%] | 0.0001% | 0.00 | 0.00% | 0.00% | 0.000 | 0.067 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0001% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 12 in a round) |
+| map | 1 | 8 | 1 | 0.29% [0.28%, 0.30%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 3 in a round) |
+| map | 1 | 8 | 2 | 0.29% [0.28%, 0.29%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.057 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 4 in a round) |
+| map | 2 | 8 | 1 | 0.49% [0.46%, 0.63%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.058 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 23 in a round) |
+| map | 2 | 8 | 2 | 0.49% [0.48%, 0.49%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.058 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 11 in a round) |
+| map | 4 | 8 | 1 | 0.78% [0.76%, 0.79%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.061 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 3 in a round) |
+| map | 4 | 8 | 2 | 0.70% [0.69%, 0.80%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.060 | 2.84% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 5 in a round) |
+| map | 8 | 8 | 1 | 1.38% [0.95%, 1.44%] | 0.0001% | 0.00 | 0.00% | 0.00% | 0.000 | 0.067 | 2.84% | 0.00% | 0.01% | rise with W: `CONFIRMED`; fallback 0.0001% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 6 in a round) |
+| map | 8 | 8 | 2 | 1.30% [1.27%, 1.40%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.067 | 2.84% | 0.00% | 0.02% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 14 in a round) |
 | str | 1 | 8 | 1 | 0.01% [0.01%, 0.01%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 1 | 8 | 2 | 0.01% [0.01%, 0.01%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 1 | 8 | 2 | 0.01% [0.01%, 0.01%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 1 in a round) |
 | str | 2 | 8 | 1 | 0.02% [0.02%, 0.02%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 2 | 8 | 2 | 0.02% [0.01%, 0.02%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 4 | 8 | 1 | 0.03% [0.03%, 0.04%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 4 | 8 | 2 | 0.03% [0.03%, 0.04%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
-| str | 8 | 8 | 1 | 0.07% [0.06%, 0.08%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 1 in a round) |
-| str | 8 | 8 | 2 | 0.07% [0.06%, 0.07%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 1 in a round) |
+| str | 2 | 8 | 2 | 0.02% [0.02%, 0.02%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 4 | 8 | 1 | 0.04% [0.03%, 0.04%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 4 | 8 | 2 | 0.04% [0.03%, 0.04%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0 — `PASS_categorical_by_design` (needs 64 consecutive failed walks) |
+| str | 8 | 8 | 1 | 0.08% [0.07%, 0.09%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 8 in a round) |
+| str | 8 | 8 | 2 | 0.08% [0.06%, 0.08%] | 0.0000% | 0.00 | 0.00% | 0.00% | 0.000 | 0.000 | 0.00% | 0.00% | 0.00% | rise with W: `CONFIRMED`; fallback 0.0000% median, below 1% — `CONFIRMED` (fallbacks recorded, at most 3 in a round) |
 
-The MC1 health rows: the restart share sits at 0.18%–0.84% of walks and
-rises with writer count in both runs — **`CONFIRMED`** in each, so on this
-pair the first half of §6.3 is settled rather than direction-only.
+The MC1 health rows: the restart share sits at 0.29%–1.38% of walks and
+rises with writer count in both runs. That is **`CONFIRMED`** in each, so on
+this pair the first half of §6.3 is settled rather than direction-only.
 `sample_spins` and spin time ÷ reader wall read zero at the median of every MC1
-cell. Readers did take the writer mutex in every MC1 cell: at most 12 fallbacks
-in a round (W = 8, run 2), against a median fallback share of at most 0.0001%,
-so the second half is a measured **`CONFIRMED`** on all eight.
+cell. Readers did take the writer mutex in every MC1 cell, at most 23 fallbacks
+in a round (W = 2, run 1), against a median fallback share of at most 0.0001%.
+The second half is therefore a measured **`CONFIRMED`** on all eight.
 
 The MC2 rows: the string reader restarts on 0.01% of walks with one writer and
-0.07% with eight, rising with writer count in both runs — §6.3's rise is
+0.08% with eight, rising with writer count in both runs, so §6.3's rise is
 **`CONFIRMED`** on strings too. `sample_spins` per read op and spin time ÷
-reader wall read zero at the median of every cell. No string round recorded a
-fallback at W ≤ 4, so those six cells are **`PASS_categorical_by_design`** — a
-fallback needs 64 consecutive failed walks, and a falsifier that cannot fire
-is not a measurement — and the two W = 8 cells, with at most one fallback in a
-round, are a measured **`CONFIRMED`**. **Correction (AGENTS.md §8.7):** the
-pair previously published at `6f8d6ba5` had the string reader restarting on
-92.05%–92.54% of walks with one writer and 61.60%–68.61% with two to eight, a
-**`REFUTED`** rise, with `sample_spins` per read op at 97.22–113.35 and
-17.46–21.37 and spin time ÷ reader wall at 60.58%–74.16%; those are counts from
-the wrapper before #1001 and are superseded.
+reader wall read zero at the median of every cell. Five string cells recorded no
+fallback in any round: W = 1 run 1, and W = 2 and W = 4 in both runs. Those
+five are **`PASS_categorical_by_design`**: a fallback needs 64 consecutive
+failed walks, and a falsifier that cannot fire is not a measurement. The other
+three, W = 1 run 2 (at most one fallback in a round) and W = 8 in both runs (at
+most 8 and 3), are a measured **`CONFIRMED`** *(occ-stats build at `c1b604ad`)*.
+**Correction:** the `929574b5` pair had six such categorical cells and its
+restart shares at 0.18%–0.84% on MC1 and 0.01%–0.07% on MC2. **Correction
+(AGENTS.md §8.7):** the pair published at `6f8d6ba5` had the string reader
+restarting on 92.05%–92.54% of walks with one writer and 61.60%–68.61% with two
+to eight, a **`REFUTED`** rise, with `sample_spins` per read op at 97.22–113.35
+and 17.46–21.37 and spin time ÷ reader wall at 60.58%–74.16%. Those are counts
+from the wrapper before #1001 and are superseded.
 
 What these counters cost is **not** measured here. They are event ratios from
 the counting build, a separate binary from the timing build, and no cell in
@@ -940,178 +1012,147 @@ spin or a fallback.
 
 | λ | N | Masstree allocator | SyncExpanseMap allocator | Masstree structural | Expanse `mem_used` | flag |
 |---:|---:|---:|---:|---:|---:|---|
-| 1 | 65,536 | 32.19 | 25.68 | 22.78 | 23.65 | `QUANTUM_DOMINATED` |
+| 1 | 65,536 | 32.19 | 25.69 | 22.78 | 23.65 | `QUANTUM_DOMINATED` |
 | 2 | 131,072 | 32.09 | 24.95 | 22.77 | 24.09 | `QUANTUM_DOMINATED` |
 | 4 | 262,144 | 24.05 | 23.07 | 22.76 | 22.28 | `ok` |
 | 8 | 524,288 | 24.02 | 19.44 | 22.76 | 19.07 | `ok` |
-| 15 | 983,040 | 23.48 | 17.95 | 22.76 | 17.60 | `ok` |
+| 15 | 983,040 | 23.48 | 17.96 | 22.76 | 17.60 | `ok` |
 | 23 | 1,507,328 | 23.66 | 17.67 | 22.76 | 17.18 | `ok` |
 | 30 | 1,966,080 | 23.47 | 20.93 | 22.76 | 19.49 | `ok` |
 | 38 | 2,490,368 | 23.58 | 25.95 | 22.76 | 23.30 | `ok` |
-| 46 | 3,014,656 | 22.96 | 26.79 | 22.76 | 24.01 | `ok` |
+| 46 | 3,014,656 | 22.96 | 26.78 | 22.76 | 24.01 | `ok` |
 | 61 | 3,997,696 | 23.09 | 25.59 | 22.76 | 23.17 | `ok` |
 
 **The Expanse column beside #692's.** MC1's cells are the construction of
-`hot_comparison` §11.4 — same prefill, fresh-key count and thread placement —
-so the `SyncExpanseMap` column here is a second measurement of that suite's map
-arm, at the same commit `929574b5`, under the same pin `0-15` and in another
-process: single writer 4.90–4.97 M/s here against 3.81–3.82 there, eight
-writers 24.66–25.19 against 15.94–16.00, sixteen 28.87–29.09 against
-18.29–18.43, eight readers alone 135.13–135.69 against 105.46–105.79 (two runs
-each) *(workloads differ: `masstree_conc_map_64bit` vs `hot_rowex_map_64bit`;
-not a §8.4 paired claim)*. No tolerance was registered for this comparison, so
-it carries **no replication verdict**: the single-writer and readers-only
-levels differ by a little under a third, and the writer levels at eight and
-sixteen by more than half, where the pair previously published at `6f8d6ba5`
-had them within 5–7 per cent of each other. What separates the two suites'
-`SyncExpanseMap` levels is **unmeasured**, and neither suite's level is offered
-as the engine's.
+`hot_comparison` §11.4, with the same prefill, fresh-key count and thread
+placement. The `SyncExpanseMap` column here is therefore another measurement of
+that suite's map arm, under the same pin `0-15`, in another process and now at
+another commit (`c1b604ad` here, `929574b5` there). Single writer: 4.57–4.75
+M/s here against 3.81–3.82 there. Eight writers: 22.44–22.83 against
+15.94–16.00. Sixteen: 27.70–27.93 against 18.29–18.43. Eight readers alone:
+128.69–129.20 against 105.46–105.79. Each is two runs *(workloads differ:
+`masstree_conc_map_64bit` vs `hot_rowex_map_64bit`; not a §8.4 paired claim)*.
+No tolerance was registered for this comparison, so it carries **no replication
+verdict**. What separates the two suites' `SyncExpanseMap` levels is
+**unmeasured**, and neither suite's level is offered as the engine's.
+**Correction:** at `929574b5` both suites measured one commit, and this column
+read 4.90–4.97, 24.66–25.19, 28.87–29.09 and 135.13–135.69.
 
-**Between-run spread.** 1 of the 28 C1 and C2 ratio cells separates between
-the two `0-15` runs (table R): `map` C1 at two writers, 0.782 [0.770, 0.797]
-then 0.816 [0.804, 0.826], Masstree's in both. One verdict differs: the `map`
-single writer, `BOUNDARY_RESULT` then Masstree on intervals whose upper bounds
-are 1.000 and 0.999, which is therefore direction-only. Every other cell's
-intervals overlap and its verdict is the same in both runs. Per
-[`docs/BENCHMARKING.md`](../../BENCHMARKING.md) rule 18 the claim ceiling on a
-concurrent cell is the union of its two runs' intervals, so the levels in the
-tables are run 1's and §1 and §2 quote both *(workloads:
-`masstree_conc_map_64bit`, `masstree_conc_str`)*. The census's Masstree and
-`mem_used` columns are identical between the runs; the `SyncExpanseMap`
-allocator column differs by at most 0.0029 B/key, a difference whose cause is
-unmeasured.
+**Between-run spread.** None of the 28 C1 and C2 ratio cells separates between
+the two `0-15` runs (table R). One verdict differs: the `str` C2 writer at eight
+writers is `BOUNDARY_RESULT` in run 1 and Masstree's in run 2, so it is
+direction-only. Every other cell's intervals overlap and its verdict is the
+same in both runs. Per [`docs/BENCHMARKING.md`](../../BENCHMARKING.md) rule 18,
+the claim ceiling on a concurrent cell is the union of its two runs'
+intervals. The levels in the tables are run 1's, and §1 and §2 quote both
+*(workloads: `masstree_conc_map_64bit`, `masstree_conc_str`)*. The census's
+Masstree and `mem_used` columns are identical between the runs. The
+`SyncExpanseMap` allocator column differs by at most 0.0028 B/key, a difference
+whose cause is unmeasured.
 
 #### R — every ratio cell in both runs, pin `0-15` (Expanse ÷ Masstree)
 
 | Arm | cell | W | R | run 1 | run 2 | intervals overlap | verdict |
 |---|---|--:|--:|---|---|---|---|
-| map | C1 writer | 1 | 0 | 0.977 [0.956, 1.000] | 0.977 [0.958, 0.999] | yes | runs disagree (`BOUNDARY_RESULT` / Masstree) — direction-only |
-| map | C1 writer | 2 | 0 | 0.782 [0.770, 0.797] | 0.816 [0.804, 0.826] | **no** | Masstree |
-| map | C1 writer | 4 | 0 | 0.729 [0.716, 0.740] | 0.727 [0.714, 0.737] | yes | Masstree |
-| map | C1 writer | 8 | 0 | 0.751 [0.719, 0.774] | 0.743 [0.704, 0.766] | yes | Masstree |
-| map | C1 writer | 16 | 0 | 0.847 [0.780, 0.894] | 0.812 [0.745, 0.859] | yes | Masstree |
-| map | C2 reader | 0 | 8 | 2.314 [2.290, 2.344] | 2.293 [2.269, 2.332] | yes | Expanse |
-| map | C2 reader | 1 | 8 | 2.625 [2.585, 2.666] | 2.625 [2.581, 2.694] | yes | Expanse |
-| map | C2 writer | 1 | 8 | 0.750 [0.710, 0.778] | 0.733 [0.698, 0.759] | yes | Masstree |
-| map | C2 reader | 2 | 8 | 2.593 [2.537, 2.632] | 2.615 [2.564, 2.651] | yes | Expanse |
-| map | C2 writer | 2 | 8 | 0.646 [0.621, 0.667] | 0.660 [0.642, 0.678] | yes | Masstree |
-| map | C2 reader | 4 | 8 | 2.547 [2.485, 2.591] | 2.500 [2.438, 2.544] | yes | Expanse |
-| map | C2 writer | 4 | 8 | 0.616 [0.601, 0.628] | 0.606 [0.589, 0.620] | yes | Masstree |
-| map | C2 reader | 8 | 8 | 2.355 [2.272, 2.443] | 2.464 [2.384, 2.562] | yes | Expanse |
-| map | C2 writer | 8 | 8 | 0.722 [0.660, 0.786] | 0.701 [0.651, 0.767] | yes | Masstree |
-| str | C1 writer | 1 | 0 | 0.726 [0.686, 0.782] | 0.678 [0.662, 0.728] | yes | Masstree |
-| str | C1 writer | 2 | 0 | 0.643 [0.623, 0.672] | 0.660 [0.635, 0.703] | yes | Masstree |
-| str | C1 writer | 4 | 0 | 0.658 [0.639, 0.680] | 0.653 [0.631, 0.675] | yes | Masstree |
-| str | C1 writer | 8 | 0 | 0.760 [0.741, 0.783] | 0.766 [0.744, 0.786] | yes | Masstree |
-| str | C1 writer | 16 | 0 | 0.804 [0.768, 0.848] | 0.802 [0.746, 0.856] | yes | Masstree |
-| str | C2 reader | 0 | 8 | 1.034 [1.015, 1.046] | 1.054 [1.045, 1.068] | yes | Expanse |
-| str | C2 reader | 1 | 8 | 1.251 [1.220, 1.304] | 1.232 [1.194, 1.252] | yes | Expanse |
-| str | C2 writer | 1 | 8 | 0.760 [0.687, 0.848] | 0.825 [0.747, 0.921] | yes | Masstree |
-| str | C2 reader | 2 | 8 | 1.286 [1.261, 1.323] | 1.298 [1.268, 1.339] | yes | Expanse |
-| str | C2 writer | 2 | 8 | 0.697 [0.642, 0.763] | 0.678 [0.603, 0.759] | yes | Masstree |
-| str | C2 reader | 4 | 8 | 1.299 [1.259, 1.346] | 1.288 [1.261, 1.319] | yes | Expanse |
-| str | C2 writer | 4 | 8 | 0.746 [0.685, 0.814] | 0.722 [0.676, 0.776] | yes | Masstree |
-| str | C2 reader | 8 | 8 | 1.189 [1.158, 1.220] | 1.240 [1.199, 1.285] | yes | Expanse |
-| str | C2 writer | 8 | 8 | 0.846 [0.803, 0.892] | 0.783 [0.724, 0.842] | yes | Masstree |
+| map | C1 writer | 1 | 0 | 0.936 [0.909, 0.962] | 0.921 [0.894, 0.946] | yes | Masstree |
+| map | C1 writer | 2 | 0 | 0.777 [0.759, 0.792] | 0.781 [0.762, 0.798] | yes | Masstree |
+| map | C1 writer | 4 | 0 | 0.679 [0.658, 0.696] | 0.691 [0.670, 0.707] | yes | Masstree |
+| map | C1 writer | 8 | 0 | 0.689 [0.649, 0.719] | 0.723 [0.684, 0.748] | yes | Masstree |
+| map | C1 writer | 16 | 0 | 0.739 [0.676, 0.784] | 0.707 [0.640, 0.765] | yes | Masstree |
+| map | C2 reader | 0 | 8 | 2.240 [2.219, 2.270] | 2.227 [2.202, 2.256] | yes | Expanse |
+| map | C2 reader | 1 | 8 | 2.510 [2.464, 2.554] | 2.564 [2.511, 2.611] | yes | Expanse |
+| map | C2 writer | 1 | 8 | 0.848 [0.780, 0.926] | 0.737 [0.707, 0.794] | yes | Masstree |
+| map | C2 reader | 2 | 8 | 2.534 [2.492, 2.572] | 2.488 [2.456, 2.511] | yes | Expanse |
+| map | C2 writer | 2 | 8 | 0.642 [0.626, 0.657] | 0.635 [0.620, 0.650] | yes | Masstree |
+| map | C2 reader | 4 | 8 | 2.464 [2.423, 2.499] | 2.446 [2.408, 2.493] | yes | Expanse |
+| map | C2 writer | 4 | 8 | 0.598 [0.585, 0.608] | 0.580 [0.567, 0.594] | yes | Masstree |
+| map | C2 reader | 8 | 8 | 2.370 [2.273, 2.449] | 2.243 [2.168, 2.325] | yes | Expanse |
+| map | C2 writer | 8 | 8 | 0.645 [0.612, 0.696] | 0.669 [0.615, 0.730] | yes | Masstree |
+| str | C1 writer | 1 | 0 | 0.803 [0.742, 0.869] | 0.816 [0.750, 0.881] | yes | Masstree |
+| str | C1 writer | 2 | 0 | 0.758 [0.696, 0.824] | 0.745 [0.686, 0.806] | yes | Masstree |
+| str | C1 writer | 4 | 0 | 0.764 [0.705, 0.834] | 0.754 [0.702, 0.812] | yes | Masstree |
+| str | C1 writer | 8 | 0 | 0.850 [0.776, 0.936] | 0.838 [0.773, 0.910] | yes | Masstree |
+| str | C1 writer | 16 | 0 | 0.983 [0.894, 1.079] | 0.950 [0.866, 1.045] | yes | `BOUNDARY_RESULT` |
+| str | C2 reader | 0 | 8 | 0.982 [0.975, 0.985] | 0.987 [0.981, 0.991] | yes | Masstree |
+| str | C2 reader | 1 | 8 | 1.241 [1.207, 1.290] | 1.252 [1.227, 1.343] | yes | Expanse |
+| str | C2 writer | 1 | 8 | 0.834 [0.737, 0.938] | 0.717 [0.664, 0.822] | yes | Masstree |
+| str | C2 reader | 2 | 8 | 1.337 [1.289, 1.400] | 1.271 [1.253, 1.300] | yes | Expanse |
+| str | C2 writer | 2 | 8 | 0.716 [0.668, 0.768] | 0.734 [0.674, 0.794] | yes | Masstree |
+| str | C2 reader | 4 | 8 | 1.296 [1.263, 1.352] | 1.314 [1.277, 1.369] | yes | Expanse |
+| str | C2 writer | 4 | 8 | 0.772 [0.709, 0.831] | 0.768 [0.706, 0.840] | yes | Masstree |
+| str | C2 reader | 8 | 8 | 1.251 [1.201, 1.302] | 1.272 [1.227, 1.325] | yes | Expanse |
+| str | C2 writer | 8 | 8 | 0.926 [0.868, 1.002] | 0.920 [0.859, 0.975] | yes | runs disagree (`BOUNDARY_RESULT` / Masstree) — direction-only |
 
-#### C — every ratio cell against the pair previously published at `6f8d6ba5`, pin `0-15`
+#### C — every ratio cell against the pair previously published at `929574b5`, pin `0-15`
 
-| Arm | cell | W | R | previously published at `6f8d6ba5` (run 1; run 2) | `929574b5` run 1 | `929574b5` run 2 | Expanse M/s, previously → now | Masstree M/s, previously → now | both new intervals clear of both earlier ones | verdict, previously → now |
+| Arm | cell | W | R | previously published at `929574b5` (run 1; run 2) | `c1b604ad` run 1 | `c1b604ad` run 2 | Expanse M/s, previously → now | Masstree M/s, previously → now | both new intervals clear of both earlier ones | verdict, previously → now |
 |---|---|--:|--:|---|---|---|---|---|---|---|
-| map | C1 writer | 1 | 0 | previously 0.995 [0.969, 1.019]; 0.978 [0.955, 1.003] | 0.977 [0.956, 1.000] | 0.977 [0.958, 0.999] | previously 4.98–5.18 → 4.90–4.97 | previously 5.17–5.18 → 5.15–5.16 | no | previously `BOUNDARY_RESULT` → runs disagree (`BOUNDARY_RESULT` / Masstree) — direction-only |
-| map | C1 writer | 2 | 0 | previously 0.688 [0.675, 0.697]; 0.678 [0.666, 0.689] | 0.782 [0.770, 0.797] | 0.816 [0.804, 0.826] | previously 6.70–6.81 → 7.64–8.04 | previously 9.81–9.83 → 9.78–9.82 | **up** | previously Masstree → Masstree |
-| map | C1 writer | 4 | 0 | previously 0.482 [0.473, 0.491]; 0.483 [0.471, 0.492] | 0.729 [0.716, 0.740] | 0.727 [0.714, 0.737] | previously 8.92–9.07 → 13.47–13.48 | previously 18.38–18.44 → 18.47–18.50 | **up** | previously Masstree → Masstree |
-| map | C1 writer | 8 | 0 | previously 0.350 [0.344, 0.355]; 0.355 [0.349, 0.362] | 0.751 [0.719, 0.774] | 0.743 [0.704, 0.766] | previously 11.56–11.64 → 24.66–25.19 | previously 32.64–32.73 → 32.58–32.62 | **up** | previously Masstree → Masstree |
-| map | C1 writer | 16 | 0 | previously 0.282 [0.261, 0.300]; 0.284 [0.262, 0.302] | 0.847 [0.780, 0.894] | 0.812 [0.745, 0.859] | previously 10.68–10.79 → 28.87–29.09 | previously 34.56–34.81 → 33.27–33.37 | **up** | previously Masstree → Masstree |
-| map | C2 reader | 0 | 8 | previously 2.259 [2.234, 2.292]; 2.200 [2.108, 2.231] | 2.314 [2.290, 2.344] | 2.293 [2.269, 2.332] | previously 131.22–132.82 → 135.13–135.69 | previously 58.73–58.77 → 58.85–59.50 | no | previously Expanse → Expanse |
-| map | C2 reader | 1 | 8 | previously 2.546 [2.506, 2.592]; 2.528 [2.489, 2.565] | 2.625 [2.585, 2.666] | 2.625 [2.581, 2.694] | previously 105.08–105.63 → 107.67–107.71 | previously 41.32–41.38 → 40.77–41.26 | no | previously Expanse → Expanse |
-| map | C2 writer | 1 | 8 | previously 0.738 [0.703, 0.763]; 0.767 [0.713, 0.852] | 0.750 [0.710, 0.778] | 0.733 [0.698, 0.759] | previously 2.85–2.86 → 2.88–2.93 | previously 3.84–3.85 → 3.84–3.85 | no | previously Masstree → Masstree |
-| map | C2 reader | 2 | 8 | previously 2.530 [2.478, 2.575]; 2.515 [2.459, 2.564] | 2.593 [2.537, 2.632] | 2.615 [2.564, 2.651] | previously 99.02–99.22 → 101.89–102.29 | previously 38.77–39.21 → 38.87–38.97 | no | previously Expanse → Expanse |
-| map | C2 writer | 2 | 8 | previously 0.596 [0.580, 0.609]; 0.615 [0.596, 0.652] | 0.646 [0.621, 0.667] | 0.660 [0.642, 0.678] | previously 4.38–4.41 → 4.85–4.88 | previously 7.24–7.31 → 7.43–7.52 | no | previously Masstree → Masstree |
-| map | C2 reader | 4 | 8 | previously 2.443 [2.392, 2.487]; 2.455 [2.413, 2.498] | 2.547 [2.485, 2.591] | 2.500 [2.438, 2.544] | previously 88.88–89.40 → 92.74–92.96 | previously 36.14–36.27 → 35.91–36.30 | no | previously Expanse → Expanse |
-| map | C2 writer | 4 | 8 | previously 0.474 [0.463, 0.483]; 0.459 [0.451, 0.468] | 0.616 [0.601, 0.628] | 0.606 [0.589, 0.620] | previously 6.46–6.55 → 8.69–8.79 | previously 13.87–14.15 → 14.09–14.25 | **up** | previously Masstree → Masstree |
-| map | C2 reader | 8 | 8 | previously 2.274 [2.211, 2.356]; 2.261 [2.214, 2.310] | 2.355 [2.272, 2.443] | 2.464 [2.384, 2.562] | previously 71.09–71.35 → 74.32–74.99 | previously 31.11–31.65 → 30.02–31.29 | no | previously Expanse → Expanse |
-| map | C2 writer | 8 | 8 | previously 0.413 [0.380, 0.451]; 0.443 [0.402, 0.481] | 0.722 [0.660, 0.786] | 0.701 [0.651, 0.767] | previously 9.06–9.25 → 15.70–16.16 | previously 18.60–21.60 → 20.62–24.32 | **up** | previously Masstree → Masstree |
-| str | C1 writer | 1 | 0 | previously 0.922 [0.835, 1.006]; 0.917 [0.832, 1.004] | 0.726 [0.686, 0.782] | 0.678 [0.662, 0.728] | previously 3.66–3.88 → 2.79–2.83 | previously 4.20–4.21 → 4.22–4.23 | **down** | previously `BOUNDARY_RESULT` → Masstree |
-| str | C1 writer | 2 | 0 | previously 0.333 [0.311, 0.358]; 0.323 [0.300, 0.351] | 0.643 [0.623, 0.672] | 0.660 [0.635, 0.703] | previously 2.44–2.56 → 5.03–5.05 | previously 7.94–7.96 → 7.93–7.95 | **up** | previously Masstree → Masstree |
-| str | C1 writer | 4 | 0 | previously 0.166 [0.153, 0.177]; 0.161 [0.150, 0.174] | 0.658 [0.639, 0.680] | 0.653 [0.631, 0.675] | previously 2.28–2.47 → 9.68–9.84 | previously 14.85–14.87 → 14.89–14.93 | **up** | previously Masstree → Masstree |
-| str | C1 writer | 8 | 0 | previously 0.089 [0.077, 0.098]; 0.084 [0.076, 0.092] | 0.760 [0.741, 0.783] | 0.766 [0.744, 0.786] | previously 1.89–2.02 → 18.39–18.55 | previously 22.78–24.33 → 24.14–24.25 | **up** | previously Masstree → Masstree |
-| str | C1 writer | 16 | 0 | previously 0.017 [0.016, 0.018]; 0.016 [0.015, 0.017] | 0.804 [0.768, 0.848] | 0.802 [0.746, 0.856] | previously 0.46–0.50 → 25.41–26.52 | previously 27.23–28.14 → 31.71–31.93 | **up** | previously Masstree → Masstree |
-| str | C2 reader | 0 | 8 | previously 0.996 [0.978, 1.006]; 1.013 [1.009, 1.018] | 1.034 [1.015, 1.046] | 1.054 [1.045, 1.068] | previously 34.36–34.43 → 35.67–35.96 | previously 33.99–34.13 → 34.27–34.28 | no | previously runs disagree (`BOUNDARY_RESULT` / Expanse) — direction-only → Expanse |
-| str | C2 reader | 1 | 8 | previously 0.045 [0.041, 0.053]; 0.045 [0.043, 0.049] | 1.251 [1.220, 1.304] | 1.232 [1.194, 1.252] | previously 1.07–1.10 → 31.91–31.97 | previously 25.40–25.67 → 25.25–25.52 | **up** | previously Masstree → Expanse |
-| str | C2 writer | 1 | 8 | previously 0.714 [0.656, 0.788]; 0.788 [0.716, 0.872] | 0.760 [0.687, 0.848] | 0.825 [0.747, 0.921] | previously 1.99–2.12 → 2.19–2.20 | previously 2.89 → 2.89–2.90 | no | previously Masstree → Masstree |
-| str | C2 reader | 2 | 8 | previously 0.217 [0.202, 0.231]; 0.200 [0.185, 0.218] | 1.286 [1.261, 1.323] | 1.298 [1.268, 1.339] | previously 4.52–5.08 → 30.28–30.46 | previously 23.50–23.65 → 23.70–23.79 | **up** | previously Masstree → Expanse |
-| str | C2 writer | 2 | 8 | previously 0.305 [0.289, 0.326]; 0.323 [0.296, 0.348] | 0.697 [0.642, 0.763] | 0.678 [0.603, 0.759] | previously 1.53–1.54 → 3.32–3.49 | previously 4.21–4.99 → 4.90–5.50 | **up** | previously Masstree → Masstree |
-| str | C2 reader | 4 | 8 | previously 0.234 [0.224, 0.246]; 0.239 [0.227, 0.251] | 1.299 [1.259, 1.346] | 1.288 [1.261, 1.319] | previously 4.96–4.98 → 26.75–27.06 | previously 21.06–21.21 → 21.00–21.12 | **up** | previously Masstree → Expanse |
-| str | C2 writer | 4 | 8 | previously 0.181 [0.169, 0.191]; 0.184 [0.170, 0.196] | 0.746 [0.685, 0.814] | 0.722 [0.676, 0.776] | previously 1.56 → 6.42–6.74 | previously 8.21–8.35 → 8.50–9.32 | **up** | previously Masstree → Masstree |
-| str | C2 reader | 8 | 8 | previously 0.281 [0.272, 0.289]; 0.269 [0.259, 0.280] | 1.189 [1.158, 1.220] | 1.240 [1.199, 1.285] | previously 4.55–4.81 → 21.12–21.39 | previously 17.07–17.18 → 17.34–17.68 | **up** | previously Masstree → Expanse |
-| str | C2 writer | 8 | 8 | previously 0.105 [0.098, 0.112]; 0.106 [0.098, 0.112] | 0.846 [0.803, 0.892] | 0.783 [0.724, 0.842] | previously 1.54 → 12.74–12.75 | previously 13.92–15.05 → 14.82–15.54 | **up** | previously Masstree → Masstree |
+| map | C1 writer | 1 | 0 | previously 0.977 [0.956, 1.000]; 0.977 [0.958, 0.999] | 0.936 [0.909, 0.962] | 0.921 [0.894, 0.946] | previously 4.90–4.97 → 4.57–4.75 | previously 5.15–5.16 → 5.09–5.12 | no | previously runs disagree (`BOUNDARY_RESULT` / Masstree) — direction-only → Masstree |
+| map | C1 writer | 2 | 0 | previously 0.782 [0.770, 0.797]; 0.816 [0.804, 0.826] | 0.777 [0.759, 0.792] | 0.781 [0.762, 0.798] | previously 7.64–8.04 → 7.50–7.56 | previously 9.78–9.82 → 9.60–9.61 | no | previously Masstree → Masstree |
+| map | C1 writer | 4 | 0 | previously 0.729 [0.716, 0.740]; 0.727 [0.714, 0.737] | 0.679 [0.658, 0.696] | 0.691 [0.670, 0.707] | previously 13.47–13.48 → 12.30–12.53 | previously 18.47–18.50 → 17.90–18.11 | **down** | previously Masstree → Masstree |
+| map | C1 writer | 8 | 0 | previously 0.751 [0.719, 0.774]; 0.743 [0.704, 0.766] | 0.689 [0.649, 0.719] | 0.723 [0.684, 0.748] | previously 24.66–25.19 → 22.44–22.83 | previously 32.58–32.62 → 30.94–32.16 | no | previously Masstree → Masstree |
+| map | C1 writer | 16 | 0 | previously 0.847 [0.780, 0.894]; 0.812 [0.745, 0.859] | 0.739 [0.676, 0.784] | 0.707 [0.640, 0.765] | previously 28.87–29.09 → 27.70–27.93 | previously 33.27–33.37 → 34.05–34.42 | no | previously Masstree → Masstree |
+| map | C2 reader | 0 | 8 | previously 2.314 [2.290, 2.344]; 2.293 [2.269, 2.332] | 2.240 [2.219, 2.270] | 2.227 [2.202, 2.256] | previously 135.13–135.69 → 128.69–129.20 | previously 58.85–59.50 → 57.37–57.56 | no | previously Expanse → Expanse |
+| map | C2 reader | 1 | 8 | previously 2.625 [2.585, 2.666]; 2.625 [2.581, 2.694] | 2.510 [2.464, 2.554] | 2.564 [2.511, 2.611] | previously 107.67–107.71 → 103.20–103.74 | previously 40.77–41.26 → 40.76–41.01 | no | previously Expanse → Expanse |
+| map | C2 writer | 1 | 8 | previously 0.750 [0.710, 0.778]; 0.733 [0.698, 0.759] | 0.848 [0.780, 0.926] | 0.737 [0.707, 0.794] | previously 2.88–2.93 → 2.72–2.81 | previously 3.84–3.85 → 3.76–3.84 | no | previously Masstree → Masstree |
+| map | C2 reader | 2 | 8 | previously 2.593 [2.537, 2.632]; 2.615 [2.564, 2.651] | 2.534 [2.492, 2.572] | 2.488 [2.456, 2.511] | previously 101.89–102.29 → 97.91–98.30 | previously 38.87–38.97 → 38.78–39.43 | no | previously Expanse → Expanse |
+| map | C2 writer | 2 | 8 | previously 0.646 [0.621, 0.667]; 0.660 [0.642, 0.678] | 0.642 [0.626, 0.657] | 0.635 [0.620, 0.650] | previously 4.85–4.88 → 4.57–4.63 | previously 7.43–7.52 → 7.14–7.29 | no | previously Masstree → Masstree |
+| map | C2 reader | 4 | 8 | previously 2.547 [2.485, 2.591]; 2.500 [2.438, 2.544] | 2.464 [2.423, 2.499] | 2.446 [2.408, 2.493] | previously 92.74–92.96 → 88.45–88.91 | previously 35.91–36.30 → 36.01–36.02 | no | previously Expanse → Expanse |
+| map | C2 writer | 4 | 8 | previously 0.616 [0.601, 0.628]; 0.606 [0.589, 0.620] | 0.598 [0.585, 0.608] | 0.580 [0.567, 0.594] | previously 8.69–8.79 → 8.13–8.34 | previously 14.09–14.25 → 13.69–14.13 | no | previously Masstree → Masstree |
+| map | C2 reader | 8 | 8 | previously 2.355 [2.272, 2.443]; 2.464 [2.384, 2.562] | 2.370 [2.273, 2.449] | 2.243 [2.168, 2.325] | previously 74.32–74.99 → 70.86–71.18 | previously 30.02–31.29 → 29.79–31.46 | no | previously Expanse → Expanse |
+| map | C2 writer | 8 | 8 | previously 0.722 [0.660, 0.786]; 0.701 [0.651, 0.767] | 0.645 [0.612, 0.696] | 0.669 [0.615, 0.730] | previously 15.70–16.16 → 14.96–15.02 | previously 20.62–24.32 → 23.64–24.15 | no | previously Masstree → Masstree |
+| str | C1 writer | 1 | 0 | previously 0.726 [0.686, 0.782]; 0.678 [0.662, 0.728] | 0.803 [0.742, 0.869] | 0.816 [0.750, 0.881] | previously 2.79–2.83 → 3.35–3.36 | previously 4.22–4.23 → 4.17–4.20 | no | previously Masstree → Masstree |
+| str | C1 writer | 2 | 0 | previously 0.643 [0.623, 0.672]; 0.660 [0.635, 0.703] | 0.758 [0.696, 0.824] | 0.745 [0.686, 0.806] | previously 5.03–5.05 → 5.62–5.63 | previously 7.93–7.95 → 7.87–7.88 | no | previously Masstree → Masstree |
+| str | C1 writer | 4 | 0 | previously 0.658 [0.639, 0.680]; 0.653 [0.631, 0.675] | 0.764 [0.705, 0.834] | 0.754 [0.702, 0.812] | previously 9.68–9.84 → 10.30–10.43 | previously 14.89–14.93 → 14.73–14.88 | **up** | previously Masstree → Masstree |
+| str | C1 writer | 8 | 0 | previously 0.760 [0.741, 0.783]; 0.766 [0.744, 0.786] | 0.850 [0.776, 0.936] | 0.838 [0.773, 0.910] | previously 18.39–18.55 → 17.95–18.26 | previously 24.14–24.25 → 23.59–24.12 | no | previously Masstree → Masstree |
+| str | C1 writer | 16 | 0 | previously 0.804 [0.768, 0.848]; 0.802 [0.746, 0.856] | 0.983 [0.894, 1.079] | 0.950 [0.866, 1.045] | previously 25.41–26.52 → 26.47–27.01 | previously 31.71–31.93 → 24.74–28.70 | **up** | previously Masstree → `BOUNDARY_RESULT` |
+| str | C2 reader | 0 | 8 | previously 1.034 [1.015, 1.046]; 1.054 [1.045, 1.068] | 0.982 [0.975, 0.985] | 0.987 [0.981, 0.991] | previously 35.67–35.96 → 33.88–34.07 | previously 34.27–34.28 → 34.44–34.48 | **down** | previously Expanse → Masstree |
+| str | C2 reader | 1 | 8 | previously 1.251 [1.220, 1.304]; 1.232 [1.194, 1.252] | 1.241 [1.207, 1.290] | 1.252 [1.227, 1.343] | previously 31.91–31.97 → 31.51–31.60 | previously 25.25–25.52 → 25.56–25.82 | no | previously Expanse → Expanse |
+| str | C2 writer | 1 | 8 | previously 0.760 [0.687, 0.848]; 0.825 [0.747, 0.921] | 0.834 [0.737, 0.938] | 0.717 [0.664, 0.822] | previously 2.19–2.20 → 1.98–2.03 | previously 2.89–2.90 → 2.88–2.90 | no | previously Masstree → Masstree |
+| str | C2 reader | 2 | 8 | previously 1.286 [1.261, 1.323]; 1.298 [1.268, 1.339] | 1.337 [1.289, 1.400] | 1.271 [1.253, 1.300] | previously 30.28–30.46 → 30.24–30.29 | previously 23.70–23.79 → 23.59–23.81 | no | previously Expanse → Expanse |
+| str | C2 writer | 2 | 8 | previously 0.697 [0.642, 0.763]; 0.678 [0.603, 0.759] | 0.716 [0.668, 0.768] | 0.734 [0.674, 0.794] | previously 3.32–3.49 → 3.57–3.62 | previously 4.90–5.50 → 4.23–4.99 | no | previously Masstree → Masstree |
+| str | C2 reader | 4 | 8 | previously 1.299 [1.259, 1.346]; 1.288 [1.261, 1.319] | 1.296 [1.263, 1.352] | 1.314 [1.277, 1.369] | previously 26.75–27.06 → 27.34–27.42 | previously 21.00–21.12 → 21.13–21.39 | no | previously Expanse → Expanse |
+| str | C2 writer | 4 | 8 | previously 0.746 [0.685, 0.814]; 0.722 [0.676, 0.776] | 0.772 [0.709, 0.831] | 0.768 [0.706, 0.840] | previously 6.42–6.74 → 6.19–6.32 | previously 8.50–9.32 → 8.24–8.37 | no | previously Masstree → Masstree |
+| str | C2 reader | 8 | 8 | previously 1.189 [1.158, 1.220]; 1.240 [1.199, 1.285] | 1.251 [1.201, 1.302] | 1.272 [1.227, 1.325] | previously 21.12–21.39 → 22.26–22.46 | previously 17.34–17.68 → 17.27–17.72 | no | previously Expanse → Expanse |
+| str | C2 writer | 8 | 8 | previously 0.846 [0.803, 0.892]; 0.783 [0.724, 0.842] | 0.926 [0.868, 1.002] | 0.920 [0.859, 0.975] | previously 12.74–12.75 → 12.85–12.94 | previously 14.82–15.54 → 14.10–14.38 | no | previously Masstree → runs disagree (`BOUNDARY_RESULT` / Masstree) — direction-only |
 
 #### P — the per-core pin `0,2,4,6,8,10,12,14` (8 CPUs, one per physical P-core), both runs (Expanse ÷ Masstree)
 
 | Arm | cell | W | R | threads | Masstree M/s, run 1; run 2 | Expanse M/s, run 1; run 2 | run 1 | run 2 | intervals overlap | verdict | placement |
 |---|---|--:|--:|--:|---|---|---|---|---|---|---|
-| map | C1 writer | 1 | 0 | 1 | 5.17; 5.19 | 4.97; 5.05 | 0.972 [0.951, 0.996] | 0.982 [0.958, 1.007] | yes | runs disagree (Masstree / `BOUNDARY_RESULT`) — direction-only | one CPU per thread |
-| map | C1 writer | 2 | 0 | 2 | 9.79; 9.80 | 8.01; 7.96 | 0.809 [0.793, 0.824] | 0.803 [0.786, 0.819] | yes | Masstree | one CPU per thread |
-| map | C1 writer | 4 | 0 | 4 | 18.46; 18.42 | 13.65; 13.62 | 0.734 [0.720, 0.743] | 0.715 [0.686, 0.734] | yes | Masstree | one CPU per thread |
-| map | C1 writer | 8 | 0 | 8 | 32.96; 32.46 | 24.91; 24.47 | 0.787 [0.745, 0.862] | 0.782 [0.721, 0.859] | yes | Masstree | one CPU per thread |
-| map | C1 writer | 16 | 0 | 16 | 26.65; 24.86 | 4.17; 3.53 | 0.209 [0.159, 0.332] | 0.172 [0.135, 0.255] | yes | Masstree | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
-| map | C2 reader | 0 | 8 | 8 | 53.60; 56.42 | 136.02; 135.31 | 2.484 [2.319, 2.667] | 2.316 [2.131, 2.412] | yes | Expanse | one CPU per thread |
-| map | C2 reader | 1 | 8 | 9 | 36.66; 36.68 | 95.99; 95.97 | 2.604 [2.553, 2.660] | 2.591 [2.529, 2.650] | yes | Expanse | **oversubscribed** — 9 threads on 8 CPUs; not comparable across pins |
-| map | C2 writer | 1 | 8 | 9 | 4.46; 4.48 | 4.31; 4.30 | 0.967 [0.875, 1.060] | 0.985 [0.946, 1.122] | yes | `BOUNDARY_RESULT` | **oversubscribed** — 9 threads on 8 CPUs; not comparable across pins |
-| map | C2 reader | 2 | 8 | 10 | 35.26; 31.84 | 87.88; 88.30 | 2.515 [2.424, 2.609] | 2.644 [2.525, 2.754] | yes | Expanse | **oversubscribed** — 10 threads on 8 CPUs; not comparable across pins |
-| map | C2 writer | 2 | 8 | 10 | 5.85; 8.61 | 4.46; 4.39 | 0.828 [0.686, 1.008] | 0.696 [0.569, 0.877] | yes | runs disagree (`BOUNDARY_RESULT` / Masstree) — direction-only | **oversubscribed** — 10 threads on 8 CPUs; not comparable across pins |
-| map | C2 reader | 4 | 8 | 12 | 28.83; 28.41 | 74.91; 72.96 | 2.601 [2.486, 2.795] | 2.528 [2.435, 2.636] | yes | Expanse | **oversubscribed** — 12 threads on 8 CPUs; not comparable across pins |
-| map | C2 writer | 4 | 8 | 12 | 8.83; 8.93 | 4.63; 4.63 | 0.510 [0.454, 0.567] | 0.494 [0.447, 0.530] | yes | Masstree | **oversubscribed** — 12 threads on 8 CPUs; not comparable across pins |
-| map | C2 reader | 8 | 8 | 16 | 22.37; 21.81 | 58.71; 56.19 | 2.687 [2.516, 3.075] | 2.555 [2.348, 2.860] | yes | Expanse | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
-| map | C2 writer | 8 | 8 | 16 | 13.66; 13.68 | 3.77; 3.36 | 0.261 [0.226, 0.289] | 0.254 [0.224, 0.286] | yes | Masstree | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
-| str | C1 writer | 1 | 0 | 1 | 4.23; 4.23 | 2.80; 2.80 | 0.692 [0.667, 0.753] | 0.704 [0.672, 0.758] | yes | Masstree | one CPU per thread |
-| str | C1 writer | 2 | 0 | 2 | 8.01; 8.01 | 5.05; 5.12 | 0.654 [0.634, 0.682] | 0.671 [0.646, 0.707] | yes | Masstree | one CPU per thread |
-| str | C1 writer | 4 | 0 | 4 | 15.00; 15.02 | 9.55; 9.90 | 0.644 [0.630, 0.666] | 0.658 [0.645, 0.677] | yes | Masstree | one CPU per thread |
-| str | C1 writer | 8 | 0 | 8 | 24.34; 24.21 | 18.18; 18.37 | 0.782 [0.752, 0.849] | 0.747 [0.709, 0.777] | yes | Masstree | one CPU per thread |
-| str | C1 writer | 16 | 0 | 16 | 19.51; 19.87 | 6.34; 6.89 | 0.419 [0.329, 0.580] | 0.359 [0.292, 0.437] | yes | Masstree | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
-| str | C2 reader | 0 | 8 | 8 | 34.20; 34.18 | 34.05; 34.10 | 0.998 [0.970, 1.028] | 1.005 [0.975, 1.049] | yes | `BOUNDARY_RESULT` | one CPU per thread |
-| str | C2 reader | 1 | 8 | 9 | 22.87; 23.14 | 28.11; 28.06 | 1.205 [1.162, 1.251] | 1.199 [1.151, 1.253] | yes | Expanse | **oversubscribed** — 9 threads on 8 CPUs; not comparable across pins |
-| str | C2 writer | 1 | 8 | 9 | 3.35; 3.34 | 2.84; 2.84 | 0.824 [0.740, 0.942] | 0.926 [0.812, 1.077] | yes | runs disagree (Masstree / `BOUNDARY_RESULT`) — direction-only | **oversubscribed** — 9 threads on 8 CPUs; not comparable across pins |
-| str | C2 reader | 2 | 8 | 10 | 22.10; 19.77 | 27.49; 26.98 | 1.256 [1.213, 1.313] | 1.300 [1.244, 1.353] | yes | Expanse | **oversubscribed** — 10 threads on 8 CPUs; not comparable across pins |
-| str | C2 writer | 2 | 8 | 10 | 3.36; 5.15 | 2.78; 2.85 | 0.770 [0.622, 0.918] | 0.677 [0.556, 0.850] | yes | Masstree | **oversubscribed** — 10 threads on 8 CPUs; not comparable across pins |
-| str | C2 reader | 4 | 8 | 12 | 18.35; 18.54 | 22.66; 22.94 | 1.264 [1.208, 1.328] | 1.281 [1.235, 1.344] | yes | Expanse | **oversubscribed** — 12 threads on 8 CPUs; not comparable across pins |
-| str | C2 writer | 4 | 8 | 12 | 6.43; 6.41 | 4.32; 4.06 | 0.698 [0.639, 0.761] | 0.633 [0.561, 0.714] | yes | Masstree | **oversubscribed** — 12 threads on 8 CPUs; not comparable across pins |
-| str | C2 reader | 8 | 8 | 16 | 12.97; 13.31 | 16.33; 16.29 | 1.237 [1.159, 1.307] | 1.211 [1.149, 1.278] | yes | Expanse | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
-| str | C2 writer | 8 | 8 | 16 | 10.35; 10.61 | 5.25; 3.67 | 0.549 [0.445, 0.676] | 0.430 [0.358, 0.531] | yes | Masstree | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
+| map | C1 writer | 1 | 0 | 1 | 5.09; 5.13 | 4.55; 4.58 | 0.922 [0.897, 0.946] | 0.923 [0.897, 0.951] | yes | Masstree | one CPU per thread |
+| map | C1 writer | 2 | 0 | 2 | 9.73; 9.64 | 7.43; 7.44 | 0.761 [0.738, 0.780] | 0.764 [0.747, 0.778] | yes | Masstree | one CPU per thread |
+| map | C1 writer | 4 | 0 | 4 | 18.29; 17.83 | 12.47; 12.43 | 0.692 [0.673, 0.707] | 0.699 [0.685, 0.712] | yes | Masstree | one CPU per thread |
+| map | C1 writer | 8 | 0 | 8 | 31.62; 30.49 | 22.84; 23.05 | 0.744 [0.701, 0.817] | 0.778 [0.731, 0.851] | yes | Masstree | one CPU per thread |
+| map | C1 writer | 16 | 0 | 16 | 24.92; 25.19 | 3.54; 3.75 | 0.130 [0.089, 0.155] | 0.160 [0.141, 0.183] | yes | Masstree | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
+| map | C2 reader | 0 | 8 | 8 | 57.02; 55.91 | 128.92; 127.72 | 2.278 [2.087, 2.384] | 2.223 [2.066, 2.372] | yes | Expanse | one CPU per thread |
+| map | C2 reader | 1 | 8 | 9 | 36.78; 36.69 | 92.25; 92.74 | 2.504 [2.471, 2.532] | 2.514 [2.473, 2.558] | yes | Expanse | **oversubscribed** — 9 threads on 8 CPUs; not comparable across pins |
+| map | C2 writer | 1 | 8 | 9 | 4.47; 4.47 | 3.96; 3.97 | 0.879 [0.820, 0.912] | 0.944 [0.883, 1.092] | yes | runs disagree (Masstree / `BOUNDARY_RESULT`) — direction-only | **oversubscribed** — 9 threads on 8 CPUs; not comparable across pins |
+| map | C2 reader | 2 | 8 | 10 | 32.68; 30.81 | 77.97; 79.45 | 2.438 [2.333, 2.547] | 2.518 [2.398, 2.634] | yes | Expanse | **oversubscribed** — 10 threads on 8 CPUs; not comparable across pins |
+| map | C2 writer | 2 | 8 | 10 | 8.72; 8.67 | 6.68; 5.49 | 0.813 [0.659, 0.997] | 0.738 [0.633, 0.871] | yes | Masstree | **oversubscribed** — 10 threads on 8 CPUs; not comparable across pins |
+| map | C2 reader | 4 | 8 | 12 | 28.80; 27.31 | 68.54; 68.09 | 2.344 [2.221, 2.463] | 2.478 [2.388, 2.568] | yes | Expanse | **oversubscribed** — 12 threads on 8 CPUs; not comparable across pins |
+| map | C2 writer | 4 | 8 | 12 | 8.77; 9.39 | 5.14; 4.77 | 0.601 [0.522, 0.731] | 0.542 [0.477, 0.622] | yes | Masstree | **oversubscribed** — 12 threads on 8 CPUs; not comparable across pins |
+| map | C2 reader | 8 | 8 | 16 | 22.61; 22.39 | 53.96; 54.97 | 2.351 [2.215, 2.478] | 2.516 [2.392, 2.665] | yes | Expanse | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
+| map | C2 writer | 8 | 8 | 16 | 13.52; 13.05 | 3.36; 3.46 | 0.248 [0.221, 0.281] | 0.257 [0.234, 0.283] | yes | Masstree | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
+| str | C1 writer | 1 | 0 | 1 | 4.19; 4.18 | 3.38; 3.35 | 0.821 [0.755, 0.885] | 0.820 [0.755, 0.884] | yes | Masstree | one CPU per thread |
+| str | C1 writer | 2 | 0 | 2 | 7.89; 7.86 | 5.64; 5.59 | 0.741 [0.686, 0.802] | 0.748 [0.694, 0.809] | yes | Masstree | one CPU per thread |
+| str | C1 writer | 4 | 0 | 4 | 14.72; 14.81 | 10.11; 10.42 | 0.765 [0.706, 0.834] | 0.763 [0.707, 0.825] | yes | Masstree | one CPU per thread |
+| str | C1 writer | 8 | 0 | 8 | 21.33; 20.61 | 19.39; 19.37 | 0.884 [0.816, 0.967] | 0.881 [0.819, 0.955] | yes | Masstree | one CPU per thread |
+| str | C1 writer | 16 | 0 | 16 | 18.33; 19.38 | 5.94; 6.73 | 0.392 [0.326, 0.526] | 0.375 [0.314, 0.470] | yes | Masstree | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
+| str | C2 reader | 0 | 8 | 8 | 34.25; 34.00 | 33.94; 32.29 | 0.989 [0.938, 1.045] | 0.975 [0.933, 1.017] | yes | `BOUNDARY_RESULT` | one CPU per thread |
+| str | C2 reader | 1 | 8 | 9 | 23.14; 23.18 | 28.08; 28.00 | 1.237 [1.193, 1.302] | 1.238 [1.185, 1.314] | yes | Expanse | **oversubscribed** — 9 threads on 8 CPUs; not comparable across pins |
+| str | C2 writer | 1 | 8 | 9 | 3.33; 3.15 | 2.71; 2.73 | 0.862 [0.732, 1.051] | 0.990 [0.872, 1.168] | yes | `BOUNDARY_RESULT` | **oversubscribed** — 9 threads on 8 CPUs; not comparable across pins |
+| str | C2 reader | 2 | 8 | 10 | 21.22; 22.12 | 27.06; 26.67 | 1.262 [1.210, 1.325] | 1.248 [1.186, 1.385] | yes | Expanse | **oversubscribed** — 10 threads on 8 CPUs; not comparable across pins |
+| str | C2 writer | 2 | 8 | 10 | 4.21; 3.18 | 2.62; 3.13 | 0.768 [0.633, 0.966] | 0.972 [0.780, 1.158] | yes | runs disagree (Masstree / `BOUNDARY_RESULT`) — direction-only | **oversubscribed** — 10 threads on 8 CPUs; not comparable across pins |
+| str | C2 reader | 4 | 8 | 12 | 18.82; 18.64 | 22.95; 22.70 | 1.232 [1.180, 1.304] | 1.238 [1.189, 1.304] | yes | Expanse | **oversubscribed** — 12 threads on 8 CPUs; not comparable across pins |
+| str | C2 writer | 4 | 8 | 12 | 5.21; 5.22 | 4.11; 4.13 | 0.701 [0.592, 0.796] | 0.737 [0.652, 0.841] | yes | Masstree | **oversubscribed** — 12 threads on 8 CPUs; not comparable across pins |
+| str | C2 reader | 8 | 8 | 16 | 12.85; 13.24 | 15.18; 16.00 | 1.202 [1.146, 1.266] | 1.222 [1.158, 1.288] | yes | Expanse | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
+| str | C2 writer | 8 | 8 | 16 | 9.46; 9.53 | 3.61; 4.04 | 0.413 [0.372, 0.460] | 0.429 [0.387, 0.469] | yes | Masstree | **oversubscribed** — 16 threads on 8 CPUs; not comparable across pins |
 
 #### O — round-order split: a side's median over the rounds it was timed first, and second
 
 | commit | pin | Arm | cell | W | R | threads ÷ CPUs | side | run | median M/s | timed first | timed second | gap ÷ median | cell interval ÷ ratio | min–max | beyond the interval |
 |---|---|---|---|--:|--:|---|---|--:|---:|---:|---:|---:|---:|---|---|
-| `6f8d6ba5` | `0-15` | map | C2 reader | 0 | 8 | 8 ÷ 16 | Masstree | 1 | 58.73 | 60.01 | 57.81 | 3.7% | 2.5% | 55.76–60.71 | **yes** |
-| `6f8d6ba5` | `0-15` | map | C2 reader | 0 | 8 | 8 ÷ 16 | Masstree | 2 | 58.77 | 60.34 | 58.57 | 3.0% | 5.6% | 57.16–60.64 | no |
-| `6f8d6ba5` | `0-15` | map | C2 writer | 8 | 8 | 16 ÷ 16 | Masstree | 1 | 21.60 | 24.64 | 18.87 | 26.7% | 17.2% | 17.32–28.11 | **yes** |
-| `6f8d6ba5` | `0-15` | map | C2 writer | 8 | 8 | 16 ÷ 16 | Masstree | 2 | 18.60 | 22.48 | 18.35 | 22.2% | 18.0% | 17.19–27.45 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 1 | 0 | 1 ÷ 16 | Expanse | 1 | 3.66 | 3.00 | 4.11 | 30.2% | 18.6% | 2.97–4.12 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 1 | 0 | 1 ÷ 16 | Expanse | 2 | 3.88 | 3.00 | 4.12 | 28.8% | 18.8% | 2.99–4.14 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 1 | 0 | 1 ÷ 16 | Masstree | 1 | 4.21 | 4.23 | 3.41 | 19.6% | 18.6% | 3.39–4.31 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 1 | 0 | 1 ÷ 16 | Masstree | 2 | 4.20 | 4.22 | 3.42 | 19.2% | 18.8% | 3.38–4.31 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 2 | 0 | 2 ÷ 16 | Expanse | 1 | 2.56 | 2.22 | 2.61 | 15.3% | 14.1% | 2.09–2.65 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 2 | 0 | 2 ÷ 16 | Expanse | 2 | 2.44 | 2.13 | 2.58 | 18.3% | 15.8% | 2.11–2.63 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 2 | 0 | 2 ÷ 16 | Masstree | 1 | 7.96 | 7.99 | 6.47 | 19.1% | 14.1% | 5.96–8.16 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 2 | 0 | 2 ÷ 16 | Masstree | 2 | 7.94 | 8.00 | 6.10 | 23.9% | 15.8% | 6.02–8.17 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 4 | 0 | 4 ÷ 16 | Expanse | 1 | 2.47 | 2.03 | 2.51 | 19.4% | 14.6% | 1.96–2.61 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 4 | 0 | 4 ÷ 16 | Expanse | 2 | 2.28 | 1.97 | 2.35 | 16.7% | 14.9% | 1.92–2.43 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 4 | 0 | 4 ÷ 16 | Masstree | 1 | 14.85 | 14.99 | 12.84 | 14.5% | 14.6% | 11.49–15.30 | no |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 4 | 0 | 4 ÷ 16 | Masstree | 2 | 14.87 | 15.03 | 11.78 | 21.9% | 14.9% | 11.19–15.21 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 8 | 0 | 8 ÷ 16 | Masstree | 1 | 24.33 | 24.55 | 19.78 | 19.6% | 22.6% | 18.41–24.99 | no |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 8 | 0 | 8 ÷ 16 | Masstree | 2 | 22.78 | 24.44 | 19.48 | 21.7% | 19.8% | 18.09–24.82 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 16 | 0 | 16 ÷ 16 | Masstree | 1 | 27.23 | 32.40 | 26.43 | 21.9% | 15.2% | 22.89–33.04 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C1 writer | 16 | 0 | 16 ÷ 16 | Masstree | 2 | 28.14 | 32.39 | 26.11 | 22.3% | 12.9% | 23.26–33.20 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C2 reader | 0 | 8 | 8 ÷ 16 | Masstree | 1 | 34.13 | 34.12 | 34.13 | 0.0% | 2.9% | 33.81–34.40 | no |
-| `6f8d6ba5` | `0-15` | str | C2 reader | 0 | 8 | 8 ÷ 16 | Masstree | 2 | 33.99 | 34.24 | 33.87 | 1.1% | 0.8% | 33.51–34.36 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C2 writer | 1 | 8 | 9 ÷ 16 | Masstree | 1 | 2.89 | 3.11 | 2.38 | 25.2% | 18.5% | 2.06–3.42 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C2 writer | 1 | 8 | 9 ÷ 16 | Masstree | 2 | 2.89 | 2.90 | 2.44 | 15.7% | 19.7% | 2.04–3.42 | no |
-| `6f8d6ba5` | `0-15` | str | C2 writer | 2 | 8 | 10 ÷ 16 | Masstree | 1 | 4.99 | 4.94 | 5.56 | 12.5% | 12.3% | 4.11–5.73 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C2 writer | 2 | 8 | 10 ÷ 16 | Masstree | 2 | 4.21 | 4.47 | 4.17 | 7.2% | 16.2% | 3.92–5.78 | no |
-| `6f8d6ba5` | `0-15` | str | C2 writer | 8 | 8 | 16 ÷ 16 | Masstree | 1 | 15.05 | 15.77 | 12.80 | 19.7% | 12.8% | 11.68–18.18 | **yes** |
-| `6f8d6ba5` | `0-15` | str | C2 writer | 8 | 8 | 16 ÷ 16 | Masstree | 2 | 13.92 | 14.88 | 13.72 | 8.3% | 13.5% | 11.86–19.02 | no |
 | `929574b5` | `0-15` | map | C1 writer | 2 | 0 | 2 ÷ 16 | Expanse | 1 | 7.64 | 7.62 | 7.70 | 1.1% | 3.4% | 7.39–8.21 | no |
 | `929574b5` | `0-15` | map | C1 writer | 2 | 0 | 2 ÷ 16 | Expanse | 2 | 8.04 | 8.20 | 7.97 | 2.8% | 2.7% | 7.62–8.26 | **yes** |
 | `929574b5` | `0-15` | str | C1 writer | 1 | 0 | 1 ÷ 16 | Expanse | 1 | 2.83 | 2.80 | 3.29 | 17.2% | 13.3% | 2.78–3.77 | **yes** |
@@ -1120,29 +1161,80 @@ unmeasured.
 | `929574b5` | `0-15` | str | C1 writer | 1 | 0 | 1 ÷ 16 | Masstree | 2 | 4.23 | 4.23 | 4.18 | 1.1% | 9.7% | 4.14–4.33 | no |
 | `929574b5` | `0-15` | str | C2 writer | 4 | 8 | 12 ÷ 16 | Masstree | 1 | 9.32 | 9.92 | 8.24 | 18.0% | 17.3% | 6.71–10.89 | **yes** |
 | `929574b5` | `0-15` | str | C2 writer | 4 | 8 | 12 ÷ 16 | Masstree | 2 | 8.50 | 9.40 | 8.30 | 12.9% | 13.8% | 7.78–10.88 | no |
-| `929574b5` | `0,2,4,6,8,10,12,14` | str | C1 writer | 1 | 0 | 1 ÷ 8 | Expanse | 1 | 2.80 | 2.79 | 2.80 | 0.4% | 12.6% | 2.78–3.74 | no |
-| `929574b5` | `0,2,4,6,8,10,12,14` | str | C1 writer | 1 | 0 | 1 ÷ 8 | Expanse | 2 | 2.80 | 2.77 | 2.85 | 3.0% | 12.2% | 2.76–3.73 | no |
-| `929574b5` | `0,2,4,6,8,10,12,14` | str | C1 writer | 1 | 0 | 1 ÷ 8 | Masstree | 1 | 4.23 | 4.23 | 4.20 | 0.6% | 12.6% | 4.15–4.33 | no |
-| `929574b5` | `0,2,4,6,8,10,12,14` | str | C1 writer | 1 | 0 | 1 ÷ 8 | Masstree | 2 | 4.23 | 4.23 | 4.21 | 0.4% | 12.2% | 4.17–4.34 | no |
-| `929574b5` | `0,2,4,6,8,10,12,14` | str | C2 reader | 4 | 8 | 12 ÷ 8 | Masstree | 1 | 18.35 | 18.92 | 16.76 | 11.8% | 9.5% | 15.16–19.92 | **yes** |
-| `929574b5` | `0,2,4,6,8,10,12,14` | str | C2 reader | 4 | 8 | 12 ÷ 8 | Masstree | 2 | 18.54 | 17.44 | 19.26 | 9.8% | 8.4% | 15.55–19.56 | **yes** |
-| `929574b5` | `0,2,4,6,8,10,12,14` | str | C2 writer | 4 | 8 | 12 ÷ 8 | Expanse | 1 | 4.32 | 3.97 | 4.74 | 17.9% | 17.5% | 3.10–5.24 | **yes** |
-| `929574b5` | `0,2,4,6,8,10,12,14` | str | C2 writer | 4 | 8 | 12 ÷ 8 | Expanse | 2 | 4.06 | 4.06 | 4.01 | 1.3% | 24.1% | 3.17–5.13 | no |
-| `929574b5` | `0,2,4,6,8,10,12,14` | str | C2 reader | 8 | 8 | 16 ÷ 8 | Expanse | 1 | 16.33 | 16.23 | 16.82 | 3.6% | 12.0% | 14.11–18.66 | no |
-| `929574b5` | `0,2,4,6,8,10,12,14` | str | C2 reader | 8 | 8 | 16 ÷ 8 | Expanse | 2 | 16.29 | 15.15 | 17.25 | 12.8% | 10.6% | 14.12–18.23 | **yes** |
+| `c1b604ad` | `0-15` | map | C1 writer | 1 | 0 | 1 ÷ 16 | Expanse | 1 | 4.75 | 4.52 | 4.87 | 7.3% | 5.6% | 4.39–4.98 | **yes** |
+| `c1b604ad` | `0-15` | map | C1 writer | 1 | 0 | 1 ÷ 16 | Expanse | 2 | 4.57 | 4.41 | 4.83 | 9.4% | 5.7% | 4.35–4.93 | **yes** |
+| `c1b604ad` | `0-15` | map | C1 writer | 1 | 0 | 1 ÷ 16 | Masstree | 1 | 5.12 | 5.17 | 4.88 | 5.6% | 5.6% | 4.71–5.30 | no |
+| `c1b604ad` | `0-15` | map | C1 writer | 1 | 0 | 1 ÷ 16 | Masstree | 2 | 5.09 | 5.17 | 4.87 | 5.8% | 5.7% | 4.83–5.27 | **yes** |
+| `c1b604ad` | `0-15` | map | C1 writer | 2 | 0 | 2 ÷ 16 | Masstree | 1 | 9.60 | 9.68 | 9.46 | 2.2% | 4.2% | 9.23–9.95 | no |
+| `c1b604ad` | `0-15` | map | C1 writer | 2 | 0 | 2 ÷ 16 | Masstree | 2 | 9.61 | 9.74 | 9.24 | 5.2% | 4.7% | 8.91–10.09 | **yes** |
+| `c1b604ad` | `0-15` | map | C1 writer | 4 | 0 | 4 ÷ 16 | Masstree | 1 | 17.90 | 18.27 | 17.28 | 5.5% | 5.5% | 16.56–18.90 | **yes** |
+| `c1b604ad` | `0-15` | map | C1 writer | 4 | 0 | 4 ÷ 16 | Masstree | 2 | 18.11 | 18.50 | 17.36 | 6.3% | 5.4% | 16.77–18.99 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 1 | 0 | 1 ÷ 16 | Expanse | 1 | 3.35 | 2.69 | 3.49 | 23.9% | 15.9% | 2.67–3.51 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 1 | 0 | 1 ÷ 16 | Expanse | 2 | 3.36 | 2.69 | 3.50 | 23.9% | 16.0% | 2.65–3.54 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 1 | 0 | 1 ÷ 16 | Masstree | 1 | 4.20 | 4.21 | 3.41 | 19.1% | 15.9% | 3.39–4.28 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 1 | 0 | 1 ÷ 16 | Masstree | 2 | 4.17 | 4.21 | 3.41 | 19.4% | 16.0% | 3.39–4.30 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 2 | 0 | 2 ÷ 16 | Expanse | 1 | 5.62 | 4.78 | 5.95 | 20.8% | 16.9% | 4.62–6.02 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 2 | 0 | 2 ÷ 16 | Expanse | 2 | 5.63 | 4.76 | 5.99 | 21.8% | 16.1% | 4.51–6.05 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 2 | 0 | 2 ÷ 16 | Masstree | 1 | 7.88 | 7.94 | 6.03 | 24.1% | 16.9% | 5.99–8.12 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 2 | 0 | 2 ÷ 16 | Masstree | 2 | 7.87 | 7.94 | 6.48 | 18.5% | 16.1% | 6.03–8.12 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 4 | 0 | 4 ÷ 16 | Expanse | 1 | 10.30 | 9.10 | 11.07 | 19.1% | 16.9% | 8.62–11.17 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 4 | 0 | 4 ÷ 16 | Expanse | 2 | 10.43 | 9.36 | 11.06 | 16.4% | 14.7% | 8.96–11.11 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 4 | 0 | 4 ÷ 16 | Masstree | 1 | 14.73 | 14.91 | 11.26 | 24.8% | 16.9% | 10.49–15.13 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 4 | 0 | 4 ÷ 16 | Masstree | 2 | 14.88 | 14.91 | 11.92 | 20.1% | 14.7% | 10.54–15.26 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 8 | 0 | 8 ÷ 16 | Expanse | 1 | 17.95 | 16.78 | 20.60 | 21.3% | 18.8% | 14.76–20.94 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 8 | 0 | 8 ÷ 16 | Expanse | 2 | 18.26 | 16.47 | 20.53 | 22.3% | 16.3% | 15.24–20.74 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 8 | 0 | 8 ÷ 16 | Masstree | 1 | 24.12 | 24.39 | 18.74 | 23.4% | 18.8% | 16.44–24.80 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 8 | 0 | 8 ÷ 16 | Masstree | 2 | 23.59 | 24.34 | 19.11 | 22.2% | 16.3% | 18.80–24.68 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 16 | 0 | 16 ÷ 16 | Expanse | 1 | 26.47 | 25.37 | 30.44 | 19.2% | 18.8% | 20.85–30.84 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 16 | 0 | 16 ÷ 16 | Expanse | 2 | 27.01 | 23.74 | 29.92 | 22.9% | 18.9% | 21.01–31.85 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 16 | 0 | 16 ÷ 16 | Masstree | 1 | 24.74 | 32.20 | 24.24 | 32.1% | 18.8% | 22.66–32.43 | **yes** |
+| `c1b604ad` | `0-15` | str | C1 writer | 16 | 0 | 16 ÷ 16 | Masstree | 2 | 28.70 | 32.24 | 24.16 | 28.2% | 18.9% | 22.16–32.95 | **yes** |
+| `c1b604ad` | `0-15` | str | C2 writer | 2 | 8 | 10 ÷ 16 | Masstree | 1 | 4.99 | 4.89 | 4.99 | 2.1% | 14.0% | 4.14–5.75 | no |
+| `c1b604ad` | `0-15` | str | C2 writer | 2 | 8 | 10 ÷ 16 | Masstree | 2 | 4.23 | 5.15 | 4.18 | 23.0% | 16.4% | 3.97–5.75 | **yes** |
+| `c1b604ad` | `0-15` | str | C2 writer | 4 | 8 | 12 ÷ 16 | Expanse | 1 | 6.32 | 5.84 | 7.26 | 22.5% | 15.8% | 5.47–7.45 | **yes** |
+| `c1b604ad` | `0-15` | str | C2 writer | 4 | 8 | 12 ÷ 16 | Expanse | 2 | 6.19 | 6.08 | 6.40 | 5.0% | 17.4% | 5.78–7.40 | no |
+| `c1b604ad` | `0-15` | str | C2 reader | 8 | 8 | 16 ÷ 16 | Masstree | 1 | 17.72 | 17.80 | 17.41 | 2.2% | 8.1% | 15.39–20.13 | no |
+| `c1b604ad` | `0-15` | str | C2 reader | 8 | 8 | 16 ÷ 16 | Masstree | 2 | 17.27 | 17.82 | 16.34 | 8.5% | 7.7% | 15.08–19.11 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | map | C1 writer | 1 | 0 | 1 ÷ 8 | Expanse | 1 | 4.55 | 4.50 | 4.86 | 7.9% | 5.3% | 4.36–4.90 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | map | C1 writer | 1 | 0 | 1 ÷ 8 | Expanse | 2 | 4.58 | 4.42 | 4.86 | 9.7% | 5.9% | 4.39–4.94 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | map | C1 writer | 1 | 0 | 1 ÷ 8 | Masstree | 1 | 5.09 | 5.17 | 4.87 | 5.9% | 5.3% | 4.82–5.29 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | map | C1 writer | 1 | 0 | 1 ÷ 8 | Masstree | 2 | 5.13 | 5.16 | 4.84 | 6.2% | 5.9% | 4.70–5.33 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | map | C1 writer | 2 | 0 | 2 ÷ 8 | Expanse | 1 | 7.43 | 7.30 | 7.63 | 4.5% | 5.5% | 6.76–7.76 | no |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | map | C1 writer | 2 | 0 | 2 ÷ 8 | Expanse | 2 | 7.44 | 7.16 | 7.60 | 6.0% | 4.1% | 6.75–7.65 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | map | C1 writer | 4 | 0 | 4 ÷ 8 | Masstree | 1 | 18.29 | 18.44 | 17.15 | 7.0% | 4.9% | 16.75–19.20 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | map | C1 writer | 4 | 0 | 4 ÷ 8 | Masstree | 2 | 17.83 | 18.28 | 17.40 | 5.0% | 3.8% | 17.04–18.82 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 1 | 0 | 1 ÷ 8 | Expanse | 1 | 3.38 | 2.82 | 3.50 | 20.2% | 15.8% | 2.68–3.55 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 1 | 0 | 1 ÷ 8 | Expanse | 2 | 3.35 | 2.83 | 3.50 | 20.1% | 15.7% | 2.68–3.53 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 1 | 0 | 1 ÷ 8 | Masstree | 1 | 4.19 | 4.21 | 3.41 | 18.9% | 15.8% | 3.39–4.31 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 1 | 0 | 1 ÷ 8 | Masstree | 2 | 4.18 | 4.20 | 3.41 | 19.0% | 15.7% | 3.40–4.31 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 2 | 0 | 2 ÷ 8 | Expanse | 1 | 5.64 | 4.81 | 5.97 | 20.6% | 15.7% | 4.55–6.02 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 2 | 0 | 2 ÷ 8 | Expanse | 2 | 5.59 | 4.80 | 5.98 | 21.0% | 15.5% | 4.67–6.01 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 2 | 0 | 2 ÷ 8 | Masstree | 1 | 7.89 | 7.97 | 6.50 | 18.7% | 15.7% | 6.01–8.13 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 2 | 0 | 2 ÷ 8 | Masstree | 2 | 7.86 | 7.94 | 6.46 | 18.8% | 15.5% | 5.97–8.18 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 4 | 0 | 4 ÷ 8 | Expanse | 1 | 10.11 | 9.15 | 11.04 | 18.7% | 16.7% | 8.89–11.17 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 4 | 0 | 4 ÷ 8 | Expanse | 2 | 10.42 | 9.18 | 11.10 | 18.5% | 15.5% | 8.90–11.21 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 4 | 0 | 4 ÷ 8 | Masstree | 1 | 14.72 | 14.87 | 11.40 | 23.6% | 16.7% | 10.30–15.03 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 4 | 0 | 4 ÷ 8 | Masstree | 2 | 14.81 | 14.87 | 11.30 | 24.1% | 15.5% | 11.08–15.11 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 8 | 0 | 8 ÷ 8 | Masstree | 1 | 21.33 | 24.56 | 19.23 | 25.0% | 17.1% | 16.10–26.49 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C1 writer | 8 | 0 | 8 ÷ 8 | Masstree | 2 | 20.61 | 24.50 | 18.85 | 27.4% | 15.4% | 17.68–24.93 | **yes** |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C2 writer | 1 | 8 | 9 ÷ 8 | Masstree | 1 | 3.33 | 2.71 | 3.35 | 19.3% | 37.0% | 1.21–3.45 | no |
+| `c1b604ad` | `0,2,4,6,8,10,12,14` | str | C2 writer | 1 | 8 | 9 ÷ 8 | Masstree | 2 | 3.15 | 2.38 | 3.34 | 30.7% | 29.9% | 1.40–3.41 | **yes** |
 
 **Reading table P.** The per-core pin has eight CPUs, so every cell with more
 than eight threads is oversubscribed: C1 at sixteen writers, and every C2 cell
 with a writer, since its eight readers already occupy the pin. Those 18 of the
 28 rows have more runnable threads than CPUs — `map` at sixteen writers
-inserts at 3.53–4.17 M/s there — and they are printed so the
+inserts at 3.54–3.75 M/s there — and they are printed so the
 artifact is whole, not so they can be set beside `0-15` *(workload:
 `masstree_conc_map_64bit`; different experiment from the `0-15` row of the same
 name)*. The ten rows with one CPU per thread — C1 at W ≤ 8 on both arms and
-the two readers-only cells — carry the same verdict as under `0-15` in eight;
-the `map` single writer is direction-only under both pins, and the readers-only
-string cell is Expanse's under `0-15` and claims no winner here (§2). No level
-is compared across the two pins (AGENTS.md §8.20.5 step 0).
+the two readers-only cells — carry the same verdict as under `0-15` in nine.
+The tenth is the readers-only string cell, Masstree's under `0-15` and no
+winner here (§2). No level is compared across the two pins (AGENTS.md §8.20.5
+step 0). **Correction:** at `929574b5` eight of the ten agreed; the `map`
+single writer was direction-only under both pins and the readers-only string
+cell was Expanse's under `0-15`. That per-core pair is kept at
+`results/at_929574b5/`.
 
 **Reading table O — a harness limitation.** Both arms run in every round and
 the harness alternates which is timed first by round parity: Masstree on even
@@ -1168,10 +1260,30 @@ string single writer unconditionally.
   Masstree writer of the `str` W = 4, R = 8 cell (run 1 only) — and three under
   the per-core pin, all in oversubscribed cells, one of them in both runs with
   the direction reversed.
+- **At `c1b604ad`, under `0-15`, 12 sides are beyond the interval in both runs
+  and in the same direction.** Ten are both sides of every string C1 cell, one
+  to sixteen writers. The other two are the `map` single writer's Expanse side
+  and the `map` four-writer Masstree side. In every one, the arm is slower in
+  the odd rounds: Expanse when timed first, Masstree when timed second. With
+  one string writer, Expanse runs at 2.69 M inserts/s timed first and
+  3.49–3.50 timed second, and Masstree at 4.21 first and 3.41 second. Five more
+  sides are beyond the interval in one run only. Under the per-core pin, 10
+  sides are beyond the interval in both runs, in the same direction. These are
+  both sides of the string C1 cells at one, two and four writers, the Masstree
+  side at eight, both `map` single-writer sides, and the `map` four-writer
+  Masstree side. The split is again by round
+  rather than by arm position, which this artifact cannot separate.
+  Same-round medians put the string single writer at 0.79 in the odd rounds and
+  0.83 in the even ones (derived: 2.69 ÷ 3.41 and 3.49 ÷ 4.21), both
+  Masstree's, as the pooled ratio is. At sixteen writers the same derivation
+  gives 1.05 and 0.95, which is consistent with that cell's `BOUNDARY_RESULT`
+  *(workload: `masstree_conc_str`; per-position medians from table O, not
+  intervals)*.
 - **What this does to a before/after reading.** A median of a bimodal cell
   lies between its modes, so the difference of two such medians can report a
   change neither mode shows. §1 reads the string single writer by position for
-  that reason.
+  that reason. At `c1b604ad` every string C1 median is such a pooled median,
+  and table C's string C1 rows compare pooled medians across two commits.
 - **The cause is unmeasured** and none is named here: no counter was taken by
   round, and an allocator or page-cache state carried from one arm's round to
   the next is a hypothesis this design cannot test (§8.9).
@@ -1190,9 +1302,9 @@ string single writer unconditionally.
 
 | | Count |
 |---|---:|
-| Expanse wins (CI excludes parity) | 93 |
+| Expanse wins (CI excludes parity) | 92 |
 | Masstree wins (CI excludes parity) | 74 |
-| `BOUNDARY_RESULT` | 5 |
+| `BOUNDARY_RESULT` | 6 |
 | Masstree column withheld (§3.4, `beyond`) | 18 |
 
 | Label | Cells |
@@ -1200,18 +1312,22 @@ string single writer unconditionally.
 | Masstree — `CONFIRMED` | 52 |
 | Expanse — **`REFUTED`** | 39 |
 | Expanse — `not pre-registered` | 32 |
-| Expanse — `CONFIRMED` | 22 |
-| Masstree — `not pre-registered` | 13 |
-| Masstree — **`UNPREDICTED LOSS`** | 9 |
-| `BOUNDARY_RESULT` | 4 |
-| `BOUNDARY_RESULT` — `CONFIRMED` | 1 |
+| Expanse — `CONFIRMED` | 21 |
+| Masstree — `not pre-registered` | 12 |
+| Masstree — **`UNPREDICTED LOSS`** | 10 |
+| `BOUNDARY_RESULT` | 6 |
 
 The scorecard counts run 1 of the single-threaded cells at `b868fb2e` together
-with run 1 of the concurrent cells at `929574b5` under pin `0-15`. With the
-concurrent pair previously published at `6f8d6ba5` it read 88, 77 and 7; five
-cells became Expanse's — the four string reader cells under writers, previously
-Masstree's, and the readers-only string cell, previously `BOUNDARY_RESULT` —
-and the string single writer went from `BOUNDARY_RESULT` to Masstree.
+with run 1 of the concurrent cells at `c1b604ad` under pin `0-15`. With the
+`929574b5` concurrent pair it read 93, 74 and 5. Four concurrent cells changed
+label. The readers-only string cell went from Expanse's (`CONFIRMED`) to
+Masstree's (`UNPREDICTED LOSS`). The `map` single writer went from
+`BOUNDARY_RESULT` to Masstree, both inside its `CONFIRMED` registration. The
+string writers at sixteen went from Masstree (`not pre-registered`) to
+`BOUNDARY_RESULT`. The string writer under eight readers with eight writers went
+from Masstree (`CONFIRMED`) to `BOUNDARY_RESULT` in run 1; run 2 has it as
+Masstree's (table R). With the pair at `6f8d6ba5` before that, the scorecard read
+88, 77 and 7.
 
 **Two runs.** Every single-threaded cell was measured twice at `b868fb2e` on
 the same host; the tables are run 1, and run 2 is not committed. Of the 144
@@ -1243,13 +1359,13 @@ generator does not emit made that match ambiguous.
 
 | Registered (§6) | Outcome |
 |---|---|
-| Masstree wins C1 at W ≥ 2, both arms (high) | **CONFIRMED** on every cell |
-| Masstree wins or `BOUNDARY_RESULT` at W = 1 (medium-low) | **CONFIRMED** on both: strings a Masstree win in both runs, 0.678–0.726; integers `BOUNDARY_RESULT` in run 1 and Masstree in run 2, 0.977 in each. The `6f8d6ba5` pair previously had both cells at `BOUNDARY_RESULT`; §1 carries the correction and reads the string cell by round position |
-| Masstree wins readers under writers (medium-high) | **REFUTED in Expanse's favour** on both arms, every cell in both runs: integers 2.355–2.625, strings 1.189–1.299. The `6f8d6ba5` pair previously had the string cells **CONFIRMED** for Masstree; §1 carries the correction |
+| Masstree wins C1 at W ≥ 2, both arms (high) | **CONFIRMED** on every cell from two to eight writers on both arms, and at sixteen on integers; strings at sixteen are `BOUNDARY_RESULT` in both runs, 0.950–0.983 (`c1b604ad`; a Masstree win at `929574b5`) |
+| Masstree wins or `BOUNDARY_RESULT` at W = 1 (medium-low) | **CONFIRMED** on both: a Masstree win in both runs on strings, 0.803–0.816, and on integers, 0.921–0.936 (`c1b604ad`). The `929574b5` pair had integers at `BOUNDARY_RESULT` in run 1, and the `6f8d6ba5` pair had both cells at `BOUNDARY_RESULT`; §1 carries the corrections and reads the string cell by round position |
+| Masstree wins readers under writers (medium-high) | **REFUTED in Expanse's favour** on both arms, every cell in both runs: integers 2.243–2.564, strings 1.241–1.337 (`c1b604ad`). The `6f8d6ba5` pair had the string cells **CONFIRMED** for Masstree; §1 carries the correction |
 | Masstree wins integer scan at k = 10, 100 (medium-high) | **REFUTED** on 20 of 24 cells in both runs (21 in run 1); **CONFIRMED** on `random` at k = 100 at 10⁴ and 10⁵ in both runs; the `random` k = 10 cells at 10⁴ and 10⁵ are direction-only (run 1 `REFUTED` and `CONFIRMED`, run 2 `CONFIRMED` and `BOUNDARY_RESULT`), and the earlier `7fe02c0b` measurement had the 10⁵ cell `REFUTED` |
 | Masstree wins string scan, every k (high) | **CONFIRMED** on 33 of 36; **REFUTED** on `prefixed` at k = 10, all three populations, after [#722](https://github.com/orieg/expanse/issues/722) gave `ExpanseStrMap` a cursor. Every scan cell moved 1.4×–10.9× in Expanse's favour; the prediction survives on the rest |
 | Masstree wins `prefixed` lookup and insert (low) | insert **CONFIRMED** at 10⁶, **REFUTED** at 10⁵ (1.088 [1.074, 1.107], both runs; `BOUNDARY_RESULT` in the earlier `7fe02c0b` measurement), `BOUNDARY_RESULT` at 10⁴; lookup **REFUTED** (1.119 [1.116, 1.122] at 10⁶) |
-| Masstree wins `short` / `skewed` index memory (medium) | `short` **CONFIRMED** (33.91 against 48.20); `skewed` **REFUTED** after [#723](https://github.com/orieg/expanse/issues/723) — 46.63 against 41.76, Expanse ahead. At the pre-registration's leaf it was 46.63 against 47.74, a Masstree win by 1.1 B/key; that figure is superseded, not overwritten |
+| Masstree wins `short` / `skewed` index memory (medium) | `short` **CONFIRMED** (33.91 against 54.64); `skewed` **REFUTED** after [#723](https://github.com/orieg/expanse/issues/723) — 46.63 against 42.91, Expanse ahead (census at `c1b604ad`; 48.20 and 41.76 before design B, superseded). At the pre-registration's leaf it was 46.63 against 47.74, a Masstree win by 1.1 B/key; that figure is superseded, not overwritten |
 | Expanse wins `random` memory, λ ∈ [8, 23] (high) | **CONFIRMED** |
 | Expanse wins `random` memory outside the band (medium) | **UNPREDICTED LOSS** at λ ≥ 38 (by magnitude, no interval); parity-by-magnitude at λ = 4; wins at λ = 30 |
 | Expanse wins `sequential` / `clustered` / `sparse` memory (high / medium) | **CONFIRMED** |
@@ -1257,17 +1373,17 @@ generator does not emit made that match ambiguous.
 | Expanse wins integer insert (medium) | **CONFIRMED** on `sequential` at 10⁵ and 10⁶, direction-only at 10⁴; **UNPREDICTED LOSS** on `random` and `sparse` in sorted order; `clustered` direction-only at 10⁶ (run 1 `UNPREDICTED LOSS`, run 2 `BOUNDARY_RESULT`) and `BOUNDARY_RESULT` at 10⁵ in both runs, where the earlier `7fe02c0b` measurement had an `UNPREDICTED LOSS` |
 | Expanse wins `counter` lookup and insert at 10⁶ (high) | **UNPREDICTED LOSS** on all three cells (100%-hit lookup, 50/50 lookup, insert) in both runs; the 100%-hit lookup was `BOUNDARY_RESULT` in the earlier `7fe02c0b` measurement |
 | Expanse wins `short` 100%-hit lookup (low-medium) | **CONFIRMED** |
-| Expanse wins `counter` / `prefixed` index memory (medium) | **CONFIRMED** on both (by magnitude; `prefixed` 63.97 against 68.93). This README earlier recorded `prefixed` as an **UNPREDICTED LOSS** |
-| Expanse wins reader-only C2 (medium) | **CONFIRMED** on integers, 2.293–2.314; **CONFIRMED** on strings under pin `0-15`, 1.034–1.054 in both runs, and `BOUNDARY_RESULT` in both runs under the per-core pin, 0.998–1.005 (§2) |
-| H: restart share rises with W; fallback share < 1% at W ≤ 8 (§6.3) | restart share **CONFIRMED** on both arms in both runs; fallback share below 1% on both arms in both runs — a measured **CONFIRMED** where fallbacks were recorded (every integer cell, the string cells at W = 8), **`PASS_categorical_by_design`** in the six string cells at W ≤ 4 where none was (§7) |
+| Expanse wins `counter` / `prefixed` index memory (medium) | **CONFIRMED** on both (by magnitude; `prefixed` 56.46 against 69.09 at `c1b604ad`, 63.97 against 68.93 before design B, superseded). This README earlier recorded `prefixed` as an **UNPREDICTED LOSS** |
+| Expanse wins reader-only C2 (medium) | **CONFIRMED** on integers, 2.227–2.240; strings an **UNPREDICTED LOSS** under pin `0-15`, 0.982–0.987 in both runs, and `BOUNDARY_RESULT` in both runs, 0.975–0.989, under the per-core pin (§2; `c1b604ad`). The `929574b5` pair had the string cell **CONFIRMED** under `0-15`, 1.034–1.054 |
+| H: restart share rises with W; fallback share < 1% at W ≤ 8 (§6.3) | restart share **CONFIRMED** on both arms in both runs; fallback share below 1% on both arms in both runs — a measured **CONFIRMED** where fallbacks were recorded (every integer cell, the string cells at W = 8 and the string single writer in run 2), **`PASS_categorical_by_design`** in the five string cells at W ≤ 4 where none was (§7) |
 
-The generated wall-clock scorecard above counts 9 `UNPREDICTED LOSS` cells (registered Expanse wins that Masstree took)
+The generated wall-clock scorecard above counts 10 `UNPREDICTED LOSS` cells (registered Expanse wins that Masstree took)
 and 39 `REFUTED` cells (registered Masstree wins that Expanse took — every `REFUTED` in the derived tables is in Expanse's favour by construction)
-against 75 `CONFIRMED` (52 Masstree, 22 Expanse, 1 `BOUNDARY_RESULT`); the memory cells, labelled by magnitude, are outside that count and
+against 73 `CONFIRMED` (52 Masstree, 21 Expanse); the memory cells, labelled by magnitude, are outside that count and
 add three `UNPREDICTED LOSS` cells at λ ≥ 38. **Insertion order is the one cause that was
 measured**, and it is measured for one cell: the `random` integer insert
 that is an `UNPREDICTED LOSS` sorted (0.754) and an Expanse win shuffled
-(1.891). The registration was informed by a shuffled-order Step 0 build and
+(1.939 in the `c1b604ad` sensitivity set; 1.891 in the superseded `b868fb2e` set). The registration was informed by a shuffled-order Step 0 build and
 the suite builds sorted, a B+-tree's best case (§10.2); whether the same
 mechanism explains the `sparse` and `clustered` inserts is plausible and
 unmeasured, and it does not explain the string lookup surprises at all, since lookups do not depend on the order keys arrived in.

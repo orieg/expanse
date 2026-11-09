@@ -367,11 +367,13 @@ SUITES = (
 )
 
 # The artifact filename families this gate governs, in a suite's `results/`
-# directory and in its `multi_writer_olc/`, `step0/`, `at_6f8d6ba5/` and `at_c746f9a5/`
+# directory and in its `multi_writer_olc/`, `step0/`, `at_6f8d6ba5/`, `at_c746f9a5/` and `at_929574b5/`
 # subdirectories (`step0/` holds the frozen `a1982ff2` concurrent pair #568
 # Step 0 and the METHODOLOGY §8 gate read; `at_6f8d6ba5/` holds the concurrent
 # pair the FFI suites published before the `929574b5` re-measurement, which
-# `scripts/reader_scaling_bounds.py` and both suites' table generators read).
+# `scripts/reader_scaling_bounds.py` and both suites' table generators read;
+# `masstree_comparison/results/at_929574b5/` holds the pair it published before
+# the design-B re-measurement at `c1b604ad`).
 #
 # `baseline_*` is a sweep. `ablation*` is the interventional arm measured
 # against one (section 8.20): it publishes a wall-clock ratio of a variant
@@ -1088,7 +1090,7 @@ def artifacts(bench: Path | None = None, results: Path | None = None) -> list[Pa
         res = (bench or BENCH) / suite / "results"
         if not res.is_dir():
             continue
-        for d in (res, res / "multi_writer_olc", res / "step0", res / "at_6f8d6ba5", res / "at_c746f9a5"):
+        for d in (res, res / "multi_writer_olc", res / "step0", res / "at_6f8d6ba5", res / "at_c746f9a5", res / "at_929574b5"):
             if not d.is_dir():
                 continue
             found: set[Path] = set()

@@ -28,11 +28,12 @@ import round_order  # noqa: E402  (scripts/round_order.py: the position split of
 # The concurrent sweep is published under two pins (AGENTS.md §8.20.5 step 0:
 # a cell is comparable only under its own pin). The unsuffixed names are the
 # pin every §7 level table is built from; `_percore` is one thread per physical
-# core. `at_6f8d6ba5/` keeps the pair these names held before the re-measurement,
-# which `scripts/reader_scaling_bounds.py` reduces and the round-order table
+# core. `at_929574b5/` keeps the pair these names held before the design-B
+# re-measurement at `c1b604ad` (`at_6f8d6ba5/` the pair before that, which
+# `scripts/reader_scaling_bounds.py` reduces); the round-order table
 # sets beside the current one.
 PERCORE_RUNS = ("baseline_concurrent_percore.json", "baseline_concurrent_percore_run2.json")
-PREVIOUS_RUNS = ("at_6f8d6ba5/baseline_concurrent.json", "at_6f8d6ba5/baseline_concurrent_run2.json")
+PREVIOUS_RUNS = ("at_929574b5/baseline_concurrent.json", "at_929574b5/baseline_concurrent_run2.json")
 
 # ---------------------------------------------------------------------------
 # METHODOLOGY §6, encoded. Returns 'masstree', 'expanse', 'boundary_or_masstree'
