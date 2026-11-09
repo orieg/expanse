@@ -11,8 +11,9 @@ results cannot drift apart.
 
 **Where the numbers live.** Each suite's `README.md` is the authority on its own
 cells; `docs/BENCHMARKING.md` carries the methodology every suite obeys and the
-core engine instruments. Top-level `results/baseline_*.json` is reserved for CI
-regression-gate baselines and is not suite output.
+core engine instruments. Top-level `results/baseline_*.json` holds CI
+regression-gate baselines and the harvests of the core-engine instruments that
+publish into `docs/BENCHMARKING.md` (`comparative`, `compare`); it is not suite output.
 
 **Timed harnesses that are not benchmark targets.** Eleven harnesses under
 `crates/expanse/examples/` are `fn main` drivers rather than criterion targets —
