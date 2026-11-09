@@ -11,7 +11,7 @@
 //! |---|---|
 //! | `workload_id` | `example_bytes_per_key` |
 //! | `group` | 5 |
-//! | `population` | 1k to 1M census; the `random` gate also samples 2M; 131,072 (2^17) keys per cell on the short-payload blob arms |
+//! | `population` | 1k to 1M census; the `random` gate also samples 2M; 131,072 (2^17) keys per cell on the short-payload blob arms; the small-array rows (#1666) build `SMALL_ARRAYS` (1,000) maps of 1 and of 20 distinct keys uniform on `[0, 500)` |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
@@ -241,6 +241,77 @@ fn blob_short_payload_arms() {
     println!("blob short-payload accounting: exact");
 }
 
+/// Maps per small-array row.
+const SMALL_ARRAYS: usize = 1_000;
+
+/// Per-array footprint of a small map, built as the C ABI builds a JudyL array
+/// (#1666): a boxed `ExpanseMap` (`JudyLIns` on a null array) and
+/// `ins_slot_plain` (what `JudyLIns` calls) for each of `nkeys` distinct keys
+/// uniform on `[0, 500)`, the shape of stress-ng's `sparsematrix hashjudy`
+/// rows. Returns the per-array `mem_used`, `mem_held` and the bytes of slab
+/// pages holding no live block, each without the box.
+fn small_array_row(nkeys: usize) -> (usize, usize, usize) {
+    let mut rng = XorShift(0x5A11_7EE5_0000_0003);
+    let mut maps = Vec::with_capacity(SMALL_ARRAYS);
+    for _ in 0..SMALL_ARRAYS {
+        let mut map = Box::new(ExpanseMap::new());
+        while (map.len() as usize) < nkeys {
+            let k = rng.next() % 500;
+            if map.get(k).is_none() {
+                // SAFETY: valid until the next mutation; written immediately.
+                unsafe { map.ins_slot_plain(k).as_ptr().write(k) };
+            }
+        }
+        maps.push(map);
+    }
+    let used: usize = maps.iter().map(|m| m.mem_used()).sum();
+    let held: usize = maps.iter().map(|m| m.mem_held()).sum();
+    let empty_pages: usize = maps
+        .iter()
+        .map(|m| {
+            let c = m.alloc_census();
+            c.slab.iter().map(|s| s.pages_free).sum::<usize>() * 4096
+        })
+        .sum();
+    (
+        used / SMALL_ARRAYS,
+        held / SMALL_ARRAYS,
+        empty_pages / SMALL_ARRAYS,
+    )
+}
+
+/// Small-array footprint rows (#1666): what one JudyL array of 1 or 20 keys
+/// holds. A tree carves one 4 KiB slab page per size class on that class's
+/// first allocation (`alloc.rs`, "Slab Allocation & Freelist Pooling"). A root
+/// leaf growing to 20 keys passes through five classes, and each class keeps
+/// its page after the leaf moves on, so `mem_held` is that floor rather than
+/// `mem_used`. The ceilings are the measured values: the floor is structural,
+/// so any change to it is deliberate and lowers or raises the ceiling with the
+/// docs/COMPAT.md and docs/ARCHITECTURE.md rows in the same commit.
+fn small_array_rows(over: &mut Vec<String>) {
+    const BOX: usize = core::mem::size_of::<ExpanseMap>();
+    // keys, mem_used ceiling, mem_held ceiling (B per array, box excluded)
+    let budget: &[(usize, usize, usize)] = &[(1, 16, 4_096), (20, 384, 20_864)];
+    println!(
+        "\nsmall JudyL arrays ({SMALL_ARRAYS} maps per row, keys uniform on [0, 500), \
+         +{BOX} B boxed ExpanseMap each)"
+    );
+    println!(
+        "{:<6} {:>14} {:>14} {:>20}",
+        "keys", "mem_used B", "mem_held B", "empty slab pages B"
+    );
+    for &(nkeys, used_max, held_max) in budget {
+        let (used, held, empty) = small_array_row(nkeys);
+        println!("{nkeys:<6} {used:>14} {held:>14} {empty:>20}");
+        if used > used_max {
+            over.push(format!("{nkeys}-key array mem_used {used} > {used_max} B"));
+        }
+        if held > held_max {
+            over.push(format!("{nkeys}-key array mem_held {held} > {held_max} B"));
+        }
+    }
+}
+
 fn main() {
     println!("bytes/key by distribution and population (set flavor / map flavor)");
     println!("target from docs/ARCHITECTURE.md: < 9.5 B/key dense+clustered (set)\n");
@@ -350,6 +421,7 @@ fn main() {
             over.push(format!("{dist} map {mb:.2} > {map_max:.2} B/key"));
         }
     }
+    small_array_rows(&mut over);
     blob_short_payload_arms();
     if over.is_empty() {
         println!("memory budget: all distributions within ceilings");

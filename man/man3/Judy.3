@@ -103,10 +103,14 @@ int main(void) {
 .SH BEHAVIORAL DIFFERENCES FROM ORIGINAL LIBJUDY
 .TP
 .B Memory Accounting
-\fBJudy1MemUsed\fR and \fBJudyLMemUsed\fR report heap consumption. Because
-Expanse uses modern cache-aligned 64-byte node structures and custom slab
-allocators, exact byte numbers will differ from HP Judy, though asymptotic
-scaling remains monotonic and identical.
+\fBJudy1MemUsed\fR and \fBJudyLMemUsed\fR report the bytes of live nodes and
+leaves plus the array's handle. Because Expanse uses cache-aligned 64-byte node
+structures and per-array slab allocators, exact byte numbers will differ from
+HP Judy; the figure grows monotonically with population. It does not count
+slab pages the array holds without using: each array takes a 4 KiB page per
+small size class it has allocated from, so a small array holds several KiB more
+than it reports. \fBexpanse_map_mem_held\fR(3) in \fB<expanse.h>\fR reports
+the held figure.
 .TP
 .B Out of Memory Handling
 \fBAllocation failure aborts the process\fR, following the Rust global-allocator
