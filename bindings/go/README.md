@@ -203,7 +203,7 @@ func main() {
 	s.Add(200)
 	fmt.Printf("Set contains 100: %v, size: %d\n", s.Contains(100), s.Size())
 
-	// 3. Lock-Free Concurrent Reader (SyncMap)
+	// 3. Optimistic Concurrent Reader (SyncMap): no lock on the common path; blocking, not lock-free
 	syncMap := expanse.NewSyncMap()
 	defer syncMap.Free()
 

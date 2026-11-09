@@ -234,8 +234,8 @@ try (ExpanseMap bidBook = new ExpanseMap();
 ## 6. Multi-Core Optimistic Concurrency Control (OCC)
 
 `SyncExpanseMap` and `SyncExpanseSet` provide thread-safe concurrent access designed for read-heavy workloads:
-- **Lock-Free Readers**: Readers take an optimistic snapshot and validate subtrees without taking any read lock, avoiding cache line bouncing.
-- **Single-Writer Serialization**: Writers serialize internally without locking out concurrent readers.
+- **Optimistic Readers**: Readers take no lock on the common path: a read samples a version, walks, and re-validates.
+- **Optimistic Lock Coupling for Writers**: A writer locks only the node it changes; after a bounded number of restarts, or for a structural change the lock-coupled path does not cover, it falls back to an exclusive section. The protocol is blocking, not lock-free: a reader spins while a writer's version bracket is open, and falls back to the writer mutex after a bounded number of retries ([README](../../README.md#multithreaded-occ-concurrency-scalability)).
 - **Reader Reuse**: Create a `SyncExpanseMap.Reader` per worker thread and reuse it across requests.
 
 ```java

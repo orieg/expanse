@@ -261,6 +261,11 @@ jobs:
             java_classifier: windows-x86_64
             nativefile: expanse.dll
     runs-on: ${{ matrix.os }}
+    env:
+      # DT_SONAME libexpanse.so.1 on the Linux cdylib (crates/expanse-capi/build.rs),
+      # for the cargo build below and for scripts/build_hwcaps.sh's variants alike.
+      # package_deb.sh and package_rpm.sh refuse a library without it.
+      EXPANSE_LINK_SONAME: ${{ contains(matrix.os, 'ubuntu') && '1' || '0' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -307,8 +312,9 @@ jobs:
             cp "target/$T/release/libexpanse.a" dist/lib/
           fi
 
-          # cargo emits an unversioned library; synthesize the soname chain so the
-          # libjudy-compat symlink (libJudy.so.1 -> libexpanse.so.1) is not dangling.
+          # cargo emits an unversioned file name; synthesize the chain its
+          # DT_SONAME (libexpanse.so.1) names, so the libjudy-compat symlink
+          # (libJudy.so.1 -> libexpanse.so.1) is not dangling.
           if [ -f "target/$T/release/libexpanse.so" ]; then
             cp "target/$T/release/libexpanse.so" dist/lib/libexpanse.so.1.0.0
             ln -sf libexpanse.so.1.0.0 dist/lib/libexpanse.so.1

@@ -37,6 +37,21 @@ echo "Packaging libexpanse ${VERSION} for ${DEB_ARCH} (${TRIPLE}) from ${DIST_DI
 
 rm -rf "${DEB_DIR}"
 
+SONAME="libexpanse.so.1"
+
+# The library must carry DT_SONAME libexpanse.so.1 (EXPANSE_LINK_SONAME=1 at
+# build time, crates/expanse-capi/build.rs). Without it a consumer linked
+# through the libexpanse.so or libJudy.so dev link records that unversioned
+# name as DT_NEEDED, and then needs the -dev package at run time.
+require_soname() {
+    local so="$1" got
+    got="$(readelf -d "$so" | sed -n 's/.*(SONAME).*\[\(.*\)\]$/\1/p')"
+    if [ "$got" != "${SONAME}" ]; then
+        echo "::error::package_deb.sh: ${so} has DT_SONAME '${got}', expected '${SONAME}'; build with EXPANSE_LINK_SONAME=1" >&2
+        exit 1
+    fi
+}
+
 # Normalize the runtime soname chain into a private staging dir so packaging is
 # correct whether dist/lib holds a full chain (from build_hwcaps.sh) or only the
 # unversioned libexpanse.so that `cargo build -p expanse-capi` emits.
@@ -51,6 +66,7 @@ normalize_soname() {
     else
         return 1
     fi
+    require_soname "${dst}/libexpanse.so.1.0.0"
     ln -sf libexpanse.so.1.0.0 "${dst}/libexpanse.so.1"
     ln -sf libexpanse.so.1 "${dst}/libexpanse.so"
     return 0
@@ -100,7 +116,12 @@ Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine shared library with glibc-hwcaps support.
 EOF
 
-# 2. libexpanse-dev package: headers, static library, pkg-config, man pages, and the unversioned .so dev symlink
+# 2. libexpanse-dev package: headers, static library, pkg-config, man pages, and
+#    the unversioned dev symlinks: libexpanse.so for `-lexpanse`, and libJudy.so
+#    (+ libJudy.a) for an unmodified `-lJudy` build. Both point at the library
+#    whose DT_SONAME is libexpanse.so.1, so either link records that versioned
+#    name as DT_NEEDED. This package already ships Judy.h, which libjudy-dev
+#    ships too; with libJudy.so and libJudy.a the two packages share four paths.
 mkdir -p "${DEB_DIR}/libexpanse-dev/usr/include"
 mkdir -p "${DEB_DIR}/libexpanse-dev/${LIBDIR}/pkgconfig"
 mkdir -p "${DEB_DIR}/libexpanse-dev/usr/share/man/man3"
@@ -108,8 +129,10 @@ mkdir -p "${DEB_DIR}/libexpanse-dev/usr/share/man/man3"
 cp include/*.h* "${DEB_DIR}/libexpanse-dev/usr/include/"
 if [ -f "${DIST_DIR}/lib/libexpanse.a" ]; then
     cp "${DIST_DIR}/lib/libexpanse.a" "${DEB_DIR}/libexpanse-dev/${LIBDIR}/"
+    ln -sf libexpanse.a "${DEB_DIR}/libexpanse-dev/${LIBDIR}/libJudy.a"
 fi
 ln -sf libexpanse.so.1 "${DEB_DIR}/libexpanse-dev/${LIBDIR}/libexpanse.so"
+ln -sf libexpanse.so.1 "${DEB_DIR}/libexpanse-dev/${LIBDIR}/libJudy.so"
 
 if [ -f "extra/pkgconfig/expanse.pc.in" ]; then
     sed -e "s|@prefix@|/usr|g" \
@@ -135,7 +158,11 @@ Version: ${VERSION}
 Architecture: ${DEB_ARCH}
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Depends: libexpanse1 (= ${VERSION})
+Conflicts: libjudy-dev
+Replaces: libjudy-dev
 Description: Expanse trie engine development files (headers, static library, man pages).
+ Also the libjudy development names: Judy.h, judy.pc, and libJudy.so and
+ libJudy.a links to libexpanse, so `-lJudy` builds link libexpanse.so.1.
 EOF
 
 # 3. libjudy-compat package: drop-in libJudy.so.1 soname pointing at libexpanse.so.1 + pkg-config + Judy man pages

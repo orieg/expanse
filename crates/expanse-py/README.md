@@ -25,7 +25,8 @@ m[42] = 100
 assert m[42] == 100
 assert m.range(0, 100) == [(42, 100)]
 
-# 3. Concurrent Lock-Free OCC Map (GIL-free queries)
+# 3. Concurrent map: readers take no lock on the common path (and release the GIL);
+#    writers use optimistic lock coupling, a blocking protocol, not lock-free
 sync_m = SyncExpanseMap({1: 100, 2: 200})
 assert sync_m[1] == 100
 ```

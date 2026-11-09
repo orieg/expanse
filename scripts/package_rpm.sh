@@ -55,9 +55,13 @@ and lock-free optimistic concurrency control (OCC).
 %package devel
 Summary:        Development files for libexpanse
 Requires:       %{name}%{?_isa} = %{version}-%{release}
+# Judy.h, libJudy.so and libJudy.a are paths Judy-devel ships too.
+Conflicts:      Judy-devel
 
 %description devel
 Development headers, static library, pkg-config manifests, and man pages for Expanse.
+Also the libjudy development names: Judy.h, judy.pc, and libJudy.so and libJudy.a
+links to libexpanse, so `-lJudy` builds link libexpanse.so.1.
 
 %package -n libjudy-compat
 Summary:        Drop-in libjudy compatibility symlinks and man pages
@@ -104,6 +108,13 @@ fi
 
 # Compat symlink
 ln -sf libexpanse.so.1 %{buildroot}/usr/lib64/libJudy.so.1
+
+# Dev links for `-lJudy`. libexpanse.so.1.0.0 carries DT_SONAME libexpanse.so.1,
+# so a binary linked through either records that versioned name as DT_NEEDED.
+ln -sf libexpanse.so.1 %{buildroot}/usr/lib64/libJudy.so
+ln -sf libexpanse.a %{buildroot}/usr/lib64/libJudy.a
+# The link editor never searches glibc-hwcaps/, so a dev link there is unused.
+rm -f %{buildroot}/usr/lib64/glibc-hwcaps/*/libexpanse.so
 for HWCAP in x86-64-v2 x86-64-v3 x86-64-v4; do
     if [ -d "%{buildroot}/usr/lib64/glibc-hwcaps/${HWCAP}" ]; then
         ln -sf libexpanse.so.1 "%{buildroot}/usr/lib64/glibc-hwcaps/${HWCAP}/libJudy.so.1"
@@ -142,12 +153,15 @@ fi
 cp REPO_ROOT_PLACEHOLDER/man/man3/*.3 %{buildroot}/usr/share/man/man3/
 
 %files
-/usr/lib64/libexpanse.so*
+/usr/lib64/libexpanse.so.1*
 HWCAPS_MAIN_PLACEHOLDER
 
 %files devel
 /usr/include/*
+/usr/lib64/libexpanse.so
 /usr/lib64/libexpanse.a
+/usr/lib64/libJudy.so
+/usr/lib64/libJudy.a
 # Both .pc files live here: each emits -lexpanse and -I/usr/include, which need
 # the dev symlink and headers this package ships. libjudy-compat is a runtime
 # package and cannot satisfy them.
@@ -164,13 +178,31 @@ SPECEOF
 
 REPO_ROOT="$(pwd)"
 
+# Every runtime library must carry DT_SONAME libexpanse.so.1 (EXPANSE_LINK_SONAME=1
+# at build time, crates/expanse-capi/build.rs). Without it a consumer linked
+# through libexpanse.so or libJudy.so records that unversioned name as DT_NEEDED
+# and then needs the -devel package at run time.
+SONAME="libexpanse.so.1"
+if [ ! -e "${DIST_DIR}/lib/libexpanse.so" ]; then
+    echo "::error::package_rpm.sh: no libexpanse.so runtime library found in ${DIST_DIR}/lib" >&2
+    exit 1
+fi
+for so in "${DIST_DIR}/lib/libexpanse.so" "${DIST_DIR}"/lib/glibc-hwcaps/*/libexpanse.so; do
+    [ -e "${so}" ] || continue  # the glob matched no variant directory
+    got="$(readelf -d "${so}" | sed -n 's/.*(SONAME).*\[\(.*\)\]$/\1/p')"
+    if [ "${got}" != "${SONAME}" ]; then
+        echo "::error::package_rpm.sh: ${so} has DT_SONAME '${got}', expected '${SONAME}'; build with EXPANSE_LINK_SONAME=1" >&2
+        exit 1
+    fi
+done
+
 # glibc-hwcaps variants are staged by %install only when the dist carries them
 # (x86_64). rpmbuild fails on installed-but-unpackaged files, and equally on a
 # %files glob that matches nothing, so the entries exist exactly when the
 # directory does. The split mirrors the baseline: libexpanse.so* in the main
 # package, libJudy.so.1 in libjudy-compat.
 if [ -d "${DIST_DIR}/lib/glibc-hwcaps" ]; then
-    HWCAPS_MAIN='/usr/lib64/glibc-hwcaps/*/libexpanse.so*'
+    HWCAPS_MAIN='/usr/lib64/glibc-hwcaps/*/libexpanse.so.1*'
     HWCAPS_COMPAT='/usr/lib64/glibc-hwcaps/*/libJudy.so.1'
 else
     HWCAPS_MAIN='# (no glibc-hwcaps variants in this dist)'

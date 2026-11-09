@@ -86,6 +86,15 @@ BENCH_N_MAP: Dict[str, int] = {
     "map_ins_slot": 50_000,
     "map_remove": 50_000,
     "set_remove": 50_000,
+    # The stress-ng `judy` stressor's phases (#1666): `gen_index(i)` keys at
+    # its `--judy-size` minimum, default and maximum; one op per key.
+    "map_ins_slot/gen_4m": 4_194_304,
+    # The arm-level entry is `gen_256k`, stress-ng's default size.
+    "map_remove_revgen": 262_144,
+    "map_remove_revgen/gen_1k": 1_024,
+    "map_remove_revgen/gen_4m": 4_194_304,
+    # One op is one small tree's whole life: box, 20 inserts, mem_used, free.
+    "map_small_tree": 500,
     # Drain/refill and oscillation (#1119): an oscillate cycle is one insert
     # plus one remove; refill counts the drain and the refill; clear_refill
     # counts the refill.
@@ -488,7 +497,9 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map_insert",
             "set_insert",
             "map_ins_slot",
+            "map_small_tree",
             "map_remove",
+            "map_remove_revgen",
             "set_remove",
             "map_oscillate",
             "set_oscillate",

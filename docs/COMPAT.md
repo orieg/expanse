@@ -12,7 +12,23 @@
 | C library | `libexpanse.so` / `expanse.dll` / `libexpanse.a` |
 | Modern header | `expanse.h` — **shipped**: `expanse_set_t`, `expanse_map_t`, `expanse_bytesmap_t`, `expanse_strmap_t` (ordered NUL-terminated string keys, with truncation-aware `_ex` navigation), `expanse_ordered_bytesmap_t` (ordered arbitrary byte keys with caller-allocated buffer navigation returning required length), `ExpanseBlobMap` (`expanse_blob_map_*`), plus the concurrent `expanse_sync_set_t`/`expanse_sync_map_t` and their per-thread reader handles. Adds what classic Judy lacks: rank/select on ordered types (`count_below`/`count_range`/`by_count`), byte-exact `mem_used`, plain value returns instead of `JError_t` out-params, and optimistic concurrent readers. |
 | Compat header | `Judy.h` (source-compatible with classic libjudy) |
-| Distro packages  | `libexpanse-dev`, `libexpanse1`, and `libjudy-compat` (symlinks `libJudy.so.1` → `libexpanse.so.1` and installs the `Judy.h` alias) |
+| Distro packages  | `libexpanse1` (`libexpanse.so.1.0.0`, `DT_SONAME libexpanse.so.1`), `libexpanse-dev` (headers including `Judy.h`, `libexpanse.a`, and the dev links `libexpanse.so`, `libJudy.so`, `libJudy.a`), and `libjudy-compat` (the runtime link `libJudy.so.1` → `libexpanse.so.1`). RPM: `libexpanse`, `libexpanse-devel`, `libjudy-compat`, same split |
+
+### Library names and SONAME
+
+| Name | Kind | Shipped by | Used by |
+|---|---|---|---|
+| `libexpanse.so.1.0.0` | the library; `DT_SONAME libexpanse.so.1` | `libexpanse1` / `libexpanse` | — |
+| `libexpanse.so.1` | runtime link | `libexpanse1` / `libexpanse` | every binary linked against the packages, whichever dev link it used |
+| `libJudy.so.1` | runtime link → `libexpanse.so.1` | `libjudy-compat` | a binary built against classic libjudy (it records `DT_NEEDED libJudy.so.1`) |
+| `libexpanse.so`, `libJudy.so`, `libJudy.a` | dev links → `libexpanse.so.1` / `libexpanse.a` | `libexpanse-dev` / `libexpanse-devel` | `-lexpanse` and an unmodified `-lJudy` at link time only |
+
+- **A `-lJudy` build links `libexpanse.so.1`.** The link editor records the target's `DT_SONAME`, not the name it was asked for, so both dev links produce `DT_NEEDED libexpanse.so.1`. The binary then needs `libexpanse1` at run time and neither `-dev` package nor `libjudy-compat`.
+- **`libJudy.so.1` keeps working, but is not in `ld.so.cache`.** `ldconfig` keys its cache by `DT_SONAME`, so the `libJudy.so.1` link is found by the dynamic linker's default-directory search instead, which also searches the `glibc-hwcaps/` variants. The packages install into the multiarch directory (`/usr/lib/<triple>`) or `/usr/lib64`, both default directories. Copying the links into a directory reached only through `/etc/ld.so.conf.d` would lose `libJudy.so.1`; use a default directory, `LD_LIBRARY_PATH` or a `RUNPATH` there.
+- **The SONAME is opt-in at build time.** `cargo build -p expanse-capi` emits an unversioned `libexpanse.so` with no `DT_SONAME`, which is what in-tree consumers that link `target/release/libexpanse.so` by path rely on. `EXPANSE_LINK_SONAME=1` adds `-Wl,-soname,libexpanse.so.1` on Linux targets (`crates/expanse-capi/build.rs`). The release job sets it, and `scripts/package_deb.sh` and `scripts/package_rpm.sh` refuse a library without it.
+- **The SONAME does not track the crate's 0.x minor.** Classic `Judy.h` consumers depend only on the frozen surface (§4.1 of `AGENTS.md`), so `.so.1` is stable for them. A consumer of `expanse.h` can be broken by a 0.x minor release that keeps `libexpanse.so.1`.
+- **Gate.** `scripts/test_packaging.sh` (the `packaging` CI job) builds both package sets, links `crates/expanse-capi/smoke/link_judy_smoke.c` with `-lJudy` against them, requires `DT_NEEDED libexpanse.so.1`, runs a binary that records `DT_NEEDED libJudy.so.1`, and repeats the dynamic link on a real `dpkg -i` install with no `-I`, `-L` or `LD_LIBRARY_PATH`.
+- **Conflicts.** `libexpanse-dev` ships `Judy.h`, `libJudy.so` and `libJudy.a`, which `libjudy-dev` also ships, so it declares `Conflicts`/`Replaces: libjudy-dev`; `libexpanse-devel` declares `Conflicts: Judy-devel`. Neither declares `Provides`, so a package that build-depends on `libjudy-dev` / `Judy-devel` is not satisfied by them.
 
 ### Supported architectures
 
@@ -44,19 +60,19 @@ To build and package baseline, v2, and v3 dynamic libraries:
 
 1. **Build the baseline binary (`x86-64-v1`)**:
    ```bash
-   cargo build --release --package expanse-capi
+   EXPANSE_LINK_SONAME=1 cargo build --release --package expanse-capi
    ```
    Install this to the standard system library path (e.g., `/usr/lib/x86_64-linux-gnu/libexpanse.so.1.0.0` with symlink `libexpanse.so.1` -> `libexpanse.so.1.0.0`).
 
 2. **Build the `x86-64-v2` hwcaps binary**:
    ```bash
-   RUSTFLAGS="-C target-cpu=x86-64-v2" cargo build --release --package expanse-capi
+   EXPANSE_LINK_SONAME=1 RUSTFLAGS="-C target-cpu=x86-64-v2" cargo build --release --package expanse-capi
    ```
    Install to `/usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v2/libexpanse.so.1.0.0` with symlink `libexpanse.so.1`.
 
 3. **Build the `x86-64-v3` modern AVX2/BMI2 binary**:
    ```bash
-   RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --package expanse-capi
+   EXPANSE_LINK_SONAME=1 RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --package expanse-capi
    ```
    Install to `/usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v3/libexpanse.so.1.0.0` with symlink `libexpanse.so.1`.
 
@@ -109,6 +125,19 @@ chunk-geometry fields) is `CorruptedHeader`, a different error.
 ## Non-goals
 
 - **`Judy1MemUsed`/`JudyLMemUsed` byte equality.** Internal geometry differs (64-byte-line nodes, different allocator). Guarantee: same order of magnitude and monotonic behavior — not the same number. Documented in `Judy(3)` (`man/man3/Judy.3`, *Memory Accounting*); the shipped `Judy.h` declares the two functions without comment.
+
+### What `Judy1MemUsed` / `JudyLMemUsed` count, and the small-array floor
+
+- **They return `mem_used` plus the handle**: the live node and leaf bytes (`ExpanseMap::mem_used`, an O(1) counter read) plus `size_of` the boxed `ExpanseMap` / `ExpanseSet` (712 B for the map). They do **not** count slab-page reservation. `expanse_map_mem_held` / `expanse_set_mem_held` (`expanse.h`) do, and they are the figures to compare with resident memory.
+- **Decision: they stay on `mem_used`.** It is what they have always returned, and a `Judy.h` symbol does not change what it reports (`AGENTS.md` §4.1). It grows with every insert, which is the monotonic behaviour the guarantee above names. It costs one counter read, where `mem_held` walks the allocator's pages and freelists. A consumer that needs the resident figure includes `expanse.h` beside `Judy.h`.
+- **The two differ most on small arrays.** A tree carves a whole 4 KiB slab page the first time it allocates from each size class of 256 B or less (`docs/ARCHITECTURE.md` §2, *Allocator* row). A root leaf growing to 20 keys passes through five classes and keeps each page after it moves on:
+
+  | JudyL array (keys uniform on `[0, 500)`) | `mem_used` | `mem_held` | slab pages with no live block | `JudyLMemUsed` |
+  |---|---|---|---|---|
+  | 1 key | 16 B | 4,096 B | 0 B | 728 B |
+  | 20 keys | 384 B | 20,864 B | 20,480 B | 1,096 B |
+
+  Each row is per array, box excluded except in the last column. The values are deterministic allocator accounting from the `bytes_per_key` small-array rows, which the `memory-budget` CI job gates at exactly these values. An array emptied by deleting every key frees its tree, pages included. stress-ng's `sparsematrix hashjudy` method keeps one such array per matrix row, and the resident-memory comparison against stock libjudy that motivated these rows is tracked in [#1666](https://github.com/orieg/expanse/issues/1666).
 - **Internal structure equality** — no attempt to match libjudy's node layouts, only its observable behavior.
 - **`JErrno` legacy globals** beyond what the documented macro layer requires.
 
