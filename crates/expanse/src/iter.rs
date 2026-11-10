@@ -72,6 +72,17 @@ enum LeafCursor {
         rank: u16,
         prefix: u64,
     },
+    /// The forward walk's map bitmap leaf, read in place: `bits` holds the
+    /// digits of subexpanse `sub` not yet read, `value` the value slot of the
+    /// lowest of them, and `base` the keys' common bits down to `sub`. The
+    /// reverse walk keeps [`Self::BitmapMap`].
+    BitmapMapAsc {
+        node: *const LeafBitmapL,
+        value: *const u64,
+        base: u64,
+        bits: u32,
+        sub: u8,
+    },
     ImmedSingle {
         key: u64,
         value: u64,
@@ -86,6 +97,31 @@ enum LeafCursor {
     FullExpanse {
         next_key: u64,
         max_key: u64,
+    },
+    /// A forward walk over a run of single-key immediate children of the
+    /// `BranchU` on top of the stack, read in place from its slots. `digit`
+    /// is the next slot to read; the frame's own `current_digit` is stale
+    /// while this cursor is live and is written back when the run ends.
+    ImmedRunU {
+        edges: *const Edge,
+        prefix: u64,
+        mask: u64,
+        digit: u16,
+        shift: u8,
+        tag: u8,
+    },
+    /// [`Self::ImmedRunU`] over the children of a `BranchB`: `bits` holds the
+    /// digits of subexpanse `sub` not yet read, `edge` the subarray slot of
+    /// the lowest of them, and `base` the keys' common bits down to `sub`.
+    ImmedRunB {
+        ptr: *const BranchB,
+        edge: *const Edge,
+        base: u64,
+        mask: u64,
+        bits: u32,
+        sub: u8,
+        shift: u8,
+        tag: u8,
     },
 }
 
@@ -106,6 +142,34 @@ fn unpack_immed_single<const MAP: bool>(edge: &Edge, im: crate::types::ImmedType
     let value = if MAP { edge.word0() } else { 0 };
     (low, value)
 }
+
+/// Key bytes of `edge` when it is a single-key immediate, else 0 (the null
+/// edge and every other tag). A single-key immediate's tag byte is `kb << 4`
+/// with `kb` in 1..=7 (`ImmedType::as_u8` at `key_count == 1`), and no
+/// structural tag has that shape; the const block below pins both halves
+/// over every tag byte.
+#[inline(always)]
+const fn single_immed_kb(edge: &Edge) -> u8 {
+    let raw = edge.tag_byte();
+    if raw & 0x8F == 0 { raw >> 4 } else { 0 }
+}
+
+const _: () = {
+    let mut raw = 0u16;
+    while raw < 256 {
+        let single = match EdgeTag::from_u8(raw as u8) {
+            Some(EdgeTag::Immed(im)) if im.key_count() == 1 => im.key_bytes(),
+            _ => 0,
+        };
+        let fast = if raw as u8 & 0x8F == 0 {
+            raw as u8 >> 4
+        } else {
+            0
+        };
+        assert!(single == fast);
+        raw += 1;
+    }
+};
 
 /// A zero-allocation, stack-based in-order trie iterator.
 pub struct RawIter<const MAP: bool> {
@@ -367,14 +431,12 @@ impl<const MAP: bool> RawIter<MAP> {
                     if MAP {
                         // SAFETY: live LeafBitmapL node pointer.
                         let b = unsafe { &*cur_edge.node_ptr().cast::<LeafBitmapL>() };
-                        let current_word = (b.bitmap.words[0] & 0xFFFF_FFFF) as u32;
-                        self.leaf = LeafCursor::BitmapMap {
-                            bitmap: b.bitmap,
-                            values: b.values,
+                        self.leaf = LeafCursor::BitmapMapAsc {
+                            node: b,
+                            value: b.values[0],
+                            base: leaf_prefix,
+                            bits: (b.bitmap.words[0] & 0xFFFF_FFFF) as u32,
                             sub: 0,
-                            current_word,
-                            rank: 0,
-                            prefix: leaf_prefix,
                         };
                     } else {
                         // SAFETY: live LeafBitmap1 node pointer.
@@ -735,13 +797,14 @@ impl<const MAP: bool> RawIter<MAP> {
                                 as u32;
                             let bit_in_sub = (first_d & 31) as u32;
                             let current_word = sub_word & (!0u32 << bit_in_sub);
-                            self.leaf = LeafCursor::BitmapMap {
-                                bitmap: b.bitmap,
-                                values: b.values,
+                            self.leaf = LeafCursor::BitmapMapAsc {
+                                node: b,
+                                // SAFETY: `first_d` is set, so subexpanse
+                                // `sub`'s value array holds slot `rank`.
+                                value: unsafe { b.values[sub as usize].add(rank as usize) },
+                                base: leaf_prefix | u64::from(first_d & 0xE0),
+                                bits: current_word,
                                 sub,
-                                current_word,
-                                rank,
-                                prefix: leaf_prefix,
                             };
                         } else {
                             self.leaf = LeafCursor::Empty;
@@ -1125,6 +1188,25 @@ impl<const MAP: bool> RawIter<MAP> {
                             let sub = (next_d >> 5) as usize;
                             // SAFETY: next_d is set in bitmap → subarrays[sub] is non-null.
                             let child = unsafe { *b.subarrays[sub].add(slot) };
+                            let kb = single_immed_kb(&child);
+                            if kb != 0 {
+                                // A random expanse holds one key under most
+                                // children: stream them as for `BranchU`.
+                                let shift = 8 * (bl - 1);
+                                self.leaf = LeafCursor::ImmedRunB {
+                                    ptr: *ptr,
+                                    // SAFETY: `slot` is a valid index of subarray `sub`.
+                                    edge: unsafe { b.subarrays[sub].add(slot) },
+                                    base: branch_prefix | (u64::from(next_d & 0xE0) << shift),
+                                    mask: (1u64 << (8 * u32::from(kb))) - 1,
+                                    bits: Self::subexpanse_word(&b.bitmap, sub as u8)
+                                        & (u32::MAX << (next_d & 31)),
+                                    sub: sub as u8,
+                                    shift,
+                                    tag: child.tag_byte(),
+                                };
+                                return true;
+                            }
                             let child_prefix =
                                 branch_prefix | (u64::from(next_d) << (8 * u32::from(bl - 1)));
                             // SAFETY: child is live edge at bl - 1.
@@ -1143,19 +1225,27 @@ impl<const MAP: bool> RawIter<MAP> {
                         *current_digit += 1;
                         let child = b.edges[d as usize];
                         if !child.is_null() {
-                            let child_prefix =
-                                branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
-                            if let Some(EdgeTag::Immed(im)) = child.tag()
-                                && im.key_count() == 1
-                            {
-                                let (low, value) = unpack_immed_single::<MAP>(&child, im);
-                                self.leaf = LeafCursor::ImmedSingle {
-                                    key: child_prefix | low,
-                                    value,
-                                    done: false,
+                            let shift = 8 * u32::from(bl - 1);
+                            let kb = single_immed_kb(&child);
+                            if kb != 0 {
+                                // Sparse expanses put one key under each child
+                                // (#270). Stream the run of single-key siblings
+                                // from the slots, so each key costs one slot
+                                // read in `next` rather than a round trip
+                                // through this walk. An immediate's key bytes
+                                // equal its level (`validate.rs`), so every
+                                // single-key sibling carries this child's tag.
+                                self.leaf = LeafCursor::ImmedRunU {
+                                    edges: b.edges.as_ptr(),
+                                    prefix: branch_prefix,
+                                    mask: (1u64 << (8 * u32::from(kb))) - 1,
+                                    digit: d,
+                                    shift: shift as u8,
+                                    tag: child.tag_byte(),
                                 };
                                 return true;
                             }
+                            let child_prefix = branch_prefix | (u64::from(d) << shift);
                             // SAFETY: child is live edge at bl - 1.
                             unsafe {
                                 self.descend(&child, bl - 1, child_prefix);
@@ -1176,7 +1266,7 @@ impl<const MAP: bool> RawIter<MAP> {
     #[inline(always)]
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<(Key, u64)> {
-        loop {
+        'walk: loop {
             match &mut self.leaf {
                 LeafCursor::Empty => return None,
 
@@ -1271,6 +1361,33 @@ impl<const MAP: bool> RawIter<MAP> {
                     }
                 }
 
+                LeafCursor::BitmapMapAsc {
+                    node,
+                    value,
+                    base,
+                    bits,
+                    sub,
+                } => loop {
+                    if *bits != 0 {
+                        let d = bits.trailing_zeros();
+                        *bits &= *bits - 1;
+                        // SAFETY: digit `d` is set, so `value` addresses its slot.
+                        let v = unsafe { **value };
+                        // SAFETY: at most one past the subexpanse's value array.
+                        *value = unsafe { value.add(1) };
+                        return Some((*base | u64::from(d), v));
+                    }
+                    *sub += 1;
+                    if *sub == 8 {
+                        break;
+                    }
+                    // SAFETY: `node` is the live leaf this cursor walks.
+                    let b = unsafe { &**node };
+                    *bits = Self::subexpanse_word(&b.bitmap, *sub);
+                    *value = b.values[*sub as usize];
+                    *base = (*base & !0xE0) | (u64::from(*sub) << 5);
+                },
+
                 LeafCursor::ImmedSingle { key, value, done } => {
                     if !*done {
                         *done = true;
@@ -1288,6 +1405,104 @@ impl<const MAP: bool> RawIter<MAP> {
                         let i = *idx as usize;
                         *idx += 1;
                         return Some((keys[i], values[i]));
+                    }
+                }
+
+                LeafCursor::ImmedRunU {
+                    edges,
+                    prefix,
+                    mask,
+                    digit,
+                    shift,
+                    tag,
+                } => {
+                    while *digit < 256 {
+                        // SAFETY: `edges` is the live 256-slot array of the
+                        // `BranchU` on top of the stack, and `digit < 256`.
+                        let e = unsafe { &*edges.add(*digit as usize) };
+                        let t = e.tag_byte();
+                        if t == *tag {
+                            let k = *prefix | (u64::from(*digit) << *shift);
+                            *digit += 1;
+                            return Some(if MAP {
+                                (k | (e.aux_word() & *mask), e.word0())
+                            } else {
+                                (k | (e.word0() & *mask), 0)
+                            });
+                        }
+                        if t != EdgeType::Null as u8 {
+                            break;
+                        }
+                        *digit += 1;
+                    }
+                    // The run ended at a child of another form, or at the end
+                    // of the branch: resume the stack walk from that slot.
+                    let d = *digit;
+                    if let BranchKind::U { current_digit, .. } =
+                        &mut self.stack[self.depth - 1].kind
+                    {
+                        *current_digit = d;
+                    }
+                }
+
+                LeafCursor::ImmedRunB {
+                    ptr,
+                    edge,
+                    base,
+                    mask,
+                    bits,
+                    sub,
+                    shift,
+                    tag,
+                } => {
+                    let resume = loop {
+                        if *bits != 0 {
+                            let bit = bits.trailing_zeros();
+                            // SAFETY: `bits` is non-zero, so `edge` addresses
+                            // the subarray slot of its lowest digit.
+                            let e = unsafe { &**edge };
+                            *bits &= *bits - 1;
+                            // SAFETY: at most one past the subarray's last slot.
+                            *edge = unsafe { edge.add(1) };
+                            let k = *base | (u64::from(bit) << *shift);
+                            if e.tag_byte() != *tag {
+                                // A child of another form: descend into it from
+                                // here, past it in both this cursor and the
+                                // frame, rather than have the stack walk find
+                                // it again in the bitmap.
+                                let child = *e;
+                                let level = *shift / 8;
+                                let d = ((u32::from(*sub) << 5) | bit) as u16;
+                                if let BranchKind::B { current_digit, .. } =
+                                    &mut self.stack[self.depth - 1].kind
+                                {
+                                    *current_digit = d + 1;
+                                }
+                                // SAFETY: `child` is a live edge at `level`.
+                                unsafe { self.descend(&child, level, k) };
+                                continue 'walk;
+                            }
+                            return Some(if MAP {
+                                (k | (e.aux_word() & *mask), e.word0())
+                            } else {
+                                (k | (e.word0() & *mask), 0)
+                            });
+                        }
+                        *sub += 1;
+                        if *sub == 8 {
+                            break 256;
+                        }
+                        // SAFETY: `ptr` is the live `BranchB` on top of the stack.
+                        let b = unsafe { &**ptr };
+                        *bits = Self::subexpanse_word(&b.bitmap, *sub);
+                        *edge = b.subarrays[*sub as usize];
+                        *base = (*base & !(0xE0u64 << *shift)) | (u64::from(*sub) << (*shift + 5));
+                    };
+                    // As for `ImmedRunU`: resume the walk at that digit.
+                    if let BranchKind::B { current_digit, .. } =
+                        &mut self.stack[self.depth - 1].kind
+                    {
+                        *current_digit = resume;
                     }
                 }
 
@@ -1323,7 +1538,10 @@ impl<const MAP: bool> RawIter<MAP> {
     /// bitmap — the 32-digit value/child group for bitmap map-leaves.
     #[inline(always)]
     fn subexpanse_word(bitmap: &Bitmap256, sub: u8) -> u32 {
-        (bitmap.words[sub as usize / 2] >> ((sub as usize % 2) * 32)) as u32
+        debug_assert!(sub < 8);
+        // SAFETY: the 32-byte, 8-aligned `words` hold 8 `u32` subwords, read
+        // in place as `Bitmap256::subexpanse_rank` reads them.
+        unsafe { *bitmap.words.as_ptr().cast::<u32>().add(sub as usize) }
     }
 
     /// Initializes reverse iteration from a root leaf (descending).
@@ -2390,6 +2608,13 @@ impl<const MAP: bool> RawIter<MAP> {
                     }
                 }
 
+                // Forward-only: the reverse walk never builds it.
+                LeafCursor::BitmapMapAsc { .. }
+                | LeafCursor::ImmedRunU { .. }
+                | LeafCursor::ImmedRunB { .. } => {
+                    debug_assert!(false, "forward-only cursor");
+                }
+
                 LeafCursor::FullExpanse { next_key, max_key } => {
                     if *max_key >= *next_key {
                         let k = *max_key;
@@ -2618,7 +2843,88 @@ impl<const MAP: bool> RawIter<MAP> {
                 true
             }
 
+            LeafCursor::BitmapMapAsc {
+                node,
+                value,
+                base,
+                bits,
+                sub,
+            } => {
+                let t_high = target >> 8;
+                let p_high = *base >> 8;
+                if t_high < p_high {
+                    return true;
+                }
+                if t_high > p_high {
+                    return false;
+                }
+                // SAFETY: `node` is the live leaf this cursor walks.
+                let b = unsafe { &**node };
+                let td = (target & 0xFF) as u8;
+                let Some(fd) = b.bitmap.next_set(td) else {
+                    return false;
+                };
+                let new_sub = fd >> 5;
+                // Rewind guard, as for `BitmapMap`: a `target` at or below the
+                // current front is a no-op.
+                if new_sub < *sub
+                    || (new_sub == *sub && (*bits == 0 || (fd & 31) < bits.trailing_zeros() as u8))
+                {
+                    return true;
+                }
+                *sub = new_sub;
+                *bits =
+                    Self::subexpanse_word(&b.bitmap, new_sub) & (u32::MAX << (u32::from(fd) & 31));
+                // SAFETY: `fd` is set, so its subexpanse holds slot `rank`.
+                *value = unsafe {
+                    b.values[new_sub as usize].add(b.bitmap.subexpanse_rank(fd) as usize)
+                };
+                *base = (*base & !0xE0) | u64::from(fd & 0xE0);
+                true
+            }
+
             LeafCursor::ImmedSingle { key, done, .. } => !*done && *key >= target,
+
+            LeafCursor::ImmedRunU {
+                prefix,
+                digit,
+                shift,
+                ..
+            } => {
+                let hi = u32::from(*shift) + 8;
+                if hi < 64 && (target >> hi) != (*prefix >> hi) {
+                    // Below the branch: the front is already `>= target`.
+                    // Above it: the caller ascends past this branch.
+                    return (target >> hi) < (*prefix >> hi);
+                }
+                if (((target >> *shift) & 0xFF) as u16) < *digit {
+                    // Every key left has a higher digit here than `target`.
+                    return true;
+                }
+                // `target` falls at or after the next slot: the caller
+                // re-seeks this frame from `target`'s digit, or pops it.
+                false
+            }
+
+            LeafCursor::ImmedRunB {
+                base,
+                bits,
+                sub,
+                shift,
+                ..
+            } => {
+                let hi = u32::from(*shift) + 8;
+                if hi < 64 && (target >> hi) != (*base >> hi) {
+                    return (target >> hi) < (*base >> hi);
+                }
+                // The lowest digit any unread key can carry.
+                let front = if *bits != 0 {
+                    (u32::from(*sub) << 5) | bits.trailing_zeros()
+                } else {
+                    (u32::from(*sub) + 1) << 5
+                };
+                ((target >> *shift) & 0xFF) < u64::from(front)
+            }
 
             LeafCursor::ImmedMulti {
                 keys, count, idx, ..

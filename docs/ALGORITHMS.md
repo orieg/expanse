@@ -105,6 +105,21 @@ visit going up. `next` streams the `LeafCursor` (leaf slot `idx`, bitmap word vi
 `trailing_zeros`, immediate slot); when a leaf is exhausted, `advance_leaf` pops to
 the nearest frame with a remaining higher child and re-descends leftmost.
 
+**Sibling runs (forward).** On sparse and uniform-random keys most children of a
+`BranchU` or `BranchB` hold one key each, as a single-key immediate (#270). When
+`advance_leaf` reaches such a child it seeds a run cursor (`ImmedRunU`,
+`ImmedRunB`) that reads the following siblings in place from the branch's slots —
+the slot array of a `BranchU`, the subarrays of a `BranchB` — and yields one key per
+slot. A key then costs one slot read instead of a round trip through the leaf cursor
+and the stack walk. An immediate's key bytes equal its level, so every single-key
+sibling carries the first one's tag byte and the run test is one byte compare. The
+run ends at a child of another form (a `BranchB` run descends into it directly) or
+at the end of the branch, and writes its position back into the frame; `seek_forward`
+treats a run like a leaf whose remaining keys start at the run's next digit. Forward
+map bitmap leaves are walked in place the same way (`BitmapMapAsc`, a value pointer
+bumped per set bit in place of a `values[sub][rank]` index). The reverse walk keeps
+the per-child cursors.
+
 **Reverse (`next_back` / `iter_rev` / `range_rev`, descending).** The mirror image:
 `descend_max`/`descend_seek_back` walk to the *rightmost* leaf (or the largest key
 `≤ end`), pushing each branch frame with the *previous* child to visit going down
@@ -118,7 +133,7 @@ This also unlocks the `LeafCursor::ImmedSingle` fast path in reverse.
 
 **`DoubleEndedIterator`.** The zero-regression gate (`AGENTS.md` §5) forbids adding
 any per-element work to the forward `iter`/`range` `next` (a measured hot path), so
-the 64-bit `iter`/`range` iterators stay strictly forward-only and byte-identical.
+the 64-bit `iter`/`range` iterators stay strictly forward-only.
 Bidirectional traversal instead lives on the dedicated reverse iterators
 `iter_rev`/`range_rev`, which **are** `DoubleEndedIterator`: `next` streams descending
 (the primary direction) and `next_back` streams ascending. The two directions run

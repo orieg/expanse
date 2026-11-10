@@ -495,6 +495,36 @@ mod tests {
     }
 
     #[test]
+    fn immediate_runs_broken_by_other_children() {
+        // Runs of single-key immediates under a dense branch (`BranchU`) and a
+        // sparse one (`BranchB`), broken by three-key children: the forward
+        // walk streams each run from the branch slots and must hand every
+        // other child back to the stack walk, and a seek must land inside a
+        // run or past it (#1687).
+        for (count, stride, dense) in [(220u64, 1u64, true), (40, 6, false)] {
+            let mut keys = Vec::new();
+            for i in 0..count {
+                let d = (0x5Au64 << 56) | ((i * stride) << 48);
+                keys.push(d | 0x1234);
+                if i % 7 == 3 {
+                    keys.extend([d | 0x5678, d | 0x9999]);
+                }
+            }
+            let (_, map, _, _) = build(&keys);
+            let counts = map.stats().node_counts;
+            assert!(
+                if dense {
+                    counts.branch_u > 0
+                } else {
+                    counts.branch_b > 0
+                },
+                "{counts:?}"
+            );
+            check_distribution(&keys);
+        }
+    }
+
+    #[test]
     fn boundary_keys() {
         check_distribution(&[
             0,
