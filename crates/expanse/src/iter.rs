@@ -99,14 +99,18 @@ enum LeafCursor {
         max_key: u64,
     },
     /// A forward walk over a run of single-key immediate children of the
-    /// `BranchU` on top of the stack, read in place from its slots. `digit`
-    /// is the next slot to read; the frame's own `current_digit` is stale
-    /// while this cursor is live and is written back when the run ends.
+    /// `BranchU` on top of the stack, read in place from its slots. `edge` is
+    /// the next slot to read and `end` one past the last; `key` holds the
+    /// bits of `edge`'s keys above their own bytes, `step` apart per slot.
+    /// The frame's own `current_digit` is stale while this cursor is live and
+    /// is written back when the run ends.
     ImmedRunU {
-        edges: *const Edge,
-        prefix: u64,
+        edge: *const Edge,
+        end: *const Edge,
+        key: u64,
+        step: u64,
         mask: u64,
-        digit: u16,
+        prefix: u64,
         shift: u8,
         tag: u8,
     },
@@ -1246,11 +1250,15 @@ impl<const MAP: bool> RawIter<MAP> {
                                 // through this walk. An immediate's key bytes
                                 // equal its level (`validate.rs`), so every
                                 // single-key sibling carries this child's tag.
+                                let slots = b.edges.as_ptr_range();
                                 self.leaf = LeafCursor::ImmedRunU {
-                                    edges: b.edges.as_ptr(),
-                                    prefix: branch_prefix,
+                                    // SAFETY: `d < 256` indexes the slot array.
+                                    edge: unsafe { slots.start.add(d as usize) },
+                                    end: slots.end,
+                                    key: branch_prefix | (u64::from(d) << shift),
+                                    step: 1 << shift,
                                     mask: (1u64 << (8 * u32::from(kb))) - 1,
-                                    digit: d,
+                                    prefix: branch_prefix,
                                     shift: shift as u8,
                                     tag: child.tag_byte(),
                                 };
@@ -1420,21 +1428,24 @@ impl<const MAP: bool> RawIter<MAP> {
                 }
 
                 LeafCursor::ImmedRunU {
-                    edges,
-                    prefix,
+                    edge,
+                    end,
+                    key,
+                    step,
                     mask,
-                    digit,
-                    shift,
                     tag,
+                    ..
                 } => {
-                    while *digit < 256 {
-                        // SAFETY: `edges` is the live 256-slot array of the
-                        // `BranchU` on top of the stack, and `digit < 256`.
-                        let e = unsafe { &*edges.add(*digit as usize) };
+                    while *edge != *end {
+                        // SAFETY: `edge` is below `end`, so it addresses a slot
+                        // of the live `BranchU` on top of the stack.
+                        let e = unsafe { &**edge };
                         let t = e.tag_byte();
                         if t == *tag {
-                            let k = *prefix | (u64::from(*digit) << *shift);
-                            *digit += 1;
+                            let k = *key;
+                            // SAFETY: at most `end`, one past the last slot.
+                            *edge = unsafe { edge.add(1) };
+                            *key = k.wrapping_add(*step);
                             return Some(if MAP {
                                 (k | (e.aux_word() & *mask), e.word0())
                             } else {
@@ -1444,11 +1455,14 @@ impl<const MAP: bool> RawIter<MAP> {
                         if t != EdgeType::Null as u8 {
                             break;
                         }
-                        *digit += 1;
+                        // SAFETY: as above.
+                        *edge = unsafe { edge.add(1) };
+                        *key = key.wrapping_add(*step);
                     }
                     // The run ended at a child of another form, or at the end
                     // of the branch: resume the stack walk from that slot.
-                    let d = *digit;
+                    // SAFETY: `edge` and `end` address the same slot array.
+                    let d = 256 - unsafe { end.offset_from(*edge) } as u16;
                     if let BranchKind::U { current_digit, .. } =
                         &mut self.stack[self.depth - 1].kind
                     {
@@ -2942,18 +2956,21 @@ impl<const MAP: bool> RawIter<MAP> {
             LeafCursor::ImmedSingle { key, done, .. } => !*done && *key >= target,
 
             LeafCursor::ImmedRunU {
+                edge,
+                end,
                 prefix,
-                digit,
                 shift,
                 ..
             } => {
+                // SAFETY: `edge` and `end` address the same slot array.
+                let digit = 256 - unsafe { end.offset_from(*edge) } as u16;
                 let hi = u32::from(*shift) + 8;
                 if hi < 64 && (target >> hi) != (*prefix >> hi) {
                     // Below the branch: the front is already `>= target`.
                     // Above it: the caller ascends past this branch.
                     return (target >> hi) < (*prefix >> hi);
                 }
-                if (((target >> *shift) & 0xFF) as u16) < *digit {
+                if (((target >> *shift) & 0xFF) as u16) < digit {
                     // Every key left has a higher digit here than `target`.
                     return true;
                 }
