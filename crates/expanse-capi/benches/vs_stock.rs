@@ -56,15 +56,15 @@
 //! |---|---|
 //! | `workload_id` | `capi_vs_stock` |
 //! | `group` | 1 |
-//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000` (L204, 209); the `judysl_*` arms use `POP` |
+//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000`; the `judysl_*` and `judyhs_*` arms use `POP` |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0 |
-//! | `hit_rate` | 100% / mixed |
-//! | `miss_gen_method` | Interleaved keys |
+//! | `hit_rate` | 100% / mixed; `judyhs_get_*` 50% (every present key and `POP` absent ones, shuffled together) |
+//! | `miss_gen_method` | Interleaved keys; `judyhs_get_*` continues `fixed8_stream` past the population, rejected on membership |
 //! | `value_dereference` | `*slot` dereferenced |
-//! | `key_shape` | `Word` for the `judyl_*`/`judy1_*` arms; NUL-terminated fixed-width strings for `judysl_*`, derived from the same `keys(dist)` so the three distributions carry over. Absolute counts for the string arms include `strlen` on both sides and are **not** comparable to the `Word`-keyed arms; their ratio is. |
+//! | `key_shape` | `Word` for the `judyl_*`/`judy1_*` arms; NUL-terminated fixed-width strings for `judysl_*`, derived from the same `keys(dist)` so the three distributions carry over; 8-byte zmap response-dedup keys for `judyhs_*` (`fixed8_stream`: a 198.18.0.0/15 address and one of four ports, big-endian, status and padding zero, in a scan's pseudo-random order). Absolute counts for the string arms include `strlen` on both sides and are **not** comparable to the `Word`-keyed arms; their ratio is. |
 //! | `measured_region` | Deliberately leaks to exclude drop |
-//! | `arm_symmetry` | **Three arms**: `*_expanse` (rlib, LTO-linked), `*_expanse_dl` (dlopen'd cdylib), and `*_stock` (dlopen'd libjudy). `*_expanse_dl` vs `*_stock` is symmetric; `*_expanse` vs `*_stock` is asymmetric (LTO bias). |
+//! | `arm_symmetry` | **Three arms**: `*_expanse` (rlib, LTO-linked), `*_expanse_dl` (dlopen'd cdylib), and `*_stock` (dlopen'd libjudy). `*_expanse_dl` vs `*_stock` is symmetric; `*_expanse` vs `*_stock` is asymmetric (LTO bias). libexpanse's JudyHS hashes with a per-process `RandomState` seed, so the `judyhs_*_expanse*` counts can move between runs |
 //! | `statistics` | iai Callgrind exact counts (simulated 8 MiB LL) |
 //! | `verdict` | **PASS** `[verified: RUN (CI instruction-counts)]`: Carrying both `expanse` and `expanse_dl` isolates LTO delta; 1.5M population is load-bearing in #456. |
 //!
@@ -107,6 +107,10 @@ type FpDel = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
 /// only shape difference from the families above.
 type FslIns = unsafe extern "C" fn(*mut *mut c_void, *const u8, *mut c_void) -> *mut c_void;
 type FslGet = unsafe extern "C" fn(*const c_void, *const u8, *mut c_void) -> *mut c_void;
+/// JudyHS takes a key pointer and its length; `JudyHSGet` has no `PJError`.
+type FhsIns = unsafe extern "C" fn(*mut *mut c_void, *mut c_void, Word, *mut c_void) -> *mut c_void;
+type FhsGet = unsafe extern "C" fn(*const c_void, *mut c_void, Word) -> *mut c_void;
+type FhsDel = unsafe extern "C" fn(*mut *mut c_void, *mut c_void, Word, *mut c_void) -> c_int;
 
 /// Keeps a built array observable so the optimizer cannot delete the
 /// work that produced it, without calling into either library.
@@ -188,6 +192,9 @@ impl Lib {
             del: self.sym(c"JudyLDel"),
             sl_ins: self.sym(c"JudySLIns"),
             sl_get: self.sym(c"JudySLGet"),
+            hs_ins: self.sym(c"JudyHSIns"),
+            hs_get: self.sym(c"JudyHSGet"),
+            hs_del: self.sym(c"JudyHSDel"),
         }
     }
 }
@@ -202,6 +209,9 @@ struct Api {
     del: FpDel,
     sl_ins: FslIns,
     sl_get: FslGet,
+    hs_ins: FhsIns,
+    hs_get: FhsGet,
+    hs_del: FhsDel,
 }
 
 struct XorShift(u64);
@@ -940,6 +950,266 @@ fn judysl_get_stock(built: StrBuilt) -> Word {
     black_box(sink)
 }
 
+// ---- JudyHS (fixed 8-byte keys, #1671) -------------------------------
+//
+// zmap's only use of libjudy: JudyHS keyed by its 8-byte response-dedup key,
+// `target_t { ip, port, status }` with its padding byte. The rlib arm calls
+// `expanse::JudyHS*` directly; the other two reach their library as the rest
+// of this file does. libexpanse's JudyHS hashes with a per-process
+// `RandomState` seed, so its two arms are the one place in this file whose
+// counts can move between runs: the seed decides the hash-trie shape.
+
+/// Ports a zmap scan of the `fixed8` shape probes, in its key's port field.
+const FIXED8_PORTS: [u16; 4] = [80, 443, 8080, 8443];
+
+/// Draws `n` distinct zmap-shaped 8-byte keys: the 198.18.0.0/15
+/// benchmarking range times four ports (524,288 keys), in the pseudo-random
+/// order a scan visits them, address and port big-endian, status and padding
+/// zero. Draws in `reject` are passed over, so misses come from the same
+/// generator as the population and are rejected on membership (§8.6). The
+/// generator is `crates/expanse/benches/instructions.rs`' `fixed8_stream`.
+fn fixed8_stream(n: usize, reject: &std::collections::HashSet<[u8; 8]>) -> Vec<[u8; 8]> {
+    let mut rng = XorShift(0x2E9A_7C01_D3D0_5EED);
+    let mut seen = std::collections::HashSet::with_capacity(n);
+    let mut out = Vec::with_capacity(n);
+    while out.len() < n {
+        let r = rng.next();
+        let off = (r >> 2) as u32 & 0x1_FFFF;
+        let ip = 0xC612_0000u32 | off;
+        let port = FIXED8_PORTS[(r & 3) as usize];
+        let mut k = [0u8; 8];
+        k[..4].copy_from_slice(&ip.to_be_bytes());
+        k[4..6].copy_from_slice(&port.to_be_bytes());
+        if !reject.contains(&k) && seen.insert(k) {
+            out.push(k);
+        }
+    }
+    out
+}
+
+/// Keys for a JudyHS insert arm, generated in `setup`.
+struct HsFeed {
+    ks: Vec<[u8; 8]>,
+    api: Option<Api>,
+}
+
+// SAFETY: fn pointers into a library that is never `dlclose`d; used only on
+// the harness thread that built the struct.
+unsafe impl Send for HsFeed {}
+
+/// A built JudyHS array plus its probe stream.
+struct HsBuilt {
+    arr: *mut c_void,
+    probes: Vec<[u8; 8]>,
+    api: Option<Api>,
+}
+
+// SAFETY: created and consumed on the same thread; never shared.
+unsafe impl Send for HsBuilt {}
+
+fn hs_feed(api: Option<Api>) -> HsFeed {
+    HsFeed {
+        ks: fixed8_stream(POP, &Default::default()),
+        api,
+    }
+}
+fn hs_feed_expanse(_dist: &str) -> HsFeed {
+    hs_feed(None)
+}
+fn hs_feed_expanse_dl(_dist: &str) -> HsFeed {
+    hs_feed(ours_api())
+}
+fn hs_feed_stock(_dist: &str) -> HsFeed {
+    hs_feed(stock_api())
+}
+
+fn shuffle_hs(probes: &mut [[u8; 8]], seed: u64) {
+    let mut rng = XorShift(seed);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+}
+
+/// Builds the `POP`-key JudyHS array through `api` (or directly, when
+/// `None`), outside the measured region. With `mixed`, the probes are every
+/// present key and `POP` absent ones, shuffled together (50% hits); without
+/// it, the present keys shuffled.
+fn build_hs(api: Option<Api>, mixed: bool) -> HsBuilt {
+    let ks = fixed8_stream(POP, &Default::default());
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudyHS usage; each key is 8 live bytes and the
+    // returned slot is valid until the next mutation.
+    unsafe {
+        for (i, k) in ks.iter().enumerate() {
+            let kp = k.as_ptr().cast_mut().cast();
+            let slot = match api {
+                Some(a) => (a.hs_ins)(&raw mut arr, kp, 8, null_mut()),
+                None => expanse::JudyHSIns(&raw mut arr, kp, 8, null_mut()),
+            }
+            .cast::<Word>();
+            *slot = i as Word + 1;
+        }
+    }
+    let mut probes = ks;
+    if mixed {
+        let present = probes.iter().copied().collect();
+        probes.extend(fixed8_stream(POP, &present));
+        shuffle_hs(&mut probes, 0x5851_F42D);
+    } else {
+        shuffle_hs(&mut probes, 0x9E37_79B9);
+    }
+    HsBuilt { arr, probes, api }
+}
+fn build_hs_get_expanse(_dist: &str) -> HsBuilt {
+    build_hs(None, true)
+}
+fn build_hs_get_expanse_dl(_dist: &str) -> HsBuilt {
+    build_hs(ours_api(), true)
+}
+fn build_hs_get_stock(_dist: &str) -> HsBuilt {
+    build_hs(stock_api(), true)
+}
+fn build_hs_del_expanse(_dist: &str) -> HsBuilt {
+    build_hs(None, false)
+}
+fn build_hs_del_expanse_dl(_dist: &str) -> HsBuilt {
+    build_hs(ours_api(), false)
+}
+fn build_hs_del_stock(_dist: &str) -> HsBuilt {
+    build_hs(stock_api(), false)
+}
+
+/// The insert loop, shared by the three arms: `ins` is the resolved entry
+/// point, or `expanse::JudyHSIns` for the rlib arm.
+#[inline(always)]
+fn hs_insert(ks: &[[u8; 8]], ins: FhsIns) -> Word {
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudyHS usage; the slot is written immediately.
+    unsafe {
+        for (i, k) in ks.iter().enumerate() {
+            let kp = black_box(k.as_ptr()).cast_mut().cast();
+            *ins(&raw mut arr, kp, 8, null_mut()).cast::<Word>() = i as Word + 1;
+        }
+    }
+    // Not freed — teardown stays out of the measured region.
+    black_box(map_len_sentinel(arr))
+}
+
+#[inline(always)]
+fn hs_get(built: &HsBuilt, get: FhsGet) -> Word {
+    let mut sink = 0 as Word;
+    // SAFETY: the array was built in `setup`; JudyHSGet only reads.
+    unsafe {
+        for k in &built.probes {
+            let slot = get(built.arr, black_box(k.as_ptr()).cast_mut().cast(), 8).cast::<Word>();
+            if !slot.is_null() {
+                sink ^= *slot;
+            }
+        }
+    }
+    black_box(sink)
+}
+
+#[inline(always)]
+fn hs_del(mut built: HsBuilt, del: FhsDel) -> Word {
+    let mut removed = 0 as Word;
+    // SAFETY: the array was built in `setup` through the library `del`
+    // belongs to; every probe is a present key.
+    unsafe {
+        for k in &built.probes {
+            let kp = black_box(k.as_ptr()).cast_mut().cast();
+            removed += del(&raw mut built.arr, kp, 8, null_mut()) as Word;
+        }
+    }
+    black_box(removed)
+}
+
+unsafe extern "C" fn rlib_hs_ins(
+    pp: *mut *mut c_void,
+    k: *mut c_void,
+    n: Word,
+    pj: *mut c_void,
+) -> *mut c_void {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::JudyHSIns(pp, k, n, pj.cast()) }
+}
+unsafe extern "C" fn rlib_hs_get(p: *const c_void, k: *mut c_void, n: Word) -> *mut c_void {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::JudyHSGet(p, k, n) }
+}
+unsafe extern "C" fn rlib_hs_del(
+    pp: *mut *mut c_void,
+    k: *mut c_void,
+    n: Word,
+    pj: *mut c_void,
+) -> c_int {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::JudyHSDel(pp, k, n, pj.cast()) }
+}
+
+#[library_benchmark]
+#[bench::fixed8(args = ("fixed8",), setup = hs_feed_expanse)]
+fn judyhs_insert_expanse(f: HsFeed) -> Word {
+    hs_insert(&f.ks, rlib_hs_ins)
+}
+
+// Our own `libexpanse.so` — the arm to compare against `judyhs_insert_stock`.
+#[library_benchmark]
+#[bench::fixed8(args = ("fixed8",), setup = hs_feed_expanse_dl)]
+fn judyhs_insert_expanse_dl(f: HsFeed) -> Word {
+    hs_insert(&f.ks, f.api.expect("dl arm needs a resolved api").hs_ins)
+}
+
+#[library_benchmark]
+#[bench::fixed8(args = ("fixed8",), setup = hs_feed_stock)]
+fn judyhs_insert_stock(f: HsFeed) -> Word {
+    hs_insert(&f.ks, f.api.expect("stock arm needs a resolved api").hs_ins)
+}
+
+#[library_benchmark]
+#[bench::fixed8(args = ("fixed8",), setup = build_hs_get_expanse)]
+fn judyhs_get_expanse(built: HsBuilt) -> Word {
+    hs_get(&built, rlib_hs_get)
+}
+
+#[library_benchmark]
+#[bench::fixed8(args = ("fixed8",), setup = build_hs_get_expanse_dl)]
+fn judyhs_get_expanse_dl(built: HsBuilt) -> Word {
+    hs_get(
+        &built,
+        built.api.expect("dl arm needs a resolved api").hs_get,
+    )
+}
+
+#[library_benchmark]
+#[bench::fixed8(args = ("fixed8",), setup = build_hs_get_stock)]
+fn judyhs_get_stock(built: HsBuilt) -> Word {
+    hs_get(
+        &built,
+        built.api.expect("stock arm needs a resolved api").hs_get,
+    )
+}
+
+#[library_benchmark]
+#[bench::fixed8(args = ("fixed8",), setup = build_hs_del_expanse)]
+fn judyhs_del_expanse(built: HsBuilt) -> Word {
+    hs_del(built, rlib_hs_del)
+}
+
+#[library_benchmark]
+#[bench::fixed8(args = ("fixed8",), setup = build_hs_del_expanse_dl)]
+fn judyhs_del_expanse_dl(built: HsBuilt) -> Word {
+    let del = built.api.expect("dl arm needs a resolved api").hs_del;
+    hs_del(built, del)
+}
+
+#[library_benchmark]
+#[bench::fixed8(args = ("fixed8",), setup = build_hs_del_stock)]
+fn judyhs_del_stock(built: HsBuilt) -> Word {
+    let del = built.api.expect("stock arm needs a resolved api").hs_del;
+    hs_del(built, del)
+}
+
 library_benchmark_group!(
     name = vs_stock;
     benchmarks =
@@ -963,7 +1233,16 @@ library_benchmark_group!(
         judysl_insert_stock,
         judysl_get_expanse,
         judysl_get_expanse_dl,
-        judysl_get_stock
+        judysl_get_stock,
+        judyhs_insert_expanse,
+        judyhs_insert_expanse_dl,
+        judyhs_insert_stock,
+        judyhs_get_expanse,
+        judyhs_get_expanse_dl,
+        judyhs_get_stock,
+        judyhs_del_expanse,
+        judyhs_del_expanse_dl,
+        judyhs_del_stock
 );
 
 #[cfg(target_os = "linux")]

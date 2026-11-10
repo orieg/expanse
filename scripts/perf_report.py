@@ -246,6 +246,12 @@ BENCH_N_MAP: Dict[str, int] = {
     "bytesmap_insert": 50_000,
     "bytesmap_get": 50_000,
     "bytesmap_churn": 50_000,
+    # zmap-shaped 8-byte keys (#1671): POP inserts or removes; the get arm
+    # probes POP present keys and POP absent ones from the same generator,
+    # shuffled together (50% hits).
+    "bytesmap_fixed8_insert": 50_000,
+    "bytesmap_fixed8_get": 100_000,
+    "bytesmap_fixed8_remove": 50_000,
     # `short` string keys (#730): one pass over `short_keys` (POP = 50,000),
     # plain and through `SyncExpanseStrMap` on one thread.
     "strmap_get_short": 50_000,
@@ -359,6 +365,11 @@ HARNESS_BENCH_N_MAP: Dict[str, Dict[str, int]] = {
         "judy1_test": 30_000,
         "judysl_insert": 30_000,
         "judysl_get": 30_000,
+        # zmap-shaped 8-byte JudyHS keys (#1671): `POP` inserts or deletes;
+        # the get arm probes every present key and `POP` absent ones.
+        "judyhs_insert": 30_000,
+        "judyhs_get": 60_000,
+        "judyhs_del": 30_000,
     },
     # `crates/expanse/benches/smoke_instructions.rs`: `POP = 10_000`, one pass
     # over `keys(dist)`, `str_keys` or the shuffled probe stream per arm.
@@ -424,6 +435,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "judyl_get",
             "judy1_test",
             "judysl_get",
+            "judyhs_get",
+            "bytesmap_fixed8_get",
             "strmap_get",
             "strmap_transcode_get",
             "ordered_bytesmap_get",
@@ -556,6 +569,10 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "judy1_set",
             "judyl_churn",
             "judysl_insert",
+            "judyhs_insert",
+            "judyhs_del",
+            "bytesmap_fixed8_insert",
+            "bytesmap_fixed8_remove",
             "map32_insert",
             "strmap_insert",
             "strmap_insert_plain",
