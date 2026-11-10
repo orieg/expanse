@@ -371,6 +371,9 @@ SUITES = (
     # Expanse vs patricia_tree / fast_radix_trie / qp-trie; its first artifacts
     # land with the suite, so they are judged from the first commit.
     "patricia_comparison",
+    # stress-ng as a libJudy consumer, stock vs Expanse by library swap (#1666
+    # item 4): the pre-registered pair and the old-vs-new library diagnostic.
+    "stressng_comparison",
 )
 
 # The artifact filename families this gate governs, in a suite's `results/`

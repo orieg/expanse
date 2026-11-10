@@ -161,6 +161,30 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 
 **Expected if the files carry the whole fall:** O/N ≈ 1.13 at W = 1 (109.14 M / 96.97 M ops/s, the per-arm means of the two evaluations), O/S ≈ 1.08 and N/S ≈ 0.96. O/N on insert and delete is the control, expected inside [0.98, 1.02] from the same per-arm means. (projected)
 
+### Diagnostic result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, harness `3b17913df`; artifacts `results/diagnostic_lib_ab_ref_run{1,2}.json`) (workload: sng_judy_1k)
+
+**Hygiene.** Run 1 02:24:32–02:25:44 UTC and run 2 02:25:44–02:27:40, each under the bench lock, after the 02:17 host rsync had exited. 144 processes per run and none discarded; the worst foreign load over any process was 0.06 core-equivalents. Max load1 was 3.19 and 2.72 against a void limit of 12. The library proof mapped each arm's own file: O `expcompat-82eb56af/lib/libexpanse.so.1.0.0`, N `expcompat/lib/libexpanse.so.1.0.0`, S stock `libJudy.so.1.0.3`.
+
+**O/N on the find rate: O FASTER at every W in both runs.** The fall is in the library files.
+
+| W | O/N run 1 [BCa 95%] | O/N run 2 [BCa 95%] | O/S run 1 | O/S run 2 | N/S run 1 | N/S run 2 |
+|---|---|---|---|---|---|---|
+| 1 | 1.114 [1.107, 1.122] | 1.130 [1.121, 1.139] | 1.080 [1.077, 1.085] | 1.082 [1.076, 1.087] | 0.970 [0.964, 0.975] | 0.958 [0.951, 0.963] |
+| 2 | 1.131 [1.122, 1.139] | 1.130 [1.122, 1.136] | 1.090 [1.083, 1.097] | 1.083 [1.078, 1.089] | 0.964 [0.958, 0.970] | 0.959 [0.953, 0.965] |
+| 4 | 1.123 [1.116, 1.129] | 1.130 [1.122, 1.137] | 1.083 [1.077, 1.089] | 1.086 [1.081, 1.090] | 0.964 [0.960, 0.970] | 0.961 [0.955, 0.967] |
+| 8 | 1.138 [1.135, 1.141] | 1.138 [1.136, 1.141] | 1.087 [1.084, 1.088] | 1.086 [1.084, 1.087] | 0.955 [0.953, 0.957] | 0.954 [0.951, 0.956] |
+
+- **Both evaluations' find rates are recovered in one session.** Per-arm means at W = 1 over both runs, in M ops/s: O 108.94, N 97.10, S 100.74. The two evaluations' arm E means were 109.14 and 96.97, and their arm S means 100.64 and 100.60. O/S matches the `82eb56af` evaluation's 1.081–1.087×, and N/S the pre-registered runs' 0.955–0.966×.
+- **The controls met the expectation in their point estimates, not in every interval.**
+  - O/N on insert is 0.991–1.014 across W and runs. Every interval lies inside [0.98, 1.02] except W = 8 run 2, [0.998, 1.079].
+  - O/N on delete is 0.999–1.014. Three intervals reach past 1.02: W = 1 run 2 [0.969, 1.008] on the low side, W = 4 run 2 [1.007, 1.028] and W = 8 run 1 [1.005, 1.038] on the high side.
+  - Outside wall clock O/N is 0.972–0.987, the O arm's processes finishing sooner. Wall clock covers the whole process, of which the find phase is one part; how large a part was not measured.
+- **What this does and does not establish.**
+  - Established: on this host today, the 82eb56af file runs the 1k find faster than the 6ec29a656 file, by about the amount the two evaluations differed. Host drift between the evaluations does not account for the shift.
+  - Not established: that code placement is the cause. The files differ in everything between the two commits, not only in where `JudyLGet` starts. No PMU counter was taken, and no build controls the layout.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -179,6 +203,20 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/analyze.py ref /var/tmp/stressng-eval/results/ref_run1 /var/tmp/stressng-eval/results/ref_run2
+```
+
+The diagnostic additionally needs the `82eb56af` library in `$SNG_D/expcompat-82eb56af/lib`, laid out as `build.sh` lays out `expcompat/lib`:
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref lib_ab
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref lib_ab
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_lib_ab_analyze.py ref /var/tmp/stressng-eval/results/diag_lib_ab_ref_run1 /var/tmp/stressng-eval/results/diag_lib_ab_ref_run2
 ```
 
 `build.sh` is untimed. Each `run.sh` holds the host bench lock for its whole run and refuses to start on the conditions in METHODOLOGY.md §7. `analyze.py` writes `results/baseline_<host>_run{1,2}.json` and prints the verdict table.
