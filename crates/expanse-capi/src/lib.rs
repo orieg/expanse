@@ -694,29 +694,21 @@ mod oracle {
                             let (mut i1, mut i2) = (k, k);
                             let r1 = Judy1Next(ours, &raw mut i1, null_mut());
                             let r2 = o_next(theirs, &raw mut i2, null_mut());
-                            assert_eq!(
-                                (r1, i1),
-                                (r2, if r2 == 1 { i2 } else { i1 }),
-                                "next {k:#x}"
-                            );
+                            assert_eq!((r1, i1), (r2, i2), "next {k:#x}");
                             let (mut i1, mut i2) = (k, k);
                             let r1 = Judy1Prev(ours, &raw mut i1, null_mut());
                             let r2 = o_prev(theirs, &raw mut i2, null_mut());
-                            assert_eq!(
-                                (r1, i1),
-                                (r2, if r2 == 1 { i2 } else { i1 }),
-                                "prev {k:#x}"
-                            );
+                            assert_eq!((r1, i1), (r2, i2), "prev {k:#x}");
                         }
                         _ => {
                             let (mut i1, mut i2) = (k, k);
                             let r1 = Judy1FirstEmpty(ours, &raw mut i1, null_mut());
                             let r2 = o_fe(theirs, &raw mut i2, null_mut());
-                            assert_eq!((r1, i1), (r2, if r2 == 1 { i2 } else { i1 }), "fe {k:#x}");
+                            assert_eq!((r1, i1), (r2, i2), "fe {k:#x}");
                             let (mut i1, mut i2) = (k, k);
                             let r1 = Judy1LastEmpty(ours, &raw mut i1, null_mut());
                             let r2 = o_le(theirs, &raw mut i2, null_mut());
-                            assert_eq!((r1, i1), (r2, if r2 == 1 { i2 } else { i1 }), "le {k:#x}");
+                            assert_eq!((r1, i1), (r2, i2), "le {k:#x}");
                         }
                     }
                 }
@@ -838,6 +830,193 @@ mod oracle {
                 assert!(o_free(&raw mut theirs, null_mut()) > 0);
                 assert!(ours.is_null() && theirs.is_null());
             }
+        }
+    }
+
+    /// What `First`/`Next`/`Last`/`Prev` leave in `*PIndex` on a miss, for
+    /// Judy1 and JudyL. The man pages define `*PIndex` only on a hit; this
+    /// compares the unmasked `(found, index)` pair of every call, so the
+    /// miss path is settled here (COMPAT.md D8): on a non-empty array stock
+    /// writes one step past the probe in the search direction, wrapping,
+    /// and on a null array it writes nothing. The arrays include one
+    /// emptied back to null by removal, and probes at both ends of the key
+    /// space, where the step wraps.
+    #[test]
+    fn nav_miss_index_matches_stock_libjudy() {
+        let lib = Lib::open();
+        let o_set: F2i = lib.sym(c"Judy1Set");
+        let o_unset: F2i = lib.sym(c"Judy1Unset");
+        let o_free1: FFree = lib.sym(c"Judy1FreeArray");
+        let o_ins: FpIns = lib.sym(c"JudyLIns");
+        let o_del: F2i = lib.sym(c"JudyLDel");
+        let o_freel: FFree = lib.sym(c"JudyLFreeArray");
+        let o_nav1: [FNav; 4] = [
+            lib.sym(c"Judy1First"),
+            lib.sym(c"Judy1Next"),
+            lib.sym(c"Judy1Last"),
+            lib.sym(c"Judy1Prev"),
+        ];
+        let o_navl: [FpNav; 4] = [
+            lib.sym(c"JudyLFirst"),
+            lib.sym(c"JudyLNext"),
+            lib.sym(c"JudyLLast"),
+            lib.sym(c"JudyLPrev"),
+        ];
+        unsafe extern "C" fn adapt1<const F: usize>(
+            p: *const c_void,
+            i: *mut Word,
+            pj: *mut c_void,
+        ) -> c_int {
+            // SAFETY: forwarded unchanged; `pj` is null or a live JError.
+            unsafe {
+                match F {
+                    0 => Judy1First(p, i, pj.cast()),
+                    1 => Judy1Next(p, i, pj.cast()),
+                    2 => Judy1Last(p, i, pj.cast()),
+                    _ => Judy1Prev(p, i, pj.cast()),
+                }
+            }
+        }
+        unsafe extern "C" fn adaptl<const F: usize>(
+            p: *const c_void,
+            i: *mut Word,
+            pj: *mut c_void,
+        ) -> *mut c_void {
+            // SAFETY: as above.
+            unsafe {
+                match F {
+                    0 => JudyLFirst(p, i, pj.cast()),
+                    1 => JudyLNext(p, i, pj.cast()),
+                    2 => JudyLLast(p, i, pj.cast()),
+                    _ => JudyLPrev(p, i, pj.cast()),
+                }
+            }
+        }
+        let our_nav1: [FNav; 4] = [adapt1::<0>, adapt1::<1>, adapt1::<2>, adapt1::<3>];
+        let our_navl: [FpNav; 4] = [adaptl::<0>, adaptl::<1>, adaptl::<2>, adaptl::<3>];
+
+        let shapes: [&[Word]; 6] = [
+            &[],
+            &[100],
+            &[100, 200, 300],
+            &[0],
+            &[Word::MAX],
+            &[0x99_8877_6655_4400, 0x99_8877_6655_4410],
+        ];
+        let mut probes: Vec<Word> = vec![0, 1, 99, 100, 101, 199, 200, 201, 299, 300, 301];
+        probes.extend([1 << 32, (1 << 63) - 1, 1 << 63, Word::MAX - 1, Word::MAX]);
+        probes.extend([
+            0x99_8877_6655_43FF,
+            0x99_8877_6655_4405,
+            0x99_8877_6655_4411,
+        ]);
+        let mut rng = XorShift(0x5EED_D8D8);
+        // A larger array of every key shape, so a miss can end at any depth.
+        let wide: Vec<Word> = (0..3000).map(|_| keygen(&mut rng)).collect();
+        probes.extend((0..400).map(|_| keygen(&mut rng)));
+
+        // One transcript per library: (shape, probe, function, found, index).
+        let transcript = |set: [F2i; 2],
+                          ins: FpIns,
+                          del: F2i,
+                          free: [FFree; 2],
+                          nav1: [FNav; 4],
+                          navl: [FpNav; 4]| {
+            let mut out = Vec::new();
+            let all = shapes.iter().copied().chain([wide.as_slice()]);
+            for (shape, keys) in all.enumerate() {
+                let (mut a1, mut al) = (null_mut::<c_void>(), null_mut::<c_void>());
+                // SAFETY: both arrays are owned here and driven through
+                // their C contracts; each slot is written right after the
+                // call that returned it.
+                unsafe {
+                    for &k in keys {
+                        set[0](&raw mut a1, k, null_mut());
+                        *ins(&raw mut al, k, null_mut()).cast::<Word>() = k;
+                    }
+                    for &p in &probes {
+                        for f in 0..4 {
+                            let mut i = p;
+                            let r = nav1[f](a1, &raw mut i, null_mut());
+                            out.push((shape, p, f, r == 1, i));
+                            let mut i = p;
+                            let r = navl[f](al, &raw mut i, null_mut());
+                            out.push((shape, p, 4 + f, !r.is_null(), i));
+                        }
+                    }
+                    if shape == 1 {
+                        // Emptied back to null by removal, then probed again.
+                        assert_eq!(set[1](&raw mut a1, 100, null_mut()), 1);
+                        assert_eq!(del(&raw mut al, 100, null_mut()), 1);
+                        assert!(a1.is_null() && al.is_null(), "emptied array is null");
+                        for &p in &probes {
+                            for f in 0..4 {
+                                let mut i = p;
+                                let r = nav1[f](a1, &raw mut i, null_mut());
+                                out.push((99, p, f, r == 1, i));
+                                let mut i = p;
+                                let r = navl[f](al, &raw mut i, null_mut());
+                                out.push((99, p, 4 + f, !r.is_null(), i));
+                            }
+                        }
+                    }
+                    free[0](&raw mut a1, null_mut());
+                    free[1](&raw mut al, null_mut());
+                }
+            }
+            out
+        };
+        unsafe extern "C" fn our_set(p: *mut *mut c_void, k: Word, pj: *mut c_void) -> c_int {
+            // SAFETY: forwarded unchanged.
+            unsafe { Judy1Set(p, k, pj.cast()) }
+        }
+        unsafe extern "C" fn our_unset(p: *mut *mut c_void, k: Word, pj: *mut c_void) -> c_int {
+            // SAFETY: forwarded unchanged.
+            unsafe { Judy1Unset(p, k, pj.cast()) }
+        }
+        unsafe extern "C" fn our_ins(p: *mut *mut c_void, k: Word, pj: *mut c_void) -> *mut c_void {
+            // SAFETY: forwarded unchanged.
+            unsafe { JudyLIns(p, k, pj.cast()) }
+        }
+        unsafe extern "C" fn our_del(p: *mut *mut c_void, k: Word, pj: *mut c_void) -> c_int {
+            // SAFETY: forwarded unchanged.
+            unsafe { JudyLDel(p, k, pj.cast()) }
+        }
+        unsafe extern "C" fn our_free1(p: *mut *mut c_void, pj: *mut c_void) -> Word {
+            // SAFETY: forwarded unchanged.
+            unsafe { Judy1FreeArray(p, pj.cast()) }
+        }
+        unsafe extern "C" fn our_freel(p: *mut *mut c_void, pj: *mut c_void) -> Word {
+            // SAFETY: forwarded unchanged.
+            unsafe { JudyLFreeArray(p, pj.cast()) }
+        }
+        let ours = transcript(
+            [our_set, our_unset],
+            our_ins,
+            our_del,
+            [our_free1, our_freel],
+            our_nav1,
+            our_navl,
+        );
+        let theirs = transcript(
+            [o_set, o_unset],
+            o_ins,
+            o_del,
+            [o_free1, o_freel],
+            o_nav1,
+            o_navl,
+        );
+        assert_eq!(ours.len(), theirs.len());
+        let misses = theirs.iter().filter(|t| !t.3).count();
+        assert!(
+            misses > 1000,
+            "the probes must reach the miss path: {misses}"
+        );
+        for (o, t) in ours.iter().zip(&theirs) {
+            assert_eq!(
+                o, t,
+                "(shape, probe, fn 0-3 Judy1 F/N/L/P 4-7 JudyL, found, index)"
+            );
         }
     }
 
