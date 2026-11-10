@@ -321,6 +321,11 @@ harness = false
 test = false
 
 [[bench]]
+name = "hashbrown_fifo_churn"
+harness = false
+test = false
+
+[[bench]]
 name = "hashbrown_memory_alloc"
 harness = false
 test = false

@@ -108,6 +108,7 @@ on:
           - hashbrown_tail_latency
           - hashbrown_container_dists
           - hashbrown_pop_sweep
+          - hashbrown_fifo_churn
           - hashbrown_memory_alloc
           - large_values
           - python_concurrency
