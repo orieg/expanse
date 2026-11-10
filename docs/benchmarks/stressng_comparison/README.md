@@ -343,6 +343,36 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - The remaining counters are reported with their intervals and name which front-end resource moved. They carry no verdict of their own.
 - A FRONT-END reading supports the placement hypothesis and does not establish it. Establishing it needs a build that moves only the layout, which is #1684's fix step.
 
+### Counter result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, perf 6.8.12, harness `aa526046c`; artifacts `results/diagnostic_find_counters_ref_run{1,2}.json`) (workload: sng_judy_1k)
+
+**Hygiene.** Run 1 19:24:03–19:25:30 UTC and run 2 19:25:30–19:26:49, each under the bench lock, after the 19:17 host rsync had exited. A first launch at 19:20 stopped in the preflight on a perf event-syntax error before anything was timed; `aa526046c` fixed the syntax and nothing else. 144 processes per run and none discarded; the worst foreign load over any process was 0.04 core-equivalents, and max load1 was 0.84 and 0.96 against a void limit of 12. The preflight found no event that counts alone and reads zero in its group, and no row in any process ran below 100% of the time. The library proof mapped each arm's own file, as in the library A/B.
+
+**Reading: FRONT-END.** R0 and R1 hold, and f = 0.672 in run 1 and 0.788 in run 2.
+
+| O/N | run 1 [BCa 95%] | run 2 [BCa 95%] |
+|---|---|---|
+| `instructions` | 1.0000 (bc) | 1.0000 (bc) |
+| `cycles` | 0.9849 [0.9816, 0.9863] | 0.9846 [0.9830, 0.9866] |
+| find rate | 1.1220 [1.1182, 1.1261] | 1.1235 [1.1195, 1.1276] |
+| `idq_uops_not_delivered.core` | 0.9357 [0.9290, 0.9424] | 0.9236 [0.9159, 0.9307] |
+| `dsb2mite_switches.penalty_cycles` | 0.9214 [0.9082, 0.9339] | 0.9203 [0.9135, 0.9274] |
+| `idq.mite_uops` | 0.9249 [0.9181, 0.9322] | 0.9280 [0.9203, 0.9352] |
+| `idq.ms_uops` | 0.9123 [0.9074, 0.9176] | 0.9160 [0.9101, 0.9215] |
+| `lsd.uops` | 1.0793 [1.0498, 1.1095] | 1.0896 [1.0578, 1.1362] |
+| `decode.lcp` | 0.9615 [0.9480, 0.9762] | 0.9618 [0.9441, 0.9758] |
+| `idq.dsb_uops` | 0.9991 [0.9985, 0.9998] | 0.9987 [0.9978, 0.9996] |
+| `frontend_retired.dsb_miss` | 1.0424 [1.0291, 1.0581] | 1.0349 [1.0239, 1.0462] |
+| `icache_data.stalls` | 1.0833 [1.0667, 1.1148] | 1.0734 [1.0580, 1.0918] |
+| `br_misp_retired.all_branches` | 1.0008 [0.9862, 1.0151] | 1.0088 [0.9870, 1.0290] |
+
+- **The arithmetic of f.** Per process, N takes 28.98 M (run 1) and 29.55 M (run 2) more cycles than O. At the measured width of 5.993 and 6.003 slots per cycle, that is 173.7 M and 177.4 M slots. N's front end left 116.7 M and 139.8 M more slots empty than O's.
+- **Which front-end resource moved.** In both runs N's uops came less often from the loop stream detector and more often from the legacy decoders (MITE) and the microcode sequencer, and N paid more DSB-to-MITE switch penalty cycles. The DSB delivered the same uops in both files. Instruction-cache data stalls and DSB-miss retirements moved the other way, slightly higher in O. Branch mispredictions are the same in both files, so the cycles are not bad speculation.
+- **Where.** In one `perf record` per arm per run, the find path's hot function `get::locate_slot_popcnt` holds 7.79% and 7.91% of O's user cycles and 9.52% and 10.77% of N's. It is the same 1,614 bytes in both files, at `0x22b5f0` in O and `0x22b650` in N. The 0x60-byte shift keeps its 32-byte alignment (16 bytes past a 32-byte boundary in both files) and changes its 64-byte alignment (48 bytes past a 64-byte boundary in O, 16 in N). `JudyLGet` moved by the same 0x60. One sample per arm is not an interval, and the symbol shares are reported as such.
+- **What this establishes.** The same instructions cost N more cycles because the front end delivers them less well, with the decoded-uop path changing in a way consistent with the hot code's position within 64-byte lines. That supports the placement hypothesis. It does not establish it: no build has yet moved only the layout, which is #1684's fix step.
+- **Against stock (N/S, not the question here).** N retires 0.808× stock's instructions and takes 1.063× its cycles. Its front end leaves 3.26× as many issue slots empty as stock's (`idq_uops_not_delivered.core`, intervals [3.2385, 3.2818] and [3.2471, 3.3005]), while stock mispredicts about four times as many branches (N/S 0.2449 and 0.2428). The whole stress-ng process is measured here, insert and delete included, so this is the library's front-end cost over the cell and not the find path's alone.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
