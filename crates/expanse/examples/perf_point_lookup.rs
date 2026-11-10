@@ -41,6 +41,7 @@
 //! | `EXPANSE_PERF_POP` | `1000000` | keys inserted |
 //! | `EXPANSE_PERF_HIT_PCT` | `100` | percent of probes that are present keys |
 //! | `EXPANSE_PERF_PASSES` | `1` | passes over the probe vector |
+//! | `EXPANSE_PERF_PROBES` | the population | integer arms only: probe the first N entries of the shuffled vector, the compare suite's 4096-probe loop (#1685) |
 //!
 //! # Workload shape
 //!
@@ -247,10 +248,15 @@ fn main() {
     let pop = env_usize("EXPANSE_PERF_POP", 1_000_000);
     let hit_pct = env_usize("EXPANSE_PERF_HIT_PCT", 100);
     let passes = env_usize("EXPANSE_PERF_PASSES", 1);
+    let n_probes = env_usize("EXPANSE_PERF_PROBES", pop);
 
     assert!(pop > 0, "EXPANSE_PERF_POP must be at least 1");
     assert!(hit_pct <= 100, "EXPANSE_PERF_HIT_PCT={hit_pct} exceeds 100");
     assert!(passes > 0, "EXPANSE_PERF_PASSES must be at least 1");
+    assert!(
+        (1..=pop).contains(&n_probes),
+        "EXPANSE_PERF_PROBES={n_probes} must be between 1 and EXPANSE_PERF_POP={pop}"
+    );
     let run_probe = match phase.as_str() {
         "probe" => true,
         "build" => false,
@@ -269,7 +275,9 @@ fn main() {
             for &k in &keys {
                 map.insert(k, !k);
             }
-            let probes = build_probes(&keys, &|k| map.get(k).is_some(), hit_pct);
+            let mut probes = build_probes(&keys, &|k| map.get(k).is_some(), hit_pct);
+            probes.truncate(n_probes);
+            ops = n_probes;
             sink ^= map.len();
             if run_probe {
                 for _ in 0..passes {
@@ -288,7 +296,9 @@ fn main() {
             for &k in &keys {
                 set.insert(k);
             }
-            let probes = build_probes(&keys, &|k| set.contains(k), hit_pct);
+            let mut probes = build_probes(&keys, &|k| set.contains(k), hit_pct);
+            probes.truncate(n_probes);
+            ops = n_probes;
             sink ^= set.len();
             if run_probe {
                 for _ in 0..passes {
@@ -321,7 +331,9 @@ fn main() {
             for &k in &keys {
                 map.insert(k, !k);
             }
-            let probes = build_probes(&keys, &|k| map.contains_key(&k), hit_pct);
+            let mut probes = build_probes(&keys, &|k| map.contains_key(&k), hit_pct);
+            probes.truncate(n_probes);
+            ops = n_probes;
             sink ^= map.len() as u64;
             if run_probe {
                 for _ in 0..passes {
@@ -338,7 +350,9 @@ fn main() {
             for &k in &keys {
                 set.insert(k);
             }
-            let probes = build_probes(&keys, &|k| set.contains(&k), hit_pct);
+            let mut probes = build_probes(&keys, &|k| set.contains(&k), hit_pct);
+            probes.truncate(n_probes);
+            ops = n_probes;
             sink ^= set.len() as u64;
             if run_probe {
                 for _ in 0..passes {
