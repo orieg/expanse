@@ -193,6 +193,7 @@ CI_METHOD_PRODUCERS = {
     # intervals over a run's rounds, each recorded with its `ci_method`.
     "docs/benchmarks/stressng_comparison/scripts/analyze.py",
     "docs/benchmarks/stressng_comparison/scripts/diag_lib_ab_analyze.py",
+    "docs/benchmarks/stressng_comparison/scripts/diag_find_counters_analyze.py",
     "scripts/bench_baseline.py",
     "scripts/bench_counters.py",
     "scripts/esp32_bench_harvest.py",

@@ -315,6 +315,34 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
   - Established: on this host today, the 82eb56af file runs the 1k find faster than the 6ec29a656 file, by about the amount the two evaluations differed. Host drift between the evaluations does not account for the shift.
   - Not established: that code placement is the cause. The files differ in everything between the two commits, not only in where `JudyLGet` starts. No PMU counter was taken, and no build controls the layout.
 
+## Diagnostic: front-end counters on the 1k find cell
+
+**A diagnostic, not a pre-registered result** (#1684). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The library A/B above put the 1k find shift in the library files. `JudyLGet` retires the same instructions in both files and sits 0x60 bytes later in N, so the leading hypothesis is code placement: the same instructions delivered less well by the front end. Do the counters show N's extra cycles as front-end cycles, and which front-end resource?
+
+**Design, fixed before the run** (`scripts/diag_find_counters.py`, `run.sh <run> ref counters`):
+- The three arms O, N and S of the library A/B, `sng_judy_1k` at W = 1 only. Its work is fixed (`--judy-ops 5000`), so whole-process counts compare directly across arms.
+- Every process runs under `perf stat` with user-mode events on the `cpu_core` PMU, where the pin places the run. Fixed counters `cycles` and `instructions` in every process, plus one event group per process:
+  - `uops`: `idq.dsb_uops`, `idq.mite_uops`, `idq.ms_uops`, `lsd.uops` (which unit delivered the uops);
+  - `fe`: `idq_uops_not_delivered.core`, `frontend_retired.dsb_miss`, `dsb2mite_switches.penalty_cycles`, `icache_data.stalls`;
+  - `misc`: `icache_tag.stalls`, `itlb_misses.walk_completed`, `br_misp_retired.all_branches`, `baclears.any`;
+  - `br`: the fixed `slots` counter, `br_inst_retired.all_branches`, `uops_issued.any`, `decode.lcp`.
+- No group holds more than four general-purpose events, because a larger set can read a real event as zero on this PMU (#1177). A preflight counts each general-purpose event alone and in its group on arm N, and stops if one that counts alone reads zero in its group, or if any row in any process ran below 100% of the time.
+- 12 rounds per run. Each round runs the four groups in a shuffled order and, within a group, the three arms in one of their six orders, cycling so each arm runs first, second and third equally often. Two independent runs under the host bench lock and the core pin of the comparison. Load windows, the discard rule and the void rule are the library A/B's.
+- After the rounds, one `perf record` of user cycles per arm gives each symbol's share, to say whether the cycle difference sits in `JudyLGet`. That is one sample per arm per run, and is reported as such.
+- `scripts/diag_find_counters_analyze.py` writes `results/diagnostic_find_counters_ref_run{1,2}.json`: two-sample BCa 95% intervals on O/N, N/S and O/S for every counter and for stress-ng's find rate. `cycles`, `instructions` and the find rate pool all processes of an arm, and every other counter uses its own group's processes.
+
+**Reading rule, O/N over both runs:**
+- R0, same work: `instructions` inside [0.995, 1.005] in both runs.
+- R1, cost reproduced: the `cycles` upper bound below 1 in both runs.
+- If R0 and R1 hold, f = (FE_N − FE_O) / (w · (cycles_N − cycles_O)), from the arms' means. FE is `idq_uops_not_delivered.core`, the issue slots the front end left empty, and w = slots_N / cycles_N is the measured issue width. f is the share of N's extra slots that the front end left empty.
+  - FRONT-END: f ≥ 0.5 in both runs.
+  - NOT FRONT-END: f ≤ 0.2 in both runs, and the other counters are read for the cause.
+  - PARTIAL: anything else.
+- The remaining counters are reported with their intervals and name which front-end resource moved. They carry no verdict of their own.
+- A FRONT-END reading supports the placement hypothesis and does not establish it. Establishing it needs a build that moves only the layout, which is #1684's fix step.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -364,3 +392,17 @@ python3 docs/benchmarks/stressng_comparison/scripts/diag_lib_ab_analyze.py ref /
 ```
 
 `build.sh` is untimed. Each `run.sh` holds the host bench lock for its whole run and refuses to start on the conditions in METHODOLOGY.md §7. `analyze.py` writes `results/baseline_<host>_run{1,2}.json` and prints the verdict table.
+
+The counter diagnostic needs the same three libraries and `perf`, and runs with the mode `counters`:
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref counters
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref counters
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_find_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_find_counters_ref_run1 /var/tmp/stressng-eval/results/diag_find_counters_ref_run2
+```

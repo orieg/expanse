@@ -2,11 +2,14 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
 # $SNG_D/expcompat-82eb56af/lib as well, and writes diag_lib_ab_* raw rows.
+# With `counters`, it is the front-end counter diagnostic on the same three
+# arms (scripts/diag_find_counters.py); it needs `perf` and writes
+# diag_find_counters_* raw rows.
 #
 # <host_label> is `ref` (reference host) or `zen5` (second host); it selects the
 # core pin of METHODOLOGY.md §3. SNG_D names the host's stress-ng tree, built by
@@ -63,5 +66,7 @@ case "${MODE}" in
                 "${SNG_D}/results/${HOST_LABEL}_run${RUN}" ;;
   lib_ab)     python3 "${SCRIPT_DIR}/scripts/diag_lib_ab.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_lib_ab_${HOST_LABEL}_run${RUN}" ;;
+  counters)   python3 "${SCRIPT_DIR}/scripts/diag_find_counters.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_find_counters_${HOST_LABEL}_run${RUN}" ;;
   *) echo "REFUSE: unknown mode ${MODE}" >&2; exit 2 ;;
 esac
