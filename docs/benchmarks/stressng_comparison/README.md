@@ -398,6 +398,36 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 
 **Expected if placement carries the gap** (projected): O64/N64 ≈ 1.00. N64/N could be on either side of 1, since offset 0 within a line is neither O's offset (48) nor N's (16).
 
+### Layout result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, rustc 1.98.1, harness `5c0c3861e`; artifacts `results/diagnostic_layout_ref_run{1,2}.json`) (workload: sng_judy_1k)
+
+**Builds.** Under the bench lock, 20:51:51–20:52:35 UTC.
+- The no-flag rebuild of the N source reproduced N's file byte for byte (sha256 `da5814a7…`), and the no-flag rebuild of the O source reproduced O's (`cce4ba9d…`). The toolchain had not moved since either file was built, so the flag is the only difference between N and N64, and between O and O64.
+- With the flag, N64 (`d99c1f0c…`) places `get::locate_slot_popcnt` at `0x230900` and `JudyLGet` at `0x44300`, and O64 (`b7745ddf…`) places them at `0x230880` and `0x44280`. All four sit at offset 0 within a 64-byte line.
+- The flag grows the file by 23,104 bytes (0.82%), 2,828,040 → 2,851,144.
+- A first attempt stopped on the build script's SONAME check before anything was timed. `82eb56af` predates the opt-in `DT_SONAME` (#1667), and `5c0c3861e` builds O64 without one, as O was built.
+
+**Hygiene.** Run 1 21:20:02–21:21:38 UTC and run 2 21:21:38–21:23:43, each under the bench lock, after the 21:17 host rsync had exited. 192 processes per run and none discarded; the worst foreign load over any process was 0.21 core-equivalents, and max load1 was 2.23 and 3.28 against a void limit of 12.
+
+**Reading: PLACEMENT at every W in both runs.** At equal layout the two sources find alike, and the layout alone moves N's file by the whole O/N gap.
+
+| W | O64/N64 run 1 | O64/N64 run 2 | N64/N run 1 | N64/N run 2 | N64/S run 1 | N64/S run 2 |
+|---|---|---|---|---|---|---|
+| 1 | 0.999 [0.993, 1.006] | 1.001 [0.996, 1.008] | 1.128 [1.120, 1.135] | 1.124 [1.117, 1.131] | 1.086 [1.080, 1.090] | 1.084 [1.078, 1.089] |
+| 2 | 0.998 [0.991, 1.004] | 0.999 [0.995, 1.003] | 1.129 [1.121, 1.138] | 1.130 [1.122, 1.137] | 1.086 [1.080, 1.092] | 1.090 [1.085, 1.094] |
+| 4 | 1.000 [0.996, 1.005] | 0.997 [0.993, 1.003] | 1.138 [1.132, 1.146] | 1.137 [1.129, 1.145] | 1.096 [1.089, 1.101] | 1.095 [1.088, 1.101] |
+| 8 | 0.998 [0.995, 1.000] | 0.999 [0.997, 1.001] | 1.138 [1.133, 1.141] | 1.138 [1.134, 1.146] | 1.089 [1.086, 1.091] | 1.088 [1.086, 1.089] |
+
+- **Per-arm find rates.** Means at W = 1 over both runs, in M ops/s: N 97.03, N64 109.29, O64 109.30, S 100.71. N64 recovers O's 108.94 from the library A/B.
+- **The other phases.**
+  - Delete is unchanged by the layout: N64/N 0.995–1.008, O64/N64 0.994–1.001.
+  - Insert costs a little: N64/N 0.976–0.986, SLOWER at W = 2 and W = 4 and SAME at W = 1 and W = 8 by the reading's bands. O64/N64 on insert is 1.000–1.005, so the insert cost is the layout's, not either source's.
+  - N64/S on insert is 1.090–1.099.
+- **Whole process.** Bogo-ops N64/N is 1.005–1.016. Wall clock N64/N is 0.984–0.995, the aligned processes finishing sooner.
+- **#1684's fix criterion on this host.** N64/S on find has its lower bound above 1.0 at every W in both runs (1.078 lowest). The criterion also needs the second host, which this design does not cover.
+- **What this establishes.** The O/N find gap on this host is a property of code placement and not of the code. Aligning every function to 64 bytes fixes the placement independently of link order and, on this host, takes the 1k find from 0.96× stock to 1.08–1.10×. Why offset 0 is fast and offset 16 slow is not established here, beyond the counter result above.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
