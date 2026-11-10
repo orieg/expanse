@@ -85,7 +85,7 @@ ESTIMATOR_RATIO = (
     "means")
 ESTIMATOR_COLUMNS = (
     "each published per-arm figure (mops, ns_per_op, mops_items, insert_mops, "
-    "lookup_mops, and the tail-latency percentiles) is the mean over the cell's rounds "
+    "lookup_mops, lookup_shuffled_mops, and the tail-latency percentiles) is the mean over the cell's rounds "
     "of that round's value; `intervals` holds the same mean with its BCa 95% interval. "
     "The memory census publishes exact live-heap bytes per key, one count per cell")
 ESTIMATOR_RAW = (
@@ -176,6 +176,7 @@ NATIVE_METRICS = {
 DIST_METRICS = {
     "insert_mops": ("insert_mops", {}),
     "lookup_mops": ("lookup_mops", {}),
+    "lookup_shuffled_mops": ("lookup_shuffled_mops", {}),
 }
 PERCENTILES = ("p50_ns", "p75_ns", "p90_ns", "p95_ns", "p99_ns", "p99_9_ns", "p99_99_ns",
                "max_ns")
@@ -412,7 +413,8 @@ def _synthetic_process(bench_name: str, rd: int):
                 "latency": [{"arm": arm, "rounds_raw": [row(arm)]} for arm in ARMS]}
     if bench_name == "hashbrown_container_dists":
         rows = [{"round": rd, "arm": arm, "insert_mops": 20.0 + rd + k,
-                 "lookup_mops": 40.0 + rd * k} for k, arm in enumerate(ARMS)]
+                 "lookup_mops": 40.0 + rd * k, "lookup_shuffled_mops": 30.0 + rd * k}
+                for k, arm in enumerate(ARMS)]
         return {"uniform": {"distribution": "uniform", "population": 100},
                 "throughput": [{"distribution": "uniform", "population": 100,
                                 "rounds_raw": rows}]}

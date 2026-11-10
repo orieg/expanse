@@ -359,7 +359,7 @@ def generate_key_distributions_chart():
     svg += f"""
   <!-- Header -->
   <text x="30" y="30" class="t-title">MARTIN ANKERL &amp; TESSIL KEY DISTRIBUTIONS (LOOKUP MOPS/SEC)</text>
-  <text x="30" y="46" class="t-sub">{pop_label} • Point Query Throughput across Key Geometries</text>
+  <text x="30" y="46" class="t-sub">{pop_label} • Point Query Throughput across Key Geometries • probes in draw order</text>
 
   <!-- Legend -->
   <g transform="translate(630, 20)">

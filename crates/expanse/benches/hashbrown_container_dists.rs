@@ -15,7 +15,7 @@
 //! | `group` | 3 |
 //! | `population` | 500k (50k under `--quick`) |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
-//! | `probes_and_reuse` | Lookups walk the inserted key sequence in draw order, 500k probes (100k under `--quick`) |
+//! | `probes_and_reuse` | Two probe orders over the same build, 500k probes each (100k under `--quick`), cycling the stream: `lookup_mops` walks the inserted key sequence in draw order, `lookup_shuffled_mops` walks a Fisher–Yates permutation of it drawn from the suite PRNG (`shuffled`, seed `0x5EED_F15E_0000_0001`). On `sequential` the draw order is `0, 1, 2, ...`, so consecutive probes land in the same or the adjacent leaf; the permutation removes that locality from every arm alike |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None |
 //! | `value_dereference` | `black_box(get)` |
@@ -90,6 +90,19 @@ fn round_arg(args: &[String]) -> usize {
             .expect("--round takes a non-negative integer"),
         None => 0,
     }
+}
+
+/// A Fisher–Yates permutation of `keys` from the suite PRNG: the probe
+/// stream of the shuffled-order lookups. The build is unchanged; only the
+/// order the same keys are probed in differs from the draw-order arm.
+fn shuffled(keys: &[u64]) -> Vec<u64> {
+    let mut rng = XorShift(0x5EED_F15E_0000_0001);
+    let mut out = keys.to_vec();
+    for i in (1..out.len()).rev() {
+        let j = (rng.next() % (i as u64 + 1)) as usize;
+        out.swap(i, j);
+    }
+    out
 }
 
 /// The maps a round builds, one per arm.
@@ -182,6 +195,7 @@ fn main() {
         // `scripts/bench_windowed.py` (AGENTS.md section 8.17, #1214).
         eprintln!("BENCH_WINDOW begin {dist}");
         let keys = generate_distribution(dist, num_keys, 0x1337_C0DE_CAFE_BABE);
+        let probes_shuffled = shuffled(&keys);
 
         // One row per arm. Every arm builds its map, then every arm reads
         // its own, both in the round's rotated order.
@@ -191,11 +205,15 @@ fn main() {
             let mut maps = Maps::default();
             let mut ins = [0.0f64; 3];
             let mut get = [0.0f64; 3];
+            let mut get_shuffled = [0.0f64; 3];
             for &arm in &order {
                 ins[arm] = insert(arm, &keys, &mut maps);
             }
             for &arm in &order {
                 get[arm] = lookup(arm, &keys, query_count, &maps);
+            }
+            for &arm in &order {
+                get_shuffled[arm] = lookup(arm, &probes_shuffled, query_count, &maps);
             }
             drop(maps);
             for arm in 0..ARMS.len() {
@@ -203,7 +221,8 @@ fn main() {
                     "round": round,
                     "arm": ARMS[arm],
                     "insert_mops": ins[arm],
-                    "lookup_mops": get[arm]
+                    "lookup_mops": get[arm],
+                    "lookup_shuffled_mops": get_shuffled[arm]
                 }));
             }
         }
@@ -229,7 +248,8 @@ fn main() {
                 "distribution": dist,
                 "population": num_keys,
                 "insert_mops": mean("insert_mops"),
-                "lookup_mops": mean("lookup_mops")
+                "lookup_mops": mean("lookup_mops"),
+                "lookup_shuffled_mops": mean("lookup_shuffled_mops")
             }),
         );
         cells.push(serde_json::json!({

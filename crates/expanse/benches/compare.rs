@@ -21,7 +21,7 @@
 //! | `miss_gen_method` | Same generator as the population, resumed at offset >= N, rejected on membership, bounded budget that panics on exhaustion (`generate_miss_keys`) |
 //! | `value_dereference` | `black_box(get())` |
 //! | `measured_region` | Clean: `bench_insert` uses `iter_batched(PerIteration)` and returns the built container, so Drop lands post-batch |
-//! | `arm_symmetry` | Asymmetric: SipHash `HashSet` vs `BTree` vs `Expanse` |
+//! | `arm_symmetry` | Asymmetric: `std::collections` `HashSet`/`HashMap` with the default `RandomState` (SipHash-1-3, not a fast hasher; every published `core_compare` table names it) vs `BTree` vs `Expanse`. The foldhash hashbrown baseline is `hashbrown_*` |
 //! | `statistics` | Criterion estimate |
 //! | `verdict` | ✅ **RESOLVED in #470 — was DEFECT (Class 1, 2, 3, 4, 5)** `[verified: CODE READ]`: 4k probes fit in L1/L2; XOR misses; Drop inside timed insert. |
 
