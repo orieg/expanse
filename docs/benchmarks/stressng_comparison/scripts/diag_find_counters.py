@@ -54,7 +54,7 @@ GP_EXEMPT = {"slots"}
 
 
 def ev(name):
-    return f"cpu_core/{name}:u/"
+    return f"cpu_core/{name}/u"
 
 
 def perf_stat(events, args, arm, csv_path):
@@ -66,7 +66,11 @@ def perf_stat(events, args, arm, csv_path):
     with open(csv_path + ".log", "w") as lf:
         p = subprocess.Popen(cmd, env=env, stdout=lf, stderr=subprocess.STDOUT)
         _, status, ru = os.wait4(p.pid, 0)
-    return os.waitstatus_to_exitcode(status), time.monotonic() - t0, ru, read_csv(csv_path)
+    rc = os.waitstatus_to_exitcode(status)
+    if rc != 0 or not Path(csv_path).exists():
+        sys.exit(f"STOP: perf stat exited {rc} for {events} on arm {arm}: "
+                 f"{Path(csv_path + '.log').read_text()[-800:]}")
+    return rc, time.monotonic() - t0, ru, read_csv(csv_path)
 
 
 def read_csv(path):
@@ -75,7 +79,7 @@ def read_csv(path):
     for rec in csv.reader(io.StringIO(Path(path).read_text())):
         if len(rec) < 5 or rec[0].startswith("#"):
             continue
-        name = rec[2].removeprefix("cpu_core/").removesuffix(":u/").removesuffix("/")
+        name = rec[2].removeprefix("cpu_core/").removesuffix("/u")
         count = None if rec[0].startswith("<") else float(rec[0])
         rows[name] = (count, float(rec[4]) if rec[4] else None)
     return rows
