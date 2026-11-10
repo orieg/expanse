@@ -14,10 +14,10 @@
 //! |---|---|
 //! | `workload_id` | `core_compare` |
 //! | `group` | 2 |
-//! | `population` | 10k, 1M, 4M |
+//! | `population` | 10k, 1M, 4M. Distributions: the four TESTING.md classes everywhere; the point-lookup groups (`set_lookup`, `map_get`) also run `rand22`, `rand22_bswap`, `ascii_upper`, `ascii_alnum` and `stride64` (`workload_common::KeyGen`). The two 22-bit classes draw with repetition, so from the shared seed their 1M populations hold 890,427 distinct keys and their 10k ones 9,986 (pinned in `tests/test_workload_common.rs`) |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
 //! | `probes_and_reuse` | 4096 (10k/1M) / 2M (4M), looped |
-//! | `hit_rate` | 50% (set) / 100% (map) |
+//! | `hit_rate` | Hit and miss measured as separate arms (`hit`, `miss`): 100% and 0% per arm, `set_lookup` and `map_get` both; `map_get_cold_dram` likewise |
 //! | `miss_gen_method` | Same generator as the population, resumed at offset >= N, rejected on membership, bounded budget that panics on exhaustion (`generate_miss_keys`) |
 //! | `value_dereference` | `black_box(get())` |
 //! | `measured_region` | Clean: `bench_insert` uses `iter_batched(PerIteration)` and returns the built container, so Drop lands post-batch |
@@ -49,10 +49,24 @@ fn probes(dist: &str, keys: &[u64]) -> (Vec<u64>, Vec<u64>) {
 }
 
 const DISTS: [&str; 4] = ["sequential", "random", "clustered", "sparse"];
+/// The point-lookup groups also run the trie-adversarial classes
+/// (`workload_common::KeyGen`, #1693); insert, iteration and the cold-DRAM
+/// group keep the four TESTING.md classes.
+const LOOKUP_DISTS: [&str; 9] = [
+    "sequential",
+    "random",
+    "clustered",
+    "sparse",
+    "rand22",
+    "rand22_bswap",
+    "ascii_upper",
+    "ascii_alnum",
+    "stride64",
+];
 const POPS: [usize; 2] = [10_000, 1_000_000];
 
 fn bench_set_lookup(c: &mut Criterion) {
-    for dist in DISTS {
+    for dist in LOOKUP_DISTS {
         for pop in POPS {
             let ks = keys(dist, pop);
             let (hits, misses) = probes(dist, &ks);
@@ -92,10 +106,10 @@ fn bench_set_lookup(c: &mut Criterion) {
 }
 
 fn bench_map_lookup(c: &mut Criterion) {
-    for dist in DISTS {
+    for dist in LOOKUP_DISTS {
         for pop in POPS {
             let ks = keys(dist, pop);
-            let (hits, _) = probes(dist, &ks);
+            let (hits, misses) = probes(dist, &ks);
             let mut expanse = ExpanseMap::new();
             let mut btree = BTreeMap::new();
             let mut hash = HashMap::new();
@@ -105,25 +119,27 @@ fn bench_map_lookup(c: &mut Criterion) {
                 hash.insert(k, !k);
             }
             let mut g = c.benchmark_group(format!("map_get/{dist}/{pop}"));
-            let mut i = 0;
-            g.bench_with_input(BenchmarkId::new("expanse", "hit"), &hits, |b, p| {
-                b.iter(|| {
-                    i = (i + 1) % p.len();
-                    black_box(expanse.get(black_box(p[i])))
-                })
-            });
-            g.bench_with_input(BenchmarkId::new("btree", "hit"), &hits, |b, p| {
-                b.iter(|| {
-                    i = (i + 1) % p.len();
-                    black_box(btree.get(&black_box(p[i])))
-                })
-            });
-            g.bench_with_input(BenchmarkId::new("hash", "hit"), &hits, |b, p| {
-                b.iter(|| {
-                    i = (i + 1) % p.len();
-                    black_box(hash.get(&black_box(p[i])))
-                })
-            });
+            for (case, probe) in [("hit", &hits), ("miss", &misses)] {
+                let mut i = 0;
+                g.bench_with_input(BenchmarkId::new("expanse", case), probe, |b, p| {
+                    b.iter(|| {
+                        i = (i + 1) % p.len();
+                        black_box(expanse.get(black_box(p[i])))
+                    })
+                });
+                g.bench_with_input(BenchmarkId::new("btree", case), probe, |b, p| {
+                    b.iter(|| {
+                        i = (i + 1) % p.len();
+                        black_box(btree.get(&black_box(p[i])))
+                    })
+                });
+                g.bench_with_input(BenchmarkId::new("hash", case), probe, |b, p| {
+                    b.iter(|| {
+                        i = (i + 1) % p.len();
+                        black_box(hash.get(&black_box(p[i])))
+                    })
+                });
+            }
             g.finish();
         }
     }

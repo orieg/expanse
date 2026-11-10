@@ -85,7 +85,7 @@ ESTIMATOR_RATIO = (
     "means")
 ESTIMATOR_COLUMNS = (
     "each published per-arm figure (mops, ns_per_op, mops_items, insert_mops, "
-    "lookup_mops, lookup_shuffled_mops, and the tail-latency percentiles) is the mean over the cell's rounds "
+    "lookup_mops, lookup_shuffled_mops, lookup_miss_mops, and the tail-latency percentiles) is the mean over the cell's rounds "
     "of that round's value; `intervals` holds the same mean with its BCa 95% interval. "
     "The memory census publishes exact live-heap bytes per key, one count per cell")
 ESTIMATOR_RAW = (
@@ -158,6 +158,8 @@ def annotate_throughput(rows: list[dict], metrics: dict[str, tuple[str, dict]]) 
     """
     intervals, ratios = {}, {}
     for name, (field, match) in metrics.items():
+        if name in OPTIONAL_DIST_METRICS and not any(field in r for r in rows):
+            continue
         series = {arm: _by_round(rows, arm, field, **match) for arm in ARMS}
         intervals[name] = {arm: interval([v for _, v in sorted(series[arm].items())])
                            for arm in ARMS}
@@ -177,7 +179,10 @@ DIST_METRICS = {
     "insert_mops": ("insert_mops", {}),
     "lookup_mops": ("lookup_mops", {}),
     "lookup_shuffled_mops": ("lookup_shuffled_mops", {}),
+    "lookup_miss_mops": ("lookup_miss_mops", {}),
 }
+#: DIST_METRICS a distribution may lack: `zipfian` has no miss pass.
+OPTIONAL_DIST_METRICS = ("lookup_miss_mops",)
 PERCENTILES = ("p50_ns", "p75_ns", "p90_ns", "p95_ns", "p99_ns", "p99_9_ns", "p99_99_ns",
                "max_ns")
 
@@ -277,6 +282,8 @@ def merge_rounds(bench_name: str, runs: list) -> object:
             dist = cell["distribution"]
             rows = _rows(runs, lambda p, i=idx: p["throughput"][i]["rounds_raw"])
             for metric in DIST_METRICS:
+                if metric in OPTIONAL_DIST_METRICS and not any(metric in r for r in rows):
+                    continue
                 out[dist][metric] = {arm: _mean([r[metric] for r in rows if r["arm"] == arm])
                                      for arm in ARMS}
             cells.append({"distribution": dist, "population": cell["population"],
@@ -413,11 +420,17 @@ def _synthetic_process(bench_name: str, rd: int):
                 "latency": [{"arm": arm, "rounds_raw": [row(arm)]} for arm in ARMS]}
     if bench_name == "hashbrown_container_dists":
         rows = [{"round": rd, "arm": arm, "insert_mops": 20.0 + rd + k,
-                 "lookup_mops": 40.0 + rd * k, "lookup_shuffled_mops": 30.0 + rd * k}
+                 "lookup_mops": 40.0 + rd * k, "lookup_shuffled_mops": 30.0 + rd * k,
+                 "lookup_miss_mops": 50.0 + rd * k}
                 for k, arm in enumerate(ARMS)]
+        # `zipfian` carries no miss pass.
+        zrows = [{k: v for k, v in r.items() if k != "lookup_miss_mops"} for r in rows]
         return {"uniform": {"distribution": "uniform", "population": 100},
+                "zipfian": {"distribution": "zipfian", "population": 100},
                 "throughput": [{"distribution": "uniform", "population": 100,
-                                "rounds_raw": rows}]}
+                                "rounds_raw": rows},
+                               {"distribution": "zipfian", "population": 100,
+                                "rounds_raw": zrows}]}
     return {"memory": [{"population": 1000, "random_keys_bytes_per_key": {"expanse": 1.0}}]}
 
 
@@ -466,6 +479,12 @@ def self_test() -> int:
     assert tail["hashbrown"]["p50_ns"] == 26.0 and tail["mode"] and tail["rounds"] == 3, tail
     dists = merged("hashbrown_container_dists")
     assert dists["uniform"]["insert_mops"]["btree"] == 23.0, dists["uniform"]
+    assert dists["uniform"]["lookup_miss_mops"]["btree"] == 52.0, dists["uniform"]
+    assert "lookup_miss_mops" not in dists["zipfian"], dists["zipfian"]
+    ann = annotate("hashbrown_container_dists", merged("hashbrown_container_dists"))
+    by = {c["distribution"]: c for c in ann["throughput"]}
+    assert "lookup_miss_mops" in by["uniform"]["ratios"], by["uniform"]["ratios"]
+    assert "lookup_miss_mops" not in by["zipfian"]["ratios"], by["zipfian"]["ratios"]
 
     # The annotations: every interval names its construction, and a paired
     # ratio is formed per round, not from the two means.
