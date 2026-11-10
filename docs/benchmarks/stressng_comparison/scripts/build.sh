@@ -10,13 +10,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 SNG_D="${SNG_D:-/var/tmp/stressng-eval}"
 STRESS_NG_COMMIT=d5f8133a0cc5d2fa91695c6ac5c28f5cc4a3bdf5
-JAMMY=http://archive.ubuntu.com/ubuntu/pool/universe/j/judy
+JAMMY=https://archive.ubuntu.com/ubuntu/pool/universe/j/judy
 mkdir -p "${SNG_D}/deb" "${SNG_D}/stock"
 cd "${SNG_D}"
 
-# Stock libJudy: the two jammy packages, extracted.
+# Stock libJudy: the two jammy packages, checked against the hashes of the
+# files the committed runs used (METHODOLOGY.md §2) before anything is
+# extracted, cached copies included. A mismatch stops the build.
+cat > deb/SHA256SUMS <<'SUMS'
+61e9dab03540bdb146674914d4c56ec247b8fd21996fb01b13648e1d89dd228e  libjudydebian1_1.0.5-5_amd64.deb
+be1f2ee6891cc5c07a055047718187666e97d2fc31ef5a39c1fcf66316a954e8  libjudy-dev_1.0.5-5_amd64.deb
+SUMS
 for d in libjudydebian1_1.0.5-5_amd64.deb libjudy-dev_1.0.5-5_amd64.deb; do
-  [ -f "deb/${d}" ] || curl -fsSL -o "deb/${d}" "${JAMMY}/${d}"
+  [ -f "deb/${d}" ] || curl -fsSL --proto '=https' -o "deb/${d}" "${JAMMY}/${d}"
+done
+(cd deb && sha256sum --check --strict SHA256SUMS) \
+  || { echo "libjudy package hash mismatch; refusing to extract" >&2; exit 1; }
+for d in libjudydebian1_1.0.5-5_amd64.deb libjudy-dev_1.0.5-5_amd64.deb; do
   dpkg-deb -x "deb/${d}" stock
 done
 
