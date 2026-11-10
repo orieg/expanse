@@ -271,6 +271,23 @@ pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
                     + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 3) < needle) as usize }
             }
         }
+    } else if pop <= 24 {
+        // Branchless lower bound: the answer lies in `[base, base + len]`, and
+        // each step halves `len` whatever the comparison says, so the only
+        // branch is the trip count, a function of `pop` alone. On random keys
+        // the comparison is a coin flip and was the leaf's mispredict site
+        // (#1685).
+        let (mut base, mut len) = (0usize, pop);
+        while len > 1 {
+            let half = len / 2;
+            // SAFETY: `base + half < base + len <= pop`.
+            let below =
+                unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + half) } < needle;
+            base = core::hint::select_unpredictable(below, base + half, base);
+            len -= half;
+        }
+        // SAFETY: `base < pop`, since `pop > 4` here.
+        base + usize::from(unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base) } < needle)
     } else {
         let (mut lo, mut hi) = (0usize, pop);
         while lo < hi {
@@ -1638,6 +1655,38 @@ mod tests {
                 // SAFETY: buf holds cap_class(pop) readable bytes, sorted.
                 let got = unsafe { lower_bound_fixed::<1>(buf.as_ptr(), pop, needle) };
                 assert_eq!(got, expected, "pop={pop} needle={needle}");
+            }
+        }
+    }
+
+    #[test]
+    fn lower_bound_matches_reference_on_both_search_forms() {
+        // Every width, populations through the branchless band (5..=24) and
+        // the branchy one above it (#1685), each needle landing before, on
+        // and after every key.
+        for kb in 1u8..=7 {
+            let span = if kb == 1 {
+                6u64
+            } else {
+                1u64 << (8 * u32::from(kb) - 7)
+            };
+            for pop in 1..=40usize {
+                let keys: Vec<u64> = (0..pop as u64).map(|i| 3 + i * span).collect();
+                let mut packed = Vec::new();
+                for k in &keys {
+                    packed.extend_from_slice(&k.to_le_bytes()[..kb as usize]);
+                }
+                packed.resize(cap_class(pop).max(pop) * kb as usize, 0);
+                let mut needles = vec![0u64];
+                for &k in &keys {
+                    needles.extend([k - 1, k, k + 1]);
+                }
+                for needle in needles {
+                    let expected = keys.partition_point(|&k| k < needle);
+                    // SAFETY: `packed` holds `cap_class(pop)` keys of `kb` bytes.
+                    let got = unsafe { lower_bound(packed.as_ptr(), pop, kb, needle) };
+                    assert_eq!(got, expected, "kb={kb} pop={pop} needle={needle:#x}");
+                }
             }
         }
     }
