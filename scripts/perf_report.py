@@ -97,6 +97,9 @@ BENCH_N_MAP: Dict[str, int] = {
     # phase, two probes per draw. The arm-level entry is `sm_10k`.
     "map_get_slot_ptr": 20_000,
     "map_get_slot_ptr/sm_1m": 2_000_000,
+    # `map_get` over the same sparsematrix maps and probes, through `get`.
+    "map_get/sm_10k": 20_000,
+    "map_get/sm_1m": 2_000_000,
     # One op is one small tree's whole life: box, 20 inserts, mem_used, free.
     "map_small_tree": 500,
     # Drain/refill and oscillation (#1119): an oscillate cycle is one insert
