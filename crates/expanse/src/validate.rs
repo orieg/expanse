@@ -234,21 +234,23 @@ impl StrMapNodeBytes {
 /// Diagnostic statistics for an [`crate::bytesmap::ExpanseBytesMap`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BytesMapStats {
-    /// Counts of nodes by their specific form in the hash trie.
+    /// Counts of nodes by their specific form in the hash trie and the
+    /// short-key tries (keys of at most 8 bytes).
     pub node_counts: NodeCounts,
     /// Total count of collision buckets (hash trie entries).
     pub buckets: usize,
     /// Total count of key-value entries across all buckets.
     pub entries: u64,
-    /// Histogram of hash trie node depths (0 to 8).
+    /// Histogram of node depths (0 to 8), hash and short-key tries.
     pub depth_histogram: [usize; 9],
-    /// Histogram of hash trie leaf populations (0 to 256).
+    /// Histogram of leaf populations (0 to 256), hash and short-key tries.
     pub leaf_pop_histogram: [usize; 257],
     /// Heap bytes attributed to each component; sums to `mem_used()`.
     pub node_bytes: BytesMapNodeBytes,
-    /// Branch nodes by the level of the slot holding them in the hash trie.
+    /// Branch nodes by the level of the slot holding them, hash and
+    /// short-key tries.
     pub branch_depth_histogram: [usize; 9],
-    /// Linear and bitmap leaves by slot level in the hash trie.
+    /// Linear and bitmap leaves by slot level, hash and short-key tries.
     pub leaf_depth_histogram: [usize; 9],
 }
 
@@ -272,7 +274,8 @@ impl Default for BytesMapStats {
 /// Sums exactly to `mem_used()`.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BytesMapNodeBytes {
-    /// Heap bytes attributed to each node form of the hash trie.
+    /// Heap bytes attributed to each node form of the hash trie and the
+    /// short-key tries.
     pub sub_maps: NodeBytes,
     /// Heap bytes of the collision bucket shells.
     pub node_shells: usize,
