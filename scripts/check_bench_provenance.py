@@ -189,6 +189,10 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py",
     "docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py",
     "docs/benchmarks/set_algebra/scripts/harvest_domain.py",
+    # The stress-ng x Judy comparison (#1666 item 4): per-cell two-sample E/S
+    # intervals over a run's rounds, each recorded with its `ci_method`.
+    "docs/benchmarks/stressng_comparison/scripts/analyze.py",
+    "docs/benchmarks/stressng_comparison/scripts/diag_lib_ab_analyze.py",
     "scripts/bench_baseline.py",
     "scripts/bench_counters.py",
     "scripts/esp32_bench_harvest.py",
@@ -367,6 +371,9 @@ SUITES = (
     # Expanse vs patricia_tree / fast_radix_trie / qp-trie; its first artifacts
     # land with the suite, so they are judged from the first commit.
     "patricia_comparison",
+    # stress-ng as a libJudy consumer, stock vs Expanse by library swap (#1666
+    # item 4): the pre-registered pair and the old-vs-new library diagnostic.
+    "stressng_comparison",
 )
 
 # The artifact filename families this gate governs, in a suite's `results/`
