@@ -71,7 +71,11 @@ HOME_DIR_PATTERNS = [
     ("home-directory path", re.compile(r"/home/(?!<|runner\b|\$)[A-Za-z0-9_.-]+/")),
 ]
 PII_PATTERNS = HOME_DIR_PATTERNS + [
-    ("private LAN IPv4", re.compile(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b")),
+    # Anchored by lookarounds, not \b (section 8.11.1): a dotted run that is
+    # part of a longer token is a version string, not an address. \b matched
+    # inside "jruby-10.0.8.0" and in the fifth component of "10.0.8.0.1", so a
+    # dependency bump's release notes failed the PR-body scan (#1678).
+    ("private LAN IPv4", re.compile(r"(?<![\w.])(?<![\w.]-)(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?![\w]|\.\d)")),
 ]
 
 # Tracked JSON swept for superseded figures (the published datasets) and, more
@@ -829,6 +833,19 @@ def self_test() -> int:
     fatal, _ = scan_text("t.md", "use $HOME/.cargo or /home/<user>/x\n", deny, False, reg); assert fatal == 0, "placeholder home"
     fatal, _ = scan_text("t.md", "ssh examplehost 'cargo bench'\n", deny, False, reg); assert fatal == 1, "denylisted host"
     fatal, _ = scan_text("t.md", "connect to 192.168.1.20\n", deny, False, reg); assert fatal == 1, "lan ip"
+    # The motivating false positive, verbatim from #1678's body (dependabot's
+    # setup-ruby release notes): two JRuby versions read as 10/8 addresses.
+    jruby = '<li><a href="https://github.com/ruby/setup-ruby/commit/a5612086821ed5ff914a94f49c9e4e6ee039fb72"><code>a561208</code></a> Add jruby-10.0.8.0,jruby-10.1.3.0</li>\n'
+    fatal, _ = scan_text("t.md", jruby, deny, False, reg); assert fatal == 0, "jruby versions are not lan ips"
+    for text, want, why in (
+        ("bind --host=10.0.0.5 here\n", 1, "address after ="),
+        ("reach it at (172.16.4.2).\n", 1, "address in parens, sentence end"),
+        ("ends at 10.1.2.3.\n", 1, "trailing full stop"),
+        ("ship v10.0.8.0 today\n", 0, "v-prefixed version"),
+        ("libfoo 10.0.8.0.1 build\n", 0, "five-component version"),
+        ("pkg-192.168.1.20.tar\n", 0, "hyphen-attached version"),
+    ):
+        fatal, _ = scan_text("t.md", text, deny, False, reg); assert fatal == want, f"lan ip: {why}"
     fatal, _ = scan_text("t.md", "planned for 2 weeks docs-lint: allow\n", deny, False, reg); assert fatal == 0, "allow marker"
 
     # Math escapes GitHub's Markdown pass eats. The first line is the motivating
