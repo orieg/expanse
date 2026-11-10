@@ -113,12 +113,19 @@ enum LeafCursor {
     /// [`Self::ImmedRunU`] over the children of a `BranchB`: `bits` holds the
     /// digits of subexpanse `sub` not yet read, `edge` the subarray slot of
     /// the lowest of them, and `base` the keys' common bits down to `sub`.
+    /// While `inner_left` is non-zero the run is inside a linear-leaf child
+    /// that skips no level, whose next key is at `inner_keys` (and value at
+    /// `inner_values`) under the bits `inner_base`.
     ImmedRunB {
         ptr: *const BranchB,
         edge: *const Edge,
         base: u64,
         mask: u64,
+        inner_keys: *const u8,
+        inner_values: *const u64,
+        inner_base: u64,
         bits: u32,
+        inner_left: u16,
         sub: u8,
         shift: u8,
         tag: u8,
@@ -1201,6 +1208,10 @@ impl<const MAP: bool> RawIter<MAP> {
                                     mask: (1u64 << (8 * u32::from(kb))) - 1,
                                     bits: Self::subexpanse_word(&b.bitmap, sub as u8)
                                         & (u32::MAX << (next_d & 31)),
+                                    inner_keys: core::ptr::null(),
+                                    inner_values: core::ptr::null(),
+                                    inner_base: 0,
+                                    inner_left: 0,
                                     sub: sub as u8,
                                     shift,
                                     tag: child.tag_byte(),
@@ -1450,11 +1461,34 @@ impl<const MAP: bool> RawIter<MAP> {
                     edge,
                     base,
                     mask,
+                    inner_keys,
+                    inner_values,
+                    inner_base,
                     bits,
+                    inner_left,
                     sub,
                     shift,
                     tag,
                 } => {
+                    if *inner_left != 0 {
+                        *inner_left -= 1;
+                        let kb = usize::from(*shift / 8);
+                        // SAFETY: `inner_left` keys of `kb` bytes remain at
+                        // `inner_keys`, and as many values at `inner_values`.
+                        let low = unsafe { crate::mutate::read_packed(*inner_keys, 0, kb) };
+                        // SAFETY: at most one past the leaf's last key.
+                        *inner_keys = unsafe { inner_keys.add(kb) };
+                        let v = if MAP {
+                            // SAFETY: as above, for the value array.
+                            let v = unsafe { **inner_values };
+                            // SAFETY: at most one past the leaf's last value.
+                            *inner_values = unsafe { inner_values.add(1) };
+                            v
+                        } else {
+                            0
+                        };
+                        return Some((*inner_base | low, v));
+                    }
                     let resume = loop {
                         if *bits != 0 {
                             let bit = bits.trailing_zeros();
@@ -1465,28 +1499,50 @@ impl<const MAP: bool> RawIter<MAP> {
                             // SAFETY: at most one past the subarray's last slot.
                             *edge = unsafe { edge.add(1) };
                             let k = *base | (u64::from(bit) << *shift);
-                            if e.tag_byte() != *tag {
-                                // A child of another form: descend into it from
-                                // here, past it in both this cursor and the
-                                // frame, rather than have the stack walk find
-                                // it again in the bitmap.
-                                let child = *e;
-                                let level = *shift / 8;
-                                let d = ((u32::from(*sub) << 5) | bit) as u16;
-                                if let BranchKind::B { current_digit, .. } =
-                                    &mut self.stack[self.depth - 1].kind
-                                {
-                                    *current_digit = d + 1;
+                            let t = e.tag_byte();
+                            if t == *tag {
+                                return Some(if MAP {
+                                    (k | (e.aux_word() & *mask), e.word0())
+                                } else {
+                                    (k | (e.word0() & *mask), 0)
+                                });
+                            }
+                            let level = *shift / 8;
+                            if t == EdgeType::Leaf1 as u8 + level - 1 {
+                                // A linear leaf whose key bytes equal its level
+                                // skips no digit: read its keys from inside
+                                // the run, which keeps the run's place, instead
+                                // of a descent and a fresh run after it. On
+                                // random keys these are the two- and three-key
+                                // children (#1687).
+                                let pop = e.pop0(level) as usize + 1;
+                                let node = e.node_ptr();
+                                *inner_base = k;
+                                *inner_left = pop as u16;
+                                if MAP {
+                                    // SAFETY: map leaf layout: `pop` values, then
+                                    // the class-sized key array.
+                                    *inner_keys = unsafe { node.add(leaf::map_keys_offset(pop)) };
+                                    *inner_values = node.cast::<u64>();
+                                } else {
+                                    *inner_keys = node;
                                 }
-                                // SAFETY: `child` is a live edge at `level`.
-                                unsafe { self.descend(&child, level, k) };
                                 continue 'walk;
                             }
-                            return Some(if MAP {
-                                (k | (e.aux_word() & *mask), e.word0())
-                            } else {
-                                (k | (e.word0() & *mask), 0)
-                            });
+                            // A child of another form: descend into it from
+                            // here, past it in both this cursor and the frame,
+                            // rather than have the stack walk find it again in
+                            // the bitmap.
+                            let child = *e;
+                            let d = ((u32::from(*sub) << 5) | bit) as u16;
+                            if let BranchKind::B { current_digit, .. } =
+                                &mut self.stack[self.depth - 1].kind
+                            {
+                                *current_digit = d + 1;
+                            }
+                            // SAFETY: `child` is a live edge at `level`.
+                            unsafe { self.descend(&child, level, k) };
+                            continue 'walk;
                         }
                         *sub += 1;
                         if *sub == 8 {
@@ -2908,11 +2964,42 @@ impl<const MAP: bool> RawIter<MAP> {
 
             LeafCursor::ImmedRunB {
                 base,
+                inner_keys,
+                inner_values,
+                inner_base,
                 bits,
+                inner_left,
                 sub,
                 shift,
                 ..
             } => {
+                if *inner_left != 0 {
+                    // Inside a linear-leaf child: its remaining keys share
+                    // `inner_base` above the leaf's own bytes.
+                    let (t_hi, i_hi) = (target >> *shift, *inner_base >> *shift);
+                    if t_hi < i_hi {
+                        return true;
+                    }
+                    if t_hi == i_hi {
+                        let kb = usize::from(*shift / 8);
+                        while *inner_left != 0 {
+                            // SAFETY: as in `next`.
+                            let low = unsafe { crate::mutate::read_packed(*inner_keys, 0, kb) };
+                            if *inner_base | low >= target {
+                                return true;
+                            }
+                            *inner_left -= 1;
+                            // SAFETY: at most one past the leaf's last key.
+                            *inner_keys = unsafe { inner_keys.add(kb) };
+                            if MAP {
+                                // SAFETY: at most one past its last value.
+                                *inner_values = unsafe { inner_values.add(1) };
+                            }
+                        }
+                    } else {
+                        *inner_left = 0;
+                    }
+                }
                 let hi = u32::from(*shift) + 8;
                 if hi < 64 && (target >> hi) != (*base >> hi) {
                     return (target >> hi) < (*base >> hi);

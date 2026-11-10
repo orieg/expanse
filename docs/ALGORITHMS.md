@@ -112,9 +112,11 @@ the nearest frame with a remaining higher child and re-descends leftmost.
 the slot array of a `BranchU`, the subarrays of a `BranchB` — and yields one key per
 slot. A key then costs one slot read instead of a round trip through the leaf cursor
 and the stack walk. An immediate's key bytes equal its level, so every single-key
-sibling carries the first one's tag byte and the run test is one byte compare. The
-run ends at a child of another form (a `BranchB` run descends into it directly) or
-at the end of the branch, and writes its position back into the frame; `seek_forward`
+sibling carries the first one's tag byte and the run test is one byte compare. A
+`BranchB` run also reads a linear-leaf child that skips no level in place (on random
+keys, the map's two- and three-key children); the run ends at a child of any other
+form, which it descends into directly, or at the end of the branch, and writes its
+position back into the frame; `seek_forward`
 treats a run like a leaf whose remaining keys start at the run's next digit. Forward
 map bitmap leaves are walked in place the same way (`BitmapMapAsc`, a value pointer
 bumped per set bit in place of a `values[sub][rank]` index). The reverse walk keeps

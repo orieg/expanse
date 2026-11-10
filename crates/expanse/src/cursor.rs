@@ -505,12 +505,19 @@ mod tests {
             let mut keys = Vec::new();
             for i in 0..count {
                 let d = (0x5Au64 << 56) | ((i * stride) << 48);
-                keys.push(d | 0x1234);
+                keys.push(d | (0x12 << 40) | 0x1234);
                 if i % 7 == 3 {
-                    keys.extend([d | 0x5678, d | 0x9999]);
+                    // Differ in the child's top byte, so the child is a
+                    // full-width linear leaf (no skipped level): the shape a
+                    // `BranchB` run reads in place.
+                    keys.extend([d | (0x34 << 40) | 0x5678, d | (0x56 << 40) | 0x9999]);
+                }
+                if i % 11 == 5 {
+                    // A child that does skip levels, which the run descends into.
+                    keys.extend([d | (0x12 << 40) | 0x5678]);
                 }
             }
-            let (_, map, _, _) = build(&keys);
+            let (set, map, sorted, _) = build(&keys);
             let counts = map.stats().node_counts;
             assert!(
                 if dense {
@@ -521,6 +528,37 @@ mod tests {
                 "{counts:?}"
             );
             check_distribution(&keys);
+            // Seeks only ever enter a leaf by descending; a run, and a leaf a
+            // run reads in place, are entered by next() alone. Reach every
+            // position with next() and seek exactly one and two keys ahead,
+            // so a seek lands on a key still ahead inside the run or leaf.
+            for j in 0..sorted.len() {
+                // One and two keys ahead, and the first key past the next
+                // digit boundary at the run's level and one below it, which
+                // can fall in a gap between a leaf child and its next sibling.
+                let next_digit = |shift: u32| ((sorted[j] >> shift) + 1).checked_shl(shift);
+                let targets = [
+                    sorted.get(j + 1).copied(),
+                    sorted.get(j + 2).copied(),
+                    next_digit(48),
+                    next_digit(40),
+                ];
+                for t in targets.into_iter().flatten() {
+                    let want = sorted.get(sorted.partition_point(|&k| k < t)).copied();
+                    let (mut sc, mut mc) = (set.cursor(), map.cursor());
+                    for _ in 0..j {
+                        sc.next();
+                        mc.next();
+                    }
+                    assert_eq!(sc.current(), Some(sorted[j]));
+                    assert_eq!(sc.advance_to(t), want, "set: from {j} to {t:#x}");
+                    assert_eq!(
+                        mc.advance_to(t).map(|(k, _)| k),
+                        want,
+                        "map: from {j} to {t:#x}"
+                    );
+                }
+            }
         }
     }
 
