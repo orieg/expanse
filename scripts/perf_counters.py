@@ -84,6 +84,35 @@ DEFAULT_EVENTS = PORTABLE_EVENTS + VENDOR_EVENTS
 WORKLOAD_REL = "target/release/examples/perf_point_lookup"
 BUILD_CMD = "cargo build --release -p expanse-trie --example perf_point_lookup"
 
+# The workloads this driver can wrap (`--workload`). Each binary reads the same
+# `EXPANSE_PERF_*` variables and echoes `ops=` on its last line; what differs
+# is the binary, the arms it accepts and the defaults a sweep starts from.
+WORKLOADS: dict[str, dict] = {
+    "point_lookup": {
+        "rel": WORKLOAD_REL,
+        "build": BUILD_CMD,
+        "source": "crates/expanse/examples/perf_point_lookup.rs",
+        "title": "random point lookup ([#455](https://github.com/orieg/expanse/issues/455) R0)",
+        "arms": "map_get,set_contains",
+        "pops": "1048576",
+        "hit_pcts": "100,50",
+    },
+    # OQGraph's two-bit colour map on Judy1 (#1682): stock libjudy and
+    # libexpanse through the same C ABI. A test's hit rate is whatever the
+    # search produces, so the only accepted `--hit-pcts` value is 100, a
+    # placeholder that keeps the cell id shape.
+    "colour_map": {
+        "rel": "target/release/examples/colour_map",
+        "build": "cargo build --release -p expanse-capi --example colour_map",
+        "source": "crates/expanse-capi/examples/colour_map.rs",
+        "title": "OQGraph colour map on Judy1 "
+        "([#1682](https://github.com/orieg/expanse/issues/1682))",
+        "arms": "stock,expanse_dl",
+        "pops": "10000,100000",
+        "hit_pcts": "100",
+    },
+}
+
 # BCa needs a jackknife, so n >= 3 (bca_bootstrap.py raises below that).
 MIN_RUNS = 3
 CONFIDENCE = 0.95
@@ -519,7 +548,7 @@ def counter_stat(
 
 
 def preflight(
-    root: Path, events: list[str], pmu_override: str
+    root: Path, events: list[str], pmu_override: str, workload_name: str = "point_lookup"
 ) -> tuple[str | None, str, list[str], list[str], list[dict[str, str]]]:
     """Probe the real capability, pick a PMU, then classify each requested event.
 
@@ -544,11 +573,12 @@ def preflight(
             "`perf` on Fedora/RHEL) before re-triggering. No counters were collected."
         )
 
-    workload = root / WORKLOAD_REL
+    wl = WORKLOADS[workload_name]
+    workload = root / wl["rel"]
     if not workload.is_file():
         raise Preflight(
-            f"the workload binary {WORKLOAD_REL} does not exist. Build it with "
-            f"`{BUILD_CMD}` before re-triggering. No counters were collected."
+            f"the workload binary {wl['rel']} does not exist. Build it with "
+            f"`{wl['build']}` before re-triggering. No counters were collected."
         )
 
     probe_env = _workload_env({"EXPANSE_PERF_POP": "1", "EXPANSE_PERF_PHASE": "build"})
@@ -811,13 +841,13 @@ def summarise(samples: list[float]) -> dict:
 # --------------------------------------------------------------------------
 def render(doc: dict) -> list[str]:
     """The markdown block. Every cell is derived from `doc` (rule 10)."""
+    wl = WORKLOADS[doc.get("workload", "point_lookup")]
     lines = [
-        "### Hardware counters — random point lookup "
-        "([#455](https://github.com/orieg/expanse/issues/455) R0)",
+        f"### Hardware counters — {wl['title']}",
         "",
         "Diagnostic only: **no counter here gates anything.** Counts are "
         "`probe - build` over paired runs of "
-        "`crates/expanse/examples/perf_point_lookup.rs`, with a BCa 95% interval "
+        f"`{wl['source']}`, with a BCa 95% interval "
         "over the per-run differences.",
         "",
     ]
@@ -904,6 +934,7 @@ def build_doc(
     return {
         "schema": "expanse.perfcounters.v1",
         "generated_by": "scripts/perf_counters.py",
+        "workload": getattr(args, "workload", "point_lookup"),
         "gates": False,
         "provenance": {
             "host_description": args.host_desc,
@@ -1079,9 +1110,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--pops", default="1048576", help="comma-separated populations")
-    ap.add_argument("--arms", default="map_get,set_contains")
-    ap.add_argument("--hit-pcts", default="100,50")
+    ap.add_argument(
+        "--workload",
+        choices=sorted(WORKLOADS),
+        default="point_lookup",
+        help="which workload binary to wrap; sets the defaults of --arms, --pops, --hit-pcts",
+    )
+    ap.add_argument("--pops", default=None, help="comma-separated populations")
+    ap.add_argument("--arms", default=None)
+    ap.add_argument("--hit-pcts", default=None)
     ap.add_argument("--passes", type=int, default=1)
     ap.add_argument("--runs", type=int, default=10, help=f"paired runs per cell (>= {MIN_RUNS})")
     ap.add_argument("--events", default=",".join(DEFAULT_EVENTS))
@@ -1107,10 +1144,21 @@ def main() -> int:
     if args.self_test:
         return self_test()
 
+    wl = WORKLOADS[args.workload]
+    for field in ("arms", "pops", "hit_pcts"):
+        if getattr(args, field) is None:
+            setattr(args, field, wl[field])
     args.events = [e.strip() for e in args.events.split(",") if e.strip()]
     pops = [int(p) for p in args.pops.split(",") if p.strip()]
     arms = [a.strip() for a in args.arms.split(",") if a.strip()]
     hit_pcts = [int(h) for h in args.hit_pcts.split(",") if h.strip()]
+    if args.workload == "colour_map" and hit_pcts != [100]:
+        print(
+            "::error::--workload colour_map has no hit-rate knob: a test hits as the "
+            "search makes it, so --hit-pcts must be 100",
+            file=sys.stderr,
+        )
+        return 1
     if args.runs < MIN_RUNS:
         print(
             f"::error::--runs={args.runs} is below {MIN_RUNS}; BCa needs a jackknife and "
@@ -1134,7 +1182,7 @@ def main() -> int:
     else:
         # Walk up from this script: it lives at <root>/scripts/.
         here = Path(__file__).resolve().parent.parent
-        if (here / WORKLOAD_REL).exists() or (here / "Cargo.toml").exists():
+        if (here / wl["rel"]).exists() or (here / "Cargo.toml").exists():
             root = here
     if root is None:
         print(
@@ -1145,7 +1193,9 @@ def main() -> int:
         return 1
 
     try:
-        pmu, why, pin, available, unavailable = preflight(root, args.events, args.pmu)
+        pmu, why, pin, available, unavailable = preflight(
+            root, args.events, args.pmu, args.workload
+        )
     except Preflight as exc:
         print(f"::error::{exc}", file=sys.stderr)
         return 1
@@ -1159,7 +1209,7 @@ def main() -> int:
         print(f"perf_counters.py: {len(available)} counter(s) available: {', '.join(available)}")
         return 0
 
-    workload = root / WORKLOAD_REL
+    workload = root / wl["rel"]
     cells: list[dict] = []
     prov: dict = {"loads": []}
     try:
@@ -1255,6 +1305,15 @@ def self_test() -> int:
         "arm=strmap_prefix_scan phase=probe pop=1000 hit_pct=100 passes=1 ops=247 checksum=9", 1000
     ) == 247
     assert echoed_ops("arm=map_get phase=probe pop=1000 hit_pct=100 passes=1 checksum=9", 1000) == 1000
+    # The colour-map workload echoes its call count, which is what a cell
+    # divides by (12n + 2 for n vertices, `colour_map_common::census`).
+    assert echoed_ops("arm=stock pop=10000 passes=1 ops=120002 sink=86776", 10000) == 120002
+    # Every workload names a binary under target/release/examples, the source
+    # its report cites, and the defaults a sweep starts from.
+    for name, wl in WORKLOADS.items():
+        assert wl["rel"].startswith("target/release/examples/"), name
+        assert wl["build"].endswith(wl["rel"].rsplit("/", 1)[1]), name
+        assert all(wl[k] for k in ("source", "title", "arms", "pops", "hit_pcts")), name
     assert parsed["cycles"]["value"] == 1234567.0, parsed
     assert parsed["cycles"]["pct_running"] == 100.0, parsed
     assert parsed["instructions"]["pct_running"] == 52.31, parsed
