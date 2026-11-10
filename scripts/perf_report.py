@@ -93,6 +93,10 @@ BENCH_N_MAP: Dict[str, int] = {
     "map_remove_revgen": 262_144,
     "map_remove_revgen/gen_1k": 1_024,
     "map_remove_revgen/gen_4m": 4_194_304,
+    # The stress-ng `sparsematrix` judy gets (#1680): hit phase plus miss
+    # phase, two probes per draw. The arm-level entry is `sm_10k`.
+    "map_get_slot_ptr": 20_000,
+    "map_get_slot_ptr/sm_1m": 2_000_000,
     # One op is one small tree's whole life: box, 20 inserts, mem_used, free.
     "map_small_tree": 500,
     # Drain/refill and oscillation (#1119): an oscillate cycle is one insert
@@ -412,6 +416,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
         "#### 🔍 Point Queries & Lookups",
         {
             "map_get",
+            "map_get_slot_ptr",
             "set_contains",
             "map_get_batch",
             "set_contains_batch",
