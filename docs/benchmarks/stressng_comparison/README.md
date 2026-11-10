@@ -373,6 +373,30 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - **What this establishes.** The same instructions cost N more cycles because the front end delivers them less well, with the decoded-uop path changing in a way consistent with the hot code's position within 64-byte lines. That supports the placement hypothesis. It does not establish it: no build has yet moved only the layout, which is #1684's fix step.
 - **Against stock (N/S, not the question here).** N retires 0.808× stock's instructions and takes 1.063× its cycles. Its front end leaves 3.26× as many issue slots empty as stock's (`idq_uops_not_delivered.core`, intervals [3.2385, 3.2818] and [3.2471, 3.3005]), while stock mispredicts about four times as many branches (N/S 0.2449 and 0.2428). The whole stress-ng process is measured here, insert and delete included, so this is the library's front-end cost over the cell and not the find path's alone.
 
+## Diagnostic: the #1679 delete fix on the `judy` cells
+
+**A diagnostic, not a pre-registered result** (#1679). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** #1708 keeps a removal-only lower bound on a `BranchU`'s live slots, which drops the Callgrind count of the stress-ng delete phase by 12.8% (1 Ki keys) to 29.7% (256 Ki). Does the wall-clock delete rate follow, and does it reach stock?
+
+**Design, fixed before the builds** (`scripts/build_layout_lib.sh`, `scripts/diag_delete.py`, `run.sh <run> <host> delete`):
+- Two library files, built on the reference host by `build.sh`'s libexpanse build with no flag:
+  - B: #1708's merge base (`99ef70855`);
+  - D: #1708's head (`dd12b6e0e`).
+
+  The second host runs the same files, copied and hash-checked.
+- Three arms, the same stress-ng binary and judy stressor, differing only in `LD_LIBRARY_PATH`: B, D and S (stock). Every `sng_judy_*` cell (1 Ki, 256 Ki and 4 Mi keys at W = 1, 2, 4, 8), one process per arm per cell per round.
+- 12 rounds per run, cycling through the six orders of the three arms. Two independent runs per host under the host bench lock and that host's pin. Load windows, the discard rule and the void rule are the library A/B's.
+- The layout diagnostic found the delete rate insensitive to function alignment (N64/N 0.995–1.008). So B against D measures the fix together with whatever else changed between the two commits, which is only #1708's diff.
+- `scripts/diag_delete_analyze.py` writes `results/diagnostic_delete_<host>_run{1,2}.json`: two-sample BCa 95% intervals on D/B, D/S and B/S for delete, insert, find, bogo-ops/s and wall clock.
+
+**Reading rule, on the delete rate, per cell and W, over both runs:**
+- **#1679's criterion:** D/S lower bound at or above 1.0 in both runs, at every cell and W, on both hosts.
+- **D/B** is FASTER, SAME, SLOWER or MIXED, by the layout diagnostic's bands.
+- **Insert and find** under D/B are reported as controls, since #1708 does not touch those paths.
+
+**Expected** (projected): D/B on delete above 1 at every size. The size of the move is not predicted from the Callgrind change, since #1668 found the delete gap's wall-clock share unmeasured.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -435,4 +459,26 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref counters
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_find_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_find_counters_ref_run1 /var/tmp/stressng-eval/results/diag_find_counters_ref_run2
+```
+
+The delete-fix diagnostic builds its two libraries first, from `git archive` exports of #1708's merge base and head, then runs with the mode `delete` on each host:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 99ef70855> /var/tmp/stressng-eval/expcompat-99ef70855/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of dd12b6e0e> /var/tmp/stressng-eval/expcompat-dd12b6e0e/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref delete
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref delete
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_ref_run1 /var/tmp/stressng-eval/results/diag_delete_ref_run2
 ```
