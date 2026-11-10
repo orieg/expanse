@@ -373,6 +373,31 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - **What this establishes.** The same instructions cost N more cycles because the front end delivers them less well, with the decoded-uop path changing in a way consistent with the hot code's position within 64-byte lines. That supports the placement hypothesis. It does not establish it: no build has yet moved only the layout, which is #1684's fix step.
 - **Against stock (N/S, not the question here).** N retires 0.808× stock's instructions and takes 1.063× its cycles. Its front end leaves 3.26× as many issue slots empty as stock's (`idq_uops_not_delivered.core`, intervals [3.2385, 3.2818] and [3.2471, 3.3005]), while stock mispredicts about four times as many branches (N/S 0.2449 and 0.2428). The whole stress-ng process is measured here, insert and delete included, so this is the library's front-end cost over the cell and not the find path's alone.
 
+## Diagnostic: layout-only builds on the 1k find cell
+
+**A diagnostic, not a pre-registered result** (#1684). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The counters put N's extra cycles in the front end, and the hot find function sits at a different offset within a 64-byte line in O and N. Is the O/N gap a property of where the code sits, or of what the code is? A build that changes only the layout answers that; the counters alone cannot.
+
+**Design, fixed before the builds** (`scripts/build_layout_lib.sh`, `scripts/diag_layout.py`, `run.sh <run> ref layout`):
+- Two new library files, built on the reference host by `build.sh`'s libexpanse build with one addition, `RUSTFLAGS="-C llvm-args=-align-all-functions=6"`, which starts every function on a 64-byte boundary:
+  - N64: the source of N (`6ec29a656`);
+  - O64: the source of O (`82eb56af`).
+- **Toolchain control.** Before the aligned builds, the N source is rebuilt with an empty `RUSTFLAGS` and its sha256 must equal N's file (`da5814a7…`). If it does not, the toolchain has moved, nothing is run, and the result is reported as that.
+- **Layout check.** `objdump -t` must place `get::locate_slot_popcnt` and `JudyLGet` at offset 0 within a 64-byte line in both N64 and O64. If it does not, nothing is run.
+- Four arms, the same stress-ng binary and judy stressor, differing only in `LD_LIBRARY_PATH`: N, N64, O64 and S (stock). `sng_judy_1k` at W = 1, 2, 4, 8, one process per arm per W per round.
+- 12 rounds per run, rotating the arms through their four cyclic orders, so every arm runs in every position equally often. Two independent runs under the host bench lock and the core pin of the comparison. Load windows, the discard rule and the void rule are the library A/B's.
+- `scripts/diag_layout_analyze.py` writes `results/diagnostic_layout_ref_run{1,2}.json`: two-sample BCa 95% intervals on N64/N, O64/N64, N64/S and N/S for find, insert, delete, bogo-ops/s and wall clock.
+
+**Reading rule, per W, from the find-rate intervals over both runs.** A pair is SAME when both intervals lie inside [0.98, 1.02], FASTER when both lower bounds exceed 1, SLOWER when both upper bounds are below 1, and MIXED otherwise.
+- PLACEMENT: O64/N64 SAME, and N64/N FASTER or SLOWER. Equal layout removes the O/N gap, and the layout alone moves N.
+- NOT PLACEMENT: O64/N64 FASTER. O's code is faster at equal layout, so the gap is in the code.
+- UNRESOLVED: anything else.
+
+**#1684's fix criterion is separate from the reading.** N64/S lower bound at or above 1.0 at every W in both runs, here and on the second host, would make 64-byte function alignment a candidate fix. The second-host run is not part of this design and is booked separately.
+
+**Expected if placement carries the gap** (projected): O64/N64 ≈ 1.00. N64/N could be on either side of 1, since offset 0 within a line is neither O's offset (48) nor N's (16).
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -435,4 +460,26 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref counters
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_find_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_find_counters_ref_run1 /var/tmp/stressng-eval/results/diag_find_counters_ref_run2
+```
+
+The layout-only diagnostic builds its two libraries first, from `git archive` exports of the two commits, then runs with the mode `layout`:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 6ec29a656> /var/tmp/stressng-eval/expcompat-6ec29a656-fa64/lib "-C llvm-args=-align-all-functions=6"
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 82eb56af> /var/tmp/stressng-eval/expcompat-82eb56af-fa64/lib "-C llvm-args=-align-all-functions=6"
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref layout
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref layout
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_layout_analyze.py ref /var/tmp/stressng-eval/results/diag_layout_ref_run1 /var/tmp/stressng-eval/results/diag_layout_ref_run2
 ```
