@@ -695,6 +695,18 @@
       "suite": "hashbrown_comparison"
     },
     {
+      "name": "hashbrown_pop_sweep",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "hashbrown_pop_sweep",
+      "result_pattern": "\"hit_mops\": ",
+      "windows": "markers",
+      "summary": "Log-spaced population sweep (16 to 4M keys) of hit and miss lookup and live heap bytes/key against hashbrown and BTreeMap, locating the crossovers; one round per process, so the BCa intervals come from `hashbrown_comparison`.",
+      "suite": "hashbrown_comparison"
+    },
+    {
       "name": "hashbrown_memory_alloc",
       "available": true,
       "kind": "wallclock",
