@@ -383,7 +383,7 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - Two new library files, built on the reference host by `build.sh`'s libexpanse build with one addition, `RUSTFLAGS="-C llvm-args=-align-all-functions=6"`, which starts every function on a 64-byte boundary:
   - N64: the source of N (`6ec29a656`);
   - O64: the source of O (`82eb56af`).
-- **Toolchain control.** Before the aligned builds, the N source is rebuilt with an empty `RUSTFLAGS` and its sha256 must equal N's file (`da5814a7…`). If it does not, the toolchain has moved, nothing is run, and the result is reported as that.
+- **Toolchain control.** Before the aligned builds, the N source is rebuilt with an empty `RUSTFLAGS` and its sha256 must equal N's file (`da5814a7…`). If it does not, the toolchain has moved, nothing is run, and the result is reported as that. The O source is rebuilt the same way and its sha256 compared with O's file (`cce4ba9d…`); that comparison is reported and gates nothing, since O is not an arm. `82eb56af` predates the opt-in `DT_SONAME` (#1667), so O64 is built without one, as O was.
 - **Layout check.** `objdump -t` must place `get::locate_slot_popcnt` and `JudyLGet` at offset 0 within a 64-byte line in both N64 and O64. If it does not, nothing is run.
 - Four arms, the same stress-ng binary and judy stressor, differing only in `LD_LIBRARY_PATH`: N, N64, O64 and S (stock). `sng_judy_1k` at W = 1, 2, 4, 8, one process per arm per W per round.
 - 12 rounds per run, rotating the arms through their four cyclic orders, so every arm runs in every position equally often. Two independent runs under the host bench lock and the core pin of the comparison. Load windows, the discard rule and the void rule are the library A/B's.

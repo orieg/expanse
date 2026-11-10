@@ -23,7 +23,11 @@ cp "${TARGET}/release/libexpanse.so" "${DEST}/libexpanse.so.1.0.0"
 ln -sf libexpanse.so.1.0.0 "${DEST}/libexpanse.so.1"
 ln -sf libexpanse.so.1 "${DEST}/libexpanse.so"
 ln -sf libexpanse.so.1 "${DEST}/libJudy.so.1"
-readelf -d "${DEST}/libexpanse.so.1.0.0" | grep -q 'SONAME.*libexpanse.so.1' \
-  || { echo "libexpanse has no DT_SONAME libexpanse.so.1" >&2; exit 1; }
+# A source from before the opt-in DT_SONAME (#1667) builds without one, as its
+# measured file did; one that has the opt-in must carry it.
+if grep -q EXPANSE_LINK_SONAME "${SRC}/crates/expanse-capi/build.rs" 2>/dev/null; then
+  readelf -d "${DEST}/libexpanse.so.1.0.0" | grep -q 'SONAME.*libexpanse.so.1' \
+    || { echo "libexpanse has no DT_SONAME libexpanse.so.1" >&2; exit 1; }
+fi
 rustc --version
 sha256sum "${DEST}/libexpanse.so.1.0.0"
