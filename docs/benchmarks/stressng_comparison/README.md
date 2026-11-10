@@ -3,7 +3,7 @@
 stress-ng's `judy` and `sparsematrix` stressors run one binary against stock libJudy and against `libexpanse`. The library is swapped through `libJudy.so.1` and nothing else changes. This suite is item 4 of [#1666](https://github.com/orieg/expanse/issues/1666): the re-measure after the packaging fix (#1667), the Callgrind arms (#1668) and the documented small-array floor (#1669).
 
 - **Pre-registration:** [`METHODOLOGY.md`](METHODOLOGY.md). It was committed before the first timed process of this measurement and is never edited to match outcomes.
-- **Status:** the reference host has been measured (below). The second host waits on approval for its governor change and for pausing its CI runner (METHODOLOGY.md §3).
+- **Status:** both hosts have been measured (below), the second with the governor change and the paused CI runner that METHODOLOGY.md §3 makes conditional on approval.
 - **Review:** no independent, non-LLM review has been done. #1666 item 4 requires one before any statement to stress-ng or to distribution packagers.
 
 ## Results: reference host
@@ -138,6 +138,136 @@ stress-ng's `judy` and `sparsematrix` stressors run one binary against stock lib
 
 The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s ratio to within 5% in every cell of both runs.
 
+## Results: second host
+
+(measured: second host AMD Ryzen 9 9955HX (Zen 5, 16 cores, 32 threads), CPUs `0-7` pinned, governor `performance` on every CPU (`amd-pstate-epp`, EPP `performance`), Linux 6.8, harness `668bf4a58`, the same stress-ng binary, stock libJudy and libexpanse file as the reference host (sha256 `490c0595…`, `76f121a8…`, `da5814a7…`); artifacts `results/baseline_zen5_run1.json`, `results/baseline_zen5_run2.json`; workloads: each row's `workload_id`)
+
+This is the second host's result, kept apart from the reference host's. No figure below is pooled with the tables above. The harness's timed path is the one the reference host ran: `3b17913df` moved the library proof into a function and changed nothing it runs.
+
+### Host hygiene
+
+- **Dispatch:** no bench workflow was in flight and the host's CI runner had no job. Both runs held the host bench lock once for the pair, from 16:04:19 to 16:17:50 UTC.
+- **Host changes for the timed rounds only (METHODOLOGY.md §3):** the governor went from `powersave` to `performance` on all 32 CPUs, and the host's other CI runner container was stopped. A trap restored both on exit, and both were read back equal to the state recorded before the change: the governor and EPP of every CPU, and the container running with restart policy `unless-stopped`.
+- **Load:** 800 processes ran, with 0 non-zero exits, 0 stress-ng failures and none discarded.
+  - Foreign load median 0.01 core-equivalents in both runs; max 0.30 in run 1 and 0.17 in run 2.
+  - Max load1 was 4.77 and 5.59, against a void threshold of 16.
+  - The host's five-minute deployment check and ten-minute statistics collector were not paused. No process crossed the discard limit.
+- **Library proof:** arm S mapped `libJudy.so.1.0.3`; arm E mapped `libexpanse.so.1.0.0`.
+
+### Primary metrics (E/S, higher means Expanse is faster)
+
+| workload | W | metric | run 1 E/S [BCa 95%] | run 2 E/S [BCa 95%] | verdict |
+|---|---|---|---|---|---|
+| `sng_judy_1k` | 1 | `judy-delete-operations-per-sec` | 0.799 [0.796, 0.802] | 0.801 [0.800, 0.803] | SLOWER |
+| `sng_judy_1k` | 1 | `judy-find-operations-per-sec` | 1.140 [1.123, 1.151] | 1.150 [1.145, 1.153] | FASTER |
+| `sng_judy_1k` | 1 | `judy-insert-operations-per-sec` | 1.193 [1.186, 1.213] | 1.185 [1.180, 1.188] | FASTER |
+| `sng_judy_1k` | 2 | `judy-delete-operations-per-sec` | 0.803 [0.801, 0.805] | 0.801 [0.798, 0.804] | SLOWER |
+| `sng_judy_1k` | 2 | `judy-find-operations-per-sec` | 1.149 [1.141, 1.156] | 1.145 [1.134, 1.150] | FASTER |
+| `sng_judy_1k` | 2 | `judy-insert-operations-per-sec` | 1.188 [1.184, 1.192] | 1.182 [1.177, 1.188] | FASTER |
+| `sng_judy_1k` | 4 | `judy-delete-operations-per-sec` | 0.800 [0.798, 0.801] | 0.799 [0.796, 0.801] | SLOWER |
+| `sng_judy_1k` | 4 | `judy-find-operations-per-sec` | 1.143 [1.139, 1.150] | 1.142 [1.121, 1.150] | FASTER |
+| `sng_judy_1k` | 4 | `judy-insert-operations-per-sec` | 1.192 [1.178, 1.218] | 1.176 [1.169, 1.180] | FASTER |
+| `sng_judy_1k` | 8 | `judy-delete-operations-per-sec` | 0.800 [0.798, 0.802] | 0.801 [0.796, 0.804] | SLOWER |
+| `sng_judy_1k` | 8 | `judy-find-operations-per-sec` | 1.149 [1.140, 1.153] | 1.142 [1.133, 1.147] | FASTER |
+| `sng_judy_1k` | 8 | `judy-insert-operations-per-sec` | 1.193 [1.186, 1.206] | 1.184 [1.179, 1.190] | FASTER |
+| `sng_judy_256k` | 1 | `judy-delete-operations-per-sec` | 0.680 [0.676, 0.683] | 0.680 [0.678, 0.683] | SLOWER |
+| `sng_judy_256k` | 1 | `judy-find-operations-per-sec` | 1.325 [1.320, 1.332] | 1.326 [1.321, 1.332] | FASTER |
+| `sng_judy_256k` | 1 | `judy-insert-operations-per-sec` | 1.156 [1.146, 1.160] | 1.157 [1.155, 1.161] | FASTER |
+| `sng_judy_256k` | 2 | `judy-delete-operations-per-sec` | 0.680 [0.677, 0.683] | 0.680 [0.677, 0.683] | SLOWER |
+| `sng_judy_256k` | 2 | `judy-find-operations-per-sec` | 1.324 [1.319, 1.329] | 1.320 [1.301, 1.326] | FASTER |
+| `sng_judy_256k` | 2 | `judy-insert-operations-per-sec` | 1.149 [1.139, 1.153] | 1.154 [1.152, 1.157] | FASTER |
+| `sng_judy_256k` | 4 | `judy-delete-operations-per-sec` | 0.680 [0.678, 0.682] | 0.683 [0.681, 0.686] | SLOWER |
+| `sng_judy_256k` | 4 | `judy-find-operations-per-sec` | 1.323 [1.289, 1.337] | 1.338 [1.331, 1.344] | FASTER |
+| `sng_judy_256k` | 4 | `judy-insert-operations-per-sec` | 1.157 [1.147, 1.162] | 1.167 [1.163, 1.169] | FASTER |
+| `sng_judy_256k` | 8 | `judy-delete-operations-per-sec` | 0.748 [0.745, 0.753] | 0.746 [0.743, 0.748] | SLOWER |
+| `sng_judy_256k` | 8 | `judy-find-operations-per-sec` | 1.537 [1.514, 1.556] | 1.522 [1.499, 1.544] | FASTER |
+| `sng_judy_256k` | 8 | `judy-insert-operations-per-sec` | 1.171 [1.158, 1.177] | 1.171 [1.168, 1.175] | FASTER |
+| `sng_judy_4m` | 1 | `judy-delete-operations-per-sec` | 0.703 [0.699, 0.707] | 0.700 [0.697, 0.703] | SLOWER |
+| `sng_judy_4m` | 1 | `judy-find-operations-per-sec` | 1.697 [1.679, 1.717] | 1.672 [1.650, 1.694] | FASTER |
+| `sng_judy_4m` | 1 | `judy-insert-operations-per-sec` | 0.868 [0.861, 0.872] | 0.867 [0.861, 0.872] | SLOWER |
+| `sng_judy_4m` | 2 | `judy-delete-operations-per-sec` | 0.707 [0.704, 0.709] | 0.707 [0.704, 0.712] | SLOWER |
+| `sng_judy_4m` | 2 | `judy-find-operations-per-sec` | 1.641 [1.626, 1.652] | 1.638 [1.628, 1.649] | FASTER |
+| `sng_judy_4m` | 2 | `judy-insert-operations-per-sec` | 0.869 [0.866, 0.872] | 0.869 [0.866, 0.871] | SLOWER |
+| `sng_judy_4m` | 4 | `judy-delete-operations-per-sec` | 0.720 [0.718, 0.723] | 0.720 [0.718, 0.723] | SLOWER |
+| `sng_judy_4m` | 4 | `judy-find-operations-per-sec` | 1.596 [1.580, 1.606] | 1.604 [1.592, 1.615] | FASTER |
+| `sng_judy_4m` | 4 | `judy-insert-operations-per-sec` | 0.875 [0.873, 0.878] | 0.873 [0.869, 0.876] | SLOWER |
+| `sng_judy_4m` | 8 | `judy-delete-operations-per-sec` | 0.727 [0.726, 0.728] | 0.732 [0.727, 0.740] | SLOWER |
+| `sng_judy_4m` | 8 | `judy-find-operations-per-sec` | 1.596 [1.585, 1.607] | 1.597 [1.582, 1.614] | FASTER |
+| `sng_judy_4m` | 8 | `judy-insert-operations-per-sec` | 0.875 [0.871, 0.878] | 0.874 [0.869, 0.879] | SLOWER |
+| `sng_sm_hashjudy_big` | 1 | `hashjudy-gets-per-sec` | 0.539 [0.531, 0.546] | 0.537 [0.531, 0.543] | SLOWER |
+| `sng_sm_hashjudy_big` | 1 | `hashjudy-puts-per-sec` | 0.107 [0.105, 0.109] | 0.105 [0.104, 0.107] | SLOWER |
+| `sng_sm_hashjudy_big` | 4 | `hashjudy-gets-per-sec` | 0.616 [0.613, 0.620] | 0.620 [0.617, 0.623] | SLOWER |
+| `sng_sm_hashjudy_big` | 4 | `hashjudy-puts-per-sec` | 0.146 [0.144, 0.148] | 0.148 [0.146, 0.150] | SLOWER |
+| `sng_sm_hashjudy_default` | 1 | `hashjudy-gets-per-sec` | 1.333 [1.323, 1.342] | 1.340 [1.331, 1.354] | FASTER |
+| `sng_sm_hashjudy_default` | 1 | `hashjudy-puts-per-sec` | 0.179 [0.178, 0.181] | 0.179 [0.178, 0.180] | SLOWER |
+| `sng_sm_hashjudy_default` | 4 | `hashjudy-gets-per-sec` | 1.336 [1.331, 1.340] | 1.336 [1.331, 1.341] | FASTER |
+| `sng_sm_hashjudy_default` | 4 | `hashjudy-puts-per-sec` | 0.163 [0.162, 0.164] | 0.163 [0.162, 0.164] | SLOWER |
+| `sng_sm_judy_big` | 1 | `judy-gets-per-sec` | 0.689 [0.685, 0.694] | 0.688 [0.684, 0.692] | SLOWER |
+| `sng_sm_judy_big` | 1 | `judy-puts-per-sec` | 1.081 [1.073, 1.089] | 1.080 [1.070, 1.089] | FASTER |
+| `sng_sm_judy_big` | 8 | `judy-gets-per-sec` | 0.917 [0.915, 0.920] | 0.920 [0.915, 0.928] | SLOWER |
+| `sng_sm_judy_big` | 8 | `judy-puts-per-sec` | 1.131 [1.125, 1.136] | 1.125 [1.110, 1.133] | FASTER |
+| `sng_sm_judy_default` | 1 | `judy-gets-per-sec` | 0.632 [0.629, 0.635] | 0.638 [0.636, 0.640] | SLOWER |
+| `sng_sm_judy_default` | 1 | `judy-puts-per-sec` | 1.053 [1.045, 1.057] | 1.055 [1.050, 1.058] | FASTER |
+| `sng_sm_judy_default` | 8 | `judy-gets-per-sec` | 0.635 [0.634, 0.637] | 0.635 [0.632, 0.637] | SLOWER |
+| `sng_sm_judy_default` | 8 | `judy-puts-per-sec` | 1.053 [1.046, 1.057] | 1.056 [1.054, 1.058] | FASTER |
+
+### Against the predictions (METHODOLOGY.md §9)
+
+- **Z1 holds: 47 of 47.**
+  - The set is every primary cell-metric whose `82eb56af` reference-host E/S interval lay entirely outside [0.95, 1.05] in both runs. That is all 52 except `sng_judy_4m` find at W = 1, 2, 4 and `sng_sm_judy_default` puts at W = 1, 8.
+  - Each of the 47 keeps its `82eb56af` direction here.
+  - The `82eb56af` intervals were recomputed from that evaluation's raw rows with this suite's estimator (two-sample BCa, 2,000 resamples, seed 42). Its run-1 intervals equal the ones the earlier evaluation reported. Those rows are not committed (METHODOLOGY.md §1), so the set is stated here in full.
+- **Z2 holds.** H is NOT MET, through the same 26 cell-metrics as on the reference host:
+  - every delete;
+  - every 4m insert;
+  - every `sparsematrix judy` get;
+  - every `hashjudy` put, and the `hashjudy` big gets.
+- **Outside the Z1 set (not predicted):** the 4m finds at W = 1, 2, 4 are FASTER here (1.596–1.697×). `sng_sm_judy_default` puts are FASTER here (1.053–1.056×), where the reference host has them SLOWER (0.956–0.958×).
+- **The 1k finds go the other way from the reference host.** The same file gives E/S 1.140–1.150× here (FASTER) and 0.955–0.966× on the reference host (SLOWER).
+  - Per-arm means at W = 1 over both runs here, in M ops/s: S 123.81, E 141.71.
+  - Why one file's 1k find is slower than stock on one host and faster on the other was not measured. No PMU counter was taken on either host.
+
+### stress-ng bogo-ops/s (secondary)
+
+| workload | W | metric | run 1 E/S [BCa 95%] | run 2 E/S [BCa 95%] | verdict |
+|---|---|---|---|---|---|
+| `sng_judy_1k` | 1 | `bogo-ops-per-second-real-time` | 0.991 [0.987, 0.999] | 0.990 [0.988, 0.992] | |
+| `sng_judy_1k` | 2 | `bogo-ops-per-second-real-time` | 0.992 [0.989, 0.995] | 0.989 [0.986, 0.992] | |
+| `sng_judy_1k` | 4 | `bogo-ops-per-second-real-time` | 0.992 [0.986, 1.003] | 0.985 [0.981, 0.987] | |
+| `sng_judy_1k` | 8 | `bogo-ops-per-second-real-time` | 0.992 [0.989, 0.997] | 0.988 [0.984, 0.992] | |
+| `sng_judy_256k` | 1 | `bogo-ops-per-second-real-time` | 0.899 [0.895, 0.901] | 0.899 [0.897, 0.902] | |
+| `sng_judy_256k` | 2 | `bogo-ops-per-second-real-time` | 0.896 [0.894, 0.899] | 0.898 [0.894, 0.901] | |
+| `sng_judy_256k` | 4 | `bogo-ops-per-second-real-time` | 0.899 [0.893, 0.902] | 0.905 [0.902, 0.907] | |
+| `sng_judy_256k` | 8 | `bogo-ops-per-second-real-time` | 0.969 [0.964, 0.974] | 0.966 [0.962, 0.970] | |
+| `sng_judy_4m` | 1 | `bogo-ops-per-second-real-time` | 0.876 [0.872, 0.880] | 0.872 [0.868, 0.877] | |
+| `sng_judy_4m` | 2 | `bogo-ops-per-second-real-time` | 0.877 [0.874, 0.879] | 0.877 [0.875, 0.880] | |
+| `sng_judy_4m` | 4 | `bogo-ops-per-second-real-time` | 0.883 [0.881, 0.886] | 0.884 [0.881, 0.886] | |
+| `sng_judy_4m` | 8 | `bogo-ops-per-second-real-time` | 0.888 [0.886, 0.890] | 0.891 [0.886, 0.897] | |
+| `sng_sm_hashjudy_big` | 1 | `bogo-ops-per-second-real-time` | 0.190 [0.187, 0.192] | 0.188 [0.187, 0.189] | |
+| `sng_sm_hashjudy_big` | 4 | `bogo-ops-per-second-real-time` | 0.285 [0.283, 0.287] | 0.286 [0.284, 0.288] | |
+| `sng_sm_hashjudy_default` | 1 | `bogo-ops-per-second-real-time` | 0.332 [0.329, 0.334] | 0.331 [0.329, 0.333] | |
+| `sng_sm_hashjudy_default` | 4 | `bogo-ops-per-second-real-time` | 0.305 [0.304, 0.306] | 0.305 [0.303, 0.306] | |
+| `sng_sm_judy_big` | 1 | `bogo-ops-per-second-real-time` | 0.815 [0.807, 0.820] | 0.816 [0.811, 0.821] | |
+| `sng_sm_judy_big` | 8 | `bogo-ops-per-second-real-time` | 0.992 [0.989, 0.994] | 0.990 [0.985, 0.994] | |
+| `sng_sm_judy_default` | 1 | `bogo-ops-per-second-real-time` | 0.782 [0.778, 0.786] | 0.786 [0.784, 0.788] | |
+| `sng_sm_judy_default` | 8 | `bogo-ops-per-second-real-time` | 0.785 [0.783, 0.787] | 0.786 [0.783, 0.787] | |
+
+### Resident memory at W = 1 (stress-ng `max-rss`, E/S)
+
+| workload | W | metric | run 1 E/S [BCa 95%] | run 2 E/S [BCa 95%] | verdict |
+|---|---|---|---|---|---|
+| `sng_judy_1k` | 1 | `max-rss` | 1.383 [1.336, 1.431] | 1.373 [1.341, 1.423] | |
+| `sng_judy_256k` | 1 | `max-rss` | 1.000 [0.979, 1.024] | 0.984 [0.968, 1.001] | |
+| `sng_judy_4m` | 1 | `max-rss` | 1.002 [1.000, 1.004] | 1.002 [1.000, 1.004] | |
+| `sng_sm_hashjudy_big` | 1 | `max-rss` | 76.864 [76.631, 77.020] | 76.642 [76.410, 76.884] | |
+| `sng_sm_hashjudy_default` | 1 | `max-rss` | 49.792 [49.498, 50.147] | 49.494 [49.373, 49.672] | |
+| `sng_sm_judy_big` | 1 | `max-rss` | 1.188 [1.181, 1.196] | 1.188 [1.182, 1.195] | |
+| `sng_sm_judy_default` | 1 | `max-rss` | 1.400 [1.369, 1.452] | 1.377 [1.347, 1.424] | |
+
+### Timer cross-check
+
+The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s ratio to within 5% in every cell of both runs except `sng_sm_hashjudy_default` at W = 4. There, wall clock gives 3.470 against bogo-ops 3.279 in run 1, and 3.484 against 3.282 in run 2, which is 5.8% and 6.2% apart. The cause was not measured.
+
 ## Diagnostic: the two library files on the 1k find cell
 
 **A diagnostic, not a pre-registered result.** METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
@@ -203,6 +333,20 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/analyze.py ref /var/tmp/stressng-eval/results/ref_run1 /var/tmp/stressng-eval/results/ref_run2
+```
+
+The second host runs the same commands with the label `zen5`, which pins CPUs `0-7`. Its governor change and the stopped CI runner (METHODOLOGY.md §3) are host operations outside the script:
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 zen5
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 zen5
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/analyze.py zen5 /var/tmp/stressng-eval/results/zen5_run1 /var/tmp/stressng-eval/results/zen5_run2
 ```
 
 The diagnostic additionally needs the `82eb56af` library in `$SNG_D/expcompat-82eb56af/lib`, laid out as `build.sh` lays out `expcompat/lib`:
