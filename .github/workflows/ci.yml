@@ -2515,6 +2515,24 @@ jobs:
           diff count_stock.out count_relink.out
           diff count_stock.out count_own.out
 
+      # Two Judy1 arrays as OQGraph's two-bit colour map: test/set one
+      # vertex at a time, arrays emptied back to NULL, copies of empty and
+      # non-empty arrays. Run the same four ways as the count smoke.
+      - name: Colour-map smoke (two Judy1 bitsets)
+        run: |
+          cargo build --release -p expanse-capi
+          cc crates/expanse-capi/smoke/colour_map_smoke.c -lJudy -o colour_smoke
+          cc crates/expanse-capi/smoke/colour_map_smoke.c -Ltarget/release -lexpanse -o colour_relink
+          cc crates/expanse-capi/smoke/colour_map_smoke.c -Iinclude -Ltarget/release -lexpanse -o colour_own
+          ./colour_smoke > colour_stock.out
+          grep -q '^ok$' colour_stock.out
+          LD_PRELOAD="$PWD/target/release/libexpanse.so" ./colour_smoke > colour_preload.out
+          LD_LIBRARY_PATH="$PWD/target/release" ./colour_relink > colour_relink.out
+          LD_LIBRARY_PATH="$PWD/target/release" ./colour_own > colour_own.out
+          diff colour_stock.out colour_preload.out
+          diff colour_stock.out colour_relink.out
+          diff colour_stock.out colour_own.out
+
   memory-budget:
     name: Perf / Memory Budget Invariants
     needs: [detect-changes, fast-lane]
