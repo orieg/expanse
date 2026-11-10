@@ -373,6 +373,34 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - **What this establishes.** The same instructions cost N more cycles because the front end delivers them less well, with the decoded-uop path changing in a way consistent with the hot code's position within 64-byte lines. That supports the placement hypothesis. It does not establish it: no build has yet moved only the layout, which is #1684's fix step.
 - **Against stock (N/S, not the question here).** N retires 0.808× stock's instructions and takes 1.063× its cycles. Its front end leaves 3.26× as many issue slots empty as stock's (`idq_uops_not_delivered.core`, intervals [3.2385, 3.2818] and [3.2471, 3.3005]), while stock mispredicts about four times as many branches (N/S 0.2449 and 0.2428). The whole stress-ng process is measured here, insert and delete included, so this is the library's front-end cost over the cell and not the find path's alone.
 
+## Diagnostic: phase counters on the shapes Expanse loses
+
+**A diagnostic, not a pre-registered result** (#1680). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The comparison above finds Expanse slower than stock on the sparsematrix judy gets and on the 4 Mi `judy` inserts. Where do Expanse's extra cycles go in those phases: memory stalls, the front end, or something else? stress-ng's own rates time each phase, but a whole-process counter mixes the phases, so this diagnostic counts one phase only.
+
+**Design, fixed before the run** (`scripts/phase_probe.c`, `scripts/diag_phase_counters.py`, `run.sh <run> ref phase`):
+- `phase_probe` replays a stressor's key shape through the Judy API and enables `perf stat` (`-D -1 --control fifo:…`) only around the measured phase. It is built against this repository's clean-room `include/Judy.h`. Its draws come from splitmix64, so the keys follow each stressor's distribution and not its exact sequence, and every arm draws the same keys.
+  - `sm_default`: 10,000 draws of `(x, y)` on `[0, 500)²`, key `x << 32 | y`, each put when absent. The measured phase is both of the stressor's get phases (the same draws again, then as many fresh draws), repeated 200 times on the same array: 4,000,000 gets.
+  - `sm_big`: the same over 1,000,000 draws on `[0, 100000)²`, once: 2,000,000 gets.
+  - `judy_4m`: the inserts of `gen_index(i)` for `i` below 4,194,304, the measured phase: 4,194,304 inserts.
+- Three arms, differing only in `LD_LIBRARY_PATH`: N (the library of the pre-registered runs), N64 (its source with 64-byte function alignment, from the layout diagnostic) and S (stock).
+- User-mode `cpu_core` events, fixed `cycles` and `instructions` in every process, and one group per process:
+  - `mem`: `mem_load_retired.l1_miss`, `.l2_miss`, `.l3_miss`, `br_misp_retired.all_branches`;
+  - `stall`: `cycle_activity.stalls_total`, `.stalls_l1d_miss`, `.stalls_l2_miss`, `.stalls_l3_miss`;
+  - `fe`: the fixed `slots` counter, `idq_uops_not_delivered.core`, `dtlb_load_misses.walk_completed`, `br_inst_retired.all_branches`.
+- The preflight, the discard rule and the void rule are the counter diagnostic's. 12 rounds per run, cycling the arms through their six orders and shuffling (shape, group) within a round. Two independent runs under the host bench lock and the comparison's pin.
+- `scripts/diag_phase_counters_analyze.py` writes `results/diagnostic_phase_counters_ref_run{1,2}.json`: per shape, two-sample BCa 95% intervals on N/S, N64/S and N64/N for every counter, with per-operation means.
+
+**Reading rule, N against S, per shape, over both runs:**
+- If the `cycles` lower bound exceeds 1 in both runs (N takes more cycles than S), take the arms' means, and with ΔC = cycles_N − cycles_S:
+  - memory share m = Δ`cycle_activity.stalls_l1d_miss` / ΔC;
+  - front-end share f = Δ`idq_uops_not_delivered.core` / (w · ΔC), with w = slots_N / cycles_N.
+- MEMORY: m ≥ 0.5 in both runs and f < 0.5 in either. FRONT-END: the reverse. BOTH: both ≥ 0.5 in both runs. MIXED: neither.
+- NO GAP: the `cycles` upper bound is below 1 in both runs. UNRESOLVED: the cycle intervals disagree on a side.
+- The other counters are reported with their intervals and name which level of the hierarchy moved. They carry no verdict of their own.
+- A share names where the cycles went, not why the engine spends them. N64 against N says whether the layout matters on these phases, as it does on the 1k find.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -435,4 +463,18 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref counters
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_find_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_find_counters_ref_run1 /var/tmp/stressng-eval/results/diag_find_counters_ref_run2
+```
+
+The phase-counter diagnostic needs `perf`, `cc` and the N64 library at `$SNG_D/expcompat-6ec29a656-fa64/lib` (the layout diagnostic's `scripts/build_layout_lib.sh`), and runs with the mode `phase`:
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref phase
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref phase
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_phase_counters_ref_run1 /var/tmp/stressng-eval/results/diag_phase_counters_ref_run2
 ```
