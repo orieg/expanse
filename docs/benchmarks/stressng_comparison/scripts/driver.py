@@ -90,37 +90,39 @@ def sha256(path):
     return h.hexdigest()
 
 
-def library_proof():
-    """Which Judy library each arm's worker actually mapped (METHODOLOGY.md §4).
+def mapped_objects(arm, libdir):
+    """The Judy or Expanse objects one untimed `--judy 1` worker maps under `libdir`.
 
-    Starts one untimed `--judy 1` process per arm, reads the mapped objects of
-    its worker children from `/proc/<pid>/maps`, and fails loudly if an arm
-    shows no Judy or Expanse object (AGENTS.md §8.1).
+    Reads the mapped objects of the worker children from `/proc/<pid>/maps`,
+    and fails loudly if the arm shows none (AGENTS.md §8.1).
     """
-    proof = {}
-    for arm, libdir in ARMS.items():
-        env = dict(os.environ, LD_LIBRARY_PATH=libdir)
-        p = subprocess.Popen([BIN, "--judy", "1", "--judy-size", "4194304", "--judy-ops", "12",
-                              "-t", "60"], env=env, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
-        seen = set()
-        for _ in range(40):
-            time.sleep(0.1)
-            kids = Path(f"/proc/{p.pid}/task/{p.pid}/children")
-            for kid in (kids.read_text().split() if kids.exists() else []):
-                try:
-                    for line in Path(f"/proc/{kid}/maps").read_text().splitlines():
-                        path = line.split()[-1] if len(line.split()) >= 6 else ""
-                        if "Judy" in path or "expanse" in path:
-                            seen.add(path)
-                except OSError:
-                    pass
-            if seen:
-                break
-        p.wait()
-        if not seen:
-            sys.exit(f"STOP: arm {arm} mapped no Judy or Expanse object")
-        proof[arm] = sorted(seen)
+    env = dict(os.environ, LD_LIBRARY_PATH=libdir)
+    p = subprocess.Popen([BIN, "--judy", "1", "--judy-size", "4194304", "--judy-ops", "12",
+                          "-t", "60"], env=env, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    seen = set()
+    for _ in range(40):
+        time.sleep(0.1)
+        kids = Path(f"/proc/{p.pid}/task/{p.pid}/children")
+        for kid in (kids.read_text().split() if kids.exists() else []):
+            try:
+                for line in Path(f"/proc/{kid}/maps").read_text().splitlines():
+                    path = line.split()[-1] if len(line.split()) >= 6 else ""
+                    if "Judy" in path or "expanse" in path:
+                        seen.add(path)
+            except OSError:
+                pass
+        if seen:
+            break
+    p.wait()
+    if not seen:
+        sys.exit(f"STOP: arm {arm} mapped no Judy or Expanse object")
+    return sorted(seen)
+
+
+def library_proof():
+    """Which Judy library each arm's worker actually mapped (METHODOLOGY.md §4)."""
+    proof = {arm: mapped_objects(arm, libdir) for arm, libdir in ARMS.items()}
     if not any("expanse" in x for x in proof["E"]) or any("expanse" in x for x in proof["S"]):
         sys.exit(f"STOP: library proof does not separate the arms: {proof}")
     return proof

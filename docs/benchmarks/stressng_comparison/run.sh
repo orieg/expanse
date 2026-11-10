@@ -2,7 +2,11 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label>
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab]
+#
+# With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
+# (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
+# $SNG_D/expcompat-82eb56af/lib as well, and writes diag_lib_ab_* raw rows.
 #
 # <host_label> is `ref` (reference host) or `zen5` (second host); it selects the
 # core pin of METHODOLOGY.md §3. SNG_D names the host's stress-ng tree, built by
@@ -15,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 RUN="${1:?run number}"
 HOST_LABEL="${2:?host label: ref or zen5}"
+MODE="${3:-comparison}"
 SNG_D="${SNG_D:-/var/tmp/stressng-eval}"
 
 # Host-wide benchmark lock (docs/BENCHMARKING.md rule 8), held for the whole run.
@@ -53,5 +58,10 @@ export PATH="${HOME}/.cargo/bin:${PATH}"
 
 mkdir -p "${SNG_D}/results"
 export SNG_D REPO_ROOT
-python3 "${SCRIPT_DIR}/scripts/driver.py" "${RUN}" "${HOST_LABEL}" \
-  "${SNG_D}/results/${HOST_LABEL}_run${RUN}"
+case "${MODE}" in
+  comparison) python3 "${SCRIPT_DIR}/scripts/driver.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/${HOST_LABEL}_run${RUN}" ;;
+  lib_ab)     python3 "${SCRIPT_DIR}/scripts/diag_lib_ab.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_lib_ab_${HOST_LABEL}_run${RUN}" ;;
+  *) echo "REFUSE: unknown mode ${MODE}" >&2; exit 2 ;;
+esac

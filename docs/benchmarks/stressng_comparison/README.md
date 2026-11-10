@@ -93,7 +93,7 @@ stress-ng's `judy` and `sparsematrix` stressors run one binary against stock lib
   - `JudyLGet` is byte-for-byte the same 107 instructions in both libraries, with operands normalised (`objdump -d`).
   - It starts 0x60 bytes later in the current library, at offset 48 of a 64-byte line instead of 16. #1673 added code ahead of it in `compat.rs`.
   - Code placement is the leading hypothesis. No PMU counter was taken, so it is not established.
-  - An A/B of the two library files on the 1k find cell would test it. That is a diagnostic outside this pre-registration.
+  - An A/B of the two library files on the 1k find cell tests part of it, as a diagnostic outside this pre-registration (below).
 
 ### stress-ng bogo-ops/s (secondary)
 
@@ -137,6 +137,29 @@ stress-ng's `judy` and `sparsematrix` stressors run one binary against stock lib
 ### Timer cross-check
 
 The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s ratio to within 5% in every cell of both runs.
+
+## Diagnostic: the two library files on the 1k find cell
+
+**A diagnostic, not a pre-registered result.** METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** Is the fall of arm E's `sng_judy_1k` find rate a property of the two library files, or of the host between the two evaluations? The A/B can separate those two. It cannot separate code placement from any other difference between the files, and it takes no PMU counter.
+
+**Design, fixed before the run** (`scripts/diag_lib_ab.py`, `run.sh <run> ref lib_ab`):
+- Three arms, the same stress-ng binary and judy stressor as above, differing only in `LD_LIBRARY_PATH`:
+  - O: libexpanse built at `82eb56af`, the file of the earlier evaluation (sha256 `cce4ba9d…`);
+  - N: the file of the pre-registered runs (sha256 `da5814a7…`);
+  - S: stock libJudy, as above.
+- `sng_judy_1k` at W = 1, 2, 4, 8, one process per arm per W per round.
+- 12 rounds per run, cycling through the six orders of the three arms, so each arm runs first, second and third equally often. Two independent runs under the host bench lock and the same core pin.
+- A load snapshot before every process and a window after it, so every pair of adjacent arms has a snapshot between them. A process with foreign load above 0.5 core-equivalents is discarded, and a run is void under METHODOLOGY.md §7.
+- `scripts/diag_lib_ab_analyze.py` writes `results/diagnostic_lib_ab_ref_run{1,2}.json`: two-sample BCa 95% intervals on O/N, N/S and O/S for find, insert, delete, bogo-ops/s and wall clock.
+
+**Reading rule for O/N on the find rate, per W, over both runs:**
+- O FASTER (lower bound > 1 in both runs): the fall is in the library files.
+- SAME (both intervals inside [0.98, 1.02]): the files run the find alike on this host now, so the fall came from outside them.
+- Anything else is reported as measured, without a reading.
+
+**Expected if the files carry the whole fall:** O/N ≈ 1.13 at W = 1 (109.14 M / 96.97 M ops/s, the per-arm means of the two evaluations), O/S ≈ 1.08 and N/S ≈ 0.96. O/N on insert and delete is the control, expected inside [0.98, 1.02] from the same per-arm means. (projected)
 
 ## Reproduce
 
