@@ -151,7 +151,7 @@ This is the second host's result, kept apart from the reference host's. No figur
 - **Load:** 800 processes ran, with 0 non-zero exits, 0 stress-ng failures and none discarded.
   - Foreign load median 0.01 core-equivalents in both runs; max 0.30 in run 1 and 0.17 in run 2.
   - Max load1 was 4.77 and 5.59, against a void threshold of 16.
-  - The host's five-minute deployment check and ten-minute statistics collector were not paused. No process crossed the discard limit.
+  - The host's periodic deployment check and statistics collector were not paused. No process crossed the discard limit.
 - **Library proof:** arm S mapped `libJudy.so.1.0.3`; arm E mapped `libexpanse.so.1.0.0`.
 
 ### Primary metrics (E/S, higher means Expanse is faster)
