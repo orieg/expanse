@@ -719,6 +719,96 @@ Every other counter's interval is in the artifacts. `decode.lcp` has no ratio, b
   A per-cycle limit on taken branches in uop-cache delivery fits the first difference. The cost of switching to the microcode sequencer fits the second. Both are **hypotheses, unmeasured here**: no counter in these groups reads taken branches per cycle or microcode-sequencer switches, so neither is a finding.
 - **Next instrument, not run.** Separating them needs `br_inst_retired.near_taken` and `idq.ms_switches` (or the MS-switch cycles counter), read as shares of D's extra cycles. That would be another design, fixed before its run.
 
+## Diagnostic: taken branches and microcode on the delete phase
+
+**A diagnostic, not a pre-registered result** (#1679). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The front-end resource diagnostic above left Expanse's empty delete slots UNNAMED. Two measured differences remained:
+- D retires 1.11× (1 Ki) and 1.40× (4 Mi) stock's branches while issuing fewer uops.
+- D takes 12× and 56× stock's microcode-sequencer uops.
+
+Does either carry the gap? Which instructions issue the microcode uops?
+
+**Design, fixed before the run:**
+- **Counters** (`run.sh <run> ref phase_delete_ms`, `SNG_PHASE_SET=delete_ms`). This is the delete-phase design above, unchanged in shapes (`del_1k`, `del_4m`), arms (D, #1708's library, against S, stock), rounds, preflight, discard and void rules. Three event groups sit beside the fixed `cycles` and `instructions`:
+  - `ms`: `idq.ms_uops`, `idq.ms_switches`, `idq.ms_cycles_any`, `br_inst_retired.near_taken`;
+  - `dsb`: `idq.dsb_cycles_any`, `idq.dsb_cycles_ok`, `idq.dsb_uops`, `uops_issued.any`;
+  - `fe`: the fixed `slots` counter, `idq_uops_not_delivered.core`, `br_inst_retired.all_branches`, `idq.mite_uops`.
+- `scripts/diag_phase_counters_analyze.py` writes `results/diagnostic_delete_ms_ref_run{1,2}.json`.
+- **Attribution** (`run.sh 1 ref ms_attribution`, `scripts/diag_ms_attribution.py`). For each shape and arm, one probe process runs under `perf record`, with sampling enabled only around the delete phase. The event is `frontend_retired.ms_flows` with precise attribution, which counts retired instructions delivered by the microcode sequencer. If the host refuses it, the event is `idq.ms_uops` without precision, whose samples can land a few instructions after the issuing one; the artifact records which event was used. Sampling period: 503.
+  - `perf annotate` gives each instruction's share of the samples. `scripts/diag_ms_attribution_analyze.py` writes `results/diagnostic_ms_attribution_ref.json`, with every instruction holding at least 1% of the samples and every function holding at least 0.5%.
+  - That is one process per shape and arm: a census, not an interval.
+
+**Reading rule for the counters: D against S, per shape, over both runs.** It applies where D's `cycles` lower bound exceeds 1 in both runs; otherwise NO GAP or UNRESOLVED as above. Let d be D's mean cycles per process minus S's, and Δ a counter's D mean minus its S mean.
+- **Microcode-switch share:** 3 · Δ`idq.ms_switches` / d. The 3 cycles per switch is the switch cost constant of Intel's top-down microarchitecture analysis model, not measured on this host. Δ`idq.ms_cycles_any` / d, the cycles in which the sequencer was delivering, is reported beside it as an upper envelope and carries no verdict.
+- **DSB-below-width share:** (Δ`idq.dsb_cycles_any` − Δ`idq.dsb_cycles_ok`) / d. These are the cycles in which the uop cache delivered uops but fewer than its full width.
+- **Taken-branch density:** `br_inst_retired.near_taken` over `idq.dsb_uops`, D's over S's.
+
+The verdicts:
+- **MICROCODE:** the microcode-switch share is at least 0.25 in both runs. The gap points at microcode-switch cost.
+- **TAKEN-BRANCH:** the DSB-below-width share is at least 0.25 and the taken-branch density ratio at least 1.10, both in both runs. The gap points at taken-branch delivery bandwidth: more taken branches per delivered uop, while the uop cache runs below its width. The DSB-below-width cycles alone do not name taken branches, since other limits can hold delivery below width too, so the density condition is part of the reading.
+- **BOTH:** both named.
+- **UNNAMED:** neither named.
+
+**Reading rule for the attribution**, D per shape: the share of D's samples on a `rep`-prefixed string instruction (`movs`, `stos`, `cmps`, `scas`, `lods`). The hypothesis it tests, held as a hypothesis and not a target, is a short copy compiled to `rep movsb` in leaf removal.
+- CONFIRMED at 0.5 or more;
+- REFUTED at 0.1 or less;
+- PARTIAL otherwise.
+
+The functions and instructions holding the samples are named either way.
+
+**Any reading:** report before any engine change.
+
+### Taken-branch and microcode result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, perf 6.8.12; counters at harness `85379ff1c`, artifacts `results/diagnostic_delete_ms_ref_run{1,2}.json`; attribution at harness `3588d4b6e`, artifact `results/diagnostic_ms_attribution_ref.json`, raw text `results/ms_attribution_raw/`) (workloads: phase_del_1k, phase_del_4m)
+
+**Hygiene.**
+- **Counter runs.** Run 1 ran 19:51:09–19:52:46 UTC and run 2 19:52:46–19:54:23, each under the bench lock. Each had 144 processes and none was discarded. The worst foreign load was 0.05 and 0.04 core-equivalents, and max load1 was 0.82 and 0.97 against a void limit of 12. The preflight found no event that counts alone and reads zero in its group.
+- **Attribution.** It ran three times under the lock, and only the third is used.
+  - 19:54:23 stopped on stock's 4 Mi cell, which gave no sample. `859433de8` records a zero-sample cell instead.
+  - 19:55:53 stopped on the same cell, which this time gave 4 samples outside any symbol `perf annotate` disassembles. `3588d4b6e` keeps a cell under 100 samples with its count.
+  - 19:56:54–19:57:54 completed.
+- **Symbols.** The run's parser did not read function names from perf 6.8's annotate layout, so the instruction lists were parsed again from the run's verbatim text with the parser fixed (`ms_annotate.py`). The re-parse reproduces each cell's sample total exactly, and the artifact records it per cell.
+- **Sample totals.** Instruction shares are over the samples `perf annotate` placed: 39,989 of the 40,871 samples `perf script` counts for D at 1 Ki, and 6,617 of 6,620 at 4 Mi.
+
+**Reading: TAKEN-BRANCH at both sizes. The microcode hypothesis is not supported, and its `rep movsb` form is refuted.**
+
+| Shape | Counter | D per op | S per op | D/S run 1 | D/S run 2 |
+|---|---|---|---|---|---|
+| `del_1k` | `cycles` | 157.2 | 143.6 | 1.0944 [1.0926, 1.0961] | 1.0938 [1.0926, 1.0952] |
+| `del_1k` | `br_inst_retired.near_taken` | 60.36 | 61.15 | 0.9872 (bc) | 0.9872 (degenerate) |
+| `del_1k` | `idq.dsb_uops` | 597.8 | 701.7 | 0.8519 [0.8510, 0.8546] | 0.8510 [0.8505, 0.8515] |
+| `del_1k` | `idq.dsb_cycles_any` | 107.3 | 116.0 | 0.9254 [0.9236, 0.9282] | 0.9252 [0.9245, 0.9260] |
+| `del_1k` | `idq.dsb_cycles_ok` | 58.84 | 72.34 | 0.8134 [0.8120, 0.8158] | 0.8119 [0.8106, 0.8131] |
+| `del_1k` | `idq.ms_switches` | 0.2332 | 0.02572 | 9.0648 [8.9122, 9.1881] | 8.9891 [8.8858, 9.1173] |
+| `del_4m` | `cycles` | 213.4 | 192.0 | 1.1114 [1.1041, 1.1174] | 1.1080 [1.1006, 1.1143] |
+| `del_4m` | `br_inst_retired.near_taken` | 60.16 | 53.30 | 1.1288 (degenerate) | 1.1288 (degenerate) |
+| `del_4m` | `idq.dsb_uops` | 718.2 | 815.5 | 0.8806 [0.8795, 0.8814] | 0.8815 [0.8809, 0.8822] |
+| `del_4m` | `idq.dsb_cycles_any` | 122.1 | 126.6 | 0.9643 [0.9629, 0.9655] | 0.9650 [0.9640, 0.9661] |
+| `del_4m` | `idq.dsb_cycles_ok` | 73.07 | 91.37 | 0.7997 [0.7973, 0.8018] | 0.8006 [0.7990, 0.8022] |
+| `del_4m` | `idq.ms_switches` | 0.1026 | 0.002313 | 44.3442 [43.0378, 45.4386] | 43.7060 [40.7469, 45.9682] |
+
+Every other counter's interval is in the artifacts. The taken-branch counts are exact per process, so their intervals collapse (`bc`, `degenerate`).
+
+| Shape | Run | Microcode-switch share | MS-active cycles share | DSB-below-width share | Taken-branch density D/S |
+|---|---|---|---|---|---|
+| `del_1k` | 1 | 0.046 | 0.038 | 0.358 | 1.159 |
+| `del_1k` | 2 | 0.046 | 0.038 | 0.368 | 1.160 |
+| `del_4m` | 1 | 0.014 | 0.011 | 0.644 | 1.282 |
+| `del_4m` | 2 | 0.015 | 0.011 | 0.665 | 1.281 |
+
+- **Microcode switches carry under 5% of D's extra cycles.** Under the model's 3 cycles per switch they carry 0.046 at 1 Ki and 0.014–0.015 at 4 Mi. The cycles in which the sequencer delivered anything carry less, 0.038 and 0.011. D's 9× and 44× switch counts are 0.23 and 0.10 switches per delete.
+- **The uop cache runs below its width in more of D's cycles.** D's uop cache delivers in fewer cycles than stock's: 0.93× at 1 Ki, 0.96× at 4 Mi. But it delivers at full width in only 0.81× and 0.80× as many. The cycles in which it delivers below full width carry 0.36–0.37 of D's extra cycles at 1 Ki and 0.64–0.67 at 4 Mi.
+- **D delivers fewer uops per taken branch.** At 1 Ki, D takes as many taken branches as stock (0.987×) while delivering 0.85× its uops from the uop cache, so each taken branch ends a shorter run of uops: 1.16× stock's density. At 4 Mi it takes 1.13× stock's taken branches with 0.88× its uops, 1.28× the density. That is the TAKEN-BRANCH reading. It names the front-end limit, not the code that causes it, which this run does not locate.
+- **What issues D's microcode uops.** Of D's `frontend_retired.ms_flows` samples, 94.6% (1 Ki) and 83.1% (4 Mi) fall in `map_remove::<false, false>`, the plain-tree remove. Nearly all are `lock`-prefixed read-modify-writes on three words:
+  - `lock add`/`lock sub` of a register at 0x200;
+  - `lock inc`/`lock dec` at 0x208;
+  - `lock inc` at 0x218.
+
+  That is the pattern of the plain-tree allocator accounting in `crates/expanse/src/alloc.rs` at D's commit: `bytes_in_use` (`fetch_add`/`fetch_sub` of the size), `live_allocs` (±1) and `total_allocs` (+1), each an atomic read-modify-write. The match is by operation pattern; the offsets were not checked against the struct layout. No sampled instruction is a `rep` string instruction (share 0.000 at both sizes), so the `rep movsb` hypothesis is REFUTED. Stock issues almost no microcode on these phases: 38 samples at 1 Ki, mostly in the probe's `read`/`write` system calls, and none at 4 Mi.
+- **Not priced here.** A locked read-modify-write costs more than its microcode switch. Its own latency and ordering are back-end costs, which these front-end counters do not measure. Whether the plain-tree accounting atomics cost delete cycles beyond the 4.6% is **unmeasured**. Who reads these counters, and what gating them would remove, is the audit AGENTS.md §8.22.1 asks for first (#930).
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

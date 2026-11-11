@@ -356,6 +356,11 @@ NO_ROUNDS = {
     "hot_comparison/results/baseline_string_memory_run2.json",
     "masstree_comparison/results/baseline_memory_run2.json",
     "masstree_comparison/results/baseline_string_memory_run2.json",
+    # Where one `perf record` per (shape, arm) placed its samples: shares of a
+    # single recording, published with no interval and no ratio between runs,
+    # so there are no rounds to keep. The verbatim perf text sits beside it in
+    # `ms_attribution_raw/`.
+    "stressng_comparison/results/diagnostic_ms_attribution_ref.json",
 }
 
 # The comparative suites this gate governs: the ones whose runners drive an
