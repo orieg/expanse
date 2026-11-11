@@ -387,7 +387,8 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - Three arms, differing only in `LD_LIBRARY_PATH`: N (the library of the pre-registered runs), N64 (its source with 64-byte function alignment, from the layout diagnostic) and S (stock).
 - User-mode `cpu_core` events, fixed `cycles` and `instructions` in every process, and one group per process:
   - `mem`: `mem_load_retired.l1_miss`, `.l2_miss`, `.l3_miss`, `br_misp_retired.all_branches`;
-  - `stall`: `cycle_activity.stalls_total`, `.stalls_l1d_miss`, `.stalls_l2_miss`, `.stalls_l3_miss`;
+  - `stall`: `cycle_activity.stalls_total`, `.stalls_l1d_miss`, `.stalls_l2_miss`;
+  - `l3`: `cycle_activity.stalls_l3_miss` alone. The first launch's preflight found it counting 350 alone and 0 beside the other three stall events, the #1177 failure, and stopped before anything was timed;
   - `fe`: the fixed `slots` counter, `idq_uops_not_delivered.core`, `dtlb_load_misses.walk_completed`, `br_inst_retired.all_branches`.
 - The preflight, the discard rule and the void rule are the counter diagnostic's. 12 rounds per run, cycling the arms through their six orders and shuffling (shape, group) within a round. Two independent runs under the host bench lock and the comparison's pin.
 - `scripts/diag_phase_counters_analyze.py` writes `results/diagnostic_phase_counters_ref_run{1,2}.json`: per shape, two-sample BCa 95% intervals on N/S, N64/S and N64/N for every counter, with per-operation means.

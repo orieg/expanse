@@ -41,7 +41,9 @@ GROUPS = {
     "mem": ["mem_load_retired.l1_miss", "mem_load_retired.l2_miss",
             "mem_load_retired.l3_miss", "br_misp_retired.all_branches"],
     "stall": ["cycle_activity.stalls_total", "cycle_activity.stalls_l1d_miss",
-              "cycle_activity.stalls_l2_miss", "cycle_activity.stalls_l3_miss"],
+              "cycle_activity.stalls_l2_miss"],
+    # Alone: beside the other three it read 0 where it counts alone (#1177).
+    "l3": ["cycle_activity.stalls_l3_miss"],
     # `slots` is the fixed TOPDOWN.SLOTS counter.
     "fe": ["slots", "idq_uops_not_delivered.core", "dtlb_load_misses.walk_completed",
            "br_inst_retired.all_branches"],
