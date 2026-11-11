@@ -397,6 +397,39 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 
 **Expected** (projected): D/B on delete above 1 at every size. The size of the move is not predicted from the Callgrind change, since #1668 found the delete gap's wall-clock share unmeasured.
 
+### Delete result (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, rustc 1.98.1, harness `9d9628307`; artifacts `results/diagnostic_delete_ref_run{1,2}.json`) (workloads: sng_judy_1k, sng_judy_256k, sng_judy_4m)
+
+**Builds.** Under the bench lock, 01:37:03–01:38:00 UTC.
+- B (`99ef70855`) reproduced N's file byte for byte (sha256 `da5814a7…`), so no library code changed between `6ec29a656` and #1708's merge base.
+- D (`45f83ac5e`) is `f6bb333e…`.
+
+**Hygiene.** Run 1 01:38:00–01:44:26 UTC and run 2 01:44:26–01:51:52, each under the bench lock. 432 processes per run. Run 1 discarded 8, its worst foreign load 1.09 core-equivalents; run 2 discarded none. Max load1 was 5.03 and 4.27 against a void limit of 12.
+
+**Reading: #1679's criterion is NOT MET on this host.** D/B on the delete rate is FASTER at every cell and W, and D/S is at or above stock only at 256 Ki keys.
+
+| Cell | W | D/B run 1 | D/B run 2 | D/S run 1 | D/S run 2 |
+|---|---|---|---|---|---|
+| 1k | 1 | 1.120 [1.118, 1.121] | 1.120 [1.116, 1.123] | 0.912 [0.910, 0.913] | 0.911 [0.908, 0.914] |
+| 1k | 2 | 1.120 [1.113, 1.127] | 1.111 [1.076, 1.123] | 0.911 [0.906, 0.917] | 0.906 [0.877, 0.916] |
+| 1k | 4 | 1.118 [1.112, 1.123] | 1.116 [1.110, 1.124] | 0.952 [0.915, 1.081] | 0.911 [0.906, 0.917] |
+| 1k | 8 | 1.121 [1.120, 1.123] | 1.118 [1.101, 1.125] | 0.912 [0.911, 0.914] | 0.906 [0.891, 0.911] |
+| 256k | 1 | 1.449 [1.427, 1.469] | 1.416 [1.397, 1.434] | 1.097 [1.080, 1.111] | 1.081 [1.064, 1.098] |
+| 256k | 2 | 1.424 [1.402, 1.446] | 1.416 [1.398, 1.435] | 1.076 [1.060, 1.090] | 1.071 [1.057, 1.084] |
+| 256k | 4 | 1.438 [1.429, 1.447] | 1.442 [1.434, 1.451] | 1.097 [1.090, 1.103] | 1.100 [1.094, 1.106] |
+| 256k | 8 | 1.435 [1.431, 1.440] | 1.433 [1.431, 1.436] | 1.107 [1.105, 1.109] | 1.106 [1.105, 1.108] |
+| 4m | 1 | 1.395 [1.387, 1.401] | 1.393 [1.386, 1.397] | 0.874 [0.869, 0.876] | 0.876 [0.871, 0.878] |
+| 4m | 2 | 1.392 [1.386, 1.401] | 1.399 [1.391, 1.406] | 0.882 [0.878, 0.886] | 0.887 [0.881, 0.896] |
+| 4m | 4 | 1.391 [1.382, 1.400] | 1.406 [1.397, 1.413] | 0.883 [0.878, 0.889] | 0.892 [0.886, 0.897] |
+| 4m | 8 | 1.403 [1.394, 1.406] | 1.403 [1.396, 1.406] | 0.898 [0.893, 0.900] | 0.900 [0.897, 0.903] |
+
+- **The fix's effect.** The delete rate rises 1.11–1.12× at 1 Ki keys, 1.42–1.45× at 256 Ki and 1.39–1.41× at 4 Mi. At 256 Ki it takes Expanse from below stock to 1.07–1.11× stock. At 1 Ki (0.91×) and 4 Mi (0.87–0.90×) a gap to stock remains, which the live-slot scan #1679 removed does not account for.
+- **Insert, the control #1708 does not touch, holds.** D/B on insert is 0.984–1.006. Every interval lies inside [0.98, 1.02] except four whose lower bounds reach 0.972–0.979: three at 256 Ki and one at 4 Mi (W = 1, run 1).
+- **Find moved, and #1708 does not touch find either.**
+  - D/B on find is 1.033–1.067 at 1 Ki and 256 Ki, FASTER in both runs. At 4 Mi it is 0.991–1.066 and mostly MIXED.
+  - The hot find function `get::locate_slot_popcnt` sits 16 bytes into a 64-byte line in B (`0x22b650`) and at offset 0 in D (`0x22b880`), the offset the layout diagnostic measured fast. That is the placement effect, not the change under test. Its size here is not measured.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
