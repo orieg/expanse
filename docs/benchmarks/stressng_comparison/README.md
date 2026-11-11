@@ -898,6 +898,64 @@ Every other counter's interval is in the artifacts. The taken-branch counts are 
 - **Which stage moved.** Total stall cycles fall to 0.42–0.50× D's at 1 Ki and 0.84–0.85× at 4 Mi. The undelivered-uop slots move only at 4 Mi (0.66×). At 1 Ki they are 0.96–1.01×, and run 1's interval contains 1.
 - **Scope.** This measures the `lock` prefixes' total cost on these two shapes, through one implementation that drops them. It does not show that this form is safe to ship. The counters are public (`NodeAlloc::live_allocs` and `total_allocs`, Python's `total_node_allocs`), and AGENTS.md §2.6 and §8.22 apply. Any shippable version is the owner's call.
 
+## Promotion: unlocked plain-tree accounting
+
+**Promoting the `ablation-unlocked-plain-acct` form to the default** (#1679, AGENTS.md §2.7). This is pre-registered before any measurement of the promoted build. The diagnostic above is the reason to try it, not its evidence: it measured a different engine and a different build, so none of its numbers count toward any gate below (§2.7.1).
+
+**Change.**
+- **Default.** On a plain tree's allocation path (`alloc_raw_body!`) and free path (`free_raw`) in `crates/expanse/src/alloc.rs`, the update of `bytes_in_use`, `live_allocs` and `total_allocs` depends on the block's size class:
+  - **A block with a slab size class** (`class_for` is `Some`, the per-tree freelist path) updates by a relaxed load and a store, not a locked read-modify-write. In the diagnostic's build, x86-64 compiles each such update to one un-prefixed memory instruction (`decq`, not `lock decq`).
+  - **A block with no class**, served by the system allocator, keeps the locked read-modify-write. That path already pays a `malloc` or `free` call.
+- **Inverse.** `ablation-locked-plain-acct` restores the locked read-modify-write on both paths, so the new default can itself be ablated (§2.7.2).
+- **Retired name.** `ablation-unlocked-plain-acct` becomes a `compile_error!` naming the inverse, never a no-op. Every consumer of the old name moves in the same PR (§2.7.3).
+- **Untouched.** A deferred tree's sharded accounting (`Deferred::charge`/`discharge`) does not change.
+
+**Consumer audit, by visibility first (AGENTS.md §8.22.1).**
+
+Readers. All of them load and never update, so a load-and-store writer does not change what they read:
+- `pub` on `NodeAlloc`: `bytes_in_use()`, `live_allocs()`, `total_allocs()` (`.github/public-api/expanse-trie.txt`).
+- `pub` on the containers: `mem_used()` on every container, `live_allocs()` (`#[doc(hidden)]`) and `total_node_allocs()` on `ExpanseMap`, `ExpanseSet`, `ExpanseMap32` and `ExpanseSet32`, and `alloc_census()`.
+- Python: `total_node_allocs()` (`crates/expanse-py/src/{map,set}.rs`, `bindings/python/expanse_trie/__init__.pyi`).
+- The C ABI's `MemUsed` surface, through `mem_used()`.
+- Examples `remove_retention` and `writer_scaling` (the latter through `with_locked`), and tests. No binding or C ABI entry point updates a counter.
+
+Writers. Only `alloc_raw_body!` and `free_raw` update the plain counters. Why plain-tree mutation is single-writer:
+- **Owned containers.** Every container that owns a `NodeAlloc` mutates through `&mut self` (`insert`, `remove`, `clear`, …). `NodeAlloc` is neither `Clone` nor shared between trees.
+- **64-bit concurrent wrappers.** They call `defer_to` and allocate through the deferred path. A plain-path allocation on a deferred allocator trips the `debug_assert` at the top of `alloc_raw_body!` and `free_raw`.
+- **`sync32`.** It has one writer handle per `split` (`Writer32`, not clonable). Readers only read.
+- **The plain path already assumes one writer.** Its freelist push and pop in the same functions are relaxed load/store pairs, not compare-and-swap. In debug builds, `enter_bookkeeping` panics if two threads are inside one allocator's freelists at once.
+
+The one `&self` path that two threads could reach is `NodeAlloc`'s own `pub` `alloc_bytes`/`free_bytes`/`alloc_node`/`free_node` (and their zeroed forms) on a shared `&NodeAlloc`.
+- **With a slab class**, concurrent use is already unsupported: the freelist hands the same block to both callers.
+- **Without one**, today's locked counters keep concurrent use exact. That is why unclassed blocks keep the locked update. The split preserves today's contract exactly: concurrent calls that use only unclassed sizes stay exact, and any use of a classed size from two threads was already unsupported.
+- **No caller shares one.** No test, example, bench, binding or fuzz target shares one `NodeAlloc` across threads (a search of the tree for these methods and for threads in `alloc.rs`'s tests).
+- **No observable change.** The `pub` methods keep their signatures, their single-threaded values, and their concurrent behaviour for unclassed sizes.
+- **Doc.** `NodeAlloc`'s doc still says the counters are atomic so that a concurrent wrapper sharing the tree keeps them exact. Wrappers have used the deferred path since #930, so the doc is rewritten to state this contract.
+
+The alternative, unlocking every plain-path update (the diagnostic's form), would make the unclassed path lose counts under concurrent use. That is an observable change on `pub` methods. The split avoids it, and the locked updates it keeps sit beside a system allocator call.
+
+Values stay identical. `crates/expanse/tests/test_plain_acct_values.rs` pins `mem_used`, `live_allocs` and `total_node_allocs` over mixed workloads on `ExpanseMap`, `ExpanseSet`, `ExpanseMap32` and `ExpanseStrMap`. The pins were taken on the locked build, and the test passes under the new default and under `ablation-locked-plain-acct`. Each counter update is shown to turn it red.
+
+**Gates, in order.**
+1. **Callgrind** (§2.7.4), the CI `instruction-counts` job's `perf_report.py` table against `main`. Met when every `sync_*` arm and every plain-tree arm is within +0.1%. It is met first, and nothing timed runs before it is met and reported.
+   - **Predicted** (projected, not derived): the `sync_*` arms within ±0.1%, since the deferred path does not change. The split adds one test of the size class before the counters. The freelist path already makes that test, and the compiler may or may not merge the two. Plain arms that remove many nodes may rise above +0.1%. On a different engine, the diagnostic build retired 1.0004× (1 Ki) and 1.0020× (4 Mi) the instructions of its locked twin on `JudyLDel`. That came from code generation inside `map_remove::<false, false>`, not from the counter sites, which stay one instruction each. Plain insert arms: no direction predicted.
+   - **If any arm exceeds +0.1%:** gate 1 is NOT MET. The arm is attributed (a `callgrind_annotate --inclusive=no` diff, and `objdump` for functions whose source did not change) and reported, and nothing timed runs. The bound is not moved (§8.19).
+2. **Disassembly.** In `objdump -d` of the head's `libexpanse.so`, every remaining `lock` instruction on the accounting words of a plain instantiation (`<false, …>`, `JudyL*`, `Judy1*`) is on the system-allocator branch, and none is on the freelist or slab branch. Each deferred instantiation carries the same `lock` count as on `main`.
+3. **Wall clock, only after gates 1 and 2 are met and reported.**
+   - **Probe and shapes.** `scripts/phase_probe.c`: `del_1k`, `del_4m`, and the 4 Mi insert phase `judy_4m`. `JudyLIns` loses its 25 `lock` instructions.
+   - **Arms.** P (this PR's head), M (its merge base on `main`, locked) and S (stock), built by `scripts/build_layout_lib.sh` on the reference host under the bench lock.
+   - **Instrument.** The unlocked-accounting diagnostic's (cycles, instructions, `phase_ns`, two-sample BCa 95%, 12 rounds over the six orders, two runs, the same discard and void rules). The run mode is `phase_promote_acct`.
+   - **Reading rule, per shape, on `cycles`, over both runs:**
+     - FASTER when P/M's upper bound is below 1 in both runs;
+     - SLOWER when its lower bound is above 1 in both;
+     - SAME when the interval contains 1 in both;
+     - MIXED otherwise.
+     - The phase wall clock is read on the same sides and reported as WALL DISAGREES if it differs, never reinterpreted.
+   - **Predicted:** FASTER on all three shapes. No size is predicted.
+   - **Promotion criterion:** `del_1k` and `del_4m` FASTER, and `judy_4m` FASTER or SAME. Any other reading is reported, and the default is not changed on it.
+
+**Not decided here.** Merging is the owner's decision after the gates are read. The `pub` accessors keep their signatures, so the public API snapshot does not change. Release note (proposed): "A plain tree's allocator accounting no longer uses locked updates for blocks served from its per-tree freelists; values and the public API are unchanged." Whether that goes in a patch or a minor release is open: no observable behaviour changes, by the audit above.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -1054,4 +1112,26 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref phase_delete_acct
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_acct_ref_run1 /var/tmp/stressng-eval/results/diag_delete_acct_ref_run2
+```
+
+The accounting promotion builds P from an export of its head and M from an export of its merge base, then runs with the mode `phase_promote_acct`:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of head> /var/tmp/stressng-eval/expcompat-1679prom-P/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of merge base> /var/tmp/stressng-eval/expcompat-1679prom-M/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref phase_promote_acct
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref phase_promote_acct
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_promote_acct_ref_run1 /var/tmp/stressng-eval/results/diag_promote_acct_ref_run2
 ```

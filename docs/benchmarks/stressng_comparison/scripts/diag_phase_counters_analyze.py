@@ -23,9 +23,10 @@ MIN_VALID = 8
 # The gets set's pairs; the delete set (`phase_set` "delete", #1679) has one.
 PAIRS_BY_SET = {"gets": [("N", "S"), ("N64", "S"), ("N64", "N")], "delete": [("D", "S")],
                 "delete_fe": [("D", "S")], "delete_ms": [("D", "S")],
-                "delete_acct": [("A", "D"), ("A", "S"), ("D", "S")]}
+                "delete_acct": [("A", "D"), ("A", "S"), ("D", "S")],
+                "promote_acct": [("P", "M"), ("P", "S"), ("M", "S")]}
 NAME_BY_SET = {"gets": "phase_counters", "delete": "delete_phase", "delete_fe": "delete_fe",
-               "delete_ms": "delete_ms", "delete_acct": "delete_acct"}
+               "delete_ms": "delete_ms", "delete_acct": "delete_acct", "promote_acct": "promote_acct"}
 # The delete_acct set's rule (README.md, "Diagnostic: unlocked accounting on
 # the delete phase"): the share of D's cycle excess over S that A removes, at
 # which the locked counters are said to matter.
@@ -213,6 +214,24 @@ def acct_reading(keyed, shape):
           else "ABOVE STOCK" if all(x == "above" for x in a_s) else "NOT SEPARATED FROM STOCK"))
 
 
+def promote_reading(keyed, shape):
+    """README.md's promotion rule for one shape (P against M), over both runs."""
+    pm = [k[(shape, "cycles", "P/M")] for k in keyed]
+    wall = [k[(shape, "phase_ns", "P/M")] for k in keyed]
+    if any(c["ci_lower"] is None for c in pm + wall):
+        print(f"  {shape}: NO READING (a run has too few valid processes for an interval)")
+        return None
+    for n, (c, w) in enumerate(zip(pm, wall), 1):
+        print(f"  {shape} run {n}: P/M cycles {c['ratio']:.4f} [{c['ci_lower']:.4f}, {c['ci_upper']:.4f}], "
+              f"P/M phase wall {w['ratio']:.4f} [{w['ci_lower']:.4f}, {w['ci_upper']:.4f}]")
+    sides = [side(c) for c in pm]
+    verdict = {"below": "FASTER", "above": "SLOWER", "across": "SAME"}[sides[0]] if len(set(sides)) == 1 else "MIXED"
+    note = "; WALL DISAGREES (P/M phase wall clock lies on another side of 1 in a run)" \
+        if [side(c) for c in wall] != sides else ""
+    print(f"  {shape}: {verdict}{note}")
+    return verdict
+
+
 def main():
     host, prefixes = sys.argv[1], sys.argv[2:4]
     arts, keyed = [], []
@@ -232,6 +251,7 @@ def main():
     fe_set = arts[0]["provenance"].get("phase_set") == "delete_fe"
     ms_set = arts[0]["provenance"].get("phase_set") == "delete_ms"
     acct_set = arts[0]["provenance"].get("phase_set") == "delete_acct"
+    promote_set = arts[0]["provenance"].get("phase_set") == "promote_acct"
     print("\n| shape | counter | pair | per op (num) | per op (den) | run 1 [BCa 95%] | run 2 [BCa 95%] |")
     print("|---|---|---|---|---|---|---|")
     for key in keyed[0]:
@@ -245,6 +265,12 @@ def main():
                + ("" if c["ci_method"] == CI_METHOD_BCA else f" ({c['ci_method']})") for c in cs]
         print(f"| {key[0]} | `{key[1]}` | {key[2]} | {cs[0]['per_op_' + num]:.4g} | "
               f"{cs[0]['per_op_' + den]:.4g} | {txt[0]} | {txt[1]} |")
+    if promote_set:
+        print("\nreading rule (README.md), P against M per shape:")
+        v = {shape: promote_reading(keyed, shape) for shape in sorted({k[0] for k in keyed[0]})}
+        ok = v.get("del_1k") == "FASTER" and v.get("del_4m") == "FASTER" and v.get("judy_4m") in ("FASTER", "SAME")
+        print(f"promotion criterion: {'MET' if ok else 'NOT MET'} ({v})")
+        return
     if acct_set:
         print("\nreading rule (README.md), A against D and S per shape:")
         for shape in sorted({k[0] for k in keyed[0]}):

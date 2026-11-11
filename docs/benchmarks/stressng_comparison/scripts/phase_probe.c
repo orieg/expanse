@@ -17,7 +17,7 @@
  *               phase is the deletes, `repeats` builds each followed by its
  *               counted delete pass, so each array is as warm as stress-ng's.
  *   del_4m      the same at 4,194,304 keys, once (`repeats` is 1).
- *               Both delete shapes also print `phase_ns`, the CLOCK_MONOTONIC
+ *               Both delete shapes, and `judy_4m`, also print `phase_ns`, the CLOCK_MONOTONIC
  *               time summed over the counted delete passes, read inside the
  *               enable/disable bracket so the perf control round trips are
  *               outside it (#1679, the accounting ablation).
@@ -127,17 +127,22 @@ static int judy_4m(void)
 	PWord_t pv;
 	uint64_t i, n = 4194304;
 	Word_t freed;
+	struct timespec t0, t1;
 
 	perf_ctl("enable\n");
+	clock_gettime(CLOCK_MONOTONIC, &t0);
 	for (i = 0; i < n; i++) {
 		JLI(pv, a, (Word_t)(((~i & 0xff) << 24) | (i & 0xffffff)));
 		if (pv == NULL || pv == PJERR)
 			return 2;
 		*pv = i;
 	}
+	clock_gettime(CLOCK_MONOTONIC, &t1);
 	perf_ctl("disable\n");
 	JLFA(freed, a);
 	printf("inserted %lu freed %lu\n", (unsigned long)n, (unsigned long)freed);
+	printf("phase_ns %llu\n", (unsigned long long)((uint64_t)(t1.tv_sec - t0.tv_sec) * 1000000000ULL
+		+ (uint64_t)t1.tv_nsec - (uint64_t)t0.tv_nsec));
 	return 0;
 }
 
