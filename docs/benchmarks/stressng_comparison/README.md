@@ -428,6 +428,31 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - **#1684's fix criterion on this host.** N64/S on find has its lower bound above 1.0 at every W in both runs (1.078 lowest). The criterion also needs the second host, which this design does not cover.
 - **What this establishes.** The O/N find gap on this host is a property of code placement and not of the code. Aligning every function to 64 bytes fixes the placement independently of link order and, on this host, takes the 1k find from 0.96× stock to 1.08–1.10×. Why offset 0 is fast and offset 16 slow is not established here, beyond the counter result above.
 
+### Layout result (second host)
+
+(measured: second host AMD Ryzen 9 9955HX (Zen 5), CPUs `0-7` pinned, governor `performance` on every CPU for the timed rounds, the same stress-ng binary and N, N64, O64 and stock files as the reference host (sha256 `490c0595…`, `da5814a7…`, `d99c1f0c…`, `b7745ddf…`, `76f121a8…`), harness `5c0c3861e`; artifacts `results/diagnostic_layout_zen5_run{1,2}.json`) (workload: sng_judy_1k)
+
+**Hygiene.** Run 1 started 02:41:34 UTC and run 2 ended 02:44:49, under the bench lock.
+- The governor was set to `performance`, and the host's CI runner container was stopped for the timed rounds only, both restored and read back equal afterwards (METHODOLOGY.md §3).
+- 192 processes per run and none discarded. The foreign load before each run was 0.010 and 0.012 core-equivalents, and max load1 was 1.86 and 2.29 against a void limit of 16.
+
+**#1684's fix criterion: MET on both hosts.** N64/S on find has its lower bound above 1.0 at every W in both runs here as on the reference host. The lowest lower bound is 1.143 here and 1.078 there.
+
+| W | O64/N64 run 1 | O64/N64 run 2 | N64/N run 1 | N64/N run 2 | N64/S run 1 | N64/S run 2 | reading |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.996 [0.984, 1.007] | 1.016 [1.003, 1.045] | 1.047 [1.035, 1.059] | 1.024 [0.991, 1.038] | 1.200 [1.185, 1.207] | 1.183 [1.143, 1.198] | UNRESOLVED |
+| 2 | 1.001 [1.000, 1.002] | 1.003 [0.997, 1.016] | 1.047 [1.043, 1.055] | 1.039 [1.025, 1.046] | 1.201 [1.198, 1.204] | 1.197 [1.180, 1.204] | PLACEMENT |
+| 4 | 1.003 [1.000, 1.008] | 1.008 [1.003, 1.023] | 1.045 [1.040, 1.049] | 1.042 [1.027, 1.048] | 1.202 [1.195, 1.204] | 1.197 [1.182, 1.203] | UNRESOLVED |
+| 8 | 1.002 [1.001, 1.002] | 1.005 [1.001, 1.021] | 1.047 [1.044, 1.050] | 1.049 [1.039, 1.064] | 1.205 [1.202, 1.213] | 1.197 [1.181, 1.203] | NOT PLACEMENT |
+
+- **Per-arm find rates.** Means at W = 1 over both runs, in M ops/s: N 142.08, N64 147.15, O64 147.98, S 123.53. On this host N already finds 1.15× faster than stock, and alignment adds 4–5%.
+- **The placement reading is mixed here.**
+  - At equal layout, O64/N64 is 0.996–1.016. Its intervals fall inside [0.98, 1.02] at W = 2 only, reach past 1.02 at W = 1 and 4, and have lower bounds above 1 in both runs at W = 8.
+  - O's code is at most 1.6% faster at equal layout, against N64/N's 1.024–1.049 from the layout alone.
+  - On this host the O/N find gap was itself small: the comparison above found N 1.14–1.15× stock, and the library A/B was not run here. So the reading has less to separate than on the reference host, where it is PLACEMENT at every W.
+- **No cost on the other phases here.** N64/N on insert is 0.995–1.003 and on delete 1.001–1.006, every interval inside [0.98, 1.02]. The reference host's 1.4–2.4% insert cost does not appear on this host.
+- **What this establishes for #1684.** Aligning every function to 64 bytes takes the 1k find from 0.96× to 1.08–1.10× stock on the reference host and from 1.15× to 1.18–1.21× here. Insert pays 1.4–2.4% on the reference host and nothing here, and delete is unchanged on both. That makes 64-byte function alignment a candidate fix measured on both hosts. Shipping it is a build-configuration change, made separately.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
