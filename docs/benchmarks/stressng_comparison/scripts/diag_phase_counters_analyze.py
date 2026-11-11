@@ -22,9 +22,14 @@ from bca_bootstrap import CI_METHOD_BCA, bca_bootstrap_ratio_ci_with_method
 MIN_VALID = 8
 # The gets set's pairs; the delete set (`phase_set` "delete", #1679) has one.
 PAIRS_BY_SET = {"gets": [("N", "S"), ("N64", "S"), ("N64", "N")], "delete": [("D", "S")],
-                "delete_fe": [("D", "S")], "delete_ms": [("D", "S")]}
+                "delete_fe": [("D", "S")], "delete_ms": [("D", "S")],
+                "delete_acct": [("A", "D"), ("A", "S"), ("D", "S")]}
 NAME_BY_SET = {"gets": "phase_counters", "delete": "delete_phase", "delete_fe": "delete_fe",
-               "delete_ms": "delete_ms"}
+               "delete_ms": "delete_ms", "delete_acct": "delete_acct"}
+# The delete_acct set's rule (README.md, "Diagnostic: unlocked accounting on
+# the delete phase"): the share of D's cycle excess over S that A removes, at
+# which the locked counters are said to matter.
+ACCT_SHARE = 0.25
 # The delete_ms set's rule (README.md, "Diagnostic: taken branches and
 # microcode on the delete phase"). MS_SWITCH_COST is the cycles charged per
 # switch to the microcode sequencer, the constant of Intel's top-down
@@ -167,6 +172,47 @@ def ms_reading(keyed, shape, num, den="S"):
     print(f"  {shape}: {verdict}")
 
 
+def side(c):
+    """Which side of 1 a ratio's interval lies on: below, above, or across."""
+    return "below" if c["ci_upper"] < 1.0 else "above" if c["ci_lower"] > 1.0 else "across"
+
+
+def acct_reading(keyed, shape):
+    """README.md's accounting-ablation rule for one shape, over both runs."""
+    ad = [k[(shape, "cycles", "A/D")] for k in keyed]
+    as_ = [k[(shape, "cycles", "A/S")] for k in keyed]
+    ds = [k[(shape, "cycles", "D/S")] for k in keyed]
+    wall = [k[(shape, "phase_ns", "A/D")] for k in keyed]
+    if any(c["ci_lower"] is None for c in ad + as_ + ds + wall):
+        print(f"  {shape}: NO READING (a run has too few valid processes for an interval)")
+        return
+    closed = []
+    for n, (c, d) in enumerate(zip(ad, ds), 1):
+        gap = d["mean_D"] - d["mean_S"]
+        share = (c["mean_D"] - c["mean_A"]) / gap if gap > 0 else None
+        closed.append(share)
+        print(f"  {shape} run {n}: A/D cycles {c['ratio']:.4f} [{c['ci_lower']:.4f}, {c['ci_upper']:.4f}], "
+              f"A/D phase wall {wall[n-1]['ratio']:.4f}; D - S = {gap:.4g} cycles; share of it A removes "
+              + ("n/a (D is not above S)" if share is None else f"{share:.3f}"))
+    sides = [side(c) for c in ad]
+    if all(x == "below" for x in sides):
+        verdict = ("MATTER" if all(x is not None and x >= ACCT_SHARE for x in closed)
+                   else "SMALL (A is faster than D, but removes less than "
+                   f"{ACCT_SHARE:.2f} of D's excess over S in a run)")
+    elif all(x == "above" for x in sides):
+        verdict = "SLOWER (A takes more cycles than D)"
+    elif all(x == "across" for x in sides):
+        verdict = "NO EFFECT (A/D's interval contains 1 in both runs)"
+    else:
+        verdict = "MIXED (the runs disagree on A/D's side of 1)"
+    if [side(c) for c in wall] != sides:
+        verdict += "; WALL DISAGREES (A/D phase wall clock lies on another side of 1 in a run)"
+    print(f"  {shape}: {verdict}")
+    a_s = [side(c) for c in as_]
+    print(f"  {shape}: A against stock: " + ("BELOW STOCK (fewer cycles than S in both runs)" if all(x == "below" for x in a_s)
+          else "ABOVE STOCK" if all(x == "above" for x in a_s) else "NOT SEPARATED FROM STOCK"))
+
+
 def main():
     host, prefixes = sys.argv[1], sys.argv[2:4]
     arts, keyed = [], []
@@ -185,6 +231,7 @@ def main():
         sys.exit("a run is void (METHODOLOGY.md §7); no reading")
     fe_set = arts[0]["provenance"].get("phase_set") == "delete_fe"
     ms_set = arts[0]["provenance"].get("phase_set") == "delete_ms"
+    acct_set = arts[0]["provenance"].get("phase_set") == "delete_acct"
     print("\n| shape | counter | pair | per op (num) | per op (den) | run 1 [BCa 95%] | run 2 [BCa 95%] |")
     print("|---|---|---|---|---|---|---|")
     for key in keyed[0]:
@@ -198,6 +245,11 @@ def main():
                + ("" if c["ci_method"] == CI_METHOD_BCA else f" ({c['ci_method']})") for c in cs]
         print(f"| {key[0]} | `{key[1]}` | {key[2]} | {cs[0]['per_op_' + num]:.4g} | "
               f"{cs[0]['per_op_' + den]:.4g} | {txt[0]} | {txt[1]} |")
+    if acct_set:
+        print("\nreading rule (README.md), A against D and S per shape:")
+        for shape in sorted({k[0] for k in keyed[0]}):
+            acct_reading(keyed, shape)
+        return
     num = PAIRS[0][0]
     print(f"\nreading rule (README.md), {num} against S per shape:")
     for shape in sorted({k[0] for k in keyed[0]}):

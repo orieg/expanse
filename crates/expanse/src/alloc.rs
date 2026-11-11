@@ -106,10 +106,28 @@ macro_rules! alloc_raw_body {
                 return Self::$system($bytes, $align);
             }
 
+            #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
             $s.bytes_in_use
                 .fetch_add(accounted_size, Ordering::Relaxed);
+            #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
             $s.live_allocs.fetch_add(1, Ordering::Relaxed);
+            #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
             $s.total_allocs.fetch_add(1, Ordering::Relaxed);
+            // Diagnostic (Refs #1679, `Cargo.toml`): the same three updates as
+            // a relaxed load and store, which x86 emits without a `lock`
+            // prefix. Lost updates under concurrent use of one plain
+            // allocator, which the plain path's single-writer contract rules
+            // out; never for production.
+            #[cfg(feature = "ablation-unlocked-plain-acct")]
+            {
+                let b = $s.bytes_in_use.load(Ordering::Relaxed);
+                $s.bytes_in_use
+                    .store(b.wrapping_add(accounted_size), Ordering::Relaxed);
+                let l = $s.live_allocs.load(Ordering::Relaxed);
+                $s.live_allocs.store(l.wrapping_add(1), Ordering::Relaxed);
+                let t = $s.total_allocs.load(Ordering::Relaxed);
+                $s.total_allocs.store(t.wrapping_add(1), Ordering::Relaxed);
+            }
 
             // Miri: one system allocation of exactly `(bytes, align)` per block,
             // accounted above as in every build (module docs).
@@ -1436,9 +1454,20 @@ impl NodeAlloc {
             return;
         }
 
+        #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
         self.bytes_in_use
             .fetch_sub(accounted_size, Ordering::Relaxed);
+        #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+        // Diagnostic (Refs #1679): `alloc_raw_body!`'s unlocked form, inverted.
+        #[cfg(feature = "ablation-unlocked-plain-acct")]
+        {
+            let b = self.bytes_in_use.load(Ordering::Relaxed);
+            self.bytes_in_use
+                .store(b.wrapping_sub(accounted_size), Ordering::Relaxed);
+            let l = self.live_allocs.load(Ordering::Relaxed);
+            self.live_allocs.store(l.wrapping_sub(1), Ordering::Relaxed);
+        }
 
         // Miri: the block goes back to the system allocator, so a later use
         // of it is a use after free and not a read of a pooled block.

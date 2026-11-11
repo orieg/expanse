@@ -809,6 +809,95 @@ Every other counter's interval is in the artifacts. The taken-branch counts are 
   That is the pattern of the plain-tree allocator accounting in `crates/expanse/src/alloc.rs` at D's commit: `bytes_in_use` (`fetch_add`/`fetch_sub` of the size), `live_allocs` (±1) and `total_allocs` (+1), each an atomic read-modify-write. The match is by operation pattern; the offsets were not checked against the struct layout. No sampled instruction is a `rep` string instruction (share 0.000 at both sizes), so the `rep movsb` hypothesis is REFUTED. Stock issues almost no microcode on these phases: 38 samples at 1 Ki, mostly in the probe's `read`/`write` system calls, and none at 4 Mi.
 - **Not priced here.** A locked read-modify-write costs more than its microcode switch. Its own latency and ordering are back-end costs, which these front-end counters do not measure. Whether the plain-tree accounting atomics cost delete cycles beyond the 4.6% is **unmeasured**. Who reads these counters, and what gating them would remove, is the audit AGENTS.md §8.22.1 asks for first (#930).
 
+## Diagnostic: unlocked accounting on the delete phase
+
+**A diagnostic ablation, not a pre-registered result and not a shippable change** (#1679). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The attribution above puts D's microcode uops on the plain tree's locked accounting updates. What do those `lock` prefixes cost the delete phase in all, back end included?
+
+**Build.** Both libraries come from this section's commit, which adds the diagnostic feature `ablation-unlocked-plain-acct` (`crates/expanse/Cargo.toml`). They are built on the reference host under the bench lock by `scripts/build_layout_lib.sh`, with no rustflags:
+- **A**, with `expanse-trie/ablation-unlocked-plain-acct`. On a plain tree's allocation path (`alloc_raw_body!`) and free path (`free_raw`) in `crates/expanse/src/alloc.rs`, `bytes_in_use`, `live_allocs` and `total_allocs` update by a relaxed load and a store instead of a locked read-modify-write. A deferred tree's sharded accounting is unchanged.
+- **D**, with no feature. This D is not the `45f83ac5e` file of the earlier delete sections. It is this commit's engine, which includes #1705, #1710 and #1714.
+
+**Controls, before the timed run, on a host that is not the reference host (none of it timed):**
+- **Default unchanged.** D's source, built with the same toolchain, reproduces a build of its parent (`e63ed38dd`) byte for byte. If it does not, report before the run.
+- **Disassembly.** `objdump -d` of A and of D:
+  - in A, `map_remove::<false, false>` and every function that inlines the plain allocation or free path carry no `lock`-prefixed instruction on the accounting words;
+  - every `lock` instruction that remains in A is listed with its function.
+
+  Dumps go in `results/acct_ablation_disasm/`.
+- **Callgrind.** Instructions per delete for A and for D: `phase_probe` under `valgrind --tool=callgrind --toggle-collect=JudyLDel`, on both shapes. `del_1k` runs at fewer repetitions. A's count may rise, since a locked update becomes a load, an add and a store. For a diagnostic that rise is not a regression verdict.
+
+**Cells and instrument** (`run.sh <run> ref phase_delete_acct`, which runs `scripts/diag_phase_counters.py` with `SNG_PHASE_SET=delete_acct`):
+- **Shapes.** `del_1k` (10,000 × 1,024 deletes) and `del_4m` (4,194,304 deletes), as in the delete-phase sections above.
+- **Arms.** A, D and S (stock), differing only in `LD_LIBRARY_PATH`. The harness stops if A and D are the same file.
+- **Counters.** One user-mode `cpu_core` group: `cycles`, `instructions`, `slots`, `idq_uops_not_delivered.core`, `cycle_activity.stalls_total` and `br_inst_retired.near_taken`.
+- **Wall clock.** The phase's wall clock is `phase_ns`, the probe's own `CLOCK_MONOTONIC` time summed over the counted delete passes.
+- **Rounds.** 12 rounds per run, cycling through the six orders of the three arms, and two runs. The preflight runs on `del_4m`, arm D.
+- **Rules carried over.** The load windows and the discard and void rules are the phase-counter diagnostic's.
+- **Intervals.** `scripts/diag_phase_counters_analyze.py` writes `results/diagnostic_delete_acct_ref_run{1,2}.json`, with two-sample BCa 95% intervals on A/D, A/S and D/S for every counter and for `phase_ns`.
+
+**Reading rule, per shape, on `cycles`, over both runs** (`acct_reading` in the analyzer). Per run, the share is (D − A) / (D − S), on the arms' mean cycles: the part of D's cycle excess over stock that A removes.
+- **MATTER:** A/D's upper bound is below 1, and the share is at least 0.25, in both runs. The locked counters carry at least 0.25 of D's excess over stock. The 0.25 bar is the share the earlier front-end rules used to name a resource.
+- **SMALL:** A/D's upper bound is below 1 in both runs, and the share is below 0.25 in a run.
+- **NO EFFECT:** A/D's interval contains 1 in both runs.
+- **SLOWER:** A/D's lower bound is above 1 in both runs.
+- **MIXED:** any other combination.
+- **Wall clock.** The phase wall clock's A/D is read for its side of 1 in the same way. A run where it lies on another side than the cycle ratio is reported as WALL DISAGREES, never reinterpreted.
+- **Against stock.** BELOW STOCK if A/S's upper bound is below 1 in both runs, ABOVE STOCK if its lower bound is above 1 in both, otherwise NOT SEPARATED FROM STOCK.
+
+**Expected** (projected, not derived): A/D below 1 at both shapes. No size is predicted. The microcode-switch share above (0.046 of D's excess at 1 Ki, 0.014 at 4 Mi) bounds only the front-end part of the locked instructions' cost. Their back-end cost is what this run measures.
+
+**Amendment, made after the controls ran and before any timed data** (AGENTS.md §8.19). The pre-registration above is unchanged.
+- **The byte-identical control, as written, is NOT MET, and could not have passed.** D (`cc924b150`, no feature) and P (its parent `e63ed38dd`), built with one toolchain, differ in 49 bytes. They are the build-id note and 26 words of `.data.rel.ro`, each a panic `Location` line number in `alloc.rs`, shifted by 18 or 29 lines with the column unchanged. Any edit that moves lines in that file changes those words.
+- **Replacement control: MET.** `.text`, `.rodata` and `.eh_frame` are identical between D and P, and the `objdump -d` diff is empty, so the default build's code is unchanged.
+- The cells, the instrument and the reading rule stand as committed. The A-against-D comparison does not depend on this control.
+
+**What the result does not decide.** Whether a shippable form exists is a separate decision. The counters are public: `NodeAlloc::live_allocs` and `total_allocs` in Rust, and `total_node_allocs` in the Python binding. AGENTS.md §2.6 and §8.22 apply. A MATTER reading says the `lock` prefixes cost delete cycles, not that this ablation's form is the fix.
+
+### Unlocked-accounting result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, perf 6.8.12, rustc 1.98.1, libraries and harness `cc924b150`; artifacts `results/diagnostic_delete_acct_ref_run{1,2}.json`, `results/acct_ablation_disasm/`, `results/acct_ablation_callgrind/`) (workloads: phase_del_1k, phase_del_4m)
+
+**Hygiene.**
+- **Builds.** A (sha256 `bc6eb1d0…`) and D (`cc4c0139…`) were built 22:02:35–22:03:33 UTC under the bench lock. S is stock, `76f121a8…`.
+- **Runs.** Run 1 22:03:33–22:04:28 UTC and run 2 22:04:28–22:05:22, each under the bench lock. 72 processes per run and none discarded. The worst foreign load over any process was 0.03 and 0.05 core-equivalents. Max load1 was 0.86 and 1.00 against a void limit of 12. The preflight read every event in its group.
+- **Amendment timing.** The amendment above was committed at 22:03:34 UTC, one second after run 1's first process started. No timed data had been read when it was written.
+
+**Controls** (amended above):
+- **Default build:** the replacement control is MET.
+- **Disassembly.** `map_remove::<false, false>` carries 92 `lock` instructions in D and 0 in A. `JudyLDel` goes from 21 to 0 and `JudyLIns` from 25 to 0. The `lock` instructions left in A are in the OCC and deferred instantiations (`<true, …>`) and the shared wrappers (`lock_summary.json`).
+- **Which files.** The dumps and the Callgrind counts come from a build of the same commit, with the same rustc, on another host (A `469612fc…`, D `72acaf57…`). They are not the measured files.
+- **Callgrind, `JudyLDel` inclusive** (valgrind 3.22.0):
+
+  | Shape | Deletes | D | A | A/D |
+  |---|---|---|---|---|
+  | `del_1k` | 102,400 | 67,542,921 | 67,568,321 | 1.0004 |
+  | `del_4m` | 4,194,304 | 3,076,256,264 | 3,082,552,070 | 1.0020 |
+
+  The reference host's `instructions` ratio is the same, 1.0004 and 1.0020. A retires slightly more instructions than D and takes fewer cycles.
+
+**Reading: MATTER at both shapes.** A takes fewer cycles than D in both runs. At 1 Ki A removes more than D's whole excess over stock, and at 4 Mi it removes 0.63 of it. The phase wall clock agrees on its side of 1 in every run.
+
+| Shape | Metric | A/D run 1 | A/D run 2 | A/S run 1 | A/S run 2 |
+|---|---|---|---|---|---|
+| `del_1k` | `cycles` | 0.8558 [0.8373, 0.8883] | 0.8525 [0.8505, 0.8546] | 0.9411 [0.9283, 0.9904] | 0.9299 [0.9279, 0.9319] |
+| `del_1k` | `phase_ns` | 0.8541 [0.8346, 0.8883] | 0.8504 [0.8465, 0.8534] | 0.9440 [0.9301, 0.9970] | 0.9282 [0.9243, 0.9322] |
+| `del_4m` | `cycles` | 0.9389 [0.9253, 0.9498] | 0.9376 [0.9235, 0.9497] | 1.0401 [1.0247, 1.0537] | 1.0403 [1.0255, 1.0530] |
+| `del_4m` | `phase_ns` | 0.9408 [0.9276, 0.9516] | 0.9391 [0.9254, 0.9513] | 1.0592 [1.0438, 1.0729] | 1.0594 [1.0442, 1.0723] |
+
+| Shape | Run | D − S (cycles) | Share of it A removes |
+|---|---|---|---|
+| `del_1k` | 1 | 1.467e8 | 1.591 |
+| `del_1k` | 2 | 1.336e8 | 1.772 |
+| `del_4m` | 1 | 8.677e7 | 0.628 |
+| `del_4m` | 2 | 8.826e7 | 0.632 |
+
+- **Per delete.** At 1 Ki, D takes 158.0 cycles and A 135.2; stock takes 143.7. At 4 Mi, D takes 212.7, A 199.7 and stock 192.0.
+- **Against stock.** At 1 Ki A is BELOW STOCK, 0.93–0.94× its cycles. At 4 Mi it stays ABOVE STOCK, at 1.04×.
+- **Which stage moved.** Total stall cycles fall to 0.42–0.50× D's at 1 Ki and 0.84–0.85× at 4 Mi. The undelivered-uop slots move only at 4 Mi (0.66×). At 1 Ki they are 0.96–1.01×, and run 1's interval contains 1.
+- **Scope.** This measures the `lock` prefixes' total cost on these two shapes, through one implementation that drops them. It does not show that this form is safe to ship. The counters are public (`NodeAlloc::live_allocs` and `total_allocs`, Python's `total_node_allocs`), and AGENTS.md §2.6 and §8.22 apply. Any shippable version is the owner's call.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -893,6 +982,8 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref layout
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_layout_analyze.py ref /var/tmp/stressng-eval/results/diag_layout_ref_run1 /var/tmp/stressng-eval/results/diag_layout_ref_run2
+```
+
 The phase-counter diagnostic needs `perf`, `cc` and the N64 library at `$SNG_D/expcompat-6ec29a656-fa64/lib` (the layout diagnostic's `scripts/build_layout_lib.sh`), and runs with the mode `phase`:
 
 ```bash
@@ -905,6 +996,8 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref phase
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_phase_counters_ref_run1 /var/tmp/stressng-eval/results/diag_phase_counters_ref_run2
+```
+
 The delete-fix diagnostic builds its two libraries first, from `git archive` exports of #1708's merge base and head, then runs with the mode `delete` on each host:
 
 ```bash
@@ -939,4 +1032,26 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref phase_delete
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_phase_ref_run1 /var/tmp/stressng-eval/results/diag_delete_phase_ref_run2
+```
+
+The accounting ablation builds A and D from a `git archive` export of its pre-registration commit, then runs with the mode `phase_delete_acct`:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export> /var/tmp/stressng-eval/expcompat-1679acct-A/lib "" ablation-unlocked-plain-acct
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export> /var/tmp/stressng-eval/expcompat-1679acct-D/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref phase_delete_acct
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref phase_delete_acct
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_acct_ref_run1 /var/tmp/stressng-eval/results/diag_delete_acct_ref_run2
 ```
