@@ -523,6 +523,83 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
   - N64/S cycles are 1.495 and 1.496 (`sm_default`), 1.389 and 1.392 (`sm_big`), and 1.127 and 1.131 (`judy_4m`).
   - 64-byte function alignment, which fixed the 1k find, is not a fix for #1680.
 - **Not measured.** Why N mispredicts more here, and at which branches. A `perf record` of `br_misp_retired.all_branches` on the get phase would name them.
+## Diagnostic: the #1679 delete fix on the `judy` cells
+
+**A diagnostic, not a pre-registered result** (#1679). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** #1708 keeps a removal-only lower bound on a `BranchU`'s live slots, which drops the Callgrind count of the stress-ng delete phase by 12.8% (1 Ki keys) to 29.7% (256 Ki). Does the wall-clock delete rate follow, and does it reach stock?
+
+**Design, fixed before the builds** (`scripts/build_layout_lib.sh`, `scripts/diag_delete.py`, `run.sh <run> <host> delete`):
+- Two library files, built on the reference host by `build.sh`'s libexpanse build with no flag:
+  - B: #1708's merge base (`99ef70855`);
+  - D: #1708's head (`45f83ac5e`). The design first named `dd12b6e0e`. That head was replaced before any build or run because it added a null guard that #1708 then reverted, and `45f83ac5e` is the code that merges.
+
+  The second host runs the same files, copied and hash-checked.
+- Three arms, the same stress-ng binary and judy stressor, differing only in `LD_LIBRARY_PATH`: B, D and S (stock). Every `sng_judy_*` cell (1 Ki, 256 Ki and 4 Mi keys at W = 1, 2, 4, 8), one process per arm per cell per round.
+- 12 rounds per run, cycling through the six orders of the three arms. Two independent runs per host under the host bench lock and that host's pin. Load windows, the discard rule and the void rule are the library A/B's.
+- The layout diagnostic found the delete rate insensitive to function alignment (N64/N 0.995–1.008). So B against D measures the fix together with whatever else changed between the two commits, which is only #1708's diff.
+- `scripts/diag_delete_analyze.py` writes `results/diagnostic_delete_<host>_run{1,2}.json`: two-sample BCa 95% intervals on D/B, D/S and B/S for delete, insert, find, bogo-ops/s and wall clock.
+
+**Reading rule, on the delete rate, per cell and W, over both runs:**
+- **#1679's criterion:** D/S lower bound at or above 1.0 in both runs, at every cell and W, on both hosts.
+- **D/B** is FASTER, SAME, SLOWER or MIXED, by the layout diagnostic's bands.
+- **Insert and find** under D/B are reported as controls, since #1708 does not touch those paths.
+
+**Expected** (projected): D/B on delete above 1 at every size. The size of the move is not predicted from the Callgrind change, since #1668 found the delete gap's wall-clock share unmeasured.
+
+### Delete result (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, rustc 1.98.1, harness `9d9628307`; artifacts `results/diagnostic_delete_ref_run{1,2}.json`) (workloads: sng_judy_1k, sng_judy_256k, sng_judy_4m)
+
+**Builds.** Under the bench lock, 01:37:03–01:38:00 UTC.
+- B (`99ef70855`) reproduced N's file byte for byte (sha256 `da5814a7…`), so no library code changed between `6ec29a656` and #1708's merge base.
+- D (`45f83ac5e`) is `f6bb333e…`.
+
+**Hygiene.** Run 1 01:38:00–01:44:26 UTC and run 2 01:44:26–01:51:52, each under the bench lock. 432 processes per run. Run 1 discarded 8, its worst foreign load 1.09 core-equivalents; run 2 discarded none. Max load1 was 5.03 and 4.27 against a void limit of 12.
+
+**Reading: #1679's criterion is NOT MET on this host.** D/B on the delete rate is FASTER at every cell and W, and D/S is at or above stock only at 256 Ki keys.
+
+| Cell | W | D/B run 1 | D/B run 2 | D/S run 1 | D/S run 2 |
+|---|---|---|---|---|---|
+| 1k | 1 | 1.120 [1.118, 1.121] | 1.120 [1.116, 1.123] | 0.912 [0.910, 0.913] | 0.911 [0.908, 0.914] |
+| 1k | 2 | 1.120 [1.113, 1.127] | 1.111 [1.076, 1.123] | 0.911 [0.906, 0.917] | 0.906 [0.877, 0.916] |
+| 1k | 4 | 1.118 [1.112, 1.123] | 1.116 [1.110, 1.124] | 0.952 [0.915, 1.081] | 0.911 [0.906, 0.917] |
+| 1k | 8 | 1.121 [1.120, 1.123] | 1.118 [1.101, 1.125] | 0.912 [0.911, 0.914] | 0.906 [0.891, 0.911] |
+| 256k | 1 | 1.449 [1.427, 1.469] | 1.416 [1.397, 1.434] | 1.097 [1.080, 1.111] | 1.081 [1.064, 1.098] |
+| 256k | 2 | 1.424 [1.402, 1.446] | 1.416 [1.398, 1.435] | 1.076 [1.060, 1.090] | 1.071 [1.057, 1.084] |
+| 256k | 4 | 1.438 [1.429, 1.447] | 1.442 [1.434, 1.451] | 1.097 [1.090, 1.103] | 1.100 [1.094, 1.106] |
+| 256k | 8 | 1.435 [1.431, 1.440] | 1.433 [1.431, 1.436] | 1.107 [1.105, 1.109] | 1.106 [1.105, 1.108] |
+| 4m | 1 | 1.395 [1.387, 1.401] | 1.393 [1.386, 1.397] | 0.874 [0.869, 0.876] | 0.876 [0.871, 0.878] |
+| 4m | 2 | 1.392 [1.386, 1.401] | 1.399 [1.391, 1.406] | 0.882 [0.878, 0.886] | 0.887 [0.881, 0.896] |
+| 4m | 4 | 1.391 [1.382, 1.400] | 1.406 [1.397, 1.413] | 0.883 [0.878, 0.889] | 0.892 [0.886, 0.897] |
+| 4m | 8 | 1.403 [1.394, 1.406] | 1.403 [1.396, 1.406] | 0.898 [0.893, 0.900] | 0.900 [0.897, 0.903] |
+
+- **The fix's effect.** The delete rate rises 1.11–1.12× at 1 Ki keys, 1.42–1.45× at 256 Ki and 1.39–1.41× at 4 Mi. At 256 Ki it takes Expanse from below stock to 1.07–1.11× stock. At 1 Ki (0.91×) and 4 Mi (0.87–0.90×) a gap to stock remains, which the live-slot scan #1679 removed does not account for.
+- **Insert, the control #1708 does not touch, holds.** D/B on insert is 0.984–1.006. Every interval lies inside [0.98, 1.02] except four whose lower bounds reach 0.972–0.979: three at 256 Ki and one at 4 Mi (W = 1, run 1).
+- **Find moved, and #1708 does not touch find either.**
+  - D/B on find is 1.033–1.067 at 1 Ki and 256 Ki, FASTER in both runs. At 4 Mi it is 0.991–1.066 and mostly MIXED.
+  - The hot find function `get::locate_slot_popcnt` sits 16 bytes into a 64-byte line in B (`0x22b650`) and at offset 0 in D (`0x22b880`), the offset the layout diagnostic measured fast. That is the placement effect, not the change under test. Its size here is not measured.
+
+### Delete result (second host)
+
+(measured: second host AMD Ryzen 9 9955HX (Zen 5), CPUs `0-7` pinned, governor `performance` on every CPU for the timed rounds, the same stress-ng binary and B, D and stock files as the reference host (sha256 `490c0595…`, `da5814a7…`, `f6bb333e…`, `76f121a8…`), harness `9d9628307`; artifacts `results/diagnostic_delete_zen5_run{1,2}.json`) (workloads: sng_judy_1k, sng_judy_256k, sng_judy_4m)
+
+**Hygiene.** Run 1 02:44:54–02:51:33 UTC and run 2 02:51:38–02:58:48, under the bench lock held once for this host's layout and delete runs.
+- The governor was set to `performance`, and the host's CI runner container was stopped for those rounds only, both restored and read back equal afterwards (METHODOLOGY.md §3).
+- 432 processes per run and none discarded. The foreign load before each run was 0.008 and 0.014 core-equivalents, and max load1 was 4.03 and 4.46 against a void limit of 16.
+- The first attempt, at 00:16, stopped before anything was timed, because an idle CI job container was running and `run.sh` refuses to run beside one.
+
+**Reading: #1679's criterion is NOT MET on this host either.**
+
+| Cell | D/B delete (all W, both runs) | D/S delete (all W, both runs) |
+|---|---|---|
+| 1 Ki | 1.150–1.156, FASTER | 0.923–0.928, below stock |
+| 256 Ki | 1.473–1.504, FASTER | 1.011–1.093, at or above stock |
+| 4 Mi | 1.397–1.409, FASTER | 0.981–1.021: below stock at W = 1 and 2, at or above at W = 4 and 8 |
+
+- **The fix's effect** matches the reference host's: 1.15× at 1 Ki, 1.47–1.50× at 256 Ki and 1.40–1.41× at 4 Mi.
+- **Against stock, compared with the reference host.** D/S is higher here at 4 Mi (0.98–1.02 against 0.87–0.90), lower at 256 Ki (1.01–1.09 against 1.07–1.11), and about the same at 1 Ki (0.92 against 0.91). Why the 4 Mi gap is smaller on this host is not measured.
+- **Controls.** Insert holds: D/B point estimates 0.996–1.007. Find moves 1.05–1.07× at 1 Ki, the placement effect seen on the reference host, and is within 2% of 1 at 256 Ki and 4 Mi.
 
 ## Reproduce
 
@@ -620,4 +697,24 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref phase
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_phase_counters_ref_run1 /var/tmp/stressng-eval/results/diag_phase_counters_ref_run2
+The delete-fix diagnostic builds its two libraries first, from `git archive` exports of #1708's merge base and head, then runs with the mode `delete` on each host:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 99ef70855> /var/tmp/stressng-eval/expcompat-99ef70855/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 45f83ac5e> /var/tmp/stressng-eval/expcompat-45f83ac5e/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref delete
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref delete
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_ref_run1 /var/tmp/stressng-eval/results/diag_delete_ref_run2
 ```
