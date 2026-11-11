@@ -25,7 +25,6 @@ Environment: SNG_D, REPO_ROOT, SNG_PHASE_SET=delete_ms.
 """
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -34,17 +33,12 @@ from pathlib import Path
 
 import diag_phase_counters as dpc
 import driver
+from ms_annotate import parse
 
 bp = driver.bp
 EVENTS = [("frontend_retired.ms_flows", "upp"), ("idq.ms_uops", "u")]
 PERIOD = 503
-MIN_INSN_SHARE = 0.01
 MIN_ANNOTATED = 100
-HEADER = re.compile(r"Disassembly of (\S+) for .*\((\d+) samples")
-INSN = re.compile(r"^\s*([0-9]+\.[0-9]+)\s*:\s+([0-9a-f]+):\s+(\S.*?)\s*$")
-# A string instruction under a `rep` prefix: the hypothesis the design names.
-REP_STRING = re.compile(r"^rep\w*\s+(movs|stos|cmps|scas|lods)")
-SYM = re.compile(r"^\s*:\s*[0-9a-f]+\s+<(.+)>:\s*$|^\s*:\s*0\s+(\S.*?):?\s*$")
 
 
 def record(event, mods, shape, repeats, arm, data):
@@ -70,32 +64,7 @@ def annotate(data, outbase):
                          check=True, capture_output=True, text=True).stdout
     Path(outbase + ".report.txt").write_text(rep)
     Path(outbase + ".annotate.txt").write_text(ann)
-    functions = []
-    for line in rep.splitlines():
-        parts = line.split()
-        if len(parts) >= 4 and parts[0].endswith("%"):
-            functions.append({"pct": float(parts[0][:-1]), "dso": parts[1], "symbol": " ".join(parts[3:])})
-    insns, dso, sym, n = [], None, None, 0
-    for line in ann.splitlines():
-        h = HEADER.search(line)
-        if h:
-            dso, n, sym = h.group(1), int(h.group(2)), None
-            continue
-        m = SYM.match(line)
-        if m and sym is None:
-            sym = m.group(1) or m.group(2)
-            continue
-        i = INSN.match(line)
-        if i and n:
-            insns.append({"dso": dso, "symbol": sym, "local_pct": float(i.group(1)),
-                          "samples": float(i.group(1)) / 100 * n, "addr": i.group(2),
-                          "insn": i.group(3)})
-    total = sum(x["samples"] for x in insns)
-    for x in insns:
-        x["share"] = x["samples"] / total if total else 0.0
-    top = sorted((x for x in insns if x["share"] >= MIN_INSN_SHARE), key=lambda x: -x["share"])
-    rep = sum(x["share"] for x in insns if REP_STRING.match(x["insn"]))
-    return functions, top, total, rep
+    return parse(rep, ann)
 
 
 def main():

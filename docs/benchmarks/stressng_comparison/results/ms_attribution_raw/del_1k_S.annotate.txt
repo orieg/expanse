@@ -1,0 +1,1513 @@
+ Percent |	Source code & Disassembly of libc.so.6 for cpu_core/frontend_retired.ms_flows/upp (27 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3      Disassembly of section .text:
+         :
+         : 5      0000000000114920 <__read@@GLIBC_2.2.5>:
+    0.00 :   114920: endbr64
+    0.00 :   114924: mov    %fs:0x18,%eax
+    0.00 :   11492c: test   %eax,%eax
+    0.00 :   11492e: jne    114940 <__read@@GLIBC_2.2.5+0x20>
+  100.00 :   114930: syscall
+    0.00 :   114932: cmp    $0xfffffffffffff000,%rax
+    0.00 :   114938: ja     114990 <__read@@GLIBC_2.2.5+0x70>
+    0.00 :   11493a: ret
+    0.00 :   11493b: nopl   0x0(%rax,%rax,1)
+    0.00 :   114940: sub    $0x28,%rsp
+    0.00 :   114944: mov    %rdx,0x18(%rsp)
+    0.00 :   114949: mov    %rsi,0x10(%rsp)
+    0.00 :   11494e: mov    %edi,0x8(%rsp)
+    0.00 :   114952: call   909b0 <__libc_alloca_cutoff@@GLIBC_PRIVATE+0x50>
+    0.00 :   114957: mov    0x18(%rsp),%rdx
+    0.00 :   11495c: mov    0x10(%rsp),%rsi
+    0.00 :   114961: mov    %eax,%r8d
+    0.00 :   114964: mov    0x8(%rsp),%edi
+    0.00 :   114968: xor    %eax,%eax
+    0.00 :   11496a: syscall
+    0.00 :   11496c: cmp    $0xfffffffffffff000,%rax
+    0.00 :   114972: ja     1149a8 <__read@@GLIBC_2.2.5+0x88>
+    0.00 :   114974: mov    %r8d,%edi
+    0.00 :   114977: mov    %rax,0x8(%rsp)
+    0.00 :   11497c: call   90a20 <__libc_alloca_cutoff@@GLIBC_PRIVATE+0xc0>
+    0.00 :   114981: mov    0x8(%rsp),%rax
+    0.00 :   114986: add    $0x28,%rsp
+    0.00 :   11498a: ret
+    0.00 :   11498b: nopl   0x0(%rax,%rax,1)
+    0.00 :   114990: mov    0x105479(%rip),%rdx        # 219e10 <h_errlist@@GLIBC_2.2.5+0xb50>
+    0.00 :   114997: neg    %eax
+    0.00 :   114999: mov    %eax,%fs:(%rdx)
+    0.00 :   11499c: mov    $0xffffffffffffffff,%rax
+    0.00 :   1149a3: ret
+    0.00 :   1149a4: nopl   0x0(%rax)
+    0.00 :   1149a8: mov    0x105461(%rip),%rdx        # 219e10 <h_errlist@@GLIBC_2.2.5+0xb50>
+    0.00 :   1149af: neg    %eax
+    0.00 :   1149b1: mov    %eax,%fs:(%rdx)
+    0.00 :   1149b4: mov    $0xffffffffffffffff,%rax
+    0.00 :   1149bb: jmp    114974 <__read@@GLIBC_2.2.5+0x54>
+ Percent |	Source code & Disassembly of libc.so.6 for cpu_core/frontend_retired.ms_flows/upp (7 samples, percent: local period)
+------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3      Disassembly of section .text:
+         :
+         : 5      00000000001149c0 <__write@@GLIBC_2.2.5>:
+    0.00 :   1149c0: endbr64
+    0.00 :   1149c4: mov    %fs:0x18,%eax
+    0.00 :   1149cc: test   %eax,%eax
+    0.00 :   1149ce: jne    1149e0 <__write@@GLIBC_2.2.5+0x20>
+    0.00 :   1149d0: mov    $0x1,%eax
+    0.00 :   1149d5: syscall
+  100.00 :   1149d7: cmp    $0xfffffffffffff000,%rax
+    0.00 :   1149dd: ja     114a30 <__write@@GLIBC_2.2.5+0x70>
+    0.00 :   1149df: ret
+    0.00 :   1149e0: sub    $0x28,%rsp
+    0.00 :   1149e4: mov    %rdx,0x18(%rsp)
+    0.00 :   1149e9: mov    %rsi,0x10(%rsp)
+    0.00 :   1149ee: mov    %edi,0x8(%rsp)
+    0.00 :   1149f2: call   909b0 <__libc_alloca_cutoff@@GLIBC_PRIVATE+0x50>
+    0.00 :   1149f7: mov    0x18(%rsp),%rdx
+    0.00 :   1149fc: mov    0x10(%rsp),%rsi
+    0.00 :   114a01: mov    %eax,%r8d
+    0.00 :   114a04: mov    0x8(%rsp),%edi
+    0.00 :   114a08: mov    $0x1,%eax
+    0.00 :   114a0d: syscall
+    0.00 :   114a0f: cmp    $0xfffffffffffff000,%rax
+    0.00 :   114a15: ja     114a48 <__write@@GLIBC_2.2.5+0x88>
+    0.00 :   114a17: mov    %r8d,%edi
+    0.00 :   114a1a: mov    %rax,0x8(%rsp)
+    0.00 :   114a1f: call   90a20 <__libc_alloca_cutoff@@GLIBC_PRIVATE+0xc0>
+    0.00 :   114a24: mov    0x8(%rsp),%rax
+    0.00 :   114a29: add    $0x28,%rsp
+    0.00 :   114a2d: ret
+    0.00 :   114a2e: xchg   %ax,%ax
+    0.00 :   114a30: mov    0x1053d9(%rip),%rdx        # 219e10 <h_errlist@@GLIBC_2.2.5+0xb50>
+    0.00 :   114a37: neg    %eax
+    0.00 :   114a39: mov    %eax,%fs:(%rdx)
+    0.00 :   114a3c: mov    $0xffffffffffffffff,%rax
+    0.00 :   114a43: ret
+    0.00 :   114a44: nopl   0x0(%rax)
+    0.00 :   114a48: mov    0x1053c1(%rip),%rdx        # 219e10 <h_errlist@@GLIBC_2.2.5+0xb50>
+    0.00 :   114a4f: neg    %eax
+    0.00 :   114a51: mov    %eax,%fs:(%rdx)
+    0.00 :   114a54: mov    $0xffffffffffffffff,%rax
+    0.00 :   114a5b: jmp    114a17 <__write@@GLIBC_2.2.5+0x57>
+ Percent |	Source code & Disassembly of phase_probe for cpu_core/frontend_retired.ms_flows/upp (2 samples, percent: local period)
+--------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3    Disassembly of section .text:
+         :
+         : 5    00000000000015b0 <perf_ctl>:
+    0.00 :   15b0:   push   %r12
+    0.00 :   15b2:   mov    %rdi,%r12
+    0.00 :   15b5:   sub    $0x10,%rsp
+    0.00 :   15b9:   mov    %fs:0x28,%rax
+    0.00 :   15c2:   mov    %rax,0x8(%rsp)
+    0.00 :   15c7:   xor    %eax,%eax
+    0.00 :   15c9:   call   1150 <strlen@plt>
+    0.00 :   15ce:   mov    0x2a40(%rip),%edi        # 4014 <ctl_fd>
+    0.00 :   15d4:   mov    %r12,%rsi
+    0.00 :   15d7:   mov    %rax,%rdx
+    0.00 :   15da:   call   1140 <write@plt>
+  100.00 :   15df:   test   %rax,%rax
+    0.00 :   15e2:   js     1613 <perf_ctl+0x63>
+    0.00 :   15e4:   mov    0x2a26(%rip),%edi        # 4010 <ack_fd>
+    0.00 :   15ea:   mov    %rsp,%rsi
+    0.00 :   15ed:   mov    $0x8,%edx
+    0.00 :   15f2:   call   1170 <read@plt>
+    0.00 :   15f7:   test   %rax,%rax
+    0.00 :   15fa:   jle    1613 <perf_ctl+0x63>
+    0.00 :   15fc:   mov    0x8(%rsp),%rax
+    0.00 :   1601:   sub    %fs:0x28,%rax
+    0.00 :   160a:   jne    163a <perf_ctl+0x8a>
+    0.00 :   160c:   add    $0x10,%rsp
+    0.00 :   1610:   pop    %r12
+    0.00 :   1612:   ret
+    0.00 :   1613:   mov    0x2a06(%rip),%rdi        # 4020 <stderr@GLIBC_2.2.5>
+    0.00 :   161a:   mov    %r12,%rcx
+    0.00 :   161d:   mov    $0x1,%esi
+    0.00 :   1622:   xor    %eax,%eax
+    0.00 :   1624:   lea    0x9dd(%rip),%rdx        # 2008 <_IO_stdin_used+0x8>
+    0.00 :   162b:   call   11e0 <__fprintf_chk@plt>
+    0.00 :   1630:   mov    $0x3,%edi
+    0.00 :   1635:   call   11d0 <exit@plt>
+    0.00 :   163a:   call   1160 <__stack_chk_fail@plt>
+ Percent |	Source code & Disassembly of libJudy.so.1.0.3 for cpu_core/frontend_retired.ms_flows/upp (1 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     000000000000f120 <JudyLGet@@Base>:
+    0.00 :    f120:   test   %rdi,%rdi
+    0.00 :    f123:   je     1045c <JudyLGet@@Base+0x133c>
+    0.00 :    f129:   mov    (%rdi),%r9
+    0.00 :    f12c:   cmp    $0x1e,%r9
+    0.00 :    f130:   jbe    f1f0 <JudyLGet@@Base+0xd0>
+    0.00 :    f136:   mov    %rsi,%r9
+    0.00 :    f139:   mov    %rsi,%r8
+    0.00 :    f13c:   mov    %rsi,%rcx
+    0.00 :    f13f:   mov    %rsi,%rax
+    0.00 :    f142:   push   %r15
+    0.00 :    f144:   shr    $0x10,%r9
+    0.00 :    f148:   push   %r14
+    0.00 :    f14a:   shr    $0x18,%r8
+    0.00 :    f14e:   push   %r13
+    0.00 :    f150:   shr    $0x20,%rcx
+    0.00 :    f154:   push   %r12
+    0.00 :    f156:   shr    $0x28,%rax
+    0.00 :    f15a:   push   %rbp
+    0.00 :    f15b:   mov    %rsi,%r10
+    0.00 :    f15e:   push   %rbx
+    0.00 :    f15f:   shr    $0x8,%r10
+    0.00 :    f163:   mov    %r9d,%r14d
+    0.00 :    f166:   mov    %r8d,%r13d
+    0.00 :    f169:   mov    %ecx,%r12d
+    0.00 :    f16c:   mov    %eax,%ebp
+    0.00 :    f16e:   mov    %rsi,%r11
+    0.00 :    f171:   mov    %rsi,%r15
+    0.00 :    f174:   movzbl %r9b,%r9d
+    0.00 :    f178:   movzbl %r8b,%r8d
+    0.00 :    f17c:   movzbl %cl,%ecx
+    0.00 :    f17f:   movzbl %al,%eax
+    0.00 :    f182:   shr    $0x30,%r11
+    0.00 :    f186:   shr    $0x38,%r15
+    0.00 :    f18a:   mov    %r10b,-0x21(%rsp)
+    0.00 :    f18f:   shl    $0x4,%r9
+    0.00 :    f193:   movzbl %r10b,%r10d
+    0.00 :    f197:   shl    $0x4,%r8
+    0.00 :    f19b:   shl    $0x4,%rcx
+    0.00 :    f19f:   shl    $0x4,%rax
+    0.00 :    f1a3:   mov    %r11d,%ebx
+    0.00 :    f1a6:   mov    %r15b,-0x22(%rsp)
+    0.00 :    f1ab:   add    $0x8,%rdi
+    0.00 :    f1af:   movzbl %r15b,%r15d
+    0.00 :    f1b3:   movzbl %r11b,%r11d
+    0.00 :    f1b7:   shl    $0x4,%r10
+    0.00 :    f1bb:   mov    %r9,-0x20(%rsp)
+    0.00 :    f1c0:   mov    %r8,-0x18(%rsp)
+    0.00 :    f1c5:   mov    %rcx,-0x10(%rsp)
+    0.00 :    f1ca:   mov    %rax,-0x8(%rsp)
+    0.00 :    f1cf:   cmpb   $0x34,0xf(%rdi)
+    0.00 :    f1d3:   ja     1042c <JudyLGet@@Base+0x130c>
+    0.00 :    f1d9:   movzbl 0xf(%rdi),%ecx
+    0.00 :    f1dd:   lea    0x3a4c4(%rip),%rax        # 496a8 <_fini@@Base+0x340>
+    0.00 :    f1e4:   movslq (%rax,%rcx,4),%rcx
+    0.00 :    f1e8:   add    %rcx,%rax
+    0.00 :    f1eb:   jmp    *%rax
+    0.00 :    f1ed:   nopl   (%rax)
+    0.00 :    f1f0:   lea    0x8(%rdi),%r8
+    0.00 :    f1f4:   lea    0x1(%r9),%rcx
+    0.00 :    f1f8:   mov    $0xffffffffffffffff,%rdx
+    0.00 :    f1ff:   jmp    f21b <JudyLGet@@Base+0xfb>
+    0.00 :    f201:   nopl   0x0(%rax)
+    0.00 :    f208:   lea    (%rcx,%rdx,1),%rax
+    0.00 :    f20c:   shr    %rax
+    0.00 :    f20f:   cmp    (%r8,%rax,8),%rsi
+    0.00 :    f213:   cmovae %rax,%rdx
+    0.00 :    f217:   cmovb  %rax,%rcx
+    0.00 :    f21b:   mov    %rcx,%rax
+    0.00 :    f21e:   sub    %rdx,%rax
+    0.00 :    f221:   cmp    $0x1,%rax
+    0.00 :    f225:   ja     f208 <JudyLGet@@Base+0xe8>
+    0.00 :    f227:   cmp    $0xffffffffffffffff,%rdx
+    0.00 :    f22b:   je     f235 <JudyLGet@@Base+0x115>
+    0.00 :    f22d:   cmp    (%r8,%rdx,8),%rsi
+    0.00 :    f231:   mov    %edx,%eax
+    0.00 :    f233:   je     f239 <JudyLGet@@Base+0x119>
+    0.00 :    f235:   mov    %ecx,%eax
+    0.00 :    f237:   not    %eax
+    0.00 :    f239:   test   %eax,%eax
+    0.00 :    f23b:   js     1045c <JudyLGet@@Base+0x133c>
+    0.00 :    f241:   mov    0x240d98(%rip),%rdx        # 24ffe0 <j__L_LeafWOffset@@Base+0x206580>
+    0.00 :    f248:   cltq
+    0.00 :    f24a:   movzbl 0x1(%rdx,%r9,1),%edx
+    0.00 :    f250:   add    %rdx,%rax
+    0.00 :    f253:   lea    (%rdi,%rax,8),%rax
+    0.00 :    f257:   ret
+    0.00 :    f258:   nopl   0x0(%rax,%rax,1)
+    0.00 :    f260:   xor    %eax,%eax
+    0.00 :    f262:   pop    %rbx
+    0.00 :    f263:   pop    %rbp
+    0.00 :    f264:   pop    %r12
+    0.00 :    f266:   pop    %r13
+    0.00 :    f268:   pop    %r14
+    0.00 :    f26a:   pop    %r15
+    0.00 :    f26c:   ret
+    0.00 :    f26d:   movslq %r15d,%rax
+    0.00 :    f270:   shl    $0x4,%rax
+    0.00 :    f274:   add    (%rdi),%rax
+  100.00 :    f277:   cmpb   $0x1b,0xf(%rax)
+    0.00 :    f27b:   mov    %rax,%rdi
+    0.00 :    f27e:   jne    f1cf <JudyLGet@@Base+0xaf>
+    0.00 :    f284:   movslq %r11d,%rax
+    0.00 :    f287:   shl    $0x4,%rax
+    0.00 :    f28b:   add    (%rdi),%rax
+    0.00 :    f28e:   cmpb   $0x1a,0xf(%rax)
+    0.00 :    f292:   mov    %rax,%rdi
+    0.00 :    f295:   jne    f1cf <JudyLGet@@Base+0xaf>
+    0.00 :    f29b:   movzbl 0x8(%rdi),%eax
+    0.00 :    f29f:   shl    $0x30,%rax
+    0.00 :    f2a3:   mov    %rax,%rcx
+    0.00 :    f2a6:   movzbl 0x9(%rdi),%eax
+    0.00 :    f2aa:   shl    $0x28,%rax
+    0.00 :    f2ae:   or     %rcx,%rax
+    0.00 :    f2b1:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f2b5:   or     %rcx,%rax
+    0.00 :    f2b8:   movzbl 0xa(%rdi),%ecx
+    0.00 :    f2bc:   shl    $0x20,%rcx
+    0.00 :    f2c0:   or     %rcx,%rax
+    0.00 :    f2c3:   movzbl 0xb(%rdi),%ecx
+    0.00 :    f2c7:   shl    $0x18,%rcx
+    0.00 :    f2cb:   or     %rcx,%rax
+    0.00 :    f2ce:   movzbl 0xc(%rdi),%ecx
+    0.00 :    f2d2:   shl    $0x10,%rcx
+    0.00 :    f2d6:   or     %rcx,%rax
+    0.00 :    f2d9:   movzbl 0xd(%rdi),%ecx
+    0.00 :    f2dd:   shl    $0x8,%rcx
+    0.00 :    f2e1:   or     %rcx,%rax
+    0.00 :    f2e4:   movabs $0xff000000000000,%rcx
+    0.00 :    f2ee:   xor    %rsi,%rax
+    0.00 :    f2f1:   test   %rcx,%rax
+    0.00 :    f2f4:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    f2fa:   mov    -0x8(%rsp),%rax
+    0.00 :    f2ff:   add    (%rdi),%rax
+    0.00 :    f302:   cmpb   $0x19,0xf(%rax)
+    0.00 :    f306:   mov    %rax,%rdi
+    0.00 :    f309:   jne    f1cf <JudyLGet@@Base+0xaf>
+    0.00 :    f30f:   movzbl 0x8(%rdi),%eax
+    0.00 :    f313:   shl    $0x30,%rax
+    0.00 :    f317:   mov    %rax,%rcx
+    0.00 :    f31a:   movzbl 0x9(%rdi),%eax
+    0.00 :    f31e:   shl    $0x28,%rax
+    0.00 :    f322:   or     %rcx,%rax
+    0.00 :    f325:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f329:   or     %rcx,%rax
+    0.00 :    f32c:   movzbl 0xa(%rdi),%ecx
+    0.00 :    f330:   shl    $0x20,%rcx
+    0.00 :    f334:   or     %rcx,%rax
+    0.00 :    f337:   movzbl 0xb(%rdi),%ecx
+    0.00 :    f33b:   shl    $0x18,%rcx
+    0.00 :    f33f:   or     %rcx,%rax
+    0.00 :    f342:   movzbl 0xc(%rdi),%ecx
+    0.00 :    f346:   shl    $0x10,%rcx
+    0.00 :    f34a:   or     %rcx,%rax
+    0.00 :    f34d:   movzbl 0xd(%rdi),%ecx
+    0.00 :    f351:   shl    $0x8,%rcx
+    0.00 :    f355:   or     %rcx,%rax
+    0.00 :    f358:   movabs $0xffff0000000000,%rcx
+    0.00 :    f362:   xor    %rsi,%rax
+    0.00 :    f365:   test   %rcx,%rax
+    0.00 :    f368:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    f36e:   mov    -0x10(%rsp),%rax
+    0.00 :    f373:   add    (%rdi),%rax
+    0.00 :    f376:   cmpb   $0x18,0xf(%rax)
+    0.00 :    f37a:   mov    %rax,%rdi
+    0.00 :    f37d:   jne    f1cf <JudyLGet@@Base+0xaf>
+    0.00 :    f383:   movzbl 0x8(%rdi),%eax
+    0.00 :    f387:   shl    $0x30,%rax
+    0.00 :    f38b:   mov    %rax,%rcx
+    0.00 :    f38e:   movzbl 0x9(%rdi),%eax
+    0.00 :    f392:   shl    $0x28,%rax
+    0.00 :    f396:   or     %rcx,%rax
+    0.00 :    f399:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f39d:   or     %rcx,%rax
+    0.00 :    f3a0:   movzbl 0xa(%rdi),%ecx
+    0.00 :    f3a4:   shl    $0x20,%rcx
+    0.00 :    f3a8:   or     %rcx,%rax
+    0.00 :    f3ab:   movzbl 0xb(%rdi),%ecx
+    0.00 :    f3af:   shl    $0x18,%rcx
+    0.00 :    f3b3:   or     %rcx,%rax
+    0.00 :    f3b6:   movzbl 0xc(%rdi),%ecx
+    0.00 :    f3ba:   shl    $0x10,%rcx
+    0.00 :    f3be:   or     %rcx,%rax
+    0.00 :    f3c1:   movzbl 0xd(%rdi),%ecx
+    0.00 :    f3c5:   shl    $0x8,%rcx
+    0.00 :    f3c9:   or     %rcx,%rax
+    0.00 :    f3cc:   movabs $0xffffff00000000,%rcx
+    0.00 :    f3d6:   xor    %rsi,%rax
+    0.00 :    f3d9:   test   %rcx,%rax
+    0.00 :    f3dc:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    f3e2:   mov    -0x18(%rsp),%rax
+    0.00 :    f3e7:   add    (%rdi),%rax
+    0.00 :    f3ea:   cmpb   $0x17,0xf(%rax)
+    0.00 :    f3ee:   mov    %rax,%rdi
+    0.00 :    f3f1:   jne    f1cf <JudyLGet@@Base+0xaf>
+    0.00 :    f3f7:   movzbl 0x8(%rdi),%eax
+    0.00 :    f3fb:   shl    $0x30,%rax
+    0.00 :    f3ff:   mov    %rax,%rcx
+    0.00 :    f402:   movzbl 0x9(%rdi),%eax
+    0.00 :    f406:   shl    $0x28,%rax
+    0.00 :    f40a:   or     %rcx,%rax
+    0.00 :    f40d:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f411:   or     %rcx,%rax
+    0.00 :    f414:   movzbl 0xa(%rdi),%ecx
+    0.00 :    f418:   shl    $0x20,%rcx
+    0.00 :    f41c:   or     %rcx,%rax
+    0.00 :    f41f:   movzbl 0xb(%rdi),%ecx
+    0.00 :    f423:   shl    $0x18,%rcx
+    0.00 :    f427:   or     %rcx,%rax
+    0.00 :    f42a:   movzbl 0xc(%rdi),%ecx
+    0.00 :    f42e:   shl    $0x10,%rcx
+    0.00 :    f432:   or     %rcx,%rax
+    0.00 :    f435:   movzbl 0xd(%rdi),%ecx
+    0.00 :    f439:   shl    $0x8,%rcx
+    0.00 :    f43d:   or     %rcx,%rax
+    0.00 :    f440:   movabs $0xffffffff000000,%rcx
+    0.00 :    f44a:   xor    %rsi,%rax
+    0.00 :    f44d:   test   %rcx,%rax
+    0.00 :    f450:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    f456:   mov    -0x20(%rsp),%rax
+    0.00 :    f45b:   add    (%rdi),%rax
+    0.00 :    f45e:   cmpb   $0x16,0xf(%rax)
+    0.00 :    f462:   mov    %rax,%rdi
+    0.00 :    f465:   jne    f1cf <JudyLGet@@Base+0xaf>
+    0.00 :    f46b:   movzbl 0x8(%rdi),%eax
+    0.00 :    f46f:   shl    $0x30,%rax
+    0.00 :    f473:   mov    %rax,%rcx
+    0.00 :    f476:   movzbl 0x9(%rdi),%eax
+    0.00 :    f47a:   shl    $0x28,%rax
+    0.00 :    f47e:   or     %rcx,%rax
+    0.00 :    f481:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f485:   or     %rcx,%rax
+    0.00 :    f488:   movzbl 0xa(%rdi),%ecx
+    0.00 :    f48c:   shl    $0x20,%rcx
+    0.00 :    f490:   or     %rcx,%rax
+    0.00 :    f493:   movzbl 0xb(%rdi),%ecx
+    0.00 :    f497:   shl    $0x18,%rcx
+    0.00 :    f49b:   or     %rcx,%rax
+    0.00 :    f49e:   movzbl 0xc(%rdi),%ecx
+    0.00 :    f4a2:   shl    $0x10,%rcx
+    0.00 :    f4a6:   or     %rcx,%rax
+    0.00 :    f4a9:   movzbl 0xd(%rdi),%ecx
+    0.00 :    f4ad:   shl    $0x8,%rcx
+    0.00 :    f4b1:   or     %rcx,%rax
+    0.00 :    f4b4:   movabs $0xffffffffff0000,%rcx
+    0.00 :    f4be:   xor    %rsi,%rax
+    0.00 :    f4c1:   test   %rcx,%rax
+    0.00 :    f4c4:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    f4ca:   mov    %r10,%rax
+    0.00 :    f4cd:   add    (%rdi),%rax
+    0.00 :    f4d0:   mov    %rax,%rdi
+    0.00 :    f4d3:   jmp    f1cf <JudyLGet@@Base+0xaf>
+    0.00 :    f4d8:   movzbl -0x22(%rsp),%r8d
+    0.00 :    f4de:   xchg   %ax,%ax
+    0.00 :    f4e0:   mov    (%rdi),%rdi
+    0.00 :    f4e3:   xor    %eax,%eax
+    0.00 :    f4e5:   lea    0x1(%rdi),%rcx
+    0.00 :    f4e9:   jmp    f504 <JudyLGet@@Base+0x3e4>
+    0.00 :    f4eb:   nopl   0x0(%rax,%rax,1)
+    0.00 :    f4f0:   movzbl (%rdi),%r9d
+    0.00 :    f4f4:   add    $0x1,%eax
+    0.00 :    f4f7:   add    $0x1,%rcx
+    0.00 :    f4fb:   cmp    %r9d,%eax
+    0.00 :    f4fe:   je     f260 <JudyLGet@@Base+0x140>
+    0.00 :    f504:   cmp    %r8b,(%rcx)
+    0.00 :    f507:   jne    f4f0 <JudyLGet@@Base+0x3d0>
+    0.00 :    f509:   cltq
+    0.00 :    f50b:   shl    $0x4,%rax
+    0.00 :    f50f:   lea    0x8(%rdi,%rax,1),%rdi
+    0.00 :    f514:   jmp    f1cf <JudyLGet@@Base+0xaf>
+    0.00 :    f519:   movzbl -0x22(%rsp),%ecx
+    0.00 :    f51e:   xchg   %ax,%ax
+    0.00 :    f520:   mov    %ecx,%eax
+    0.00 :    f522:   and    $0x1f,%ecx
+    0.00 :    f525:   shr    $0x5,%al
+    0.00 :    f528:   movzbl %al,%eax
+    0.00 :    f52b:   shl    $0x4,%rax
+    0.00 :    f52f:   add    (%rdi),%rax
+    0.00 :    f532:   mov    %rax,%rdi
+    0.00 :    f535:   mov    (%rax),%eax
+    0.00 :    f537:   mov    0x8(%rdi),%r8
+    0.00 :    f53b:   mov    $0x1,%edi
+    0.00 :    f540:   shl    %cl,%rdi
+    0.00 :    f543:   test   %edi,%eax
+    0.00 :    f545:   mov    %rdi,%rcx
+    0.00 :    f548:   je     f260 <JudyLGet@@Base+0x140>
+    0.00 :    f54e:   sub    $0x1,%ecx
+    0.00 :    f551:   and    %ecx,%eax
+    0.00 :    f553:   mov    %eax,%ecx
+    0.00 :    f555:   and    $0x55555555,%eax
+    0.00 :    f55a:   and    $0xaaaaaaaa,%ecx
+    0.00 :    f560:   shr    %ecx
+    0.00 :    f562:   add    %ecx,%eax
+    0.00 :    f564:   mov    %eax,%ecx
+    0.00 :    f566:   and    $0xcccccccc,%eax
+    0.00 :    f56b:   and    $0x33333333,%ecx
+    0.00 :    f571:   shr    $0x2,%eax
+    0.00 :    f574:   add    %ecx,%eax
+    0.00 :    f576:   mov    %eax,%ecx
+    0.00 :    f578:   and    $0xf0f0f0f0,%eax
+    0.00 :    f57d:   and    $0xf0f0f0f,%ecx
+    0.00 :    f583:   shr    $0x4,%eax
+    0.00 :    f586:   add    %ecx,%eax
+    0.00 :    f588:   mov    %eax,%edi
+    0.00 :    f58a:   and    $0xff00ff00,%eax
+    0.00 :    f58f:   and    $0xff00ff,%edi
+    0.00 :    f595:   shr    $0x8,%eax
+    0.00 :    f598:   add    %eax,%edi
+    0.00 :    f59a:   movzwl %di,%ecx
+    0.00 :    f59d:   shr    $0x10,%edi
+    0.00 :    f5a0:   add    %ecx,%edi
+    0.00 :    f5a2:   shl    $0x4,%rdi
+    0.00 :    f5a6:   add    %r8,%rdi
+    0.00 :    f5a9:   jmp    f1cf <JudyLGet@@Base+0xaf>
+    0.00 :    f5ae:   movzbl 0x8(%rdi),%eax
+    0.00 :    f5b2:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f5b6:   movabs $0xffffff00000000,%r8
+    0.00 :    f5c0:   shl    $0x30,%rax
+    0.00 :    f5c4:   mov    %rax,%rdx
+    0.00 :    f5c7:   movzbl 0x9(%rdi),%eax
+    0.00 :    f5cb:   shl    $0x28,%rax
+    0.00 :    f5cf:   or     %rdx,%rax
+    0.00 :    f5d2:   movzbl %cl,%edx
+    0.00 :    f5d5:   or     %rax,%rdx
+    0.00 :    f5d8:   movzbl 0xa(%rdi),%eax
+    0.00 :    f5dc:   shl    $0x20,%rax
+    0.00 :    f5e0:   or     %rax,%rdx
+    0.00 :    f5e3:   movzbl 0xb(%rdi),%eax
+    0.00 :    f5e7:   shl    $0x18,%rax
+    0.00 :    f5eb:   or     %rax,%rdx
+    0.00 :    f5ee:   movzbl 0xc(%rdi),%eax
+    0.00 :    f5f2:   shl    $0x10,%rax
+    0.00 :    f5f6:   or     %rax,%rdx
+    0.00 :    f5f9:   movzbl 0xd(%rdi),%eax
+    0.00 :    f5fd:   shl    $0x8,%rax
+    0.00 :    f601:   or     %rax,%rdx
+    0.00 :    f604:   xor    %eax,%eax
+    0.00 :    f606:   xor    %rsi,%rdx
+    0.00 :    f609:   test   %r8,%rdx
+    0.00 :    f60c:   jne    f262 <JudyLGet@@Base+0x142>
+    0.00 :    f612:   lea    0x1(%rcx),%r9
+    0.00 :    f616:   mov    (%rdi),%rdi
+    0.00 :    f619:   mov    %esi,%r8d
+    0.00 :    f61c:   mov    $0xffffffffffffffff,%rdx
+    0.00 :    f623:   mov    %r9,%rcx
+    0.00 :    f626:   jmp    f643 <JudyLGet@@Base+0x523>
+    0.00 :    f628:   nopl   0x0(%rax,%rax,1)
+    0.00 :    f630:   lea    (%rcx,%rdx,1),%rax
+    0.00 :    f634:   shr    %rax
+    0.00 :    f637:   cmp    (%rdi,%rax,4),%r8d
+    0.00 :    f63b:   cmovae %rax,%rdx
+    0.00 :    f63f:   cmovb  %rax,%rcx
+    0.00 :    f643:   mov    %rcx,%rax
+    0.00 :    f646:   sub    %rdx,%rax
+    0.00 :    f649:   cmp    $0x1,%rax
+    0.00 :    f64d:   ja     f630 <JudyLGet@@Base+0x510>
+    0.00 :    f64f:   cmp    $0xffffffffffffffff,%rdx
+    0.00 :    f653:   je     f65c <JudyLGet@@Base+0x53c>
+    0.00 :    f655:   cmp    (%rdi,%rdx,4),%esi
+    0.00 :    f658:   mov    %edx,%eax
+    0.00 :    f65a:   je     f660 <JudyLGet@@Base+0x540>
+    0.00 :    f65c:   mov    %ecx,%eax
+    0.00 :    f65e:   not    %eax
+    0.00 :    f660:   test   %eax,%eax
+    0.00 :    f662:   js     f260 <JudyLGet@@Base+0x140>
+    0.00 :    f668:   mov    0x240949(%rip),%rdx        # 24ffb8 <j__L_Leaf4Offset@@Base+0x206398>
+    0.00 :    f66f:   cltq
+    0.00 :    f671:   movzbl (%rdx,%r9,1),%edx
+    0.00 :    f676:   add    %rdx,%rax
+    0.00 :    f679:   lea    (%rdi,%rax,8),%rax
+    0.00 :    f67d:   jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :    f682:   movzbl 0x8(%rdi),%eax
+    0.00 :    f686:   shl    $0x30,%rax
+    0.00 :    f68a:   mov    %rax,%rcx
+    0.00 :    f68d:   movzbl 0x9(%rdi),%eax
+    0.00 :    f691:   shl    $0x28,%rax
+    0.00 :    f695:   or     %rcx,%rax
+    0.00 :    f698:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f69c:   or     %rcx,%rax
+    0.00 :    f69f:   movzbl 0xa(%rdi),%ecx
+    0.00 :    f6a3:   shl    $0x20,%rcx
+    0.00 :    f6a7:   or     %rcx,%rax
+    0.00 :    f6aa:   movzbl 0xb(%rdi),%ecx
+    0.00 :    f6ae:   shl    $0x18,%rcx
+    0.00 :    f6b2:   or     %rcx,%rax
+    0.00 :    f6b5:   movzbl 0xc(%rdi),%ecx
+    0.00 :    f6b9:   shl    $0x10,%rcx
+    0.00 :    f6bd:   or     %rcx,%rax
+    0.00 :    f6c0:   movzbl 0xd(%rdi),%ecx
+    0.00 :    f6c4:   shl    $0x8,%rcx
+    0.00 :    f6c8:   or     %rcx,%rax
+    0.00 :    f6cb:   movabs $0xffffff00000000,%rcx
+    0.00 :    f6d5:   xor    %rsi,%rax
+    0.00 :    f6d8:   test   %rcx,%rax
+    0.00 :    f6db:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    f6e1:   mov    %r13d,%r8d
+    0.00 :    f6e4:   jmp    f4e0 <JudyLGet@@Base+0x3c0>
+    0.00 :    f6e9:   mov    %esi,%edx
+    0.00 :    f6eb:   cmp    %dl,0xd(%rdi)
+    0.00 :    f6ee:   je     10477 <JudyLGet@@Base+0x1357>
+    0.00 :    f6f4:   cmp    %dl,0xc(%rdi)
+    0.00 :    f6f7:   je     1046b <JudyLGet@@Base+0x134b>
+    0.00 :    f6fd:   cmp    %dl,0xb(%rdi)
+    0.00 :    f700:   je     1045f <JudyLGet@@Base+0x133f>
+    0.00 :    f706:   cmp    %dl,0xa(%rdi)
+    0.00 :    f709:   je     10420 <JudyLGet@@Base+0x1300>
+    0.00 :    f70f:   cmp    %dl,0x9(%rdi)
+    0.00 :    f712:   je     10450 <JudyLGet@@Base+0x1330>
+    0.00 :    f718:   xor    %eax,%eax
+    0.00 :    f71a:   cmp    %dl,0x8(%rdi)
+    0.00 :    f71d:   jne    f262 <JudyLGet@@Base+0x142>
+    0.00 :    f723:   pop    %rbx
+    0.00 :    f724:   mov    (%rdi),%rax
+    0.00 :    f727:   pop    %rbp
+    0.00 :    f728:   pop    %r12
+    0.00 :    f72a:   pop    %r13
+    0.00 :    f72c:   pop    %r14
+    0.00 :    f72e:   pop    %r15
+    0.00 :    f730:   ret
+    0.00 :    f731:   mov    %esi,%edx
+    0.00 :    f733:   jmp    f6f4 <JudyLGet@@Base+0x5d4>
+    0.00 :    f735:   mov    %esi,%edx
+    0.00 :    f737:   jmp    f6fd <JudyLGet@@Base+0x5dd>
+    0.00 :    f739:   movzbl 0x8(%rdi),%eax
+    0.00 :    f73d:   shl    $0x30,%rax
+    0.00 :    f741:   mov    %rax,%rcx
+    0.00 :    f744:   movzbl 0x9(%rdi),%eax
+    0.00 :    f748:   shl    $0x28,%rax
+    0.00 :    f74c:   or     %rcx,%rax
+    0.00 :    f74f:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f753:   or     %rcx,%rax
+    0.00 :    f756:   movzbl 0xa(%rdi),%ecx
+    0.00 :    f75a:   shl    $0x20,%rcx
+    0.00 :    f75e:   or     %rcx,%rax
+    0.00 :    f761:   movzbl 0xb(%rdi),%ecx
+    0.00 :    f765:   shl    $0x18,%rcx
+    0.00 :    f769:   or     %rcx,%rax
+    0.00 :    f76c:   movzbl 0xc(%rdi),%ecx
+    0.00 :    f770:   shl    $0x10,%rcx
+    0.00 :    f774:   or     %rcx,%rax
+    0.00 :    f777:   movzbl 0xd(%rdi),%ecx
+    0.00 :    f77b:   shl    $0x8,%rcx
+    0.00 :    f77f:   or     %rcx,%rax
+    0.00 :    f782:   movabs $0xff000000000000,%rcx
+    0.00 :    f78c:   xor    %rsi,%rax
+    0.00 :    f78f:   test   %rcx,%rax
+    0.00 :    f792:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    f798:   mov    %ebp,%ecx
+    0.00 :    f79a:   jmp    f520 <JudyLGet@@Base+0x400>
+    0.00 :    f79f:   movzbl 0x8(%rdi),%eax
+    0.00 :    f7a3:   shl    $0x30,%rax
+    0.00 :    f7a7:   mov    %rax,%rcx
+    0.00 :    f7aa:   movzbl 0x9(%rdi),%eax
+    0.00 :    f7ae:   shl    $0x28,%rax
+    0.00 :    f7b2:   or     %rcx,%rax
+    0.00 :    f7b5:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f7b9:   or     %rcx,%rax
+    0.00 :    f7bc:   movzbl 0xa(%rdi),%ecx
+    0.00 :    f7c0:   shl    $0x20,%rcx
+    0.00 :    f7c4:   or     %rcx,%rax
+    0.00 :    f7c7:   movzbl 0xb(%rdi),%ecx
+    0.00 :    f7cb:   shl    $0x18,%rcx
+    0.00 :    f7cf:   or     %rcx,%rax
+    0.00 :    f7d2:   movzbl 0xc(%rdi),%ecx
+    0.00 :    f7d6:   shl    $0x10,%rcx
+    0.00 :    f7da:   or     %rcx,%rax
+    0.00 :    f7dd:   movzbl 0xd(%rdi),%ecx
+    0.00 :    f7e1:   shl    $0x8,%rcx
+    0.00 :    f7e5:   or     %rcx,%rax
+    0.00 :    f7e8:   movabs $0xffff0000000000,%rcx
+    0.00 :    f7f2:   xor    %rsi,%rax
+    0.00 :    f7f5:   test   %rcx,%rax
+    0.00 :    f7f8:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    f7fe:   mov    %r12d,%ecx
+    0.00 :    f801:   jmp    f520 <JudyLGet@@Base+0x400>
+    0.00 :    f806:   movzbl 0x8(%rdi),%eax
+    0.00 :    f80a:   shl    $0x30,%rax
+    0.00 :    f80e:   mov    %rax,%rcx
+    0.00 :    f811:   movzbl 0x9(%rdi),%eax
+    0.00 :    f815:   shl    $0x28,%rax
+    0.00 :    f819:   or     %rcx,%rax
+    0.00 :    f81c:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f820:   or     %rcx,%rax
+    0.00 :    f823:   movzbl 0xa(%rdi),%ecx
+    0.00 :    f827:   shl    $0x20,%rcx
+    0.00 :    f82b:   or     %rcx,%rax
+    0.00 :    f82e:   movzbl 0xb(%rdi),%ecx
+    0.00 :    f832:   shl    $0x18,%rcx
+    0.00 :    f836:   or     %rcx,%rax
+    0.00 :    f839:   movzbl 0xc(%rdi),%ecx
+    0.00 :    f83d:   shl    $0x10,%rcx
+    0.00 :    f841:   or     %rcx,%rax
+    0.00 :    f844:   movzbl 0xd(%rdi),%ecx
+    0.00 :    f848:   shl    $0x8,%rcx
+    0.00 :    f84c:   or     %rcx,%rax
+    0.00 :    f84f:   movabs $0xffffff00000000,%rcx
+    0.00 :    f859:   xor    %rsi,%rax
+    0.00 :    f85c:   test   %rcx,%rax
+    0.00 :    f85f:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    f865:   mov    %r13d,%ecx
+    0.00 :    f868:   jmp    f520 <JudyLGet@@Base+0x400>
+    0.00 :    f86d:   movzbl 0x8(%rdi),%eax
+    0.00 :    f871:   shl    $0x30,%rax
+    0.00 :    f875:   mov    %rax,%rcx
+    0.00 :    f878:   movzbl 0x9(%rdi),%eax
+    0.00 :    f87c:   shl    $0x28,%rax
+    0.00 :    f880:   or     %rcx,%rax
+    0.00 :    f883:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f887:   or     %rcx,%rax
+    0.00 :    f88a:   movzbl 0xa(%rdi),%ecx
+    0.00 :    f88e:   shl    $0x20,%rcx
+    0.00 :    f892:   or     %rcx,%rax
+    0.00 :    f895:   movzbl 0xb(%rdi),%ecx
+    0.00 :    f899:   shl    $0x18,%rcx
+    0.00 :    f89d:   or     %rcx,%rax
+    0.00 :    f8a0:   movzbl 0xc(%rdi),%ecx
+    0.00 :    f8a4:   shl    $0x10,%rcx
+    0.00 :    f8a8:   or     %rcx,%rax
+    0.00 :    f8ab:   movzbl 0xd(%rdi),%ecx
+    0.00 :    f8af:   shl    $0x8,%rcx
+    0.00 :    f8b3:   or     %rcx,%rax
+    0.00 :    f8b6:   movabs $0xffffffff000000,%rcx
+    0.00 :    f8c0:   xor    %rsi,%rax
+    0.00 :    f8c3:   test   %rcx,%rax
+    0.00 :    f8c6:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    f8cc:   mov    %r14d,%ecx
+    0.00 :    f8cf:   jmp    f520 <JudyLGet@@Base+0x400>
+    0.00 :    f8d4:   movzbl 0x8(%rdi),%eax
+    0.00 :    f8d8:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f8dc:   movabs $0xffffffff000000,%r8
+    0.00 :    f8e6:   shl    $0x30,%rax
+    0.00 :    f8ea:   mov    %rax,%rdx
+    0.00 :    f8ed:   movzbl 0x9(%rdi),%eax
+    0.00 :    f8f1:   shl    $0x28,%rax
+    0.00 :    f8f5:   or     %rdx,%rax
+    0.00 :    f8f8:   movzbl %cl,%edx
+    0.00 :    f8fb:   or     %rax,%rdx
+    0.00 :    f8fe:   movzbl 0xa(%rdi),%eax
+    0.00 :    f902:   shl    $0x20,%rax
+    0.00 :    f906:   or     %rax,%rdx
+    0.00 :    f909:   movzbl 0xb(%rdi),%eax
+    0.00 :    f90d:   shl    $0x18,%rax
+    0.00 :    f911:   or     %rax,%rdx
+    0.00 :    f914:   movzbl 0xc(%rdi),%eax
+    0.00 :    f918:   shl    $0x10,%rax
+    0.00 :    f91c:   or     %rax,%rdx
+    0.00 :    f91f:   movzbl 0xd(%rdi),%eax
+    0.00 :    f923:   shl    $0x8,%rax
+    0.00 :    f927:   or     %rax,%rdx
+    0.00 :    f92a:   xor    %eax,%eax
+    0.00 :    f92c:   xor    %rsi,%rdx
+    0.00 :    f92f:   test   %r8,%rdx
+    0.00 :    f932:   jne    f262 <JudyLGet@@Base+0x142>
+    0.00 :    f938:   lea    0x1(%rcx),%r10
+    0.00 :    f93c:   mov    (%rdi),%r11
+    0.00 :    f93f:   and    $0xffffff,%esi
+    0.00 :    f945:   mov    $0xffffffffffffffff,%rbx
+    0.00 :    f94c:   mov    %r10,%r9
+    0.00 :    f94f:   jmp    f98d <JudyLGet@@Base+0x86d>
+    0.00 :    f951:   nopl   0x0(%rax)
+    0.00 :    f958:   lea    (%r9,%rbx,1),%rdx
+    0.00 :    f95c:   shr    %rdx
+    0.00 :    f95f:   lea    (%rdx,%rdx,2),%rdi
+    0.00 :    f963:   movzbl (%r11,%rdi,1),%eax
+    0.00 :    f968:   movzbl 0x2(%r11,%rdi,1),%ecx
+    0.00 :    f96e:   shl    $0x10,%rax
+    0.00 :    f972:   add    %rax,%rcx
+    0.00 :    f975:   movzbl 0x1(%r11,%rdi,1),%eax
+    0.00 :    f97b:   shl    $0x8,%rax
+    0.00 :    f97f:   add    %rcx,%rax
+    0.00 :    f982:   cmp    %rax,%rsi
+    0.00 :    f985:   cmovae %rdx,%rbx
+    0.00 :    f989:   cmovb  %rdx,%r9
+    0.00 :    f98d:   mov    %r9,%rax
+    0.00 :    f990:   sub    %rbx,%rax
+    0.00 :    f993:   cmp    $0x1,%rax
+    0.00 :    f997:   ja     f958 <JudyLGet@@Base+0x838>
+    0.00 :    f999:   cmp    $0xffffffffffffffff,%rbx
+    0.00 :    f99d:   je     10493 <JudyLGet@@Base+0x1373>
+    0.00 :    f9a3:   lea    (%rbx,%rbx,2),%rcx
+    0.00 :    f9a7:   not    %r9d
+    0.00 :    f9aa:   movzbl (%r11,%rcx,1),%eax
+    0.00 :    f9af:   movzbl 0x2(%r11,%rcx,1),%edx
+    0.00 :    f9b5:   shl    $0x10,%rax
+    0.00 :    f9b9:   add    %rax,%rdx
+    0.00 :    f9bc:   movzbl 0x1(%r11,%rcx,1),%eax
+    0.00 :    f9c2:   shl    $0x8,%rax
+    0.00 :    f9c6:   add    %rdx,%rax
+    0.00 :    f9c9:   cmp    %rax,%rsi
+    0.00 :    f9cc:   cmove  %ebx,%r9d
+    0.00 :    f9d0:   test   %r9d,%r9d
+    0.00 :    f9d3:   js     f260 <JudyLGet@@Base+0x140>
+    0.00 :    f9d9:   mov    0x2405c8(%rip),%rax        # 24ffa8 <j__L_Leaf3Offset@@Base+0x206308>
+    0.00 :    f9e0:   movslq %r9d,%r9
+    0.00 :    f9e3:   movzbl (%rax,%r10,1),%eax
+    0.00 :    f9e8:   add    %rax,%r9
+    0.00 :    f9eb:   lea    (%r11,%r9,8),%rax
+    0.00 :    f9ef:   jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :    f9f4:   movzbl 0x8(%rdi),%eax
+    0.00 :    f9f8:   movzbl 0xe(%rdi),%ecx
+    0.00 :    f9fc:   movabs $0xffffffffff0000,%r8
+    0.00 :    fa06:   shl    $0x30,%rax
+    0.00 :    fa0a:   mov    %rax,%rdx
+    0.00 :    fa0d:   movzbl 0x9(%rdi),%eax
+    0.00 :    fa11:   shl    $0x28,%rax
+    0.00 :    fa15:   or     %rdx,%rax
+    0.00 :    fa18:   movzbl %cl,%edx
+    0.00 :    fa1b:   or     %rax,%rdx
+    0.00 :    fa1e:   movzbl 0xa(%rdi),%eax
+    0.00 :    fa22:   shl    $0x20,%rax
+    0.00 :    fa26:   or     %rax,%rdx
+    0.00 :    fa29:   movzbl 0xb(%rdi),%eax
+    0.00 :    fa2d:   shl    $0x18,%rax
+    0.00 :    fa31:   or     %rax,%rdx
+    0.00 :    fa34:   movzbl 0xc(%rdi),%eax
+    0.00 :    fa38:   shl    $0x10,%rax
+    0.00 :    fa3c:   or     %rax,%rdx
+    0.00 :    fa3f:   movzbl 0xd(%rdi),%eax
+    0.00 :    fa43:   shl    $0x8,%rax
+    0.00 :    fa47:   or     %rax,%rdx
+    0.00 :    fa4a:   xor    %eax,%eax
+    0.00 :    fa4c:   xor    %rsi,%rdx
+    0.00 :    fa4f:   test   %r8,%rdx
+    0.00 :    fa52:   jne    f262 <JudyLGet@@Base+0x142>
+    0.00 :    fa58:   lea    0x1(%rcx),%r9
+    0.00 :    fa5c:   mov    (%rdi),%rdi
+    0.00 :    fa5f:   mov    %esi,%r8d
+    0.00 :    fa62:   mov    $0xffffffffffffffff,%rdx
+    0.00 :    fa69:   mov    %r9,%rcx
+    0.00 :    fa6c:   jmp    fa84 <JudyLGet@@Base+0x964>
+    0.00 :    fa6e:   xchg   %ax,%ax
+    0.00 :    fa70:   lea    (%rcx,%rdx,1),%rax
+    0.00 :    fa74:   shr    %rax
+    0.00 :    fa77:   cmp    (%rdi,%rax,2),%r8w
+    0.00 :    fa7c:   cmovae %rax,%rdx
+    0.00 :    fa80:   cmovb  %rax,%rcx
+    0.00 :    fa84:   mov    %rcx,%rax
+    0.00 :    fa87:   sub    %rdx,%rax
+    0.00 :    fa8a:   cmp    $0x1,%rax
+    0.00 :    fa8e:   ja     fa70 <JudyLGet@@Base+0x950>
+    0.00 :    fa90:   cmp    $0xffffffffffffffff,%rdx
+    0.00 :    fa94:   je     fa9e <JudyLGet@@Base+0x97e>
+    0.00 :    fa96:   cmp    (%rdi,%rdx,2),%si
+    0.00 :    fa9a:   mov    %edx,%eax
+    0.00 :    fa9c:   je     faa2 <JudyLGet@@Base+0x982>
+    0.00 :    fa9e:   mov    %ecx,%eax
+    0.00 :    faa0:   not    %eax
+    0.00 :    faa2:   test   %eax,%eax
+    0.00 :    faa4:   js     f260 <JudyLGet@@Base+0x140>
+    0.00 :    faaa:   mov    0x240517(%rip),%rdx        # 24ffc8 <j__L_Leaf2Offset@@Base+0x2062a8>
+    0.00 :    fab1:   cltq
+    0.00 :    fab3:   movzbl (%rdx,%r9,1),%edx
+    0.00 :    fab8:   add    %rdx,%rax
+    0.00 :    fabb:   lea    (%rdi,%rax,8),%rax
+    0.00 :    fabf:   jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :    fac4:   mov    %esi,%edx
+    0.00 :    fac6:   jmp    f70f <JudyLGet@@Base+0x5ef>
+    0.00 :    facb:   mov    %esi,%edx
+    0.00 :    facd:   jmp    f706 <JudyLGet@@Base+0x5e6>
+    0.00 :    fad2:   movzbl 0x8(%rdi),%eax
+    0.00 :    fad6:   movzbl 0xe(%rdi),%ecx
+    0.00 :    fada:   shl    $0x30,%rax
+    0.00 :    fade:   mov    %rax,%rdx
+    0.00 :    fae1:   movzbl 0x9(%rdi),%eax
+    0.00 :    fae5:   shl    $0x28,%rax
+    0.00 :    fae9:   or     %rdx,%rax
+    0.00 :    faec:   movzbl %cl,%edx
+    0.00 :    faef:   or     %rdx,%rax
+    0.00 :    faf2:   movzbl 0xa(%rdi),%edx
+    0.00 :    faf6:   shl    $0x20,%rdx
+    0.00 :    fafa:   or     %rdx,%rax
+    0.00 :    fafd:   movzbl 0xb(%rdi),%edx
+    0.00 :    fb01:   shl    $0x18,%rdx
+    0.00 :    fb05:   or     %rdx,%rax
+    0.00 :    fb08:   movzbl 0xc(%rdi),%edx
+    0.00 :    fb0c:   shl    $0x10,%rdx
+    0.00 :    fb10:   or     %rdx,%rax
+    0.00 :    fb13:   movzbl 0xd(%rdi),%edx
+    0.00 :    fb17:   shl    $0x8,%rdx
+    0.00 :    fb1b:   or     %rdx,%rax
+    0.00 :    fb1e:   movabs $0xffffffffffff00,%rdx
+    0.00 :    fb28:   xor    %rsi,%rax
+    0.00 :    fb2b:   test   %rdx,%rax
+    0.00 :    fb2e:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    fb34:   lea    0x1(%rcx),%r9
+    0.00 :    fb38:   mov    (%rdi),%rdi
+    0.00 :    fb3b:   mov    %esi,%r8d
+    0.00 :    fb3e:   mov    $0xffffffffffffffff,%rdx
+    0.00 :    fb45:   mov    %r9,%rcx
+    0.00 :    fb48:   jmp    fb63 <JudyLGet@@Base+0xa43>
+    0.00 :    fb4a:   nopw   0x0(%rax,%rax,1)
+    0.00 :    fb50:   lea    (%rcx,%rdx,1),%rax
+    0.00 :    fb54:   shr    %rax
+    0.00 :    fb57:   cmp    (%rdi,%rax,1),%r8b
+    0.00 :    fb5b:   cmovae %rax,%rdx
+    0.00 :    fb5f:   cmovb  %rax,%rcx
+    0.00 :    fb63:   mov    %rcx,%rax
+    0.00 :    fb66:   sub    %rdx,%rax
+    0.00 :    fb69:   cmp    $0x1,%rax
+    0.00 :    fb6d:   ja     fb50 <JudyLGet@@Base+0xa30>
+    0.00 :    fb6f:   cmp    $0xffffffffffffffff,%rdx
+    0.00 :    fb73:   je     fb7d <JudyLGet@@Base+0xa5d>
+    0.00 :    fb75:   cmp    (%rdi,%rdx,1),%sil
+    0.00 :    fb79:   mov    %edx,%eax
+    0.00 :    fb7b:   je     fb81 <JudyLGet@@Base+0xa61>
+    0.00 :    fb7d:   mov    %ecx,%eax
+    0.00 :    fb7f:   not    %eax
+    0.00 :    fb81:   test   %eax,%eax
+    0.00 :    fb83:   js     f260 <JudyLGet@@Base+0x140>
+    0.00 :    fb89:   mov    0x2403b8(%rip),%rdx        # 24ff48 <j__L_Leaf1Offset@@Base+0x2061b4>
+    0.00 :    fb90:   cltq
+    0.00 :    fb92:   movzbl (%rdx,%r9,1),%edx
+    0.00 :    fb97:   add    %rdx,%rax
+    0.00 :    fb9a:   lea    (%rdi,%rax,8),%rax
+    0.00 :    fb9e:   jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :    fba3:   movzbl 0x8(%rdi),%eax
+    0.00 :    fba7:   shl    $0x30,%rax
+    0.00 :    fbab:   mov    %rax,%rdx
+    0.00 :    fbae:   movzbl 0x9(%rdi),%eax
+    0.00 :    fbb2:   shl    $0x28,%rax
+    0.00 :    fbb6:   or     %rdx,%rax
+    0.00 :    fbb9:   movzbl 0xe(%rdi),%edx
+    0.00 :    fbbd:   or     %rdx,%rax
+    0.00 :    fbc0:   movzbl 0xa(%rdi),%edx
+    0.00 :    fbc4:   shl    $0x20,%rdx
+    0.00 :    fbc8:   or     %rdx,%rax
+    0.00 :    fbcb:   movzbl 0xb(%rdi),%edx
+    0.00 :    fbcf:   shl    $0x18,%rdx
+    0.00 :    fbd3:   or     %rdx,%rax
+    0.00 :    fbd6:   movzbl 0xc(%rdi),%edx
+    0.00 :    fbda:   shl    $0x10,%rdx
+    0.00 :    fbde:   or     %rdx,%rax
+    0.00 :    fbe1:   movzbl 0xd(%rdi),%edx
+    0.00 :    fbe5:   shl    $0x8,%rdx
+    0.00 :    fbe9:   or     %rdx,%rax
+    0.00 :    fbec:   movabs $0xffffffffffff00,%rdx
+    0.00 :    fbf6:   xor    %rsi,%rax
+    0.00 :    fbf9:   test   %rdx,%rax
+    0.00 :    fbfc:   jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :    fc02:   mov    %esi,%eax
+    0.00 :    fc04:   mov    %esi,%ecx
+    0.00 :    fc06:   mov    $0x1,%edx
+    0.00 :    fc0b:   shr    $0x6,%al
+    0.00 :    fc0e:   and    $0x3f,%ecx
+    0.00 :    fc11:   movzbl %al,%eax
+    0.00 :    fc14:   shl    %cl,%rdx
+    0.00 :    fc17:   shl    $0x4,%rax
+    0.00 :    fc1b:   add    (%rdi),%rax
+    0.00 :    fc1e:   mov    (%rax),%rdi
+    0.00 :    fc21:   test   %rdi,%rdx
+    0.00 :    fc24:   je     f260 <JudyLGet@@Base+0x140>
+    0.00 :    fc2a:   sub    $0x1,%rdx
+    0.00 :    fc2e:   movabs $0xaaaaaaaaaaaaaaaa,%rcx
+    0.00 :    fc38:   movabs $0x5555555555555555,%rsi
+    0.00 :    fc42:   and    %rdi,%rdx
+    0.00 :    fc45:   mov    0x8(%rax),%rax
+    0.00 :    fc49:   and    %rdx,%rcx
+    0.00 :    fc4c:   and    %rsi,%rdx
+    0.00 :    fc4f:   movabs $0xcccccccccccccccc,%rsi
+    0.00 :    fc59:   shr    %rcx
+    0.00 :    fc5c:   add    %rdx,%rcx
+    0.00 :    fc5f:   movabs $0x3333333333333333,%rdx
+    0.00 :    fc69:   and    %rcx,%rdx
+    0.00 :    fc6c:   and    %rsi,%rcx
+    0.00 :    fc6f:   movabs $0xf0f0f0f0f0f0f0f0,%rsi
+    0.00 :    fc79:   shr    $0x2,%rcx
+    0.00 :    fc7d:   add    %rdx,%rcx
+    0.00 :    fc80:   movabs $0xf0f0f0f0f0f0f0f,%rdx
+    0.00 :    fc8a:   and    %rcx,%rdx
+    0.00 :    fc8d:   and    %rsi,%rcx
+    0.00 :    fc90:   movabs $0xff00ff00ff00ff00,%rsi
+    0.00 :    fc9a:   shr    $0x4,%rcx
+    0.00 :    fc9e:   add    %rdx,%rcx
+    0.00 :    fca1:   movabs $0xff00ff00ff00ff,%rdx
+    0.00 :    fcab:   and    %rcx,%rdx
+    0.00 :    fcae:   and    %rsi,%rcx
+    0.00 :    fcb1:   shr    $0x8,%rcx
+    0.00 :    fcb5:   lea    (%rcx,%rdx,1),%rsi
+    0.00 :    fcb9:   movabs $0xffff0000ffff,%rdx
+    0.00 :    fcc3:   and    %rsi,%rdx
+    0.00 :    fcc6:   mov    %rdx,%rcx
+    0.00 :    fcc9:   movabs $0xffff0000ffff0000,%rdx
+    0.00 :    fcd3:   and    %rdx,%rsi
+    0.00 :    fcd6:   shr    $0x10,%rsi
+    0.00 :    fcda:   lea    (%rsi,%rcx,1),%rdx
+    0.00 :    fcde:   mov    %rdx,%rcx
+    0.00 :    fce1:   shr    $0x20,%rcx
+    0.00 :    fce5:   add    %ecx,%edx
+    0.00 :    fce7:   movslq %edx,%rdx
+    0.00 :    fcea:   lea    (%rax,%rdx,8),%rax
+    0.00 :    fcee:   jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :    fcf3:   movzbl 0x8(%rdi),%eax
+    0.00 :    fcf7:   shl    $0x30,%rax
+    0.00 :    fcfb:   mov    %rax,%rdx
+    0.00 :    fcfe:   movzbl 0x9(%rdi),%eax
+    0.00 :    fd02:   shl    $0x28,%rax
+    0.00 :    fd06:   or     %rdx,%rax
+    0.00 :    fd09:   movzbl 0xe(%rdi),%edx
+    0.00 :    fd0d:   or     %rax,%rdx
+    0.00 :    fd10:   movzbl 0xa(%rdi),%eax
+    0.00 :    fd14:   shl    $0x20,%rax
+    0.00 :    fd18:   or     %rax,%rdx
+    0.00 :    fd1b:   movzbl 0xb(%rdi),%eax
+    0.00 :    fd1f:   shl    $0x18,%rax
+    0.00 :    fd23:   or     %rax,%rdx
+    0.00 :    fd26:   movzbl 0xc(%rdi),%eax
+    0.00 :    fd2a:   shl    $0x10,%rax
+    0.00 :    fd2e:   or     %rax,%rdx
+    0.00 :    fd31:   movzbl 0xd(%rdi),%eax
+    0.00 :    fd35:   shl    $0x8,%rax
+    0.00 :    fd39:   or     %rdx,%rax
+    0.00 :    fd3c:   movabs $0xffffffffffffff,%rdx
+    0.00 :    fd46:   and    %rdx,%rsi
+    0.00 :    fd49:   cmp    %rsi,%rax
+    0.00 :    fd4c:   mov    $0x0,%eax
+    0.00 :    fd51:   cmove  %rdi,%rax
+    0.00 :    fd55:   jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :    fd5a:   movzbl 0xe(%rdi),%eax
+    0.00 :    fd5e:   mov    (%rdi),%r8
+    0.00 :    fd61:   mov    $0xffffffffffffffff,%rbx
+    0.00 :    fd68:   lea    0x1(%rax),%r11
+    0.00 :    fd6c:   movabs $0xffffffffffffff,%rax
+    0.00 :    fd76:   and    %rax,%rsi
+    0.00 :    fd79:   mov    %r11,%r10
+    0.00 :    fd7c:   jmp    fdf0 <JudyLGet@@Base+0xcd0>
+    0.00 :    fd7e:   xchg   %ax,%ax
+    0.00 :    fd80:   lea    (%r10,%rbx,1),%rdx
+    0.00 :    fd84:   shr    %rdx
+    0.00 :    fd87:   lea    0x0(,%rdx,8),%rax
+    0.00 :    fd8f:   sub    %rdx,%rax
+    0.00 :    fd92:   movzbl (%r8,%rax,1),%ecx
+    0.00 :    fd97:   movzbl 0x6(%r8,%rax,1),%edi
+    0.00 :    fd9d:   shl    $0x30,%rcx
+    0.00 :    fda1:   add    %rdi,%rcx
+    0.00 :    fda4:   movzbl 0x1(%r8,%rax,1),%edi
+    0.00 :    fdaa:   shl    $0x28,%rdi
+    0.00 :    fdae:   add    %rdi,%rcx
+    0.00 :    fdb1:   movzbl 0x2(%r8,%rax,1),%edi
+    0.00 :    fdb7:   shl    $0x20,%rdi
+    0.00 :    fdbb:   add    %rcx,%rdi
+    0.00 :    fdbe:   movzbl 0x3(%r8,%rax,1),%ecx
+    0.00 :    fdc4:   shl    $0x18,%rcx
+    0.00 :    fdc8:   add    %rcx,%rdi
+    0.00 :    fdcb:   movzbl 0x4(%r8,%rax,1),%ecx
+    0.00 :    fdd1:   movzbl 0x5(%r8,%rax,1),%eax
+    0.00 :    fdd7:   shl    $0x10,%rcx
+    0.00 :    fddb:   shl    $0x8,%rax
+    0.00 :    fddf:   add    %rdi,%rcx
+    0.00 :    fde2:   add    %rcx,%rax
+    0.00 :    fde5:   cmp    %rax,%rsi
+    0.00 :    fde8:   cmovae %rdx,%rbx
+    0.00 :    fdec:   cmovb  %rdx,%r10
+    0.00 :    fdf0:   mov    %r10,%rax
+    0.00 :    fdf3:   sub    %rbx,%rax
+    0.00 :    fdf6:   cmp    $0x1,%rax
+    0.00 :    fdfa:   ja     fd80 <JudyLGet@@Base+0xc60>
+    0.00 :    fdfc:   cmp    $0xffffffffffffffff,%rbx
+    0.00 :    fe00:   je     10483 <JudyLGet@@Base+0x1363>
+    0.00 :    fe06:   lea    0x0(,%rbx,8),%rax
+    0.00 :    fe0e:   not    %r10d
+    0.00 :    fe11:   sub    %rbx,%rax
+    0.00 :    fe14:   movzbl (%r8,%rax,1),%ecx
+    0.00 :    fe19:   movzbl 0x6(%r8,%rax,1),%edi
+    0.00 :    fe1f:   mov    %rcx,%rdx
+    0.00 :    fe22:   shl    $0x30,%rdx
+    0.00 :    fe26:   lea    (%rdi,%rdx,1),%rcx
+    0.00 :    fe2a:   movzbl 0x1(%r8,%rax,1),%edi
+    0.00 :    fe30:   mov    %rdi,%rdx
+    0.00 :    fe33:   shl    $0x28,%rdx
+    0.00 :    fe37:   lea    (%rcx,%rdx,1),%rdi
+    0.00 :    fe3b:   movzbl 0x2(%r8,%rax,1),%ecx
+    0.00 :    fe41:   mov    %rcx,%rdx
+    0.00 :    fe44:   shl    $0x20,%rdx
+    0.00 :    fe48:   lea    (%rdi,%rdx,1),%rcx
+    0.00 :    fe4c:   movzbl 0x3(%r8,%rax,1),%edx
+    0.00 :    fe52:   shl    $0x18,%rdx
+    0.00 :    fe56:   add    %rdx,%rcx
+    0.00 :    fe59:   movzbl 0x4(%r8,%rax,1),%edx
+    0.00 :    fe5f:   movzbl 0x5(%r8,%rax,1),%eax
+    0.00 :    fe65:   shl    $0x10,%rdx
+    0.00 :    fe69:   shl    $0x8,%rax
+    0.00 :    fe6d:   add    %rcx,%rdx
+    0.00 :    fe70:   add    %rdx,%rax
+    0.00 :    fe73:   cmp    %rax,%rsi
+    0.00 :    fe76:   cmove  %ebx,%r10d
+    0.00 :    fe7a:   test   %r10d,%r10d
+    0.00 :    fe7d:   js     f260 <JudyLGet@@Base+0x140>
+    0.00 :    fe83:   mov    0x2400a6(%rip),%rax        # 24ff30 <j__L_Leaf7Offset@@Base+0x206490>
+    0.00 :    fe8a:   movslq %r10d,%r10
+    0.00 :    fe8d:   movzbl (%rax,%r11,1),%eax
+    0.00 :    fe92:   add    %rax,%r10
+    0.00 :    fe95:   lea    (%r8,%r10,8),%rax
+    0.00 :    fe99:   jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :    fe9e:   movzbl 0x8(%rdi),%eax
+    0.00 :    fea2:   movzbl 0xe(%rdi),%ecx
+    0.00 :    fea6:   movabs $0xff000000000000,%r8
+    0.00 :    feb0:   shl    $0x30,%rax
+    0.00 :    feb4:   mov    %rax,%rdx
+    0.00 :    feb7:   movzbl 0x9(%rdi),%eax
+    0.00 :    febb:   shl    $0x28,%rax
+    0.00 :    febf:   or     %rdx,%rax
+    0.00 :    fec2:   movzbl %cl,%edx
+    0.00 :    fec5:   or     %rax,%rdx
+    0.00 :    fec8:   movzbl 0xa(%rdi),%eax
+    0.00 :    fecc:   shl    $0x20,%rax
+    0.00 :    fed0:   or     %rax,%rdx
+    0.00 :    fed3:   movzbl 0xb(%rdi),%eax
+    0.00 :    fed7:   shl    $0x18,%rax
+    0.00 :    fedb:   or     %rax,%rdx
+    0.00 :    fede:   movzbl 0xc(%rdi),%eax
+    0.00 :    fee2:   shl    $0x10,%rax
+    0.00 :    fee6:   or     %rax,%rdx
+    0.00 :    fee9:   movzbl 0xd(%rdi),%eax
+    0.00 :    feed:   shl    $0x8,%rax
+    0.00 :    fef1:   or     %rax,%rdx
+    0.00 :    fef4:   xor    %eax,%eax
+    0.00 :    fef6:   xor    %rsi,%rdx
+    0.00 :    fef9:   test   %r8,%rdx
+    0.00 :    fefc:   jne    f262 <JudyLGet@@Base+0x142>
+    0.00 :    ff02:   lea    0x1(%rcx),%r11
+    0.00 :    ff06:   movabs $0xffffffffffff,%rax
+    0.00 :    ff10:   mov    (%rdi),%r9
+    0.00 :    ff13:   and    %rax,%rsi
+    0.00 :    ff16:   mov    $0xffffffffffffffff,%rbx
+    0.00 :    ff1d:   mov    %r11,%r10
+    0.00 :    ff20:   jmp    ff88 <JudyLGet@@Base+0xe68>
+    0.00 :    ff22:   nopw   0x0(%rax,%rax,1)
+    0.00 :    ff28:   lea    (%r10,%rbx,1),%rdx
+    0.00 :    ff2c:   shr    %rdx
+    0.00 :    ff2f:   lea    (%rdx,%rdx,2),%r8
+    0.00 :    ff33:   lea    (%r8,%r8,1),%rdi
+    0.00 :    ff37:   movzbl (%r9,%r8,2),%eax
+    0.00 :    ff3c:   movzbl 0x5(%r9,%rdi,1),%ecx
+    0.00 :    ff42:   shl    $0x28,%rax
+    0.00 :    ff46:   add    %rcx,%rax
+    0.00 :    ff49:   movzbl 0x1(%r9,%rdi,1),%ecx
+    0.00 :    ff4f:   shl    $0x20,%rcx
+    0.00 :    ff53:   add    %rcx,%rax
+    0.00 :    ff56:   movzbl 0x2(%r9,%rdi,1),%ecx
+    0.00 :    ff5c:   shl    $0x18,%rcx
+    0.00 :    ff60:   add    %rax,%rcx
+    0.00 :    ff63:   movzbl 0x3(%r9,%rdi,1),%eax
+    0.00 :    ff69:   shl    $0x10,%rax
+    0.00 :    ff6d:   add    %rax,%rcx
+    0.00 :    ff70:   movzbl 0x4(%r9,%rdi,1),%eax
+    0.00 :    ff76:   shl    $0x8,%rax
+    0.00 :    ff7a:   add    %rcx,%rax
+    0.00 :    ff7d:   cmp    %rax,%rsi
+    0.00 :    ff80:   cmovae %rdx,%rbx
+    0.00 :    ff84:   cmovb  %rdx,%r10
+    0.00 :    ff88:   mov    %r10,%rax
+    0.00 :    ff8b:   sub    %rbx,%rax
+    0.00 :    ff8e:   cmp    $0x1,%rax
+    0.00 :    ff92:   ja     ff28 <JudyLGet@@Base+0xe08>
+    0.00 :    ff94:   cmp    $0xffffffffffffffff,%rbx
+    0.00 :    ff98:   je     1049b <JudyLGet@@Base+0x137b>
+    0.00 :    ff9e:   lea    (%rbx,%rbx,2),%rax
+    0.00 :    ffa2:   not    %r10d
+    0.00 :    ffa5:   add    %rax,%rax
+    0.00 :    ffa8:   movzbl (%r9,%rax,1),%edx
+    0.00 :    ffad:   movzbl 0x5(%r9,%rax,1),%ecx
+    0.00 :    ffb3:   shl    $0x28,%rdx
+    0.00 :    ffb7:   add    %rdx,%rcx
+    0.00 :    ffba:   movzbl 0x1(%r9,%rax,1),%edx
+    0.00 :    ffc0:   shl    $0x20,%rdx
+    0.00 :    ffc4:   add    %rdx,%rcx
+    0.00 :    ffc7:   movzbl 0x2(%r9,%rax,1),%edx
+    0.00 :    ffcd:   shl    $0x18,%rdx
+    0.00 :    ffd1:   add    %rdx,%rcx
+    0.00 :    ffd4:   movzbl 0x3(%r9,%rax,1),%edx
+    0.00 :    ffda:   movzbl 0x4(%r9,%rax,1),%eax
+    0.00 :    ffe0:   shl    $0x10,%rdx
+    0.00 :    ffe4:   shl    $0x8,%rax
+    0.00 :    ffe8:   add    %rcx,%rdx
+    0.00 :    ffeb:   add    %rdx,%rax
+    0.00 :    ffee:   cmp    %rax,%rsi
+    0.00 :    fff1:   cmove  %ebx,%r10d
+    0.00 :    fff5:   test   %r10d,%r10d
+    0.00 :    fff8:   js     f260 <JudyLGet@@Base+0x140>
+    0.00 :    fffe:   mov    0x23ff73(%rip),%rax        # 24ff78 <j__L_Leaf6Offset@@Base+0x206458>
+    0.00 :   10005:  movslq %r10d,%r10
+    0.00 :   10008:  movzbl (%rax,%r11,1),%eax
+    0.00 :   1000d:  add    %rax,%r10
+    0.00 :   10010:  lea    (%r9,%r10,8),%rax
+    0.00 :   10014:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   10019:  movzbl 0x8(%rdi),%eax
+    0.00 :   1001d:  shl    $0x30,%rax
+    0.00 :   10021:  mov    %rax,%rcx
+    0.00 :   10024:  movzbl 0x9(%rdi),%eax
+    0.00 :   10028:  shl    $0x28,%rax
+    0.00 :   1002c:  or     %rcx,%rax
+    0.00 :   1002f:  movzbl 0xe(%rdi),%ecx
+    0.00 :   10033:  or     %rcx,%rax
+    0.00 :   10036:  movzbl 0xa(%rdi),%ecx
+    0.00 :   1003a:  shl    $0x20,%rcx
+    0.00 :   1003e:  or     %rcx,%rax
+    0.00 :   10041:  movzbl 0xb(%rdi),%ecx
+    0.00 :   10045:  shl    $0x18,%rcx
+    0.00 :   10049:  or     %rcx,%rax
+    0.00 :   1004c:  movzbl 0xc(%rdi),%ecx
+    0.00 :   10050:  shl    $0x10,%rcx
+    0.00 :   10054:  or     %rcx,%rax
+    0.00 :   10057:  movzbl 0xd(%rdi),%ecx
+    0.00 :   1005b:  shl    $0x8,%rcx
+    0.00 :   1005f:  or     %rcx,%rax
+    0.00 :   10062:  movabs $0xffffffffff0000,%rcx
+    0.00 :   1006c:  xor    %rsi,%rax
+    0.00 :   1006f:  test   %rcx,%rax
+    0.00 :   10072:  jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :   10078:  movzbl -0x21(%rsp),%r8d
+    0.00 :   1007e:  jmp    f4e0 <JudyLGet@@Base+0x3c0>
+    0.00 :   10083:  movzbl 0x8(%rdi),%eax
+    0.00 :   10087:  shl    $0x30,%rax
+    0.00 :   1008b:  mov    %rax,%rcx
+    0.00 :   1008e:  movzbl 0x9(%rdi),%eax
+    0.00 :   10092:  shl    $0x28,%rax
+    0.00 :   10096:  or     %rcx,%rax
+    0.00 :   10099:  movzbl 0xe(%rdi),%ecx
+    0.00 :   1009d:  or     %rcx,%rax
+    0.00 :   100a0:  movzbl 0xa(%rdi),%ecx
+    0.00 :   100a4:  shl    $0x20,%rcx
+    0.00 :   100a8:  or     %rcx,%rax
+    0.00 :   100ab:  movzbl 0xb(%rdi),%ecx
+    0.00 :   100af:  shl    $0x18,%rcx
+    0.00 :   100b3:  or     %rcx,%rax
+    0.00 :   100b6:  movzbl 0xc(%rdi),%ecx
+    0.00 :   100ba:  shl    $0x10,%rcx
+    0.00 :   100be:  or     %rcx,%rax
+    0.00 :   100c1:  movzbl 0xd(%rdi),%ecx
+    0.00 :   100c5:  shl    $0x8,%rcx
+    0.00 :   100c9:  or     %rcx,%rax
+    0.00 :   100cc:  movabs $0xff000000000000,%rcx
+    0.00 :   100d6:  xor    %rsi,%rax
+    0.00 :   100d9:  test   %rcx,%rax
+    0.00 :   100dc:  jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :   100e2:  mov    %ebp,%r8d
+    0.00 :   100e5:  jmp    f4e0 <JudyLGet@@Base+0x3c0>
+    0.00 :   100ea:  movzbl 0x8(%rdi),%eax
+    0.00 :   100ee:  shl    $0x30,%rax
+    0.00 :   100f2:  mov    %rax,%rcx
+    0.00 :   100f5:  movzbl 0x9(%rdi),%eax
+    0.00 :   100f9:  shl    $0x28,%rax
+    0.00 :   100fd:  or     %rcx,%rax
+    0.00 :   10100:  movzbl 0xe(%rdi),%ecx
+    0.00 :   10104:  or     %rcx,%rax
+    0.00 :   10107:  movzbl 0xa(%rdi),%ecx
+    0.00 :   1010b:  shl    $0x20,%rcx
+    0.00 :   1010f:  or     %rcx,%rax
+    0.00 :   10112:  movzbl 0xb(%rdi),%ecx
+    0.00 :   10116:  shl    $0x18,%rcx
+    0.00 :   1011a:  or     %rcx,%rax
+    0.00 :   1011d:  movzbl 0xc(%rdi),%ecx
+    0.00 :   10121:  shl    $0x10,%rcx
+    0.00 :   10125:  or     %rcx,%rax
+    0.00 :   10128:  movzbl 0xd(%rdi),%ecx
+    0.00 :   1012c:  shl    $0x8,%rcx
+    0.00 :   10130:  or     %rcx,%rax
+    0.00 :   10133:  movabs $0xffff0000000000,%rcx
+    0.00 :   1013d:  xor    %rsi,%rax
+    0.00 :   10140:  test   %rcx,%rax
+    0.00 :   10143:  jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :   10149:  mov    %r12d,%r8d
+    0.00 :   1014c:  jmp    f4e0 <JudyLGet@@Base+0x3c0>
+    0.00 :   10151:  movzbl 0xb(%rdi),%eax
+    0.00 :   10155:  and    $0xffffff,%esi
+    0.00 :   1015b:  shl    $0x10,%rax
+    0.00 :   1015f:  mov    %rax,%rdx
+    0.00 :   10162:  movzbl 0xc(%rdi),%eax
+    0.00 :   10166:  shl    $0x8,%rax
+    0.00 :   1016a:  add    %rdx,%rax
+    0.00 :   1016d:  movzbl 0xd(%rdi),%edx
+    0.00 :   10171:  add    %rdx,%rax
+    0.00 :   10174:  cmp    %rax,%rsi
+    0.00 :   10177:  je     10450 <JudyLGet@@Base+0x1330>
+    0.00 :   1017d:  movzbl 0x8(%rdi),%eax
+    0.00 :   10181:  shl    $0x10,%rax
+    0.00 :   10185:  mov    %rax,%rdx
+    0.00 :   10188:  movzbl 0x9(%rdi),%eax
+    0.00 :   1018c:  shl    $0x8,%rax
+    0.00 :   10190:  add    %rdx,%rax
+    0.00 :   10193:  movzbl 0xa(%rdi),%edx
+    0.00 :   10197:  add    %rax,%rdx
+    0.00 :   1019a:  xor    %eax,%eax
+    0.00 :   1019c:  cmp    %rdx,%rsi
+    0.00 :   1019f:  je     f723 <JudyLGet@@Base+0x603>
+    0.00 :   101a5:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   101aa:  mov    %ebx,%ecx
+    0.00 :   101ac:  jmp    f520 <JudyLGet@@Base+0x400>
+    0.00 :   101b1:  movzbl 0x8(%rdi),%eax
+    0.00 :   101b5:  shl    $0x30,%rax
+    0.00 :   101b9:  mov    %rax,%rcx
+    0.00 :   101bc:  movzbl 0x9(%rdi),%eax
+    0.00 :   101c0:  shl    $0x28,%rax
+    0.00 :   101c4:  or     %rcx,%rax
+    0.00 :   101c7:  movzbl 0xe(%rdi),%ecx
+    0.00 :   101cb:  or     %rcx,%rax
+    0.00 :   101ce:  movzbl 0xa(%rdi),%ecx
+    0.00 :   101d2:  shl    $0x20,%rcx
+    0.00 :   101d6:  or     %rcx,%rax
+    0.00 :   101d9:  movzbl 0xb(%rdi),%ecx
+    0.00 :   101dd:  shl    $0x18,%rcx
+    0.00 :   101e1:  or     %rcx,%rax
+    0.00 :   101e4:  movzbl 0xc(%rdi),%ecx
+    0.00 :   101e8:  shl    $0x10,%rcx
+    0.00 :   101ec:  or     %rcx,%rax
+    0.00 :   101ef:  movzbl 0xd(%rdi),%ecx
+    0.00 :   101f3:  shl    $0x8,%rcx
+    0.00 :   101f7:  or     %rcx,%rax
+    0.00 :   101fa:  movabs $0xffffffffff0000,%rcx
+    0.00 :   10204:  xor    %rsi,%rax
+    0.00 :   10207:  test   %rcx,%rax
+    0.00 :   1020a:  jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :   10210:  movzbl -0x21(%rsp),%ecx
+    0.00 :   10215:  jmp    f520 <JudyLGet@@Base+0x400>
+    0.00 :   1021a:  mov    %ebx,%r8d
+    0.00 :   1021d:  jmp    f4e0 <JudyLGet@@Base+0x3c0>
+    0.00 :   10222:  movzbl 0x8(%rdi),%eax
+    0.00 :   10226:  movzbl 0xe(%rdi),%ecx
+    0.00 :   1022a:  movabs $0xffff0000000000,%r8
+    0.00 :   10234:  shl    $0x30,%rax
+    0.00 :   10238:  mov    %rax,%rdx
+    0.00 :   1023b:  movzbl 0x9(%rdi),%eax
+    0.00 :   1023f:  shl    $0x28,%rax
+    0.00 :   10243:  or     %rdx,%rax
+    0.00 :   10246:  movzbl %cl,%edx
+    0.00 :   10249:  or     %rax,%rdx
+    0.00 :   1024c:  movzbl 0xa(%rdi),%eax
+    0.00 :   10250:  shl    $0x20,%rax
+    0.00 :   10254:  or     %rax,%rdx
+    0.00 :   10257:  movzbl 0xb(%rdi),%eax
+    0.00 :   1025b:  shl    $0x18,%rax
+    0.00 :   1025f:  or     %rax,%rdx
+    0.00 :   10262:  movzbl 0xc(%rdi),%eax
+    0.00 :   10266:  shl    $0x10,%rax
+    0.00 :   1026a:  or     %rax,%rdx
+    0.00 :   1026d:  movzbl 0xd(%rdi),%eax
+    0.00 :   10271:  shl    $0x8,%rax
+    0.00 :   10275:  or     %rax,%rdx
+    0.00 :   10278:  xor    %eax,%eax
+    0.00 :   1027a:  xor    %rsi,%rdx
+    0.00 :   1027d:  test   %r8,%rdx
+    0.00 :   10280:  jne    f262 <JudyLGet@@Base+0x142>
+    0.00 :   10286:  lea    0x1(%rcx),%r11
+    0.00 :   1028a:  movabs $0xffffffffff,%rax
+    0.00 :   10294:  mov    (%rdi),%r9
+    0.00 :   10297:  and    %rax,%rsi
+    0.00 :   1029a:  mov    $0xffffffffffffffff,%rbx
+    0.00 :   102a1:  mov    %r11,%r10
+    0.00 :   102a4:  jmp    102ff <JudyLGet@@Base+0x11df>
+    0.00 :   102a6:  cs nopw 0x0(%rax,%rax,1)
+    0.00 :   102b0:  lea    (%r10,%rbx,1),%rdx
+    0.00 :   102b4:  shr    %rdx
+    0.00 :   102b7:  lea    (%rdx,%rdx,4),%rdi
+    0.00 :   102bb:  movzbl (%r9,%rdi,1),%ecx
+    0.00 :   102c0:  movzbl 0x4(%r9,%rdi,1),%eax
+    0.00 :   102c6:  shl    $0x20,%rcx
+    0.00 :   102ca:  add    %rcx,%rax
+    0.00 :   102cd:  movzbl 0x1(%r9,%rdi,1),%ecx
+    0.00 :   102d3:  shl    $0x18,%rcx
+    0.00 :   102d7:  add    %rax,%rcx
+    0.00 :   102da:  movzbl 0x2(%r9,%rdi,1),%eax
+    0.00 :   102e0:  shl    $0x10,%rax
+    0.00 :   102e4:  add    %rax,%rcx
+    0.00 :   102e7:  movzbl 0x3(%r9,%rdi,1),%eax
+    0.00 :   102ed:  shl    $0x8,%rax
+    0.00 :   102f1:  add    %rcx,%rax
+    0.00 :   102f4:  cmp    %rax,%rsi
+    0.00 :   102f7:  cmovae %rdx,%rbx
+    0.00 :   102fb:  cmovb  %rdx,%r10
+    0.00 :   102ff:  mov    %r10,%rax
+    0.00 :   10302:  sub    %rbx,%rax
+    0.00 :   10305:  cmp    $0x1,%rax
+    0.00 :   10309:  ja     102b0 <JudyLGet@@Base+0x1190>
+    0.00 :   1030b:  cmp    $0xffffffffffffffff,%rbx
+    0.00 :   1030f:  je     1048b <JudyLGet@@Base+0x136b>
+    0.00 :   10315:  lea    (%rbx,%rbx,4),%rcx
+    0.00 :   10319:  not    %r10d
+    0.00 :   1031c:  movzbl (%r9,%rcx,1),%eax
+    0.00 :   10321:  movzbl 0x4(%r9,%rcx,1),%edx
+    0.00 :   10327:  shl    $0x20,%rax
+    0.00 :   1032b:  add    %rax,%rdx
+    0.00 :   1032e:  movzbl 0x1(%r9,%rcx,1),%eax
+    0.00 :   10334:  shl    $0x18,%rax
+    0.00 :   10338:  add    %rax,%rdx
+    0.00 :   1033b:  movzbl 0x2(%r9,%rcx,1),%eax
+    0.00 :   10341:  shl    $0x10,%rax
+    0.00 :   10345:  add    %rax,%rdx
+    0.00 :   10348:  movzbl 0x3(%r9,%rcx,1),%eax
+    0.00 :   1034e:  shl    $0x8,%rax
+    0.00 :   10352:  add    %rdx,%rax
+    0.00 :   10355:  cmp    %rax,%rsi
+    0.00 :   10358:  cmove  %ebx,%r10d
+    0.00 :   1035c:  test   %r10d,%r10d
+    0.00 :   1035f:  js     f260 <JudyLGet@@Base+0x140>
+    0.00 :   10365:  mov    0x23fbf4(%rip),%rax        # 24ff60 <j__L_Leaf5Offset@@Base+0x2063c0>
+    0.00 :   1036c:  movslq %r10d,%r10
+    0.00 :   1036f:  movzbl (%rax,%r11,1),%eax
+    0.00 :   10374:  add    %rax,%r10
+    0.00 :   10377:  lea    (%r9,%r10,8),%rax
+    0.00 :   1037b:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   10380:  movzbl 0x8(%rdi),%eax
+    0.00 :   10384:  shl    $0x30,%rax
+    0.00 :   10388:  mov    %rax,%rcx
+    0.00 :   1038b:  movzbl 0x9(%rdi),%eax
+    0.00 :   1038f:  shl    $0x28,%rax
+    0.00 :   10393:  or     %rcx,%rax
+    0.00 :   10396:  movzbl 0xe(%rdi),%ecx
+    0.00 :   1039a:  or     %rcx,%rax
+    0.00 :   1039d:  movzbl 0xa(%rdi),%ecx
+    0.00 :   103a1:  shl    $0x20,%rcx
+    0.00 :   103a5:  or     %rcx,%rax
+    0.00 :   103a8:  movzbl 0xb(%rdi),%ecx
+    0.00 :   103ac:  shl    $0x18,%rcx
+    0.00 :   103b0:  or     %rcx,%rax
+    0.00 :   103b3:  movzbl 0xc(%rdi),%ecx
+    0.00 :   103b7:  shl    $0x10,%rcx
+    0.00 :   103bb:  or     %rcx,%rax
+    0.00 :   103be:  movzbl 0xd(%rdi),%ecx
+    0.00 :   103c2:  shl    $0x8,%rcx
+    0.00 :   103c6:  or     %rcx,%rax
+    0.00 :   103c9:  movabs $0xffffffff000000,%rcx
+    0.00 :   103d3:  xor    %rsi,%rax
+    0.00 :   103d6:  test   %rcx,%rax
+    0.00 :   103d9:  jne    f260 <JudyLGet@@Base+0x140>
+    0.00 :   103df:  mov    %r14d,%r8d
+    0.00 :   103e2:  jmp    f4e0 <JudyLGet@@Base+0x3c0>
+    0.00 :   103e7:  mov    %esi,%edx
+    0.00 :   103e9:  cmp    %dx,0xa(%rdi)
+    0.00 :   103ed:  je     10450 <JudyLGet@@Base+0x1330>
+    0.00 :   103ef:  xor    %eax,%eax
+    0.00 :   103f1:  cmp    %dx,0x8(%rdi)
+    0.00 :   103f5:  je     f723 <JudyLGet@@Base+0x603>
+    0.00 :   103fb:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   10400:  cmp    %sil,0xe(%rdi)
+    0.00 :   10404:  mov    %esi,%edx
+    0.00 :   10406:  jne    f6eb <JudyLGet@@Base+0x5cb>
+    0.00 :   1040c:  mov    (%rdi),%rax
+    0.00 :   1040f:  add    $0x30,%rax
+    0.00 :   10413:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   10418:  cmp    %si,0xc(%rdi)
+    0.00 :   1041c:  mov    %esi,%edx
+    0.00 :   1041e:  jne    103e9 <JudyLGet@@Base+0x12c9>
+    0.00 :   10420:  mov    (%rdi),%rax
+    0.00 :   10423:  add    $0x10,%rax
+    0.00 :   10427:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   1042c:  test   %rdx,%rdx
+    0.00 :   1042f:  mov    $0xffffffffffffffff,%rax
+    0.00 :   10436:  je     f262 <JudyLGet@@Base+0x142>
+    0.00 :   1043c:  movl   $0x9,(%rdx)
+    0.00 :   10442:  movl   $0x2ee,0x4(%rdx)
+    0.00 :   10449:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   1044e:  xchg   %ax,%ax
+    0.00 :   10450:  mov    (%rdi),%rax
+    0.00 :   10453:  add    $0x8,%rax
+    0.00 :   10457:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   1045c:  xor    %eax,%eax
+    0.00 :   1045e:  ret
+    0.00 :   1045f:  mov    (%rdi),%rax
+    0.00 :   10462:  add    $0x18,%rax
+    0.00 :   10466:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   1046b:  mov    (%rdi),%rax
+    0.00 :   1046e:  add    $0x20,%rax
+    0.00 :   10472:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   10477:  mov    (%rdi),%rax
+    0.00 :   1047a:  add    $0x28,%rax
+    0.00 :   1047e:  jmp    f262 <JudyLGet@@Base+0x142>
+    0.00 :   10483:  not    %r10d
+    0.00 :   10486:  jmp    fe7a <JudyLGet@@Base+0xd5a>
+    0.00 :   1048b:  not    %r10d
+    0.00 :   1048e:  jmp    1035c <JudyLGet@@Base+0x123c>
+    0.00 :   10493:  not    %r9d
+    0.00 :   10496:  jmp    f9d0 <JudyLGet@@Base+0x8b0>
+    0.00 :   1049b:  not    %r10d
+    0.00 :   1049e:  jmp    fff5 <JudyLGet@@Base+0xed5>
+ Percent |	Source code & Disassembly of phase_probe for cpu_core/frontend_retired.ms_flows/upp (1 samples, percent: local period)
+--------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3    Disassembly of section .text:
+         :
+         : 5    0000000000001640 <judy_delete>:
+    0.00 :   1640:   push   %r15
+    0.00 :   1642:   push   %r14
+    0.00 :   1644:   push   %r13
+    0.00 :   1646:   mov    %rsi,%r13
+    0.00 :   1649:   push   %r12
+    0.00 :   164b:   mov    %rdi,%r12
+    0.00 :   164e:   push   %rbp
+    0.00 :   164f:   push   %rbx
+    0.00 :   1650:   sub    $0x28,%rsp
+    0.00 :   1654:   mov    %fs:0x28,%rax
+    0.00 :   165d:   mov    %rax,0x18(%rsp)
+    0.00 :   1662:   xor    %eax,%eax
+    0.00 :   1664:   movq   $0x0,0x10(%rsp)
+    0.00 :   166d:   test   %rsi,%rsi
+    0.00 :   1670:   jle    1734 <judy_delete+0xf4>
+    0.00 :   1676:   mov    %rdi,%rax
+    0.00 :   1679:   movq   $0x0,(%rsp)
+    0.00 :   1681:   lea    0x10(%rsp),%rbx
+    0.00 :   1686:   lea    0xa10(%rip),%r14        # 209d <_IO_stdin_used+0x9d>
+    0.00 :   168d:   neg    %rax
+    0.00 :   1690:   shl    $0x18,%rax
+    0.00 :   1694:   mov    %rax,0x8(%rsp)
+    0.00 :   1699:   xor    %ebp,%ebp
+    0.00 :   169b:   jmp    16a3 <judy_delete+0x63>
+    0.00 :   169d:   nopl   (%rax)
+    0.00 :   16a0:   mov    %r15,%rbp
+    0.00 :   16a3:   mov    %rbp,%rsi
+    0.00 :   16a6:   xor    %edx,%edx
+    0.00 :   16a8:   lea    0x1(%rbp),%r15
+    0.00 :   16ac:   mov    %rbx,%rdi
+    0.00 :   16af:   not    %rsi
+    0.00 :   16b2:   shl    $0x18,%rsi
+    0.00 :   16b6:   mov    %esi,%esi
+    0.00 :   16b8:   or     %rbp,%rsi
+    0.00 :   16bb:   call   1190 <JudyLIns@plt>
+    0.00 :   16c0:   lea    -0x1(%rax),%rdx
+    0.00 :   16c4:   cmp    $0xfffffffffffffffd,%rdx
+    0.00 :   16c8:   ja     1758 <judy_delete+0x118>
+    0.00 :   16ce:   mov    %rbp,(%rax)
+    0.00 :   16d1:   cmp    %r15,%r12
+    0.00 :   16d4:   jne    16a0 <judy_delete+0x60>
+    0.00 :   16d6:   mov    %r14,%rdi
+    0.00 :   16d9:   call   15b0 <perf_ctl>
+    0.00 :   16de:   mov    0x8(%rsp),%r15
+    0.00 :   16e3:   nopl   0x0(%rax,%rax,1)
+    0.00 :   16e8:   mov    %r15d,%esi
+    0.00 :   16eb:   xor    %edx,%edx
+    0.00 :   16ed:   mov    %rbx,%rdi
+    0.00 :   16f0:   or     %rbp,%rsi
+    0.00 :   16f3:   call   1130 <JudyLDel@plt>
+  100.00 :   16f8:   cmp    $0x1,%eax
+    0.00 :   16fb:   jne    1758 <judy_delete+0x118>
+    0.00 :   16fd:   sub    $0x1,%rbp
+    0.00 :   1701:   add    $0x1000000,%r15
+    0.00 :   1708:   cmp    $0xffffffffffffffff,%rbp
+    0.00 :   170c:   jne    16e8 <judy_delete+0xa8>
+    0.00 :   170e:   lea    0x990(%rip),%rdi        # 20a5 <_IO_stdin_used+0xa5>
+    0.00 :   1715:   call   15b0 <perf_ctl>
+    0.00 :   171a:   cmpq   $0x0,0x10(%rsp)
+    0.00 :   1720:   jne    1758 <judy_delete+0x118>
+    0.00 :   1722:   addq   $0x1,(%rsp)
+    0.00 :   1727:   mov    (%rsp),%rax
+    0.00 :   172b:   cmp    %rax,%r13
+    0.00 :   172e:   jne    1699 <judy_delete+0x59>
+    0.00 :   1734:   mov    %r13,%rcx
+    0.00 :   1737:   mov    %r12,%rdx
+    0.00 :   173a:   lea    0x96d(%rip),%rsi        # 20ae <_IO_stdin_used+0xae>
+    0.00 :   1741:   xor    %eax,%eax
+    0.00 :   1743:   mov    $0x1,%edi
+    0.00 :   1748:   call   11b0 <__printf_chk@plt>
+    0.00 :   174d:   xor    %eax,%eax
+    0.00 :   174f:   jmp    175d <judy_delete+0x11d>
+    0.00 :   1751:   nopl   0x0(%rax)
+    0.00 :   1758:   mov    $0x2,%eax
+    0.00 :   175d:   mov    0x18(%rsp),%rdx
+    0.00 :   1762:   sub    %fs:0x28,%rdx
+    0.00 :   176b:   jne    177c <judy_delete+0x13c>
+    0.00 :   176d:   add    $0x28,%rsp
+    0.00 :   1771:   pop    %rbx
+    0.00 :   1772:   pop    %rbp
+    0.00 :   1773:   pop    %r12
+    0.00 :   1775:   pop    %r13
+    0.00 :   1777:   pop    %r14
+    0.00 :   1779:   pop    %r15
+    0.00 :   177b:   ret
+    0.00 :   177c:   call   1160 <__stack_chk_fail@plt>
