@@ -168,7 +168,10 @@ pub(crate) unsafe fn locate_fixed<const KB: usize>(
 /// # Safety
 ///
 /// `keys` must be valid for reads of `KB * pop` bytes.
-#[inline]
+///
+/// Forced inline: with the branchless band LLVM otherwise outlines it from
+/// `search_fixed`, and every leaf probe pays a call.
+#[inline(always)]
 pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
     keys: *const u8,
     pop: usize,
@@ -272,22 +275,28 @@ pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
             }
         }
     } else if pop <= 24 {
-        // Branchless lower bound: the answer lies in `[base, base + len]`, and
-        // each step halves `len` whatever the comparison says, so the only
-        // branch is the trip count, a function of `pop` alone. On random keys
+        // Branchless lower bound. `k` is the largest power of two <= pop, so
+        // pop is in [k, 2k). One probe at `pop - k` leaves a window of k - 1
+        // keys above it or fewer than k below it, and the steps k/2, ..., 1
+        // cover that window whatever the comparisons say. The only branch is
+        // the trip count, log2(k), a function of `pop` alone. On random keys
         // the comparison is a coin flip and was the leaf's mispredict site
         // (#1685).
-        let (mut base, mut len) = (0usize, pop);
-        while len > 1 {
-            let half = len / 2;
-            // SAFETY: `base + half < base + len <= pop`.
+        let k = 1usize << (usize::BITS - 1 - pop.leading_zeros());
+        // SAFETY: `pop - k < pop`.
+        let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;
+        let mut base = core::hint::select_unpredictable(first, pop - k + 1, 0);
+        let mut step = k >> 1;
+        while step > 0 {
+            // SAFETY: the steps sum to k - 1, so a probe reaches at most
+            // index `b0 + k - 2`, where `b0` is 0 or `pop - k + 1`; both bounds
+            // are below `pop`.
             let below =
-                unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + half) } < needle;
-            base = core::hint::select_unpredictable(below, base + half, base);
-            len -= half;
+                unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;
+            base = core::hint::select_unpredictable(below, base + step, base);
+            step >>= 1;
         }
-        // SAFETY: `base < pop`, since `pop > 4` here.
-        base + usize::from(unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base) } < needle)
+        base
     } else {
         let (mut lo, mut hi) = (0usize, pop);
         while lo < hi {
