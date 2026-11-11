@@ -106,20 +106,25 @@ macro_rules! alloc_raw_body {
                 return Self::$system($bytes, $align);
             }
 
-            #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
-            $s.bytes_in_use
-                .fetch_add(accounted_size, Ordering::Relaxed);
-            #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
-            $s.live_allocs.fetch_add(1, Ordering::Relaxed);
-            #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
-            $s.total_allocs.fetch_add(1, Ordering::Relaxed);
-            // Diagnostic (Refs #1679, `Cargo.toml`): the same three updates as
-            // a relaxed load and store, which x86 emits without a `lock`
-            // prefix. Lost updates under concurrent use of one plain
-            // allocator, which the plain path's single-writer contract rules
-            // out; never for production.
-            #[cfg(feature = "ablation-unlocked-plain-acct")]
-            {
+            // A plain tree's accounting (Refs #1679). A block with a slab
+            // class comes from this allocator's single-writer freelists, so
+            // its counters update by a relaxed load and store, which x86
+            // emits without a `lock` prefix. A block with no class comes from
+            // the system allocator and keeps the locked update: concurrent
+            // callers of the `pub` entry points that use only such sizes stay
+            // exactly counted, as before (`NodeAlloc` docs).
+            // `ablation-locked-plain-acct` locks every update again.
+            let class = class_for($bytes, $align);
+            #[cfg(not(feature = "ablation-locked-plain-acct"))]
+            let locked = class.is_none();
+            #[cfg(feature = "ablation-locked-plain-acct")]
+            let locked = true;
+            if locked {
+                $s.bytes_in_use
+                    .fetch_add(accounted_size, Ordering::Relaxed);
+                $s.live_allocs.fetch_add(1, Ordering::Relaxed);
+                $s.total_allocs.fetch_add(1, Ordering::Relaxed);
+            } else {
                 let b = $s.bytes_in_use.load(Ordering::Relaxed);
                 $s.bytes_in_use
                     .store(b.wrapping_add(accounted_size), Ordering::Relaxed);
@@ -136,7 +141,7 @@ macro_rules! alloc_raw_body {
                 return Self::$system($bytes, $align);
             }
 
-            if let Some(class) = class_for($bytes, $align) {
+            if let Some(class) = class {
                 let head = $s.freelists[class].load(Ordering::Relaxed);
                 if !head.is_null() {
                     #[cfg(debug_assertions)]
@@ -773,9 +778,20 @@ const ROOT_COVER_HELD: u8 = 2;
 /// `align_of::<T>()` via [`Self::alloc_node`], at [`RAW_ALIGN`] via
 /// [`Self::alloc_bytes`] — and keeps byte-exact accounting.
 ///
-/// Counters are relaxed atomics (Phase 7): accounting must stay exact
-/// when a concurrent wrapper shares the tree across threads, and the
-/// counters order nothing — the OCC read protocol carries the fences.
+/// Counters are relaxed atomics, and they order nothing: the OCC read
+/// protocol carries the fences. A concurrent wrapper reads them while its
+/// writer runs, and charges its own writes to per-writer shards
+/// (`defer_to`), never to these words.
+///
+/// **One writer at a time.** Allocation and free on one `NodeAlloc` from two
+/// threads at once is supported only for sizes with no slab size class:
+/// those blocks come from the system allocator and their accounting updates
+/// are locked, so concurrent callers stay exactly counted. A size with a
+/// class is served from this handle's per-tree freelists, whose push and pop
+/// are plain load/store pairs, and its accounting updates are unlocked too
+/// (Refs #1679), so two such callers at once can be handed one block and
+/// lose counts. Every tree that owns a `NodeAlloc` mutates it through
+/// `&mut self`, and debug builds detect two threads inside the freelists.
 #[derive(Debug)]
 pub struct NodeAlloc {
     bytes_in_use: AtomicUsize,
@@ -1454,14 +1470,18 @@ impl NodeAlloc {
             return;
         }
 
-        #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
-        self.bytes_in_use
-            .fetch_sub(accounted_size, Ordering::Relaxed);
-        #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
-        self.live_allocs.fetch_sub(1, Ordering::Relaxed);
-        // Diagnostic (Refs #1679): `alloc_raw_body!`'s unlocked form, inverted.
-        #[cfg(feature = "ablation-unlocked-plain-acct")]
-        {
+        // `alloc_raw_body!`'s split, inverted: unlocked for a block with a
+        // slab class, locked for a system-allocator block (Refs #1679).
+        let class = class_for(bytes, align);
+        #[cfg(not(feature = "ablation-locked-plain-acct"))]
+        let locked = class.is_none();
+        #[cfg(feature = "ablation-locked-plain-acct")]
+        let locked = true;
+        if locked {
+            self.bytes_in_use
+                .fetch_sub(accounted_size, Ordering::Relaxed);
+            self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+        } else {
             let b = self.bytes_in_use.load(Ordering::Relaxed);
             self.bytes_in_use
                 .store(b.wrapping_sub(accounted_size), Ordering::Relaxed);
@@ -1482,7 +1502,7 @@ impl NodeAlloc {
             return;
         }
 
-        if let Some(class) = class_for(bytes, align) {
+        if let Some(class) = class {
             #[cfg(debug_assertions)]
             let _bookkeeping = self.enter_bookkeeping();
             let block = ptr.as_ptr().cast::<FreeBlock>();
