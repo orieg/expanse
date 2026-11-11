@@ -20,15 +20,19 @@ from analyze import RESULTS, run_void, valid
 from bca_bootstrap import CI_METHOD_BCA, bca_bootstrap_ratio_ci_with_method
 
 MIN_VALID = 8
-PAIRS = [("N", "S"), ("N64", "S"), ("N64", "N")]
+# The gets set's pairs; the delete set (`phase_set` "delete", #1679) has one.
+PAIRS_BY_SET = {"gets": [("N", "S"), ("N64", "S"), ("N64", "N")], "delete": [("D", "S")]}
+PAIRS = PAIRS_BY_SET["gets"]
 POOLED = ["cycles", "instructions"]
 MEM = "cycle_activity.stalls_l1d_miss"
 FE = "idq_uops_not_delivered.core"
 
 
 def analyse_run(prefix):
+    global PAIRS
     recs = [json.loads(line) for line in open(f"{prefix}.jsonl")]
     prov = json.loads(open(f"{prefix}.provenance.json").read())
+    PAIRS = PAIRS_BY_SET[prov.get("phase_set", "gets")]
     by = defaultdict(list)
     for r in recs:
         by[(r["cell"], r["arm"])].append(r)
@@ -86,7 +90,8 @@ def main():
     arts, keyed = [], []
     for n, prefix in enumerate(prefixes, 1):
         art, recs = analyse_run(prefix)
-        dest = RESULTS / f"diagnostic_phase_counters_{host}_run{n}.json"
+        name = "delete_phase" if art["provenance"].get("phase_set") == "delete" else "phase_counters"
+        dest = RESULTS / f"diagnostic_{name}_{host}_run{n}.json"
         dest.write_text(json.dumps(art, indent=1) + "\n")
         v = art["provenance"]["void"]
         print(f"run {n}: {len(recs)} processes, {sum(not valid(r) for r in recs)} discarded; "
@@ -109,18 +114,27 @@ def main():
                + ("" if c["ci_method"] == CI_METHOD_BCA else f" ({c['ci_method']})") for c in cs]
         print(f"| {key[0]} | `{key[1]}` | {key[2]} | {cs[0]['per_op_' + num]:.4g} | "
               f"{cs[0]['per_op_' + den]:.4g} | {txt[0]} | {txt[1]} |")
-    print("\nreading rule (README.md), N against S per shape:")
+    num = PAIRS[0][0]
+    print(f"\nreading rule (README.md), {num} against S per shape:")
     for shape in sorted({k[0] for k in keyed[0]}):
-        cyc = [k[(shape, "cycles", "N/S")] for k in keyed]
+        cyc = [k[(shape, "cycles", f"{num}/S")] for k in keyed]
+        ins = [k[(shape, "instructions", f"{num}/S")] for k in keyed]
         if all(c["ci_lower"] > 1.0 for c in cyc):
-            sh = [shares(k, shape) for k in keyed]
+            sh = [shares(k, shape, num) for k in keyed]
             for n, (d, m, f) in enumerate(sh, 1):
-                print(f"  {shape} run {n}: N - S = {d:.4g} cycles; memory share {m:.3f}, front-end share {f:.3f}")
+                print(f"  {shape} run {n}: {num} - S = {d:.4g} cycles; memory share {m:.3f}, front-end share {f:.3f}")
             mem_all, fe_all = all(m >= 0.5 for _, m, _ in sh), all(f >= 0.5 for _, _, f in sh)
             verdict = ("MEMORY" if mem_all and not fe_all else "FRONT-END" if fe_all and not mem_all
                        else "BOTH" if mem_all and fe_all else "MIXED")
+            # The delete set's extra verdict (README.md, "Diagnostic: delete-phase
+            # counters"): more instructions retired than stock, and neither
+            # memory nor the front end carrying half the extra cycles in either
+            # run.
+            if (num == "D" and all(c["ci_lower"] > 1.0 for c in ins)
+                    and all(m < 0.5 and f < 0.5 for _, m, f in sh)):
+                verdict += " (CALL-STRUCTURE)"
         elif all(c["ci_upper"] < 1.0 for c in cyc):
-            verdict = "NO GAP (N takes fewer cycles than S)"
+            verdict = f"NO GAP ({num} takes fewer cycles than S)"
         else:
             verdict = "UNRESOLVED (the cycle ratio's intervals do not agree on a side)"
         print(f"  {shape}: {verdict}")

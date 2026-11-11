@@ -12,6 +12,11 @@
  *   sm_big      the same over 1,000,000 draws on [0, 100000)^2.
  *   judy_4m     judy: JLI of gen_index(i) = (~i & 0xff) << 24 | (i & 0xffffff)
  *               for i below 4,194,304; the measured phase is the inserts.
+ *   del_1k      judy's delete phase at --judy-size 1024: JLI of gen_index(i)
+ *               for i below 1,024, then JLD in reverse order; the measured
+ *               phase is the deletes, `repeats` builds each followed by its
+ *               counted delete pass, so each array is as warm as stress-ng's.
+ *   del_4m      the same at 4,194,304 keys, once (`repeats` is 1).
  *
  * The draws come from splitmix64, not stress-ng's mwc32, so the keys follow
  * the stressor's distribution and not its exact sequence. Every arm draws
@@ -125,6 +130,40 @@ static int judy_4m(void)
 	return 0;
 }
 
+static uint64_t gen_index(uint64_t i)
+{
+	return ((~i & 0xff) << 24) | (i & 0xffffff);
+}
+
+static int judy_delete(uint64_t n, long repeats)
+{
+	Pvoid_t a = NULL;
+	PWord_t pv;
+	uint64_t i;
+	int rc;
+	long r;
+
+	for (r = 0; r < repeats; r++) {
+		for (i = 0; i < n; i++) {
+			JLI(pv, a, (Word_t)gen_index(i));
+			if (pv == NULL || pv == PJERR)
+				return 2;
+			*pv = i;
+		}
+		perf_ctl("enable\n");
+		for (i = n; i-- > 0;) {
+			JLD(rc, a, (Word_t)gen_index(i));
+			if (rc != 1)
+				return 2;
+		}
+		perf_ctl("disable\n");
+		if (a != NULL)
+			return 2;
+	}
+	printf("deleted %lu x %ld\n", (unsigned long)n, repeats);
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	long repeats;
@@ -146,6 +185,10 @@ int main(int argc, char **argv)
 		return sparsematrix(1000000, 100000, repeats);
 	if (strcmp(argv[1], "judy_4m") == 0)
 		return judy_4m();
+	if (strcmp(argv[1], "del_1k") == 0)
+		return judy_delete(1024, repeats);
+	if (strcmp(argv[1], "del_4m") == 0)
+		return judy_delete(4194304, 1);
 	fprintf(stderr, "STOP: unknown shape %s\n", argv[1]);
 	return 1;
 }

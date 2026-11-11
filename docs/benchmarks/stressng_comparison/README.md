@@ -445,6 +445,22 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
   - 64-byte function alignment, which fixed the 1k find, is not a fix for #1680.
 - **Not measured.** Why N mispredicts more here, and at which branches. A `perf record` of `br_misp_retired.all_branches` on the get phase would name them.
 
+## Diagnostic: delete-phase counters
+
+**A diagnostic, not a pre-registered result** (#1679). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** With #1708's fix, Expanse's stress-ng delete rate is still below stock at 1 Ki keys (0.91× on the reference host) and at 4 Mi (0.87–0.90×). Callgrind puts about 16% of the 4 Mi delete's instructions in the recursive `map_remove`'s entry and exit. Before changing the engine: where do Expanse's extra delete cycles go?
+
+**Design, fixed before the run** (`scripts/phase_probe.c` shapes `del_1k` and `del_4m`; `run.sh <run> ref phase_delete`, which runs `scripts/diag_phase_counters.py` with `SNG_PHASE_SET=delete`):
+- `del_1k`: JLI of `gen_index(i)` for `i` below 1,024, then JLD in reverse order, stress-ng's delete phase at its minimum size. Each of 1,000 repetitions rebuilds the array with counting disabled and deletes it with counting enabled, so the array is as warm as in stress-ng's run: 1,024,000 deletes.
+- `del_4m`: the same at 4,194,304 keys, once.
+- Two arms, differing only in `LD_LIBRARY_PATH`: D (#1708's library, `45f83ac5e`, sha256 `f6bb333e…`, the code on main) and S (stock).
+- The event groups, the preflight, the rounds (12 per run, alternating the two arms' order), the discard and void rules and the analysis are the phase-counter diagnostic's above. The preflight runs on `del_4m`.
+
+**Reading rule, D against S, per shape, over both runs.** The phase-counter rule above applies with D in N's place: MEMORY, FRONT-END, BOTH, MIXED, NO GAP or UNRESOLVED. One addition decides whether #1679's next engine increment, moving the rarely taken paths out of the recursive `map_remove`, goes ahead.
+- **CALL-STRUCTURE:** D's cycles are above S's, D's `instructions` lower bound exceeds 1 in both runs, and in both runs the memory share and the front-end share are each below 0.5. Expanse does more work and is neither waiting on memory nor starved by its front end, which is where per-level call overhead would show.
+- **Any other reading:** report before any engine change.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -521,4 +537,18 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref phase
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_phase_counters_ref_run1 /var/tmp/stressng-eval/results/diag_phase_counters_ref_run2
+```
+
+The delete-phase counters need #1708's library at `$SNG_D/expcompat-45f83ac5e/lib` (the delete-fix diagnostic's `scripts/build_layout_lib.sh` build), `perf` and `cc`:
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref phase_delete
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref phase_delete
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_phase_ref_run1 /var/tmp/stressng-eval/results/diag_delete_phase_ref_run2
 ```
