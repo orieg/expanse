@@ -19,9 +19,9 @@ This directory contains the reproducible benchmark suite, raw measurements, meth
 
 ## 2. Key Findings & Empirical Results
 
-The YCSB pillar carries its own provenance below. Pillars 2–5 were measured together:
+The YCSB pillar and Pillar 4 carry their own provenance below. Pillars 2, 3 and 5 were measured together:
 
-*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `powersave` governor, CPUs `0-15`, commit 2f82cd07; `run.sh --skip-ycsb`, two runs of 9 rounds, one process per round with the arm order rotated; every round process in its own load window, foreign busy CPU at most 0.04 core-equivalents in any window; means with BCa 95% intervals, ratios paired per round, run 1 first and run 2 in parentheses; `results/baseline_{native,tail_latency,distributions,memory}.json`, run 2 at `results/baseline_*_run2.json`)*
+*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `powersave` governor, CPUs `0-15`, commit 2f82cd07; `run.sh --skip-ycsb`, two runs of 9 rounds, one process per round with the arm order rotated; every round process in its own load window, foreign busy CPU at most 0.04 core-equivalents in any window; means with BCa 95% intervals, ratios paired per round, run 1 first and run 2 in parentheses; `results/baseline_{native,tail_latency,memory}.json`, run 2 at `results/baseline_*_run2.json`)*
 
 ### Pillar 1: YCSB (Yahoo! Cloud Serving Benchmark) Workloads A–F
 Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 dense sequential keys (`1..=N`) with `u64` values (workload: `hashbrown_ycsb`).
@@ -77,12 +77,23 @@ Every figure below is the mean over 9 rounds of that round's percentile, with it
 ---
 
 ### Pillar 4: Martin Ankerl & Tessil Key Distributions
-Point lookup throughput (Mops/sec) evaluated across standard key geometries ($N = 500,000$; means of 9 rounds, run 1). Ratios are Expanse over the competitor, paired per round, with run 2 in parentheses (workload: `hashbrown_container_dists`); insert throughput and its ratios are in `results/baseline_distributions.json`.
+Point lookup throughput (Mops/sec) across standard key geometries ($N = 500,000$; means of 9 rounds, run 1), in two probe orders over the same build: **draw order**, the inserted key sequence as generated (`0, 1, 2, …` on dense sequential keys), and **shuffled**, a Fisher–Yates permutation of the same keys from the suite PRNG. Ratios are Expanse over the competitor, paired per round, above 1 = Expanse faster, with run 2 in parentheses (workload: `hashbrown_container_dists`). `hashbrown` uses its default hasher (foldhash). Insert throughput and its ratios are in `results/baseline_distributions.json`.
+
+*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `performance` governor, CPUs `0-15`, commit 99d5b5ff; bench_baremetal runs [43118879867](https://github.com/orieg/expanse/actions/runs/43118879867) and [43119259121](https://github.com/orieg/expanse/actions/runs/43119259121), `run_all.py --skip-ycsb`, 9 rounds each, one process per round with the arm order rotated; foreign busy CPU at most 0.06 core-equivalents in any round's window; BCa 95% intervals; `results/baseline_distributions.json` and run 2 at `results/baseline_distributions_run2.json`)*
 
 ![Key Distributions Throughput](results/bench_key_distributions.svg)
 
-| Key Geometry (N = 500,000) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse / `hashbrown` | Expanse / `BTreeMap` |
-| :--- | :--- | :--- | :--- | :--- | :--- |
+| Key Geometry (N = 500,000) | `hashbrown` draw / shuffled | `BTreeMap` draw / shuffled | `ExpanseMap` draw / shuffled | Expanse / `hashbrown`, draw | Expanse / `hashbrown`, shuffled | Expanse / `BTreeMap`, draw | Expanse / `BTreeMap`, shuffled |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Sparse Clustered / Stride** | 89.7 / 93.8 Mops/s | 21.7 / 9.7 Mops/s | 173.7 / 60.3 Mops/s | **1.938× [1.920, 1.965]** (1.933× [1.903, 1.986]) | 0.643× [0.632, 0.660] (0.641× [0.627, 0.656]) | **7.998× [7.921, 8.062]** (7.938× [7.794, 8.017]) | **6.225× [6.179, 6.268]** (6.266× [6.230, 6.300]) |
+| **Dense Sequential (0 … N)** | 92.5 / 110.4 Mops/s | 24.7 / 9.7 Mops/s | 141.7 / 65.8 Mops/s | **1.532× [1.516, 1.556]** (1.519× [1.485, 1.576]) | 0.607× [0.561, 0.668] (0.605× [0.559, 0.669]) | **5.749× [5.698, 5.789]** (5.762× [5.703, 5.823]) | **6.752× [6.681, 6.846]** (6.743× [6.673, 6.842]) |
+| **Zipfian Skewed (s = 0.99)** | 172.8 / 252.1 Mops/s | 20.1 / 20.0 Mops/s | 119.1 / 119.0 Mops/s | 0.691× [0.669, 0.707] (0.681× [0.648, 0.709]) | 0.472× [0.469, 0.478] (0.473× [0.467, 0.482]) | **5.938× [5.914, 5.971]** (5.943× [5.922, 5.967]) | **5.950× [5.891, 5.977]** (5.964× [5.932, 5.986]) |
+| **Uniform Random 64-bit** | 84.5 / 88.2 Mops/s | 10.0 / 10.0 Mops/s | 42.5 / 42.0 Mops/s | 0.504× [0.497, 0.522] (0.498× [0.495, 0.503]) | 0.476× [0.474, 0.479] (0.474× [0.463, 0.481]) | **4.232× [4.205, 4.259]** (4.238× [4.207, 4.292]) | **4.213× [4.189, 4.240]** (4.177× [4.059, 4.219]) |
+
+- **Probe order decides the sequential and clustered results.** With the build unchanged, shuffling the probes turns Expanse's lead over `hashbrown` on dense sequential keys (1.532×) into a loss (0.607×), and on clustered keys from 1.938× into 0.643×; in both runs, with intervals that do not overlap 1. Expanse's own throughput falls from 141.7 to 65.8 Mops/s on sequential keys while `hashbrown`'s rises. In draw order consecutive probes land in the same or the adjacent Expanse leaf; that the loss is that locality going away is a hypothesis, not measured here (no cache counter was taken). On uniform-random keys, where draw order is already random, the two orders agree.
+- **Correction.** The previous runs (commit 2f82cd07, `powersave` governor, draw order only) published dense sequential at 1.740× [1.694, 1.787] (run 2 1.781× [1.758, 1.822]) and uniform random at 0.340× [0.338, 0.342] over `hashbrown`. Re-measured here in the same draw order, dense sequential is 1.532× and uniform random 0.504×; both runs moved each cell the same way, with intervals disjoint from the earlier ones, as did zipfian (0.562× to 0.691×) and every `BTreeMap` ratio (for example sequential 7.260× to 5.749×). The commit and the host's frequency governor both changed between the two pairs of runs, so the shift is not attributed to either. The figure that describes a lookup independent of probe order is the shuffled one: 0.607× on dense sequential keys.
+
+--- | :--- | :--- | :--- | :--- | :--- |
 | **Sparse Clustered / Stride** | 85.6 Mops/s | 18.9 Mops/s | **170.0 Mops/s** | **1.990× [1.947, 2.049]** (1.997× [1.972, 2.046]) | **9.003× [8.950, 9.048]** (8.994× [8.923, 9.042]) |
 | **Dense Sequential (0 … N)** | 88.7 Mops/s | 21.2 Mops/s | **154.1 Mops/s** | **1.740× [1.694, 1.787]** (1.781× [1.758, 1.822]) | **7.260× [7.216, 7.311]** (7.278× [7.196, 7.347]) <!-- docs-lint: allow — 1.822 on this row is this suite's interval bound (baseline_distributions_run2.json), not the retired HOT figure registered under that number --> |
 | **Zipfian Skewed (s = 0.99)** | 207.4 Mops/s | 18.6 Mops/s | 114.0 Mops/s | 0.562× [0.518, 0.627] (0.559× [0.518, 0.616]) | **6.135× [6.110, 6.178]** (6.116× [6.084, 6.140]) |

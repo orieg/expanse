@@ -412,7 +412,7 @@ def generate_key_distributions_chart():
         if m_bt > 0:
             speedup = m_exp / m_bt
             svg += f"""  <rect x="815" y="{y + 12}" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="{y + 25}" class="badge-win-text">{speedup:.1f}x vs BTree</text>
+  <text x="872.5" y="{y + 25}" class="badge-win-text">{speedup:.2f}x vs BTree</text>
 """
 
     svg += "</svg>\n"
