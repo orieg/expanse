@@ -42,8 +42,16 @@ def analyse_run(prefix):
                 out = {"workload_id": f"phase_{shape}", "metric": key, "pair": f"{num}/{den}",
                        f"n_{num}": len(a), f"n_{den}": len(b),
                        "discarded": sum(not valid(r) for r in by[(shape, num)] + by[(shape, den)])}
-                if len(a) >= MIN_VALID and len(b) >= MIN_VALID:
-                    av, bv = [r["counters"][key] for r in a], [r["counters"][key] for r in b]
+                av, bv = [r["counters"][key] for r in a], [r["counters"][key] for r in b]
+                if any(x == 0 for x in bv) or any(x == 0 for x in av):
+                    # A zero count has no ratio: an event a shape never
+                    # triggers (an L3 miss on a cache-resident array), reported
+                    # by its means and never bootstrapped.
+                    out.update({f"mean_{num}": math.fsum(av) / max(len(av), 1),
+                                f"mean_{den}": math.fsum(bv) / max(len(bv), 1),
+                                "ratio": None, "ci_lower": None, "ci_upper": None,
+                                "ci_method": None, "no_ratio": "a zero count in an arm"})
+                elif len(a) >= MIN_VALID and len(b) >= MIN_VALID:
                     ratio, lo, hi, ci_method = bca_bootstrap_ratio_ci_with_method(
                         av, bv, num_resamples=2000, seed=42)
                     ops = a[0]["ops"]
@@ -93,7 +101,8 @@ def main():
     for key in keyed[0]:
         cs = [k[key] for k in keyed]
         if any(c["ratio"] is None for c in cs):
-            print(f"| {key[0]} | `{key[1]}` | {key[2]} | n < {MIN_VALID} | | | |")
+            why = next((c["no_ratio"] for c in cs if c.get("no_ratio")), f"n < {MIN_VALID}")
+            print(f"| {key[0]} | `{key[1]}` | {key[2]} | {why} | | | |")
             continue
         num, den = key[2].split("/")
         txt = [f"{c['ratio']:.4f} [{c['ci_lower']:.4f}, {c['ci_upper']:.4f}]"
