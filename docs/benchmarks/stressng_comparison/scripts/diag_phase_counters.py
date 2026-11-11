@@ -87,10 +87,12 @@ def perf_phase(events, shape, repeats, arm, base):
 def preflight(outdir):
     report = {}
     for gname, gev in GROUPS.items():
-        _, _, together = perf_phase(FIXED + gev, "sm_default", 20, "N", f"{outdir}/pre_{gname}")
+        # `sm_big` misses in every cache level, so each event counts in the
+        # thousands at least and a co-scheduling zero cannot hide in noise.
+        _, _, together = perf_phase(FIXED + gev, "sm_big", 1, "N", f"{outdir}/pre_{gname}")
         dfc.check_rows(together, FIXED + gev, f"preflight group {gname}")
         for e in (e for e in gev if e not in GP_EXEMPT):
-            _, _, alone = perf_phase([e], "sm_default", 20, "N", f"{outdir}/pre_{gname}_{e}")
+            _, _, alone = perf_phase([e], "sm_big", 1, "N", f"{outdir}/pre_{gname}_{e}")
             dfc.check_rows(alone, [e], f"preflight {e} alone")
             a, t = alone[e][0], together[e][0]
             if a > 0 and t == 0:

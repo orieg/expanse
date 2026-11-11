@@ -390,7 +390,7 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
   - `stall`: `cycle_activity.stalls_total`, `.stalls_l1d_miss`, `.stalls_l2_miss`;
   - `l3`: `cycle_activity.stalls_l3_miss` alone. The first launch's preflight found it counting 350 alone and 0 beside the other three stall events, the #1177 failure, and stopped before anything was timed;
   - `fe`: the fixed `slots` counter, `idq_uops_not_delivered.core`, `dtlb_load_misses.walk_completed`, `br_inst_retired.all_branches`.
-- The preflight, the discard rule and the void rule are the counter diagnostic's. 12 rounds per run, cycling the arms through their six orders and shuffling (shape, group) within a round. Two independent runs under the host bench lock and the comparison's pin.
+- The preflight, the discard rule and the void rule are the counter diagnostic's. The preflight runs on `sm_big`, whose misses reach every cache level. A second launch's preflight on `sm_default` read `mem_load_retired.l3_miss` as 9 alone and 0 in its group, too few to tell a co-scheduling zero from run-to-run variation, and stopped before anything was timed. 12 rounds per run, cycling the arms through their six orders and shuffling (shape, group) within a round. Two independent runs under the host bench lock and the comparison's pin.
 - `scripts/diag_phase_counters_analyze.py` writes `results/diagnostic_phase_counters_ref_run{1,2}.json`: per shape, two-sample BCa 95% intervals on N/S, N64/S and N64/N for every counter, with per-operation means.
 
 **Reading rule, N against S, per shape, over both runs:**
