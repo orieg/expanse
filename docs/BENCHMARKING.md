@@ -2492,6 +2492,48 @@ The `compare` cells this change does not reach (`set_insert_build`, `map_iter`) 
 - **Counters.** `results/counters_point_lookup_c3e1ed3a3_probes4096_run{1,2}.json` and `results/counters_point_lookup_b6640076b_probes4096_run{1,2}.json`: `map_get` at 10k is 1.068 and `set_contains` at 10k is 1.049, in both replicates; at 1M both are 0.595–0.621.
 - **Disclosure, `compare` run 1.** From 18:20 to 18:27 UTC, another session's ssh connection to the reference host hung and stayed open. That session started no work after 17:43. In run 1's load record, foreign load is at most 0.05 core-equivalents in each of the 106 arm windows and 0.02 from start to end, and the host guard reported quiet. Under §8.17 the run is kept.
 
+#### Pre-registration: a forward-only sibling-run engine for full iteration ([#1687](https://github.com/orieg/expanse/issues/1687))
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the fresh runs measure. The change under test gives `ExpanseSet::iter` and `ExpanseMap::iter` their own forward-only walker. That walker streams single-key immediate siblings from a branch's slots (`ImmedRunU`, `ImmedRunB`) and walks map bitmap leaves in place (`BitmapMapAsc`). It has no seek and no reverse arms. `RawIter` and its `LeafCursor` stay token-for-token identical to the merge base. Ranges, every cursor (so every string-map cursor), the reverse iterators and the ascending fronts of `*IterRev` keep using them. The previous head, `d028747b3`, shared one cursor enum between both kinds of walk. Its instruction gates failed on ranges and string cursors (CI run [42946179048](https://github.com/orieg/expanse/actions/runs/42946179048)), and ten attempts to fix that in place did not hold.
+
+**These bounds were set knowing the counts at `d028747b3`**, so that run is not evidence for them. Only runs that start after the commit adding this section count. Those are one CI run at the pull request's head and two `compare` runs at that head. A run the host guard discards for foreign load (§8.17) is re-run and the discard disclosed; it is not counted.
+
+**Definitions.**
+- *Instruction change*: an arm's PR-versus-main change in the CI job named (the pass whose baseline is the merge base).
+- *Fuel change*: the wasm fuel job's "vs baseline" column, against `results/baseline_wasm_fuel.json`. For the four `clustered` arms named below, the baseline equals main's own run [42958706418](https://github.com/orieg/expanse/actions/runs/42958706418) at `c3e1ed3a3`.
+
+**P1, losses removed by construction.** Each arm's change is at most +0.1%.
+
+| instrument | arms | observed at `d028747b3` |
+|---|---|---|
+| x86-64 deterministic Callgrind | `set_range/*`, `map_range/*`, `strmap_cursor_scan/*`, `sync_strmap_scan_locked/*`, `strmap_prefix_scan/*`, `strmap_prefix_bounded/*`, `map_range_cursor_scan/*`, every `*_rev` and `*_prev` arm, and every arm not named in P2 | `set_range` +2.78% to +9.80%, the string scans +1.14% to +1.75% |
+| wasm64 fuel | `map_range/clustered` (baseline 1,253,243), `set_range/clustered` (baseline 2,234,456) | +1.50%, +0.84% |
+| AArch64 Callgrind, x86-64 smoke Callgrind | every arm | none above +0.1% |
+
+**P2, gains kept.** x86-64 deterministic Callgrind, each arm at most 1.01 × its count at `d028747b3`:
+
+| arm | count at `d028747b3` | bound |
+|---|---|---|
+| `map_iterate/random_10k` | 510,497 | 515,601 |
+| `map_iterate/sparse_10k` | 281,082 | 283,892 |
+| `set_iterate/random_10k` | 638,488 | 644,872 |
+| `set_iterate/sparse_10k` | 251,123 | 253,634 |
+
+**Observed, not predicted.** At `d028747b3`, wasm64 `map_iterate/clustered` measured 923,450 (+1.94% against 905,884) and `set_iterate/clustered` 1,821,808 (+1.04% against 1,803,013). This change does not touch the code those arms run, so they must not rise above those counts. If either does, the verdict is FAIL. If the verdict is PASS, these two are the only arms an `allow-regression:` line names. That line cites this section and the fresh CI run.
+
+**Given back in advance.** These gains at `d028747b3` came from the shared enum, and this change returns them to the merge base:
+- `map_cursor_scan` (−15% to −49%) and `map_range_cursor_scan` (−11% to −37%);
+- the escaped-key byte and string cursors (`ordered_bytesmap_cursor{,_into}`, `strmap_transcode_cursor`; −9% to −13%), and their clean-key twins (−1% to −2%);
+- x86-64 `map_range` sequential and clustered (−19.5%);
+- wasm64 `map_range` and `set_range` on sequential and random keys (−29% to −47%);
+- `expanse_composed_and` (−2% to −6%).
+
+Sibling runs for cursors, if pursued, are a later change with their own measurement.
+
+**Wall clock.** Two `compare` runs at the head, against the published pair at `82eb56af` (rule 18). The `map_iter` cells are reported. The `set_lookup` cells that moved with code placement at the earlier head are reported and disclosed, not gated.
+
+**Verdict.** PASS only if P1 and P2 hold and neither observed arm rises. Otherwise the result is FAIL: it is reported with the arm that broke its bound, no bound is moved (§8.19), and the pull request is parked.
+
 **`benches/comparative.rs`** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; criterion medians)*:
 
 **`ExpanseSet` vs `RoaringBitmap` (`comparative.rs`, 100k)**:
