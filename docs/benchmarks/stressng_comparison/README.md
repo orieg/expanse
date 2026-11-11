@@ -676,6 +676,49 @@ What the reading decides:
 
 The front-end share f of the phase-counter rule is printed beside the named resources, and every counter's D/S interval is reported. The 0.25 and 0.10 bounds are fixed here, before the run.
 
+### Front-end resource result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, perf 6.8.12, harness `10b6847c6`; artifacts `results/diagnostic_delete_fe_ref_run{1,2}.json`) (workloads: phase_del_1k, phase_del_4m)
+
+**Hygiene.** Run 1 ran 17:39:00–17:41:06 UTC and run 2 17:41:06–17:43:12, each under the bench lock. Run 1 had 192 processes with 2 discarded, and run 2 had 192 with none discarded. The worst foreign load over any process was 0.37 core-equivalents (run 1) and 0.04 (run 2). Max load1 was 0.93 and 1.05 against a void limit of 12. The preflight found no event that counts alone and reads zero in its group, and no row ran below 100% of the time.
+
+**Reading: UNNAMED at both sizes.** No measured front-end resource carries the gap, so under the design #1679's outlining increment does not go ahead on this evidence.
+
+| Shape | Counter | D per op | S per op | D/S run 1 | D/S run 2 |
+|---|---|---|---|---|---|
+| `del_1k` | `cycles` | 157.8 | 143.6 | 1.0990 [1.0951, 1.1052] | 1.0939 [1.0931, 1.0948] |
+| `del_1k` | `idq_uops_not_delivered.core` | 144.9 | 60.45 | 2.3967 [2.3745, 2.4239] | 2.4024 [2.3855, 2.4174] |
+| `del_1k` | `uops_issued.any` | 648.3 | 735.3 | 0.8817 [0.8813, 0.8823] | 0.8814 [0.8810, 0.8817] |
+| `del_1k` | `idq.dsb_uops` | 597.9 | 701.6 | 0.8522 [0.8510, 0.8554] | 0.8509 [0.8504, 0.8515] |
+| `del_1k` | `dsb2mite_switches.penalty_cycles` | 2.897 | 2.345 | 1.2354 [1.2163, 1.2675] | 1.2394 [1.2200, 1.2570] |
+| `del_1k` | `icache_data.stalls` | 0.5347 | 0.5408 | 0.9888 [0.9684, 1.0221] | 0.9754 [0.9667, 0.9836] |
+| `del_1k` | `idq.ms_uops` | 2.047 | 0.1735 | 11.7949 [11.6085, 12.0117] | 11.9368 [11.8015, 12.1178] |
+| `del_1k` | `br_inst_retired.all_branches` | 122.6 | 110.1 | 1.1139 (bc) | 1.1139 (bc) |
+| `del_4m` | `cycles` | 211.8 | 192.3 | 1.1014 [1.0949, 1.1070] | 1.1048 [1.0981, 1.1122] |
+| `del_4m` | `idq_uops_not_delivered.core` | 64.27 | 22.41 | 2.8677 [2.8504, 2.8812] | 2.8706 [2.8501, 2.8879] |
+| `del_4m` | `dsb2mite_switches.penalty_cycles` | 0.774 | 0.3865 | 2.0024 [1.7170, 2.3936] | 1.9024 [1.6636, 2.2307] |
+| `del_4m` | `icache_data.stalls` | 0.1444 | 0.06643 | 2.1741 [2.1133, 2.2177] | 2.1954 [2.1525, 2.2412] |
+| `del_4m` | `icache_tag.stalls` | 0.3743 | 0.1018 | 3.6766 [3.4659, 3.9310] | 3.9530 [3.7121, 4.1546] |
+| `del_4m` | `idq.mite_uops` | 4.501 | 1.152 | 3.9079 [3.7839, 4.0488] | 3.8399 [3.6919, 3.9635] |
+| `del_4m` | `br_inst_retired.all_branches` | 125.7 | 89.81 | 1.3992 (bc) | 1.3992 (bc) |
+
+Every other counter's interval is in the artifacts. `decode.lcp` has no ratio, because one arm counts zero in some processes.
+
+- **The fetch-latency counters carry almost none of D's extra cycles.** The four shares are:
+  - UOP-CACHE (DSB-to-MITE switch penalty): 0.039 and 0.042 at 1 Ki, 0.020 and 0.017 at 4 Mi;
+  - ICACHE: 0.000 and −0.001 at 1 Ki, 0.004 at 4 Mi;
+  - ITLB: 0.001–0.003 at 1 Ki, 0.014 at 4 Mi;
+  - LCP: 0.001 or less.
+
+  The 4 Mi instruction-cache, ITLB and switch counters are 2–4× stock's, but per operation they are fractions of a cycle against 19.5 extra cycles.
+- **The uop sources are nearly the same.** At 1 Ki, D's uops come 94.4% from the uop cache (DSB), 3.7–3.8% from the legacy decoders and 1.5–1.6% from the loop stream detector. Stock's come 95.7%, 3.5% and 0.8%. At 4 Mi the figures are 97.5%, 0.6% and 1.8% against stock's 99.2%, 0.1% and 0.6%. Neither the MITE shift nor the LSD shift reaches the 0.10 bound, so the uop cache is not missing D's delete code.
+- **What remains.** The front end still leaves D's issue slots empty: f = 0.991 and 1.040 at 1 Ki, 0.358 and 0.349 at 4 Mi, as in the delete-phase counters. Two differences are measured:
+  - D issues 0.88× and 0.91× stock's uops, but retires 1.11× (1 Ki) and 1.40× (4 Mi) stock's branches.
+  - D takes 12× (1 Ki) and 56× (4 Mi) stock's microcode-sequencer uops, which is 2.0 and 0.8 uops per operation.
+
+  A per-cycle limit on taken branches in uop-cache delivery fits the first difference. The cost of switching to the microcode sequencer fits the second. Both are **hypotheses, unmeasured here**: no counter in these groups reads taken branches per cycle or microcode-sequencer switches, so neither is a finding.
+- **Next instrument, not run.** Separating them needs `br_inst_retired.near_taken` and `idq.ms_switches` (or the MS-switch cycles counter), read as shares of D's extra cycles. That would be another design, fixed before its run.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
