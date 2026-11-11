@@ -2478,6 +2478,20 @@ The `compare` cells this change does not reach (`set_insert_build`, `map_iter`) 
 
 **Verdict.** PASS only if every target holds and every loss is inside its bound. Otherwise the result is FAIL: it is reported with the cell that broke its bound, and no bound is moved (§8.19).
 
+**Outcome: PASS.** It was recorded after the pre-registration above was committed at `b6640076b`, from runs that all started after that commit.
+- **Instruction counts.** CI run [43073155997](https://github.com/orieg/expanse/actions/runs/43073155997) at `b6640076b`:
+  - x86-64 deterministic: `strmap_get_short/short` +1.69%, `map_get/linear_leaf` +1.57%, `map_get/dense_leaf` +1.33%; every other arm at most +0.05%.
+  - AArch64: the five named string arms +0.12% to +0.36%; every other arm at most +0.01%.
+  - x86-64 smoke: no arm above 0.
+  - wasm fuel: at most +0.01% against main's run [42958706418](https://github.com/orieg/expanse/actions/runs/42958706418) at `c3e1ed3a3`.
+- **`compare`.** Runs [43076795686](https://github.com/orieg/expanse/actions/runs/43076795686) and [43079932428](https://github.com/orieg/expanse/actions/runs/43079932428) (measured: 12th Gen Intel Core i9-12900F, Linux 6.8, pinned to CPUs 0-15, `b6640076b`; workload: `core_compare`):
+  - `map_get/random/1000000/hit` against `HashMap` is [1.986, 2.029], published [3.315, 3.375]. Across the six target pairs, the fresh upper end is 0.57–0.61 of the published lower end.
+  - The largest 10k random shift is 1.050 (`set_lookup` miss). That cell's interval against `HashSet` is [0.740, 0.746].
+  - The largest of the 12 set-lookup shifts is 1.142 (sequential, 1M, miss). Every one of the 12 cells stays below 1 against both `HashSet` and `BTreeSet`.
+  - The largest other `map_get` shift is 1.036.
+- **Counters.** `results/counters_point_lookup_c3e1ed3a3_probes4096_run{1,2}.json` and `results/counters_point_lookup_b6640076b_probes4096_run{1,2}.json`: `map_get` at 10k is 1.068 and `set_contains` at 10k is 1.049, in both replicates; at 1M both are 0.595–0.621.
+- **Disclosure, `compare` run 1.** From 18:20 to 18:27 UTC, another session's ssh connection to the reference host hung and stayed open. That session started no work after 17:43. In run 1's load record, foreign load is at most 0.05 core-equivalents in each of the 106 arm windows and 0.02 from start to end, and the host guard reported quiet. Under §8.17 the run is kept.
+
 **`benches/comparative.rs`** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; criterion medians)*:
 
 **`ExpanseSet` vs `RoaringBitmap` (`comparative.rs`, 100k)**:
