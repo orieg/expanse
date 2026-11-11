@@ -119,6 +119,9 @@ def main():
     for shape in sorted({k[0] for k in keyed[0]}):
         cyc = [k[(shape, "cycles", f"{num}/S")] for k in keyed]
         ins = [k[(shape, "instructions", f"{num}/S")] for k in keyed]
+        if any(c["ci_lower"] is None for c in cyc + ins):
+            print(f"  {shape}: NO READING (a run has too few valid processes for an interval)")
+            continue
         if all(c["ci_lower"] > 1.0 for c in cyc):
             sh = [shares(k, shape, num) for k in keyed]
             for n, (d, m, f) in enumerate(sh, 1):

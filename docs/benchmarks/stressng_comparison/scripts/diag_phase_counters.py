@@ -37,7 +37,10 @@ SET = os.environ.get("SNG_PHASE_SET", "gets")
 if SET == "delete":
     ARMS = {"D": f"{driver.D}/expcompat-45f83ac5e/lib", "S": driver.ARMS["S"]}
     # (shape, repeats of the measured phase, measured operations per process)
-    SHAPES = [("del_1k", 1000, 1000 * 1024), ("del_4m", 1, 4_194_304)]
+    # 10,000 repetitions: at 1,000 a process lasted 0.085 s, under the load
+    # window's minimum (`bench_provenance.MIN_WINDOW_S`, 0.1 s), and every
+    # process read no foreign load and was discarded.
+    SHAPES = [("del_1k", 10_000, 10_000 * 1024), ("del_4m", 1, 4_194_304)]
     PREFLIGHT = ("del_4m", 1, "D")
 elif SET == "gets":
     ARMS = {"N": driver.ARMS["E"], "N64": f"{driver.D}/expcompat-6ec29a656-fa64/lib", "S": driver.ARMS["S"]}
