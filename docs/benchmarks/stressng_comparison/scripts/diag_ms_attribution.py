@@ -131,11 +131,16 @@ def main():
                     break
             else:
                 sys.exit(f"STOP: perf record refused every event for {shape} {arm}: {tried}")
+            n = len(subprocess.run(["perf", "script", "-i", base + ".data", "-F", "ip"], check=True,
+                                   capture_output=True, text=True).stdout.split())
             functions, top, total, rep = annotate(base + ".data", base)
-            if not functions or total == 0:
-                sys.exit(f"STOP: no samples parsed for {shape} {arm}; see {base}.annotate.txt")
+            # Zero samples is a result (stock's 4 Mi delete issued no
+            # microcode flow at this period); samples that parse to nothing
+            # are a parser failure.
+            if n and (not functions or total == 0):
+                sys.exit(f"STOP: {n} samples but none parsed for {shape} {arm}; see {base}.annotate.txt")
             cells.append({"workload_id": f"phase_{shape}", "arm": arm, "ops": ops, "event": event,
-                          "modifiers": mods, "tried": tried, "load": load, "samples": total, "rep_string_share": rep,
+                          "modifiers": mods, "tried": tried, "load": load, "samples": total, "perf_script_samples": n, "rep_string_share": rep,
                           "functions": functions, "instructions": top})
             print(f"{shape} {arm}: {event}/{mods}, {total:.0f} samples, rep-string share {rep:.3f}, "
                   f"top {[(x['insn'], round(x['share'], 3)) for x in top[:3]]}", flush=True)
