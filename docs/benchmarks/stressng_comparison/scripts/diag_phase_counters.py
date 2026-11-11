@@ -34,7 +34,9 @@ bp = driver.bp
 # `SNG_PHASE_SET=delete` selects the #1679 delete-phase design (README.md,
 # "Diagnostic: delete-phase counters"): D, #1708's library, against stock.
 SET = os.environ.get("SNG_PHASE_SET", "gets")
-if SET == "delete":
+# `delete_fe` is the same design with the 1k find diagnostic's front-end
+# groups (README.md, "Diagnostic: front-end resource on the delete phase").
+if SET in ("delete", "delete_fe"):
     ARMS = {"D": f"{driver.D}/expcompat-45f83ac5e/lib", "S": driver.ARMS["S"]}
     # (shape, repeats of the measured phase, measured operations per process)
     # 10,000 repetitions: at 1,000 a process lasted 0.085 s, under the load
@@ -62,6 +64,8 @@ GROUPS = {
     "fe": ["slots", "idq_uops_not_delivered.core", "dtlb_load_misses.walk_completed",
            "br_inst_retired.all_branches"],
 }
+if SET == "delete_fe":
+    GROUPS = dfc.GROUPS
 GP_EXEMPT = {"slots"}
 PROBE = None
 
@@ -133,7 +137,7 @@ def main():
     if any("expanse" in x for x in proof["S"]):
         sys.exit(f"STOP: arm S mapped an Expanse object: {proof}")
     prov = bp.new_provenance(
-        "stressng_comparison", 1679 if SET == "delete" else 1680,
+        "stressng_comparison", 1679 if SET.startswith("delete") else 1680,
         "N/S, N64/S and N64/N: the ratio of two arms' means of one user-mode counter over the "
         "measured phase, with a two-sample BCa 95% interval over the run's rounds",
         repo_root=driver.REPO_ROOT, host_label=host, run=run, rounds=ROUNDS,

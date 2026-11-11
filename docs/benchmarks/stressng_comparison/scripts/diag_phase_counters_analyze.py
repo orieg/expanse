@@ -21,7 +21,16 @@ from bca_bootstrap import CI_METHOD_BCA, bca_bootstrap_ratio_ci_with_method
 
 MIN_VALID = 8
 # The gets set's pairs; the delete set (`phase_set` "delete", #1679) has one.
-PAIRS_BY_SET = {"gets": [("N", "S"), ("N64", "S"), ("N64", "N")], "delete": [("D", "S")]}
+PAIRS_BY_SET = {"gets": [("N", "S"), ("N64", "S"), ("N64", "N")], "delete": [("D", "S")],
+                "delete_fe": [("D", "S")]}
+NAME_BY_SET = {"gets": "phase_counters", "delete": "delete_phase", "delete_fe": "delete_fe"}
+# The delete_fe set's fetch-latency counters (README.md, "Diagnostic:
+# front-end resource on the delete phase"), each in cycles, by the resource
+# it names.
+LATENCY = {"UOP-CACHE": "dsb2mite_switches.penalty_cycles", "ICACHE": "icache_data.stalls",
+           "ITLB": "icache_tag.stalls", "LCP": "decode.lcp"}
+SOURCES = ["idq.dsb_uops", "idq.mite_uops", "idq.ms_uops", "lsd.uops"]
+NAMED_SHARE, SOURCE_SHIFT = 0.25, 0.10
 PAIRS = PAIRS_BY_SET["gets"]
 POOLED = ["cycles", "instructions"]
 MEM = "cycle_activity.stalls_l1d_miss"
@@ -85,12 +94,50 @@ def shares(k, shape, num="N", den="S"):
     return d, (mem[f"mean_{num}"] - mem[f"mean_{den}"]) / d, (fe[f"mean_{num}"] - fe[f"mean_{den}"]) / (width * d)
 
 
+def mean(k, shape, metric, arm, pair):
+    return k[(shape, metric, pair)][f"mean_{arm}"]
+
+
+def fe_reading(keyed, shape, num, den="S"):
+    """README.md's front-end resource rule for one shape, over both runs."""
+    pair, named = f"{num}/{den}", []
+    per_run = []
+    for k in keyed:
+        d = mean(k, shape, "cycles", num, pair) - mean(k, shape, "cycles", den, pair)
+        width = mean(k, shape, "slots", num, pair) / mean(k, shape, "cycles", num, pair)
+        f = (mean(k, shape, FE, num, pair) - mean(k, shape, FE, den, pair)) / (width * d)
+        lat = {r: (mean(k, shape, e, num, pair) - mean(k, shape, e, den, pair)) / d for r, e in LATENCY.items()}
+        mix = {}
+        for arm in (num, den):
+            tot = math.fsum(mean(k, shape, e, arm, pair) for e in SOURCES)
+            mix[arm] = {e: mean(k, shape, e, arm, pair) / tot for e in SOURCES}
+        per_run.append((d, f, lat, mix))
+    for n, (d, f, lat, mix) in enumerate(per_run, 1):
+        print(f"  {shape} run {n}: {num} - S = {d:.4g} cycles; front-end share {f:.3f}; shares of the extra "
+              "cycles: " + ", ".join(f"{r} {v:.3f}" for r, v in lat.items()))
+        for arm in (num, den):
+            print(f"    {arm} uop sources: " + ", ".join(f"{e} {v:.3f}" for e, v in mix[arm].items()))
+    for r in LATENCY:
+        if all(lat[r] >= NAMED_SHARE for _, _, lat, _ in per_run):
+            named.append(r)
+    mite = [mix[num]["idq.mite_uops"] - mix[den]["idq.mite_uops"] for _, _, _, mix in per_run]
+    if all(m >= SOURCE_SHIFT for m in mite) and "UOP-CACHE" not in named:
+        named.append("UOP-CACHE")
+    lsd = [mix[num]["lsd.uops"] - mix[den]["lsd.uops"] for _, _, _, mix in per_run]
+    if all(x <= -SOURCE_SHIFT for x in lsd):
+        named.append("LOOP-STREAM")
+    print(f"  {shape}: {' + '.join(named) if named else 'UNNAMED (no measured front-end resource carries the gap)'}")
+    go = any(r in named for r in ("UOP-CACHE", "ICACHE"))
+    print(f"  {shape}: option 2 (outline as a code-footprint change) "
+          f"{'may proceed' if go else 'does not proceed on this shape: report'}")
+
+
 def main():
     host, prefixes = sys.argv[1], sys.argv[2:4]
     arts, keyed = [], []
     for n, prefix in enumerate(prefixes, 1):
         art, recs = analyse_run(prefix)
-        name = "delete_phase" if art["provenance"].get("phase_set") == "delete" else "phase_counters"
+        name = NAME_BY_SET[art["provenance"].get("phase_set", "gets")]
         dest = RESULTS / f"diagnostic_{name}_{host}_run{n}.json"
         dest.write_text(json.dumps(art, indent=1) + "\n")
         v = art["provenance"]["void"]
@@ -101,6 +148,7 @@ def main():
         keyed.append({(c["workload_id"][6:], c["metric"], c["pair"]): c for c in art["cells"]})
     if any(a["provenance"]["void"]["void"] for a in arts):
         sys.exit("a run is void (METHODOLOGY.md §7); no reading")
+    fe_set = arts[0]["provenance"].get("phase_set") == "delete_fe"
     print("\n| shape | counter | pair | per op (num) | per op (den) | run 1 [BCa 95%] | run 2 [BCa 95%] |")
     print("|---|---|---|---|---|---|---|")
     for key in keyed[0]:
@@ -121,6 +169,9 @@ def main():
         ins = [k[(shape, "instructions", f"{num}/S")] for k in keyed]
         if any(c["ci_lower"] is None for c in cyc + ins):
             print(f"  {shape}: NO READING (a run has too few valid processes for an interval)")
+            continue
+        if fe_set and all(c["ci_lower"] > 1.0 for c in cyc):
+            fe_reading(keyed, shape, num)
             continue
         if all(c["ci_lower"] > 1.0 for c in cyc):
             sh = [shares(k, shape, num) for k in keyed]

@@ -648,6 +648,34 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - **4 Mi: MIXED.** The memory share is 0.145 and 0.131, the front-end share 0.346 and 0.368. D's L1 misses are 2.0× stock's, its L1D-miss stall cycles 1.22–1.27×, and its empty front-end slots 2.8×. Mispredictions are equal.
 - **Not measured.** The front-end resource behind the empty slots. The layout diagnostic found the delete rate insensitive to 64-byte function alignment (N64/N 0.995–1.008), so whole-function placement does not explain it; code size or uop-cache capacity are not excluded.
 
+## Diagnostic: front-end resource on the delete phase
+
+**A diagnostic, not a pre-registered result** (#1679). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The delete-phase counters put Expanse's extra 1 Ki delete cycles in its front end, and a third of its extra 4 Mi cycles there, but not which front-end resource. Does the gap sit in uop-cache or instruction-cache capacity? That reading lets #1679's next increment proceed: moving the rarely taken paths out of the recursive `map_remove`, framed as a code-footprint change.
+
+**Design, fixed before the run** (`run.sh <run> ref phase_delete_fe`, which runs `scripts/diag_phase_counters.py` with `SNG_PHASE_SET=delete_fe`):
+- The delete-phase design above, unchanged in shapes (`del_1k`, `del_4m`), arms (D, #1708's library, against S, stock), rounds, preflight, discard and void rules.
+- The event groups are those of the 1k find diagnostic: `uops`, `fe`, `misc` and `br`, beside the fixed `cycles` and `instructions`.
+- `scripts/diag_phase_counters_analyze.py` writes `results/diagnostic_delete_fe_ref_run{1,2}.json`.
+
+**Reading rule, D against S, per shape, over both runs.** It applies where D's `cycles` lower bound exceeds 1 in both runs; otherwise NO GAP or UNRESOLVED as above. Let d be D's mean cycles per process minus S's. For each fetch-latency counter, its share of d is D's mean minus S's, divided by d:
+- UOP-CACHE: `dsb2mite_switches.penalty_cycles`;
+- ICACHE: `icache_data.stalls`;
+- ITLB: `icache_tag.stalls`;
+- LCP: `decode.lcp`.
+
+A resource is **named** when its share is at least 0.25 in both runs. Two uop-source readings can also name one. The share of an arm's delivered uops from a source is that source's mean over the sum of the four `uops` counters.
+- UOP-CACHE is also named when D's share of uops from the legacy decoders (`idq.mite_uops`) exceeds S's by at least 0.10 in both runs.
+- LOOP-STREAM is named when D's share from the loop stream detector (`lsd.uops`) is below S's by at least 0.10 in both runs.
+
+What the reading decides:
+- If neither of those names a resource, the reading is UNNAMED. The empty slots then sit in a front-end cost these counters do not separate.
+- **Option 2 proceeds** only when UOP-CACHE or ICACHE is named on a shape. Each increment is then measured alone against the delete arms, and any Callgrind arm above +0.1% is disclosed.
+- **Any other reading:** report before any engine change. This includes ITLB, LCP, LOOP-STREAM alone, or UNNAMED.
+
+The front-end share f of the phase-counter rule is printed beside the named resources, and every counter's D/S interval is reported. The 0.25 and 0.10 bounds are fixed here, before the run.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
