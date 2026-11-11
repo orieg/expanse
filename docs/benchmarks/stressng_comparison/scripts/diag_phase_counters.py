@@ -31,11 +31,27 @@ import diag_find_counters as dfc
 import driver
 
 bp = driver.bp
-ARMS = {"N": driver.ARMS["E"], "N64": f"{driver.D}/expcompat-6ec29a656-fa64/lib", "S": driver.ARMS["S"]}
+# `SNG_PHASE_SET=delete` selects the #1679 delete-phase design (README.md,
+# "Diagnostic: delete-phase counters"): D, #1708's library, against stock.
+SET = os.environ.get("SNG_PHASE_SET", "gets")
+# `delete_fe` is the same design with the 1k find diagnostic's front-end
+# groups (README.md, "Diagnostic: front-end resource on the delete phase").
+if SET in ("delete", "delete_fe"):
+    ARMS = {"D": f"{driver.D}/expcompat-45f83ac5e/lib", "S": driver.ARMS["S"]}
+    # (shape, repeats of the measured phase, measured operations per process)
+    # 10,000 repetitions: at 1,000 a process lasted 0.085 s, under the load
+    # window's minimum (`bench_provenance.MIN_WINDOW_S`, 0.1 s), and every
+    # process read no foreign load and was discarded.
+    SHAPES = [("del_1k", 10_000, 10_000 * 1024), ("del_4m", 1, 4_194_304)]
+    PREFLIGHT = ("del_4m", 1, "D")
+elif SET == "gets":
+    ARMS = {"N": driver.ARMS["E"], "N64": f"{driver.D}/expcompat-6ec29a656-fa64/lib", "S": driver.ARMS["S"]}
+    SHAPES = [("sm_default", 200, 200 * 20_000), ("sm_big", 1, 2_000_000), ("judy_4m", 1, 4_194_304)]
+    PREFLIGHT = ("sm_big", 1, "N")
+else:
+    sys.exit(f"STOP: unknown SNG_PHASE_SET {SET}")
 ORDERS = list(itertools.permutations(ARMS))
 ROUNDS = int(os.environ.get("SNG_PHASE_ROUNDS", "12"))
-# (shape, repeats of the measured phase, measured operations per process)
-SHAPES = [("sm_default", 200, 200 * 20_000), ("sm_big", 1, 2_000_000), ("judy_4m", 1, 4_194_304)]
 FIXED = ["cycles", "instructions"]
 GROUPS = {
     "mem": ["mem_load_retired.l1_miss", "mem_load_retired.l2_miss",
@@ -48,6 +64,8 @@ GROUPS = {
     "fe": ["slots", "idq_uops_not_delivered.core", "dtlb_load_misses.walk_completed",
            "br_inst_retired.all_branches"],
 }
+if SET == "delete_fe":
+    GROUPS = dfc.GROUPS
 GP_EXEMPT = {"slots"}
 PROBE = None
 
@@ -89,10 +107,12 @@ def preflight(outdir):
     for gname, gev in GROUPS.items():
         # `sm_big` misses in every cache level, so each event counts in the
         # thousands at least and a co-scheduling zero cannot hide in noise.
-        _, _, together = perf_phase(FIXED + gev, "sm_big", 1, "N", f"{outdir}/pre_{gname}")
+        _, _, together = perf_phase(FIXED + gev, PREFLIGHT[0], PREFLIGHT[1], PREFLIGHT[2],
+                                    f"{outdir}/pre_{gname}")
         dfc.check_rows(together, FIXED + gev, f"preflight group {gname}")
         for e in (e for e in gev if e not in GP_EXEMPT):
-            _, _, alone = perf_phase([e], "sm_big", 1, "N", f"{outdir}/pre_{gname}_{e}")
+            _, _, alone = perf_phase([e], PREFLIGHT[0], PREFLIGHT[1], PREFLIGHT[2],
+                                     f"{outdir}/pre_{gname}_{e}")
             dfc.check_rows(alone, [e], f"preflight {e} alone")
             a, t = alone[e][0], together[e][0]
             if a > 0 and t == 0:
@@ -106,23 +126,23 @@ def main():
     run, host, prefix = int(sys.argv[1]), sys.argv[2], sys.argv[3]
     if ROUNDS % len(ORDERS):
         sys.exit(f"STOP: SNG_PHASE_ROUNDS={ROUNDS} is not a multiple of {len(ORDERS)}")
-    outdir = f"{driver.D}/diag_phase_counters/run{run}"
+    outdir = f"{driver.D}/diag_phase_counters/{SET}_run{run}"
     os.makedirs(outdir, exist_ok=True)
     PROBE = build_probe()
     driver.ARMS = ARMS
     proof = {arm: driver.mapped_objects(arm, d) for arm, d in ARMS.items()}
-    for arm in ("N", "N64"):
+    for arm in (a for a in ARMS if a != "S"):
         if not any(x.startswith(ARMS[arm]) and "expanse" in x for x in proof[arm]):
             sys.exit(f"STOP: arm {arm} did not map libexpanse from {ARMS[arm]}: {proof}")
     if any("expanse" in x for x in proof["S"]):
         sys.exit(f"STOP: arm S mapped an Expanse object: {proof}")
     prov = bp.new_provenance(
-        "stressng_comparison", 1680,
+        "stressng_comparison", 1679 if SET.startswith("delete") else 1680,
         "N/S, N64/S and N64/N: the ratio of two arms' means of one user-mode counter over the "
         "measured phase, with a two-sample BCa 95% interval over the run's rounds",
         repo_root=driver.REPO_ROOT, host_label=host, run=run, rounds=ROUNDS,
         diagnostic="phase counters on the shapes Expanse loses, outside METHODOLOGY.md's pre-registration",
-        probe="scripts/phase_probe.c", shapes=SHAPES, arms=ARMS,
+        probe="scripts/phase_probe.c", phase_set=SET, shapes=SHAPES, arms=ARMS,
         arm_orders=["".join(o) for o in ORDERS], pmu="cpu_core",
         perf_version=subprocess.run(["perf", "--version"], capture_output=True, text=True).stdout.strip(),
         event_groups={g: FIXED + e for g, e in GROUPS.items()}, cell_isolation="process",

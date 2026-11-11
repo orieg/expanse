@@ -601,6 +601,124 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - **Against stock, compared with the reference host.** D/S is higher here at 4 Mi (0.98–1.02 against 0.87–0.90), lower at 256 Ki (1.01–1.09 against 1.07–1.11), and about the same at 1 Ki (0.92 against 0.91). Why the 4 Mi gap is smaller on this host is not measured.
 - **Controls.** Insert holds: D/B point estimates 0.996–1.007. Find moves 1.05–1.07× at 1 Ki, the placement effect seen on the reference host, and is within 2% of 1 at 256 Ki and 4 Mi.
 
+## Diagnostic: delete-phase counters
+
+**A diagnostic, not a pre-registered result** (#1679). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** With #1708's fix, Expanse's stress-ng delete rate is still below stock at 1 Ki keys (0.91× on the reference host) and at 4 Mi (0.87–0.90×). Callgrind puts about 16% of the 4 Mi delete's instructions in the recursive `map_remove`'s entry and exit. Before changing the engine: where do Expanse's extra delete cycles go?
+
+**Design, fixed before the run** (`scripts/phase_probe.c` shapes `del_1k` and `del_4m`; `run.sh <run> ref phase_delete`, which runs `scripts/diag_phase_counters.py` with `SNG_PHASE_SET=delete`):
+- `del_1k`: JLI of `gen_index(i)` for `i` below 1,024, then JLD in reverse order, stress-ng's delete phase at its minimum size. Each of 10,000 repetitions rebuilds the array with counting disabled and deletes it with counting enabled, so the array is as warm as in stress-ng's run: 10,240,000 deletes. The first launch used 1,000 repetitions. A process then lasted 0.085 s, under the load window's 0.1 s minimum, so every `del_1k` process read no foreign load and was discarded. That launch is not used, for either shape.
+- `del_4m`: the same at 4,194,304 keys, once.
+- Two arms, differing only in `LD_LIBRARY_PATH`: D (#1708's library, `45f83ac5e`, sha256 `f6bb333e…`, the code on main) and S (stock).
+- The event groups, the preflight, the rounds (12 per run, alternating the two arms' order), the discard and void rules and the analysis are the phase-counter diagnostic's above. The preflight runs on `del_4m`.
+
+**Reading rule, D against S, per shape, over both runs.** The phase-counter rule above applies with D in N's place: MEMORY, FRONT-END, BOTH, MIXED, NO GAP or UNRESOLVED. One addition decides whether #1679's next engine increment, moving the rarely taken paths out of the recursive `map_remove`, goes ahead.
+- **CALL-STRUCTURE:** D's cycles are above S's, D's `instructions` lower bound exceeds 1 in both runs, and in both runs the memory share and the front-end share are each below 0.5. Expanse does more work and is neither waiting on memory nor starved by its front end, which is where per-level call overhead would show.
+- **Any other reading:** report before any engine change.
+
+### Delete-phase result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, perf 6.8.12, harness `80518b1bf`; artifacts `results/diagnostic_delete_phase_ref_run{1,2}.json`) (workloads: phase_del_1k, phase_del_4m)
+
+**Hygiene.** Run 1 04:24:10–04:26:14 UTC and run 2 04:26:14–04:28:17, each under the bench lock. 192 processes per run and none discarded; the worst foreign load over any process was 0.17 core-equivalents, and max load1 was 0.99 and 1.00 against a void limit of 12.
+
+**Reading: not CALL-STRUCTURE at either size.** `del_1k` reads FRONT-END and `del_4m` MIXED. Under the design, #1679's next engine increment does not go ahead on this evidence.
+
+| Shape | Counter | D per op | S per op | D/S run 1 | D/S run 2 |
+|---|---|---|---|---|---|
+| `del_1k` | `cycles` | 157.5 | 143.8 | 1.0959 [1.0926, 1.1074] | 1.0939 [1.0929, 1.0953] |
+| `del_1k` | `instructions` | 661.4 | 771.4 | 0.8574 (bc) | 0.8574 (bc) |
+| `del_1k` | `idq_uops_not_delivered.core` | 144.1 | 60.70 | 2.3748 [2.3470, 2.3987] | 2.3957 [2.3830, 2.4095] |
+| `del_1k` | `cycle_activity.stalls_total` | 12.46 | 3.914 | 3.1841 [3.1065, 3.4128] | 3.1901 [3.1096, 3.2496] |
+| `del_1k` | `br_misp_retired.all_branches` | 0.05849 | 0.08112 | 0.7211 [0.7130, 0.7287] | 0.7314 [0.7231, 0.7390] |
+| `del_4m` | `cycles` | 212.0 | 191.8 | 1.1055 [1.0987, 1.1131] | 1.0984 [1.0907, 1.1055] |
+| `del_4m` | `instructions` | 745.8 | 812.9 | 0.9174 (bc) | 0.9174 (bc) |
+| `del_4m` | `idq_uops_not_delivered.core` | 64.27 | 22.31 | 2.8803 [2.8622, 2.9044] | 2.8369 [2.8199, 2.8517] |
+| `del_4m` | `cycle_activity.stalls_l1d_miss` | 13.95 | 11.02 | 1.2662 [1.1944, 1.3379] | 1.2242 [1.1352, 1.3077] |
+| `del_4m` | `mem_load_retired.l1_miss` | 5.086 | 2.448 | 2.0774 [1.8964, 2.2339] | 2.0421 [1.8600, 2.2046] |
+| `del_4m` | `br_misp_retired.all_branches` | 0.1472 | 0.1456 | 1.0104 [1.0078, 1.0134] | 1.0098 [1.0069, 1.0127] |
+
+- **Expanse retires fewer instructions than stock on both deletes:** 0.857× at 1 Ki and 0.917× at 4 Mi. Its extra cycles are not extra work, so they are not the per-level call overhead the outlining increment targets. That overhead would show as more instructions retired.
+- **1 Ki: FRONT-END.**
+  - The front-end share of D's extra cycles is 1.011 and 1.034, and the memory share 0.009.
+  - D's front end leaves 2.4× stock's issue slots empty, and its total stall cycles are 3.2× stock's.
+  - D mispredicts fewer branches than stock (0.72×), so the empty slots are not misprediction refetch.
+  - Which front-end resource is short is not measured here: the uop-source counters of the 1k find diagnostic were not in these groups.
+- **4 Mi: MIXED.** The memory share is 0.145 and 0.131, the front-end share 0.346 and 0.368. D's L1 misses are 2.0× stock's, its L1D-miss stall cycles 1.22–1.27×, and its empty front-end slots 2.8×. Mispredictions are equal.
+- **Not measured.** The front-end resource behind the empty slots. The layout diagnostic found the delete rate insensitive to 64-byte function alignment (N64/N 0.995–1.008), so whole-function placement does not explain it; code size or uop-cache capacity are not excluded.
+
+## Diagnostic: front-end resource on the delete phase
+
+**A diagnostic, not a pre-registered result** (#1679). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The delete-phase counters put Expanse's extra 1 Ki delete cycles in its front end, and a third of its extra 4 Mi cycles there, but not which front-end resource. Does the gap sit in uop-cache or instruction-cache capacity? That reading lets #1679's next increment proceed: moving the rarely taken paths out of the recursive `map_remove`, framed as a code-footprint change.
+
+**Design, fixed before the run** (`run.sh <run> ref phase_delete_fe`, which runs `scripts/diag_phase_counters.py` with `SNG_PHASE_SET=delete_fe`):
+- The delete-phase design above, unchanged in shapes (`del_1k`, `del_4m`), arms (D, #1708's library, against S, stock), rounds, preflight, discard and void rules.
+- The event groups are those of the 1k find diagnostic: `uops`, `fe`, `misc` and `br`, beside the fixed `cycles` and `instructions`.
+- `scripts/diag_phase_counters_analyze.py` writes `results/diagnostic_delete_fe_ref_run{1,2}.json`.
+
+**Reading rule, D against S, per shape, over both runs.** It applies where D's `cycles` lower bound exceeds 1 in both runs; otherwise NO GAP or UNRESOLVED as above. Let d be D's mean cycles per process minus S's. For each fetch-latency counter, its share of d is D's mean minus S's, divided by d:
+- UOP-CACHE: `dsb2mite_switches.penalty_cycles`;
+- ICACHE: `icache_data.stalls`;
+- ITLB: `icache_tag.stalls`;
+- LCP: `decode.lcp`.
+
+A resource is **named** when its share is at least 0.25 in both runs. Two uop-source readings can also name one. The share of an arm's delivered uops from a source is that source's mean over the sum of the four `uops` counters.
+- UOP-CACHE is also named when D's share of uops from the legacy decoders (`idq.mite_uops`) exceeds S's by at least 0.10 in both runs.
+- LOOP-STREAM is named when D's share from the loop stream detector (`lsd.uops`) is below S's by at least 0.10 in both runs.
+
+What the reading decides:
+- If neither of those names a resource, the reading is UNNAMED. The empty slots then sit in a front-end cost these counters do not separate.
+- **Option 2 proceeds** only when UOP-CACHE or ICACHE is named on a shape. Each increment is then measured alone against the delete arms, and any Callgrind arm above +0.1% is disclosed.
+- **Any other reading:** report before any engine change. This includes ITLB, LCP, LOOP-STREAM alone, or UNNAMED.
+
+The front-end share f of the phase-counter rule is printed beside the named resources, and every counter's D/S interval is reported. The 0.25 and 0.10 bounds are fixed here, before the run.
+
+### Front-end resource result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, perf 6.8.12, harness `10b6847c6`; artifacts `results/diagnostic_delete_fe_ref_run{1,2}.json`) (workloads: phase_del_1k, phase_del_4m)
+
+**Hygiene.** Run 1 ran 17:39:00–17:41:06 UTC and run 2 17:41:06–17:43:12, each under the bench lock. Run 1 had 192 processes with 2 discarded, and run 2 had 192 with none discarded. The worst foreign load over any process was 0.37 core-equivalents (run 1) and 0.04 (run 2). Max load1 was 0.93 and 1.05 against a void limit of 12. The preflight found no event that counts alone and reads zero in its group, and no row ran below 100% of the time.
+
+**Reading: UNNAMED at both sizes.** No measured front-end resource carries the gap, so under the design #1679's outlining increment does not go ahead on this evidence.
+
+| Shape | Counter | D per op | S per op | D/S run 1 | D/S run 2 |
+|---|---|---|---|---|---|
+| `del_1k` | `cycles` | 157.8 | 143.6 | 1.0990 [1.0951, 1.1052] | 1.0939 [1.0931, 1.0948] |
+| `del_1k` | `idq_uops_not_delivered.core` | 144.9 | 60.45 | 2.3967 [2.3745, 2.4239] | 2.4024 [2.3855, 2.4174] |
+| `del_1k` | `uops_issued.any` | 648.3 | 735.3 | 0.8817 [0.8813, 0.8823] | 0.8814 [0.8810, 0.8817] |
+| `del_1k` | `idq.dsb_uops` | 597.9 | 701.6 | 0.8522 [0.8510, 0.8554] | 0.8509 [0.8504, 0.8515] |
+| `del_1k` | `dsb2mite_switches.penalty_cycles` | 2.897 | 2.345 | 1.2354 [1.2163, 1.2675] | 1.2394 [1.2200, 1.2570] |
+| `del_1k` | `icache_data.stalls` | 0.5347 | 0.5408 | 0.9888 [0.9684, 1.0221] | 0.9754 [0.9667, 0.9836] |
+| `del_1k` | `idq.ms_uops` | 2.047 | 0.1735 | 11.7949 [11.6085, 12.0117] | 11.9368 [11.8015, 12.1178] |
+| `del_1k` | `br_inst_retired.all_branches` | 122.6 | 110.1 | 1.1139 (bc) | 1.1139 (bc) |
+| `del_4m` | `cycles` | 211.8 | 192.3 | 1.1014 [1.0949, 1.1070] | 1.1048 [1.0981, 1.1122] |
+| `del_4m` | `idq_uops_not_delivered.core` | 64.27 | 22.41 | 2.8677 [2.8504, 2.8812] | 2.8706 [2.8501, 2.8879] |
+| `del_4m` | `dsb2mite_switches.penalty_cycles` | 0.774 | 0.3865 | 2.0024 [1.7170, 2.3936] | 1.9024 [1.6636, 2.2307] |
+| `del_4m` | `icache_data.stalls` | 0.1444 | 0.06643 | 2.1741 [2.1133, 2.2177] | 2.1954 [2.1525, 2.2412] |
+| `del_4m` | `icache_tag.stalls` | 0.3743 | 0.1018 | 3.6766 [3.4659, 3.9310] | 3.9530 [3.7121, 4.1546] |
+| `del_4m` | `idq.mite_uops` | 4.501 | 1.152 | 3.9079 [3.7839, 4.0488] | 3.8399 [3.6919, 3.9635] |
+| `del_4m` | `br_inst_retired.all_branches` | 125.7 | 89.81 | 1.3992 (bc) | 1.3992 (bc) |
+
+Every other counter's interval is in the artifacts. `decode.lcp` has no ratio, because one arm counts zero in some processes.
+
+- **The fetch-latency counters carry almost none of D's extra cycles.** The four shares are:
+  - UOP-CACHE (DSB-to-MITE switch penalty): 0.039 and 0.042 at 1 Ki, 0.020 and 0.017 at 4 Mi;
+  - ICACHE: 0.000 and −0.001 at 1 Ki, 0.004 at 4 Mi;
+  - ITLB: 0.001–0.003 at 1 Ki, 0.014 at 4 Mi;
+  - LCP: 0.001 or less.
+
+  The 4 Mi instruction-cache, ITLB and switch counters are 2–4× stock's, but per operation they are fractions of a cycle against 19.5 extra cycles.
+- **The uop sources are nearly the same.** At 1 Ki, D's uops come 94.4% from the uop cache (DSB), 3.7–3.8% from the legacy decoders and 1.5–1.6% from the loop stream detector. Stock's come 95.7%, 3.5% and 0.8%. At 4 Mi the figures are 97.5%, 0.6% and 1.8% against stock's 99.2%, 0.1% and 0.6%. Neither the MITE shift nor the LSD shift reaches the 0.10 bound, so the uop cache is not missing D's delete code.
+- **What remains.** The front end still leaves D's issue slots empty: f = 0.991 and 1.040 at 1 Ki, 0.358 and 0.349 at 4 Mi, as in the delete-phase counters. Two differences are measured:
+  - D issues 0.88× and 0.91× stock's uops, but retires 1.11× (1 Ki) and 1.40× (4 Mi) stock's branches.
+  - D takes 12× (1 Ki) and 56× (4 Mi) stock's microcode-sequencer uops, which is 2.0 and 0.8 uops per operation.
+
+  A per-cycle limit on taken branches in uop-cache delivery fits the first difference. The cost of switching to the microcode sequencer fits the second. Both are **hypotheses, unmeasured here**: no counter in these groups reads taken branches per cycle or microcode-sequencer switches, so neither is a finding.
+- **Next instrument, not run.** Separating them needs `br_inst_retired.near_taken` and `idq.ms_switches` (or the MS-switch cycles counter), read as shares of D's extra cycles. That would be another design, fixed before its run.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -717,4 +835,18 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref delete
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_ref_run1 /var/tmp/stressng-eval/results/diag_delete_ref_run2
+```
+
+The delete-phase counters need #1708's library at `$SNG_D/expcompat-45f83ac5e/lib` (the delete-fix diagnostic's `scripts/build_layout_lib.sh` build), `perf` and `cc`:
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref phase_delete
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref phase_delete
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_phase_ref_run1 /var/tmp/stressng-eval/results/diag_delete_phase_ref_run2
 ```
