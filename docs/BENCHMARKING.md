@@ -2441,6 +2441,57 @@ At 1M keys Expanse iterates faster than `BTreeMap` on sequential, clustered and 
 
 **Runs not committed.** Five other `compare` runs at `82eb56af` were dispatched to the same host. [42586241801](https://github.com/orieg/expanse/actions/runs/42586241801) and [42604330098](https://github.com/orieg/expanse/actions/runs/42604330098) were discarded by the host guard for foreign load (the second during a Tailscale auto-update) (AGENTS.md §8.17). [42583846403](https://github.com/orieg/expanse/actions/runs/42583846403) and [42653560246](https://github.com/orieg/expanse/actions/runs/42653560246) passed the guard, but their baselines carried no per-case load window (the manifest entry named no `windows` mode then), so `scripts/check_bench_provenance.py` rejects them and they are not used here. [42686737861](https://github.com/orieg/expanse/actions/runs/42686737861) was cancelled while queued and measured nothing.
 
+#### Pre-registration: lookup-only branchless leaf band ([#1685](https://github.com/orieg/expanse/issues/1685))
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the fresh runs measure. The change under test is the lookup-only branchless lower bound for linear leaves of 5 to 24 keys (`lower_bound_lookup` in `crates/expanse/src/leaf.rs`). It trades instructions and some cache-resident latency for 1M random lookup latency.
+
+**These bounds were set after the observing runs**, so the observing runs are not evidence for them. Observing runs, all at `05d5f2d0a` before the rebase onto `c3e1ed3a3`: CI run [42961177933](https://github.com/orieg/expanse/actions/runs/42961177933); `compare` runs [42959767429](https://github.com/orieg/expanse/actions/runs/42959767429) and [42961896616](https://github.com/orieg/expanse/actions/runs/42961896616); counter artifacts `results/counters_point_lookup_fbf4fd0ff_probes4096_run{1,2}.json` against `results/counters_point_lookup_d191688d2_probes4096_run{1,2}.json`. Only runs that start after the commit adding this section count. Those are one CI run at the pull request's head, two `compare` runs at that head, and one counter pair (the merge base and the head, each built from its own commit, interleaved, two replicates). A run the host guard discards for foreign load (§8.17) is re-run and the discard disclosed; it is not counted.
+
+**Definitions.**
+- *Ratio interval*: Expanse ÷ competitor, the union of the two runs' two-sample BCa 95% intervals of the ratio of means (the construction of the tables above, workload: `core_compare`).
+- *Shift interval*: Expanse at the head ÷ Expanse in the published pair at `82eb56af` (`results/baseline_compare.json`, `results/baseline_compare_run2.json`). Fresh run *i* is paired with published run *i*, and the result is the union of the two two-sample BCa 95% ratio-of-means intervals. `crates/expanse/src` changed between `82eb56af` and the merge base (#1710), so a shift includes that drift as well as this change.
+- *Counter ratio*: cycles per probe at the head ÷ cycles per probe at the merge base. It uses the point estimates of the same replicate of `scripts/perf_counters.py` (`EXPANSE_PERF_PROBES=4096`, `--pops 10000,1000000 --passes 500 --runs 10`), and the bound applies to the larger of the two replicates.
+- *Instruction change*: an arm's PR-versus-main change in the CI job named, and for wasm fuel, the head's fuel versus the fuel of main's run at the merge base.
+
+**Target, all of which must hold.** For `map_get/random/1000000/hit` against `HashMap` and `BTreeMap`, and for `set_lookup/random/1000000/hit` and `set_lookup/random/1000000/miss` against `HashSet` and `BTreeSet`, the fresh ratio interval's upper end is at most 0.75 × the published ratio interval's lower end (observed: 0.57–0.62 across the six pairs). Counter ratios at 1M are at most 0.75 for `map_get` and `set_contains` (observed 0.60–0.62).
+
+**Expected losses and their bounds.**
+
+| instrument | arm or cell | bound | observed at `05d5f2d0a` |
+|---|---|---|---|
+| x86-64 deterministic Callgrind | `map_get/linear_leaf` | ≤ +2.0% | +1.57% |
+| x86-64 deterministic Callgrind | `map_get/dense_leaf` | ≤ +2.0% | +1.33% |
+| x86-64 deterministic Callgrind | `strmap_get_short/short` | ≤ +2.0% | +1.69% |
+| x86-64 deterministic Callgrind | every other arm | ≤ +0.1% | ≤ +0.08% |
+| AArch64 Callgrind | `strmap_get`, `strmap_churn`, `judysl_get`, `strmap_insert`, `judysl_insert` (`routes`) | ≤ +0.5% each | +0.12% to +0.36% |
+| AArch64 Callgrind, x86-64 smoke Callgrind | every other arm | ≤ +0.1% | ≤ +0.1% |
+| wasm32, wasm64 fuel | every arm, against main's run at the merge base | ≤ +0.1% | ≤ +0.05% |
+| `compare` | `map_get/random/10000/hit`, `set_lookup/random/10000/{hit,miss}` | shift upper end ≤ 1.10 | 1.004–1.064 |
+| `compare` | `set_lookup/random/10000/miss` against `HashSet` | ratio upper end < 1 | 0.759 |
+| `compare` | `set_lookup` on `sequential`, `sparse` and `clustered` keys, 10k and 1M, hit and miss (12 cells) | shift upper end ≤ 1.20 | 0.999–1.156 |
+| `compare` | those 12 cells against `HashSet` and `BTreeSet` | ratio upper end < 1 | ≤ 0.633 |
+| `compare` | every other `map_get` and `map_get_cold_dram` cell | shift upper end ≤ 1.10 | ≤ 1.050 |
+| counters | `map_get`, pop 10000 | counter ratio ≤ 1.10 | 1.065, 1.074 |
+| counters | `set_contains`, pop 10000 | counter ratio ≤ 1.08 | 1.042, 1.046 |
+
+The `compare` cells this change does not reach (`set_insert_build`, `map_iter`) are reported, not gated: the instruction bounds above already cover their code.
+
+**Verdict.** PASS only if every target holds and every loss is inside its bound. Otherwise the result is FAIL: it is reported with the cell that broke its bound, and no bound is moved (§8.19).
+
+**Outcome: PASS.** It was recorded after the pre-registration above was committed at `b6640076b`, from runs that all started after that commit.
+- **Instruction counts.** CI run [43073155997](https://github.com/orieg/expanse/actions/runs/43073155997) at `b6640076b`:
+  - x86-64 deterministic: `strmap_get_short/short` +1.69%, `map_get/linear_leaf` +1.57%, `map_get/dense_leaf` +1.33%; every other arm at most +0.05%.
+  - AArch64: the five named string arms +0.12% to +0.36%; every other arm at most +0.01%.
+  - x86-64 smoke: no arm above 0.
+  - wasm fuel: at most +0.01% against main's run [42958706418](https://github.com/orieg/expanse/actions/runs/42958706418) at `c3e1ed3a3`.
+- **`compare`.** Runs [43076795686](https://github.com/orieg/expanse/actions/runs/43076795686) and [43079932428](https://github.com/orieg/expanse/actions/runs/43079932428) (measured: 12th Gen Intel Core i9-12900F, Linux 6.8, pinned to CPUs 0-15, `b6640076b`; workload: `core_compare`):
+  - `map_get/random/1000000/hit` against `HashMap` is [1.986, 2.029], published [3.315, 3.375]. Across the six target pairs, the fresh upper end is 0.57–0.61 of the published lower end.
+  - The largest 10k random shift is 1.050 (`set_lookup` miss). That cell's interval against `HashSet` is [0.740, 0.746].
+  - The largest of the 12 set-lookup shifts is 1.142 (sequential, 1M, miss). Every one of the 12 cells stays below 1 against both `HashSet` and `BTreeSet`.
+  - The largest other `map_get` shift is 1.036.
+- **Counters.** `results/counters_point_lookup_c3e1ed3a3_probes4096_run{1,2}.json` and `results/counters_point_lookup_b6640076b_probes4096_run{1,2}.json`: `map_get` at 10k is 1.068 and `set_contains` at 10k is 1.049, in both replicates; at 1M both are 0.595–0.621.
+- **Disclosure, `compare` run 1.** From 18:20 to 18:27 UTC, another session's ssh connection to the reference host hung and stayed open. That session started no work after 17:43. In run 1's load record, foreign load is at most 0.05 core-equivalents in each of the 106 arm windows and 0.02 from start to end, and the host guard reported quiet. Under §8.17 the run is kept.
+
 **`benches/comparative.rs`** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; criterion medians)*:
 
 **`ExpanseSet` vs `RoaringBitmap` (`comparative.rs`, 100k)**:
