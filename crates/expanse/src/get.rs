@@ -142,15 +142,19 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 }
                 let d = digit(key, bl);
                 let num = b.hdr.num as usize;
-                let slot = if b.hdr.digits[0] == d {
-                    0
-                } else if num > 1 && b.hdr.digits[1] == d {
-                    1
-                } else if num > 2 && b.hdr.digits[2] == d {
-                    2
-                } else {
+                let h = &b.hdr.digits;
+                // Which child a key takes is decided by the key, so a compare
+                // chain mispredicts on keys that alternate between children
+                // (#1682). The slot is computed instead: the digits are
+                // distinct, so it is 1 or 2 when that digit matches and 0
+                // otherwise, and one compare against `h[slot]` then decides
+                // hit or miss, a branch that hits take every time.
+                let m1 = (num > 1) & (h[1] == d);
+                let m2 = (num > 2) & (h[2] == d);
+                let slot = usize::from(m1) | (usize::from(m2) << 1);
+                if h[slot] != d {
                     return false;
-                };
+                }
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
                 level = bl - 1;
