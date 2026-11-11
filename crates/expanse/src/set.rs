@@ -1803,6 +1803,21 @@ impl ExpanseSet {
         }
     }
 
+    /// Builds the forward-only walker behind [`iter`](Self::iter), which
+    /// streams sibling runs that [`iter_fwd_raw`](Self::iter_fwd_raw)'s
+    /// cursor does not (#1687).
+    fn iter_runs_raw(&self) -> crate::iter_runs::RunIter<false> {
+        match &self.root {
+            Root::Empty => crate::iter_runs::RunIter::new(),
+            Root::Leaf { pop, .. } => {
+                let keys_ptr = self.root_leaf_keys().as_ptr();
+                crate::iter_runs::RunIter::from_root_leaf(keys_ptr, core::ptr::null(), *pop)
+            }
+            // SAFETY: tree maintained by set engine per invariants.
+            Root::Tree { top, .. } => unsafe { crate::iter_runs::RunIter::from_tree(top) },
+        }
+    }
+
     /// Builds a forward (ascending) raw cursor over keys `>= start`.
     fn range_fwd_raw(&self, start: Key) -> crate::iter::RawIter<false> {
         match &self.root {
@@ -1866,7 +1881,7 @@ impl ExpanseSet {
     pub fn iter(&self) -> SetIter<'_> {
         SetIter {
             _set: core::marker::PhantomData,
-            raw: self.iter_fwd_raw(),
+            raw: self.iter_runs_raw(),
         }
     }
 
@@ -1964,7 +1979,7 @@ impl ExpanseSet {
 /// types (`iter_rev` / `range_rev`), which are themselves double-ended.
 pub struct SetIter<'a> {
     _set: core::marker::PhantomData<&'a ExpanseSet>,
-    raw: crate::iter::RawIter<false>,
+    raw: crate::iter_runs::RunIter<false>,
 }
 
 impl Iterator for SetIter<'_> {

@@ -112,6 +112,8 @@ pub mod get;
 #[cfg(target_pointer_width = "64")]
 pub mod iter;
 #[cfg(target_pointer_width = "64")]
+mod iter_runs;
+#[cfg(target_pointer_width = "64")]
 pub mod leaf;
 #[cfg(target_pointer_width = "64")]
 pub mod map;

@@ -3877,6 +3877,23 @@ impl MapCore {
         }
     }
 
+    /// Builds the forward-only walker behind [`iter`](Self::iter), which
+    /// streams sibling runs that [`iter_fwd_raw`](Self::iter_fwd_raw)'s
+    /// cursor does not (#1687).
+    fn iter_runs_raw(&self) -> crate::iter_runs::RunIter<true> {
+        match &self.root {
+            Root::Empty => crate::iter_runs::RunIter::new(),
+            Root::Leaf { ptr, pop } => {
+                let keys_ptr = ptr.as_ptr().cast::<u64>();
+                // SAFETY: root leaf holds pop values starting at leaf_values_offset(pop).
+                let vals_ptr = unsafe { keys_ptr.add(leaf_values_offset(*pop) / 8) };
+                crate::iter_runs::RunIter::from_root_leaf(keys_ptr, vals_ptr, *pop)
+            }
+            // SAFETY: tree maintained by map engine per invariants.
+            Root::Tree { top, .. } => unsafe { crate::iter_runs::RunIter::from_tree(top) },
+        }
+    }
+
     /// Builds a forward (ascending) raw cursor over entries with key `>= start`.
     fn range_fwd_raw(&self, start: Key) -> crate::iter::RawIter<true> {
         match &self.root {
@@ -3988,7 +4005,7 @@ impl MapCore {
     pub(crate) fn iter(&self) -> MapIter<'_> {
         MapIter {
             _map: core::marker::PhantomData,
-            raw: self.iter_fwd_raw(),
+            raw: self.iter_runs_raw(),
         }
     }
 
@@ -4086,7 +4103,7 @@ impl MapCore {
 /// types (`iter_rev` / `range_rev`), which are themselves double-ended.
 pub struct MapIter<'a> {
     _map: core::marker::PhantomData<&'a MapCore>,
-    raw: crate::iter::RawIter<true>,
+    raw: crate::iter_runs::RunIter<true>,
 }
 
 impl Iterator for MapIter<'_> {

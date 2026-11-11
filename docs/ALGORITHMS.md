@@ -105,8 +105,10 @@ visit going up. `next` streams the `LeafCursor` (leaf slot `idx`, bitmap word vi
 `trailing_zeros`, immediate slot); when a leaf is exhausted, `advance_leaf` pops to
 the nearest frame with a remaining higher child and re-descends leftmost.
 
-**Sibling runs (forward).** On sparse and uniform-random keys most children of a
-`BranchU` or `BranchB` hold one key each, as a single-key immediate (#270). When
+**Sibling runs (`iter` only).** On sparse and uniform-random keys most children of a
+`BranchU` or `BranchB` hold one key each, as a single-key immediate (#270). A full
+`iter()` of an `ExpanseSet` or `ExpanseMap` runs on its own forward-only walker,
+`crate::iter_runs::RunIter`, the same stack walk with three more leaf states. When
 `advance_leaf` reaches such a child it seeds a run cursor (`ImmedRunU`,
 `ImmedRunB`) that reads the following siblings in place from the branch's slots —
 the slot array of a `BranchU`, the subarrays of a `BranchB` — and yields one key per
@@ -116,11 +118,15 @@ sibling carries the first one's tag byte and the run test is one byte compare. A
 `BranchB` run also reads a linear-leaf child that skips no level in place (on random
 keys, the map's two- and three-key children); the run ends at a child of any other
 form, which it descends into directly, or at the end of the branch, and writes its
-position back into the frame; `seek_forward`
-treats a run like a leaf whose remaining keys start at the run's next digit. Forward
-map bitmap leaves are walked in place the same way (`BitmapMapAsc`, a value pointer
-bumped per set bit in place of a `values[sub][rank]` index). The reverse walk keeps
-the per-child cursors.
+position back into the frame. Map bitmap leaves are walked in place the same way
+(`BitmapMapAsc`, a value pointer bumped per set bit in place of a
+`values[sub][rank]` index). `RunIter` has no seek and no reverse walk.
+
+`range`, every cursor (including the string maps' cursors), the reverse iterators
+and the ascending fronts of `iter_rev`/`range_rev` keep `RawIter`, whose leaf-cursor
+enum the runs do not widen. While the two walks shared one enum, `set_range` retired
+2.8–9.8% more instructions than main and the string-map scans 1.1–1.7% more
+(measured: CI Callgrind, run 42946179048 at `d028747b3`; #1687).
 
 **Reverse (`next_back` / `iter_rev` / `range_rev`, descending).** The mirror image:
 `descend_max`/`descend_seek_back` walk to the *rightmost* leaf (or the largest key
@@ -135,7 +141,8 @@ This also unlocks the `LeafCursor::ImmedSingle` fast path in reverse.
 
 **`DoubleEndedIterator`.** The zero-regression gate (`AGENTS.md` §5) forbids adding
 any per-element work to the forward `iter`/`range` `next` (a measured hot path), so
-the 64-bit `iter`/`range` iterators stay strictly forward-only.
+the 64-bit `iter`/`range` iterators stay strictly forward-only: `range` and the
+cursors run the byte-identical `RawIter` walk, and `iter` its own walker (above).
 Bidirectional traversal instead lives on the dedicated reverse iterators
 `iter_rev`/`range_rev`, which **are** `DoubleEndedIterator`: `next` streams descending
 (the primary direction) and `next_back` streams ascending. The two directions run
