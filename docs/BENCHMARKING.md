@@ -1811,7 +1811,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `map_get_batch` | `random` | 50,000 |
 | `cost` | `map_ins_slot` | `random`, `gen_4m` | `random` 50,000, `gen_4m` 4,194,304 |
 | `cost` | `map_insert` | `sequential`, `random`, `clustered`, `small`, `dense_leaf`, `linear_leaf` | 50,000 |
-| `cost` | `map_iterate` | `random` | 50,000 |
+| `cost` | `map_iterate` | `random`, `sequential`, `clustered`, `sparse`, `random_10k`, `sparse_10k` | `random` 50,000, `sequential` 50,000, `clustered` 50,000, `sparse` 50,000, `random_10k` 10,000, `sparse_10k` 10,000 |
 | `cost` | `map_nav` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `map_oscillate` | `random` | 50,000 |
 | `cost` | `map_prev` | `random`, `sequential`, `clustered` | 50,000 |
@@ -1842,7 +1842,8 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `set_contains` | `random` | 50,000 |
 | `cost` | `set_contains_batch` | `random` | 50,000 |
 | `cost` | `set_count_below` | `random`, `sequential`, `one_top_byte` | 50,000 |
-| `cost` | `set_insert` | `sequential`, `random`, `clustered`, `dense_leaf`, `linear_leaf` | 50,000 |
+| `cost` | `set_insert` | `sequential`, `random`, `clustered`, `dense_leaf`, `linear_leaf`, `sparse` | 50,000 |
+| `cost` | `set_iterate` | `random`, `sequential`, `sparse`, `random_10k`, `sparse_10k` | `random` 50,000, `sequential` 50,000, `sparse` 50,000, `random_10k` 10,000, `sparse_10k` 10,000 |
 | `cost` | `set_nav` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `set_oscillate` | `random` | 50,000 |
 | `cost` | `set_prev` | `random`, `sequential`, `clustered` | 50,000 |
