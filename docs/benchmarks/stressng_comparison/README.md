@@ -373,6 +373,85 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - **What this establishes.** The same instructions cost N more cycles because the front end delivers them less well, with the decoded-uop path changing in a way consistent with the hot code's position within 64-byte lines. That supports the placement hypothesis. It does not establish it: no build has yet moved only the layout, which is #1684's fix step.
 - **Against stock (N/S, not the question here).** N retires 0.808× stock's instructions and takes 1.063× its cycles. Its front end leaves 3.26× as many issue slots empty as stock's (`idq_uops_not_delivered.core`, intervals [3.2385, 3.2818] and [3.2471, 3.3005]), while stock mispredicts about four times as many branches (N/S 0.2449 and 0.2428). The whole stress-ng process is measured here, insert and delete included, so this is the library's front-end cost over the cell and not the find path's alone.
 
+## Diagnostic: layout-only builds on the 1k find cell
+
+**A diagnostic, not a pre-registered result** (#1684). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The counters put N's extra cycles in the front end, and the hot find function sits at a different offset within a 64-byte line in O and N. Is the O/N gap a property of where the code sits, or of what the code is? A build that changes only the layout answers that; the counters alone cannot.
+
+**Design, fixed before the builds** (`scripts/build_layout_lib.sh`, `scripts/diag_layout.py`, `run.sh <run> ref layout`):
+- Two new library files, built on the reference host by `build.sh`'s libexpanse build with one addition, `RUSTFLAGS="-C llvm-args=-align-all-functions=6"`, which starts every function on a 64-byte boundary:
+  - N64: the source of N (`6ec29a656`);
+  - O64: the source of O (`82eb56af`).
+- **Toolchain control.** Before the aligned builds, the N source is rebuilt with an empty `RUSTFLAGS` and its sha256 must equal N's file (`da5814a7…`). If it does not, the toolchain has moved, nothing is run, and the result is reported as that. The O source is rebuilt the same way and its sha256 compared with O's file (`cce4ba9d…`); that comparison is reported and gates nothing, since O is not an arm. `82eb56af` predates the opt-in `DT_SONAME` (#1667), so O64 is built without one, as O was.
+- **Layout check.** `objdump -t` must place `get::locate_slot_popcnt` and `JudyLGet` at offset 0 within a 64-byte line in both N64 and O64. If it does not, nothing is run.
+- Four arms, the same stress-ng binary and judy stressor, differing only in `LD_LIBRARY_PATH`: N, N64, O64 and S (stock). `sng_judy_1k` at W = 1, 2, 4, 8, one process per arm per W per round.
+- 12 rounds per run, rotating the arms through their four cyclic orders, so every arm runs in every position equally often. Two independent runs under the host bench lock and the core pin of the comparison. Load windows, the discard rule and the void rule are the library A/B's.
+- `scripts/diag_layout_analyze.py` writes `results/diagnostic_layout_ref_run{1,2}.json`: two-sample BCa 95% intervals on N64/N, O64/N64, N64/S and N/S for find, insert, delete, bogo-ops/s and wall clock.
+
+**Reading rule, per W, from the find-rate intervals over both runs.** A pair is SAME when both intervals lie inside [0.98, 1.02], FASTER when both lower bounds exceed 1, SLOWER when both upper bounds are below 1, and MIXED otherwise.
+- PLACEMENT: O64/N64 SAME, and N64/N FASTER or SLOWER. Equal layout removes the O/N gap, and the layout alone moves N.
+- NOT PLACEMENT: O64/N64 FASTER. O's code is faster at equal layout, so the gap is in the code.
+- UNRESOLVED: anything else.
+
+**#1684's fix criterion is separate from the reading.** N64/S lower bound at or above 1.0 at every W in both runs, here and on the second host, would make 64-byte function alignment a candidate fix. The second-host run is not part of this design and is booked separately.
+
+**Expected if placement carries the gap** (projected): O64/N64 ≈ 1.00. N64/N could be on either side of 1, since offset 0 within a line is neither O's offset (48) nor N's (16).
+
+### Layout result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, rustc 1.98.1, harness `5c0c3861e`; artifacts `results/diagnostic_layout_ref_run{1,2}.json`) (workload: sng_judy_1k)
+
+**Builds.** Under the bench lock, 20:51:51–20:52:35 UTC.
+- The no-flag rebuild of the N source reproduced N's file byte for byte (sha256 `da5814a7…`), and the no-flag rebuild of the O source reproduced O's (`cce4ba9d…`). The toolchain had not moved since either file was built, so the flag is the only difference between N and N64, and between O and O64.
+- With the flag, N64 (`d99c1f0c…`) places `get::locate_slot_popcnt` at `0x230900` and `JudyLGet` at `0x44300`, and O64 (`b7745ddf…`) places them at `0x230880` and `0x44280`. All four sit at offset 0 within a 64-byte line.
+- The flag grows the file by 23,104 bytes (0.82%), 2,828,040 → 2,851,144.
+- A first attempt stopped on the build script's SONAME check before anything was timed. `82eb56af` predates the opt-in `DT_SONAME` (#1667), and `5c0c3861e` builds O64 without one, as O was built.
+
+**Hygiene.** Run 1 21:20:02–21:21:38 UTC and run 2 21:21:38–21:23:43, each under the bench lock, after the 21:17 host rsync had exited. 192 processes per run and none discarded; the worst foreign load over any process was 0.21 core-equivalents, and max load1 was 2.23 and 3.28 against a void limit of 12.
+
+**Reading: PLACEMENT at every W in both runs.** At equal layout the two sources find alike, and the layout alone moves N's file by the whole O/N gap.
+
+| W | O64/N64 run 1 | O64/N64 run 2 | N64/N run 1 | N64/N run 2 | N64/S run 1 | N64/S run 2 |
+|---|---|---|---|---|---|---|
+| 1 | 0.999 [0.993, 1.006] | 1.001 [0.996, 1.008] | 1.128 [1.120, 1.135] | 1.124 [1.117, 1.131] | 1.086 [1.080, 1.090] | 1.084 [1.078, 1.089] |
+| 2 | 0.998 [0.991, 1.004] | 0.999 [0.995, 1.003] | 1.129 [1.121, 1.138] | 1.130 [1.122, 1.137] | 1.086 [1.080, 1.092] | 1.090 [1.085, 1.094] |
+| 4 | 1.000 [0.996, 1.005] | 0.997 [0.993, 1.003] | 1.138 [1.132, 1.146] | 1.137 [1.129, 1.145] | 1.096 [1.089, 1.101] | 1.095 [1.088, 1.101] |
+| 8 | 0.998 [0.995, 1.000] | 0.999 [0.997, 1.001] | 1.138 [1.133, 1.141] | 1.138 [1.134, 1.146] | 1.089 [1.086, 1.091] | 1.088 [1.086, 1.089] |
+
+- **Per-arm find rates.** Means at W = 1 over both runs, in M ops/s: N 97.03, N64 109.29, O64 109.30, S 100.71. N64 recovers O's 108.94 from the library A/B.
+- **The other phases.**
+  - Delete is unchanged by the layout: N64/N 0.995–1.008, O64/N64 0.994–1.001.
+  - Insert costs a little: N64/N 0.976–0.986, SLOWER at W = 2 and W = 4 and SAME at W = 1 and W = 8 by the reading's bands. O64/N64 on insert is 1.000–1.005, so the insert cost is the layout's, not either source's.
+  - N64/S on insert is 1.090–1.099.
+- **Whole process.** Bogo-ops N64/N is 1.005–1.016. Wall clock N64/N is 0.984–0.995, the aligned processes finishing sooner.
+- **#1684's fix criterion on this host.** N64/S on find has its lower bound above 1.0 at every W in both runs (1.078 lowest). The criterion also needs the second host, which this design does not cover.
+- **What this establishes.** The O/N find gap on this host is a property of code placement and not of the code. Aligning every function to 64 bytes fixes the placement independently of link order and, on this host, takes the 1k find from 0.96× stock to 1.08–1.10×. Why offset 0 is fast and offset 16 slow is not established here, beyond the counter result above.
+
+### Layout result (second host)
+
+(measured: second host AMD Ryzen 9 9955HX (Zen 5), CPUs `0-7` pinned, governor `performance` on every CPU for the timed rounds, the same stress-ng binary and N, N64, O64 and stock files as the reference host (sha256 `490c0595…`, `da5814a7…`, `d99c1f0c…`, `b7745ddf…`, `76f121a8…`), harness `5c0c3861e`; artifacts `results/diagnostic_layout_zen5_run{1,2}.json`) (workload: sng_judy_1k)
+
+**Hygiene.** Run 1 started 02:41:34 UTC and run 2 ended 02:44:49, under the bench lock.
+- The governor was set to `performance`, and the host's CI runner container was stopped for the timed rounds only, both restored and read back equal afterwards (METHODOLOGY.md §3).
+- 192 processes per run and none discarded. The foreign load before each run was 0.010 and 0.012 core-equivalents, and max load1 was 1.86 and 2.29 against a void limit of 16.
+
+**#1684's fix criterion: MET on both hosts.** N64/S on find has its lower bound above 1.0 at every W in both runs here as on the reference host. The lowest lower bound is 1.143 here and 1.078 there.
+
+| W | O64/N64 run 1 | O64/N64 run 2 | N64/N run 1 | N64/N run 2 | N64/S run 1 | N64/S run 2 | reading |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.996 [0.984, 1.007] | 1.016 [1.003, 1.045] | 1.047 [1.035, 1.059] | 1.024 [0.991, 1.038] | 1.200 [1.185, 1.207] | 1.183 [1.143, 1.198] | UNRESOLVED |
+| 2 | 1.001 [1.000, 1.002] | 1.003 [0.997, 1.016] | 1.047 [1.043, 1.055] | 1.039 [1.025, 1.046] | 1.201 [1.198, 1.204] | 1.197 [1.180, 1.204] | PLACEMENT |
+| 4 | 1.003 [1.000, 1.008] | 1.008 [1.003, 1.023] | 1.045 [1.040, 1.049] | 1.042 [1.027, 1.048] | 1.202 [1.195, 1.204] | 1.197 [1.182, 1.203] | UNRESOLVED |
+| 8 | 1.002 [1.001, 1.002] | 1.005 [1.001, 1.021] | 1.047 [1.044, 1.050] | 1.049 [1.039, 1.064] | 1.205 [1.202, 1.213] | 1.197 [1.181, 1.203] | NOT PLACEMENT |
+
+- **Per-arm find rates.** Means at W = 1 over both runs, in M ops/s: N 142.08, N64 147.15, O64 147.98, S 123.53. On this host N already finds 1.15× faster than stock, and alignment adds 4–5%.
+- **The placement reading is mixed here.**
+  - At equal layout, O64/N64 is 0.996–1.016. Its intervals fall inside [0.98, 1.02] at W = 2 only, reach past 1.02 at W = 1 and 4, and have lower bounds above 1 in both runs at W = 8.
+  - O's code is at most 1.6% faster at equal layout, against N64/N's 1.024–1.049 from the layout alone.
+  - On this host the O/N find gap was itself small: the comparison above found N 1.14–1.15× stock, and the library A/B was not run here. So the reading has less to separate than on the reference host, where it is PLACEMENT at every W.
+- **No cost on the other phases here.** N64/N on insert is 0.995–1.003 and on delete 1.001–1.006, every interval inside [0.98, 1.02]. The reference host's 1.4–2.4% insert cost does not appear on this host.
+- **What this establishes for #1684.** Aligning every function to 64 bytes takes the 1k find from 0.96× to 1.08–1.10× stock on the reference host and from 1.15× to 1.18–1.21× here. Insert pays 1.4–2.4% on the reference host and nothing here, and delete is unchanged on both. That makes 64-byte function alignment a candidate fix measured on both hosts. Shipping it is a build-configuration change, made separately.
 ## Diagnostic: phase counters on the shapes Expanse loses
 
 **A diagnostic, not a pre-registered result** (#1680). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
@@ -586,6 +665,26 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref counters
 python3 docs/benchmarks/stressng_comparison/scripts/diag_find_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_find_counters_ref_run1 /var/tmp/stressng-eval/results/diag_find_counters_ref_run2
 ```
 
+The layout-only diagnostic builds its two libraries first, from `git archive` exports of the two commits, then runs with the mode `layout`:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 6ec29a656> /var/tmp/stressng-eval/expcompat-6ec29a656-fa64/lib "-C llvm-args=-align-all-functions=6"
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 82eb56af> /var/tmp/stressng-eval/expcompat-82eb56af-fa64/lib "-C llvm-args=-align-all-functions=6"
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref layout
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref layout
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_layout_analyze.py ref /var/tmp/stressng-eval/results/diag_layout_ref_run1 /var/tmp/stressng-eval/results/diag_layout_ref_run2
 The phase-counter diagnostic needs `perf`, `cc` and the N64 library at `$SNG_D/expcompat-6ec29a656-fa64/lib` (the layout diagnostic's `scripts/build_layout_lib.sh`), and runs with the mode `phase`:
 
 ```bash
