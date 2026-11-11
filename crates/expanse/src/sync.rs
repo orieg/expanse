@@ -1384,14 +1384,9 @@ unsafe fn null_branch_u_slot<T, R>(
     unsafe { Edge::store_at::<true>(edge_ptr, Edge::NULL) };
     // The exclusive map walks keep a lower bound on the non-null slots
     // (#1679); this null would leave it one too high, and 0 is a bound for
-    // every branch. `branch` is a frame the descent wrote, so the null test
-    // never fails: the count above already loaded through it. It is the
-    // guard the code scanner recognises on the path from the descents' null
-    // placeholder frames.
-    if !branch.is_null() {
-        // SAFETY: as for the store above.
-        unsafe { BranchU::set_digits_lower::<true>(branch, 0) };
-    }
+    // every branch.
+    // SAFETY: as for the store above.
+    unsafe { BranchU::set_digits_lower::<true>(branch, 0) };
     // SAFETY: as for the store above. The count changes under the lock and
     // the unlock below advances the version, so a writer that read the old
     // count before its own lock fails that lock (step 2).
