@@ -430,6 +430,27 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
   - D/B on find is 1.033–1.067 at 1 Ki and 256 Ki, FASTER in both runs. At 4 Mi it is 0.991–1.066 and mostly MIXED.
   - The hot find function `get::locate_slot_popcnt` sits 16 bytes into a 64-byte line in B (`0x22b650`) and at offset 0 in D (`0x22b880`), the offset the layout diagnostic measured fast. That is the placement effect, not the change under test. Its size here is not measured.
 
+### Delete result (second host)
+
+(measured: second host AMD Ryzen 9 9955HX (Zen 5), CPUs `0-7` pinned, governor `performance` on every CPU for the timed rounds, the same stress-ng binary and B, D and stock files as the reference host (sha256 `490c0595…`, `da5814a7…`, `f6bb333e…`, `76f121a8…`), harness `9d9628307`; artifacts `results/diagnostic_delete_zen5_run{1,2}.json`) (workloads: sng_judy_1k, sng_judy_256k, sng_judy_4m)
+
+**Hygiene.** Run 1 02:44:54–02:51:33 UTC and run 2 02:51:38–02:58:48, under the bench lock held once for this host's layout and delete runs.
+- The governor was set to `performance`, and the host's CI runner container was stopped for those rounds only, both restored and read back equal afterwards (METHODOLOGY.md §3).
+- 432 processes per run and none discarded. The foreign load before each run was 0.008 and 0.014 core-equivalents, and max load1 was 4.03 and 4.46 against a void limit of 16.
+- The first attempt, at 00:16, stopped before anything was timed, because an idle CI job container was running and `run.sh` refuses to run beside one.
+
+**Reading: #1679's criterion is NOT MET on this host either.**
+
+| Cell | D/B delete (all W, both runs) | D/S delete (all W, both runs) |
+|---|---|---|
+| 1 Ki | 1.150–1.156, FASTER | 0.923–0.928, below stock |
+| 256 Ki | 1.473–1.504, FASTER | 1.011–1.093, at or above stock |
+| 4 Mi | 1.397–1.409, FASTER | 0.981–1.021: below stock at W = 1 and 2, at or above at W = 4 and 8 |
+
+- **The fix's effect** matches the reference host's: 1.15× at 1 Ki, 1.47–1.50× at 256 Ki and 1.40–1.41× at 4 Mi.
+- **Against stock, compared with the reference host.** D/S is higher here at 4 Mi (0.98–1.02 against 0.87–0.90), lower at 256 Ki (1.01–1.09 against 1.07–1.11), and about the same at 1 Ki (0.92 against 0.91). Why the 4 Mi gap is smaller on this host is not measured.
+- **Controls.** Insert holds: D/B point estimates 0.996–1.007. Find moves 1.05–1.07× at 1 Ki, the placement effect seen on the reference host, and is within 2% of 1 at 256 Ki and 4 Mi.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
