@@ -2,7 +2,7 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|phase]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|phase|delete]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
@@ -13,6 +13,10 @@
 # diagnostic (scripts/diag_phase_counters.py), which compiles
 # scripts/phase_probe.c and needs `perf`, `cc` and the N64 library of the
 # layout diagnostic; it writes diag_phase_counters_* raw rows.
+# With `delete`, it is the #1679 delete-fix
+# diagnostic (scripts/diag_delete.py) on the `judy` cells; it needs the two
+# libraries scripts/build_layout_lib.sh builds at #1708's merge base and head,
+# and writes diag_delete_* raw rows.
 #
 # <host_label> is `ref` (reference host) or `zen5` (second host); it selects the
 # core pin of METHODOLOGY.md §3. SNG_D names the host's stress-ng tree, built by
@@ -73,5 +77,7 @@ case "${MODE}" in
                 "${SNG_D}/results/diag_find_counters_${HOST_LABEL}_run${RUN}" ;;
   phase)      python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_phase_counters_${HOST_LABEL}_run${RUN}" ;;
+  delete)     python3 "${SCRIPT_DIR}/scripts/diag_delete.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_delete_${HOST_LABEL}_run${RUN}" ;;
   *) echo "REFUSE: unknown mode ${MODE}" >&2; exit 2 ;;
 esac

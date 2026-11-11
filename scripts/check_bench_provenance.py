@@ -195,6 +195,7 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/stressng_comparison/scripts/diag_lib_ab_analyze.py",
     "docs/benchmarks/stressng_comparison/scripts/diag_find_counters_analyze.py",
     "docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py",
+    "docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py",
     "scripts/bench_baseline.py",
     "scripts/bench_counters.py",
     "scripts/esp32_bench_harvest.py",
