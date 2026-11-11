@@ -461,6 +461,37 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - **CALL-STRUCTURE:** D's cycles are above S's, D's `instructions` lower bound exceeds 1 in both runs, and in both runs the memory share and the front-end share are each below 0.5. Expanse does more work and is neither waiting on memory nor starved by its front end, which is where per-level call overhead would show.
 - **Any other reading:** report before any engine change.
 
+### Delete-phase result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, perf 6.8.12, harness `80518b1bf`; artifacts `results/diagnostic_delete_phase_ref_run{1,2}.json`) (workloads: phase_del_1k, phase_del_4m)
+
+**Hygiene.** Run 1 04:24:10–04:26:14 UTC and run 2 04:26:14–04:28:17, each under the bench lock. 192 processes per run and none discarded; the worst foreign load over any process was 0.17 core-equivalents, and max load1 was 0.99 and 1.00 against a void limit of 12.
+
+**Reading: not CALL-STRUCTURE at either size.** `del_1k` reads FRONT-END and `del_4m` MIXED. Under the design, #1679's next engine increment does not go ahead on this evidence.
+
+| Shape | Counter | D per op | S per op | D/S run 1 | D/S run 2 |
+|---|---|---|---|---|---|
+| `del_1k` | `cycles` | 157.5 | 143.8 | 1.0959 [1.0926, 1.1074] | 1.0939 [1.0929, 1.0953] |
+| `del_1k` | `instructions` | 661.4 | 771.4 | 0.8574 (bc) | 0.8574 (bc) |
+| `del_1k` | `idq_uops_not_delivered.core` | 144.1 | 60.70 | 2.3748 [2.3470, 2.3987] | 2.3957 [2.3830, 2.4095] |
+| `del_1k` | `cycle_activity.stalls_total` | 12.46 | 3.914 | 3.1841 [3.1065, 3.4128] | 3.1901 [3.1096, 3.2496] |
+| `del_1k` | `br_misp_retired.all_branches` | 0.05849 | 0.08112 | 0.7211 [0.7130, 0.7287] | 0.7314 [0.7231, 0.7390] |
+| `del_4m` | `cycles` | 212.0 | 191.8 | 1.1055 [1.0987, 1.1131] | 1.0984 [1.0907, 1.1055] |
+| `del_4m` | `instructions` | 745.8 | 812.9 | 0.9174 (bc) | 0.9174 (bc) |
+| `del_4m` | `idq_uops_not_delivered.core` | 64.27 | 22.31 | 2.8803 [2.8622, 2.9044] | 2.8369 [2.8199, 2.8517] |
+| `del_4m` | `cycle_activity.stalls_l1d_miss` | 13.95 | 11.02 | 1.2662 [1.1944, 1.3379] | 1.2242 [1.1352, 1.3077] |
+| `del_4m` | `mem_load_retired.l1_miss` | 5.086 | 2.448 | 2.0774 [1.8964, 2.2339] | 2.0421 [1.8600, 2.2046] |
+| `del_4m` | `br_misp_retired.all_branches` | 0.1472 | 0.1456 | 1.0104 [1.0078, 1.0134] | 1.0098 [1.0069, 1.0127] |
+
+- **Expanse retires fewer instructions than stock on both deletes:** 0.857× at 1 Ki and 0.917× at 4 Mi. Its extra cycles are not extra work, so they are not the per-level call overhead the outlining increment targets. That overhead would show as more instructions retired.
+- **1 Ki: FRONT-END.**
+  - The front-end share of D's extra cycles is 1.011 and 1.034, and the memory share 0.009.
+  - D's front end leaves 2.4× stock's issue slots empty, and its total stall cycles are 3.2× stock's.
+  - D mispredicts fewer branches than stock (0.72×), so the empty slots are not misprediction refetch.
+  - Which front-end resource is short is not measured here: the uop-source counters of the 1k find diagnostic were not in these groups.
+- **4 Mi: MIXED.** The memory share is 0.145 and 0.131, the front-end share 0.346 and 0.368. D's L1 misses are 2.0× stock's, its L1D-miss stall cycles 1.22–1.27×, and its empty front-end slots 2.8×. Mispredictions are equal.
+- **Not measured.** The front-end resource behind the empty slots. The layout diagnostic found the delete rate insensitive to 64-byte function alignment (N64/N 0.995–1.008), so whole-function placement does not explain it; code size or uop-cache capacity are not excluded.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
