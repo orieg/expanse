@@ -36,11 +36,12 @@
 //!
 //! | Variable | Default | Meaning |
 //! |---|---|---|
-//! | `EXPANSE_PERF_ARM` | `map_get` | `map_get`, `set_contains`, `strmap_get` (`short` strings), `strmap_get_counter`, or `strmap_prefix_scan` / `strmap_prefix_scan_sorted` (the `patricia_comparison` prefix scan, generator or sorted build) |
+//! | `EXPANSE_PERF_ARM` | `map_get` | `map_get`, `set_contains`, `hashmap_get` / `hashset_contains` (std SipHash twins, #1685), `strmap_get` (`short` strings), `strmap_get_counter`, or `strmap_prefix_scan` / `strmap_prefix_scan_sorted` (the `patricia_comparison` prefix scan, generator or sorted build) |
 //! | `EXPANSE_PERF_PHASE` | `probe` | `probe` or `build` |
 //! | `EXPANSE_PERF_POP` | `1000000` | keys inserted |
 //! | `EXPANSE_PERF_HIT_PCT` | `100` | percent of probes that are present keys |
 //! | `EXPANSE_PERF_PASSES` | `1` | passes over the probe vector |
+//! | `EXPANSE_PERF_PROBES` | the population | integer arms only: probe the first N entries of the shuffled vector, the compare suite's 4096-probe loop (#1685) |
 //!
 //! # Workload shape
 //!
@@ -55,7 +56,7 @@
 //! | `miss_gen_method` | Independent PRNG + membership rejection; the string arms continue the shape's own generator past the population and reject on membership (§8.6) |
 //! | `value_dereference` | `sink ^= *pval`; the string and set arms add rather than XOR, since values `0..pop` XOR back to zero over a full pass and the sink would stop seeing its own loop |
 //! | `measured_region` | Phase differencing (`probe - build`) |
-//! | `arm_symmetry` | Twin to Callgrind `core_instructions` |
+//! | `arm_symmetry` | Twin to Callgrind `core_instructions`; `hashmap_get` / `hashset_contains` are the `core_compare` hash competitors, with std's SipHash-1-3 under fixed keys in place of `RandomState` |
 //! | `statistics` | `perf stat` hardware counters |
 //! | `verdict` | **PASS** `[verified: RUN (reference host, results/baseline_perf_counters.json)]`: Gold standard hardware counter reference. |
 //!
@@ -83,7 +84,13 @@ mod patricia_common;
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasherDefault;
 use std::hint::black_box;
+
+/// SipHash-1-3 with fixed keys: std's default hash, deterministic per process.
+type FixedSip = BuildHasherDefault<DefaultHasher>;
 
 /// Wraps a key for `ExpanseStrMap`.
 ///
@@ -241,10 +248,15 @@ fn main() {
     let pop = env_usize("EXPANSE_PERF_POP", 1_000_000);
     let hit_pct = env_usize("EXPANSE_PERF_HIT_PCT", 100);
     let passes = env_usize("EXPANSE_PERF_PASSES", 1);
+    let n_probes = env_usize("EXPANSE_PERF_PROBES", pop);
 
     assert!(pop > 0, "EXPANSE_PERF_POP must be at least 1");
     assert!(hit_pct <= 100, "EXPANSE_PERF_HIT_PCT={hit_pct} exceeds 100");
     assert!(passes > 0, "EXPANSE_PERF_PASSES must be at least 1");
+    assert!(
+        (1..=pop).contains(&n_probes),
+        "EXPANSE_PERF_PROBES={n_probes} must be between 1 and EXPANSE_PERF_POP={pop}"
+    );
     let run_probe = match phase.as_str() {
         "probe" => true,
         "build" => false,
@@ -263,7 +275,9 @@ fn main() {
             for &k in &keys {
                 map.insert(k, !k);
             }
-            let probes = build_probes(&keys, &|k| map.get(k).is_some(), hit_pct);
+            let mut probes = build_probes(&keys, &|k| map.get(k).is_some(), hit_pct);
+            probes.truncate(n_probes);
+            ops = n_probes;
             sink ^= map.len();
             if run_probe {
                 for _ in 0..passes {
@@ -282,7 +296,9 @@ fn main() {
             for &k in &keys {
                 set.insert(k);
             }
-            let probes = build_probes(&keys, &|k| set.contains(k), hit_pct);
+            let mut probes = build_probes(&keys, &|k| set.contains(k), hit_pct);
+            probes.truncate(n_probes);
+            ops = n_probes;
             sink ^= set.len();
             if run_probe {
                 for _ in 0..passes {
@@ -304,6 +320,50 @@ fn main() {
         // engine, so they can — and `map_get` above is the `u64` baseline the
         // 4x is measured against, on the same instrument in the same shape of
         // process.
+        // The hash competitors of the `compare` suite's lookup cells (#1685):
+        // std's SipHash-1-3 tables, built from the same keys and probed with
+        // the same vector. `DefaultHasher` with its fixed keys stands in for
+        // `RandomState` so the `build` and `probe` processes lay the table
+        // out identically, which the phase differencing needs; the hash
+        // function and probe path are the same.
+        "hashmap_get" => {
+            let mut map: HashMap<u64, u64, FixedSip> = HashMap::default();
+            for &k in &keys {
+                map.insert(k, !k);
+            }
+            let mut probes = build_probes(&keys, &|k| map.contains_key(&k), hit_pct);
+            probes.truncate(n_probes);
+            ops = n_probes;
+            sink ^= map.len() as u64;
+            if run_probe {
+                for _ in 0..passes {
+                    for &k in &probes {
+                        sink ^= map.get(&black_box(k)).copied().unwrap_or(0);
+                    }
+                }
+            }
+            core::mem::forget(map);
+            core::mem::forget(probes);
+        }
+        "hashset_contains" => {
+            let mut set: HashSet<u64, FixedSip> = HashSet::default();
+            for &k in &keys {
+                set.insert(k);
+            }
+            let mut probes = build_probes(&keys, &|k| set.contains(&k), hit_pct);
+            probes.truncate(n_probes);
+            ops = n_probes;
+            sink ^= set.len() as u64;
+            if run_probe {
+                for _ in 0..passes {
+                    for &k in &probes {
+                        sink = sink.wrapping_add(u64::from(set.contains(&black_box(k))));
+                    }
+                }
+            }
+            core::mem::forget(set);
+            core::mem::forget(probes);
+        }
         arm @ ("strmap_get" | "strmap_get_counter") => {
             let shape = if arm == "strmap_get" {
                 "short"
@@ -393,7 +453,7 @@ fn main() {
         other => {
             panic!(
                 "EXPANSE_PERF_ARM={other} is not recognised: use `map_get`, `set_contains`, \
-                 `strmap_get`, `strmap_get_counter`, `strmap_prefix_scan` or \
+                 `hashmap_get`, `hashset_contains`, `strmap_get`, `strmap_get_counter`, `strmap_prefix_scan` or \
                  `strmap_prefix_scan_sorted`"
             )
         }
