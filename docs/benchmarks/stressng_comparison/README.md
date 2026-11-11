@@ -855,6 +855,49 @@ Every other counter's interval is in the artifacts. The taken-branch counts are 
 
 **What the result does not decide.** Whether a shippable form exists is a separate decision. The counters are public: `NodeAlloc::live_allocs` and `total_allocs` in Rust, and `total_node_allocs` in the Python binding. AGENTS.md §2.6 and §8.22 apply. A MATTER reading says the `lock` prefixes cost delete cycles, not that this ablation's form is the fix.
 
+### Unlocked-accounting result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, perf 6.8.12, rustc 1.98.1, libraries and harness `cc924b150`; artifacts `results/diagnostic_delete_acct_ref_run{1,2}.json`, `results/acct_ablation_disasm/`, `results/acct_ablation_callgrind/`) (workloads: phase_del_1k, phase_del_4m)
+
+**Hygiene.**
+- **Builds.** A (sha256 `bc6eb1d0…`) and D (`cc4c0139…`) were built 22:02:35–22:03:33 UTC under the bench lock. S is stock, `76f121a8…`.
+- **Runs.** Run 1 22:03:33–22:04:28 UTC and run 2 22:04:28–22:05:22, each under the bench lock. 72 processes per run and none discarded. The worst foreign load over any process was 0.03 and 0.05 core-equivalents. Max load1 was 0.86 and 1.00 against a void limit of 12. The preflight read every event in its group.
+- **Amendment timing.** The amendment above was committed at 22:03:34 UTC, one second after run 1's first process started. No timed data had been read when it was written.
+
+**Controls** (amended above):
+- **Default build:** the replacement control is MET.
+- **Disassembly.** `map_remove::<false, false>` carries 92 `lock` instructions in D and 0 in A. `JudyLDel` goes from 21 to 0 and `JudyLIns` from 25 to 0. The `lock` instructions left in A are in the OCC and deferred instantiations (`<true, …>`) and the shared wrappers (`lock_summary.json`).
+- **Which files.** The dumps and the Callgrind counts come from a build of the same commit, with the same rustc, on another host (A `469612fc…`, D `72acaf57…`). They are not the measured files.
+- **Callgrind, `JudyLDel` inclusive** (valgrind 3.22.0):
+
+  | Shape | Deletes | D | A | A/D |
+  |---|---|---|---|---|
+  | `del_1k` | 102,400 | 67,542,921 | 67,568,321 | 1.0004 |
+  | `del_4m` | 4,194,304 | 3,076,256,264 | 3,082,552,070 | 1.0020 |
+
+  The reference host's `instructions` ratio is the same, 1.0004 and 1.0020. A retires slightly more instructions than D and takes fewer cycles.
+
+**Reading: MATTER at both shapes.** A takes fewer cycles than D in both runs. At 1 Ki A removes more than D's whole excess over stock, and at 4 Mi it removes 0.63 of it. The phase wall clock agrees on its side of 1 in every run.
+
+| Shape | Metric | A/D run 1 | A/D run 2 | A/S run 1 | A/S run 2 |
+|---|---|---|---|---|---|
+| `del_1k` | `cycles` | 0.8558 [0.8373, 0.8883] | 0.8525 [0.8505, 0.8546] | 0.9411 [0.9283, 0.9904] | 0.9299 [0.9279, 0.9319] |
+| `del_1k` | `phase_ns` | 0.8541 [0.8346, 0.8883] | 0.8504 [0.8465, 0.8534] | 0.9440 [0.9301, 0.9970] | 0.9282 [0.9243, 0.9322] |
+| `del_4m` | `cycles` | 0.9389 [0.9253, 0.9498] | 0.9376 [0.9235, 0.9497] | 1.0401 [1.0247, 1.0537] | 1.0403 [1.0255, 1.0530] |
+| `del_4m` | `phase_ns` | 0.9408 [0.9276, 0.9516] | 0.9391 [0.9254, 0.9513] | 1.0592 [1.0438, 1.0729] | 1.0594 [1.0442, 1.0723] |
+
+| Shape | Run | D − S (cycles) | Share of it A removes |
+|---|---|---|---|
+| `del_1k` | 1 | 1.467e8 | 1.591 |
+| `del_1k` | 2 | 1.336e8 | 1.772 |
+| `del_4m` | 1 | 8.677e7 | 0.628 |
+| `del_4m` | 2 | 8.826e7 | 0.632 |
+
+- **Per delete.** At 1 Ki, D takes 158.0 cycles and A 135.2; stock takes 143.7. At 4 Mi, D takes 212.7, A 199.7 and stock 192.0.
+- **Against stock.** At 1 Ki A is BELOW STOCK, 0.93–0.94× its cycles. At 4 Mi it stays ABOVE STOCK, at 1.04×.
+- **Which stage moved.** Total stall cycles fall to 0.42–0.50× D's at 1 Ki and 0.84–0.85× at 4 Mi. The undelivered-uop slots move only at 4 Mi (0.66×). At 1 Ki they are 0.96–1.01×, and run 1's interval contains 1.
+- **Scope.** This measures the `lock` prefixes' total cost on these two shapes, through one implementation that drops them. It does not show that this form is safe to ship. The counters are public (`NodeAlloc::live_allocs` and `total_allocs`, Python's `total_node_allocs`), and AGENTS.md §2.6 and §8.22 apply. Any shippable version is the owner's call.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
