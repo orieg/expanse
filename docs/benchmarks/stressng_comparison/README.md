@@ -848,6 +848,11 @@ Every other counter's interval is in the artifacts. The taken-branch counts are 
 
 **Expected** (projected, not derived): A/D below 1 at both shapes. No size is predicted. The microcode-switch share above (0.046 of D's excess at 1 Ki, 0.014 at 4 Mi) bounds only the front-end part of the locked instructions' cost. Their back-end cost is what this run measures.
 
+**Amendment, made after the controls ran and before any timed data** (AGENTS.md §8.19). The pre-registration above is unchanged.
+- **The byte-identical control, as written, is NOT MET, and could not have passed.** D (`cc924b150`, no feature) and P (its parent `e63ed38dd`), built with one toolchain, differ in 49 bytes. They are the build-id note and 26 words of `.data.rel.ro`, each a panic `Location` line number in `alloc.rs`, shifted by 18 or 29 lines with the column unchanged. Any edit that moves lines in that file changes those words.
+- **Replacement control: MET.** `.text`, `.rodata` and `.eh_frame` are identical between D and P, and the `objdump -d` diff is empty, so the default build's code is unchanged.
+- The cells, the instrument and the reading rule stand as committed. The A-against-D comparison does not depend on this control.
+
 **What the result does not decide.** Whether a shippable form exists is a separate decision. The counters are public: `NodeAlloc::live_allocs` and `total_allocs` in Rust, and `total_node_allocs` in the Python binding. AGENTS.md §2.6 and §8.22 apply. A MATTER reading says the `lock` prefixes cost delete cycles, not that this ablation's form is the fix.
 
 ## Reproduce
