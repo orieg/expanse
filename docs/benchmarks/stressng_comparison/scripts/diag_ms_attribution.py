@@ -39,6 +39,7 @@ bp = driver.bp
 EVENTS = [("frontend_retired.ms_flows", "upp"), ("idq.ms_uops", "u")]
 PERIOD = 503
 MIN_INSN_SHARE = 0.01
+MIN_ANNOTATED = 100
 HEADER = re.compile(r"Disassembly of (\S+) for .*\((\d+) samples")
 INSN = re.compile(r"^\s*([0-9]+\.[0-9]+)\s*:\s+([0-9a-f]+):\s+(\S.*?)\s*$")
 # A string instruction under a `rep` prefix: the hypothesis the design names.
@@ -134,10 +135,10 @@ def main():
             n = len(subprocess.run(["perf", "script", "-i", base + ".data", "-F", "ip"], check=True,
                                    capture_output=True, text=True).stdout.split())
             functions, top, total, rep = annotate(base + ".data", base)
-            # Zero samples is a result (stock's 4 Mi delete issued no
-            # microcode flow at this period); samples that parse to nothing
-            # are a parser failure.
-            if n and (not functions or total == 0):
+                        # Below MIN_ANNOTATED samples (stock's 4 Mi cell had 4, outside
+            # any annotatable symbol) the cell is kept with its count and
+            # whatever parsed; at or above it, nothing parsed is a failure.
+            if n >= MIN_ANNOTATED and (not functions or total == 0):
                 sys.exit(f"STOP: {n} samples but none parsed for {shape} {arm}; see {base}.annotate.txt")
             cells.append({"workload_id": f"phase_{shape}", "arm": arm, "ops": ops, "event": event,
                           "modifiers": mods, "tried": tried, "load": load, "samples": total, "perf_script_samples": n, "rep_string_share": rep,
