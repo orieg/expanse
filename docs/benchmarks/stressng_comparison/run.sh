@@ -2,7 +2,7 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|phase_delete|phase_delete_fe]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|phase_delete|phase_delete_fe|phase_delete_ms|ms_attribution]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
@@ -24,7 +24,10 @@
 # (SNG_PHASE_SET=delete), against #1708's library; it writes
 # diag_delete_phase_* raw rows. With `phase_delete_fe`, the same with the
 # 1k find diagnostic's front-end event groups (SNG_PHASE_SET=delete_fe); it
-# writes diag_delete_fe_* raw rows.
+# writes diag_delete_fe_* raw rows. `phase_delete_ms` is the same with the
+# taken-branch and microcode groups (SNG_PHASE_SET=delete_ms; diag_delete_ms_*
+# raw rows), and `ms_attribution` samples the microcode uops' instructions
+# (scripts/diag_ms_attribution.py; diag_ms_attribution_* raw files).
 #
 # <host_label> is `ref` (reference host) or `zen5` (second host); it selects the
 # core pin of METHODOLOGY.md §3. SNG_D names the host's stress-ng tree, built by
@@ -93,5 +96,9 @@ case "${MODE}" in
                 "${SNG_D}/results/diag_delete_phase_${HOST_LABEL}_run${RUN}" ;;
   phase_delete_fe) SNG_PHASE_SET=delete_fe python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_delete_fe_${HOST_LABEL}_run${RUN}" ;;
+  phase_delete_ms) SNG_PHASE_SET=delete_ms python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_delete_ms_${HOST_LABEL}_run${RUN}" ;;
+  ms_attribution) SNG_PHASE_SET=delete_ms python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_ms_attribution_${HOST_LABEL}_run${RUN}" ;;
   *) echo "REFUSE: unknown mode ${MODE}" >&2; exit 2 ;;
 esac

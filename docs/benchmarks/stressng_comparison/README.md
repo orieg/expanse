@@ -719,6 +719,46 @@ Every other counter's interval is in the artifacts. `decode.lcp` has no ratio, b
   A per-cycle limit on taken branches in uop-cache delivery fits the first difference. The cost of switching to the microcode sequencer fits the second. Both are **hypotheses, unmeasured here**: no counter in these groups reads taken branches per cycle or microcode-sequencer switches, so neither is a finding.
 - **Next instrument, not run.** Separating them needs `br_inst_retired.near_taken` and `idq.ms_switches` (or the MS-switch cycles counter), read as shares of D's extra cycles. That would be another design, fixed before its run.
 
+## Diagnostic: taken branches and microcode on the delete phase
+
+**A diagnostic, not a pre-registered result** (#1679). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The front-end resource diagnostic above left Expanse's empty delete slots UNNAMED. Two measured differences remained:
+- D retires 1.11× (1 Ki) and 1.40× (4 Mi) stock's branches while issuing fewer uops.
+- D takes 12× and 56× stock's microcode-sequencer uops.
+
+Does either carry the gap? Which instructions issue the microcode uops?
+
+**Design, fixed before the run:**
+- **Counters** (`run.sh <run> ref phase_delete_ms`, `SNG_PHASE_SET=delete_ms`). This is the delete-phase design above, unchanged in shapes (`del_1k`, `del_4m`), arms (D, #1708's library, against S, stock), rounds, preflight, discard and void rules. Three event groups sit beside the fixed `cycles` and `instructions`:
+  - `ms`: `idq.ms_uops`, `idq.ms_switches`, `idq.ms_cycles_any`, `br_inst_retired.near_taken`;
+  - `dsb`: `idq.dsb_cycles_any`, `idq.dsb_cycles_ok`, `idq.dsb_uops`, `uops_issued.any`;
+  - `fe`: the fixed `slots` counter, `idq_uops_not_delivered.core`, `br_inst_retired.all_branches`, `idq.mite_uops`.
+- `scripts/diag_phase_counters_analyze.py` writes `results/diagnostic_delete_ms_ref_run{1,2}.json`.
+- **Attribution** (`run.sh 1 ref ms_attribution`, `scripts/diag_ms_attribution.py`). For each shape and arm, one probe process runs under `perf record`, with sampling enabled only around the delete phase. The event is `frontend_retired.ms_flows` with precise attribution, which counts retired instructions delivered by the microcode sequencer. If the host refuses it, the event is `idq.ms_uops` without precision, whose samples can land a few instructions after the issuing one; the artifact records which event was used. Sampling period: 503.
+  - `perf annotate` gives each instruction's share of the samples. `scripts/diag_ms_attribution_analyze.py` writes `results/diagnostic_ms_attribution_ref.json`, with every instruction holding at least 1% of the samples and every function holding at least 0.5%.
+  - That is one process per shape and arm: a census, not an interval.
+
+**Reading rule for the counters: D against S, per shape, over both runs.** It applies where D's `cycles` lower bound exceeds 1 in both runs; otherwise NO GAP or UNRESOLVED as above. Let d be D's mean cycles per process minus S's, and Δ a counter's D mean minus its S mean.
+- **Microcode-switch share:** 3 · Δ`idq.ms_switches` / d. The 3 cycles per switch is the switch cost constant of Intel's top-down microarchitecture analysis model, not measured on this host. Δ`idq.ms_cycles_any` / d, the cycles in which the sequencer was delivering, is reported beside it as an upper envelope and carries no verdict.
+- **DSB-below-width share:** (Δ`idq.dsb_cycles_any` − Δ`idq.dsb_cycles_ok`) / d. These are the cycles in which the uop cache delivered uops but fewer than its full width.
+- **Taken-branch density:** `br_inst_retired.near_taken` over `idq.dsb_uops`, D's over S's.
+
+The verdicts:
+- **MICROCODE:** the microcode-switch share is at least 0.25 in both runs. The gap points at microcode-switch cost.
+- **TAKEN-BRANCH:** the DSB-below-width share is at least 0.25 and the taken-branch density ratio at least 1.10, both in both runs. The gap points at taken-branch delivery bandwidth: more taken branches per delivered uop, while the uop cache runs below its width. The DSB-below-width cycles alone do not name taken branches, since other limits can hold delivery below width too, so the density condition is part of the reading.
+- **BOTH:** both named.
+- **UNNAMED:** neither named.
+
+**Reading rule for the attribution**, D per shape: the share of D's samples on a `rep`-prefixed string instruction (`movs`, `stos`, `cmps`, `scas`, `lods`). The hypothesis it tests, held as a hypothesis and not a target, is a short copy compiled to `rep movsb` in leaf removal.
+- CONFIRMED at 0.5 or more;
+- REFUTED at 0.1 or less;
+- PARTIAL otherwise.
+
+The functions and instructions holding the samples are named either way.
+
+**Any reading:** report before any engine change.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

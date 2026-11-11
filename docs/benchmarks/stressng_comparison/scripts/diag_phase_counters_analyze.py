@@ -22,8 +22,15 @@ from bca_bootstrap import CI_METHOD_BCA, bca_bootstrap_ratio_ci_with_method
 MIN_VALID = 8
 # The gets set's pairs; the delete set (`phase_set` "delete", #1679) has one.
 PAIRS_BY_SET = {"gets": [("N", "S"), ("N64", "S"), ("N64", "N")], "delete": [("D", "S")],
-                "delete_fe": [("D", "S")]}
-NAME_BY_SET = {"gets": "phase_counters", "delete": "delete_phase", "delete_fe": "delete_fe"}
+                "delete_fe": [("D", "S")], "delete_ms": [("D", "S")]}
+NAME_BY_SET = {"gets": "phase_counters", "delete": "delete_phase", "delete_fe": "delete_fe",
+               "delete_ms": "delete_ms"}
+# The delete_ms set's rule (README.md, "Diagnostic: taken branches and
+# microcode on the delete phase"). MS_SWITCH_COST is the cycles charged per
+# switch to the microcode sequencer, the constant of Intel's top-down
+# microarchitecture analysis model; TB_DENSITY is the taken-branch density
+# ratio a TAKEN-BRANCH reading also needs.
+MS_SWITCH_COST, TB_DENSITY = 3, 1.10
 # The delete_fe set's fetch-latency counters (README.md, "Diagnostic:
 # front-end resource on the delete phase"), each in cycles, by the resource
 # it names.
@@ -132,6 +139,34 @@ def fe_reading(keyed, shape, num, den="S"):
           f"{'may proceed' if go else 'does not proceed on this shape: report'}")
 
 
+def ms_reading(keyed, shape, num, den="S"):
+    """README.md's taken-branch and microcode rule for one shape, over both runs."""
+    pair, per_run = f"{num}/{den}", []
+    for k in keyed:
+        def dm(e):
+            return mean(k, shape, e, num, pair) - mean(k, shape, e, den, pair)
+        d = dm("cycles")
+        width = mean(k, shape, "slots", num, pair) / mean(k, shape, "cycles", num, pair)
+        f = dm(FE) / (width * d)
+        s_ms = MS_SWITCH_COST * dm("idq.ms_switches") / d
+        s_ms_cyc = dm("idq.ms_cycles_any") / d
+        s_tb = (dm("idq.dsb_cycles_any") - dm("idq.dsb_cycles_ok")) / d
+        dens = {a: mean(k, shape, "br_inst_retired.near_taken", a, pair)
+                / mean(k, shape, "idq.dsb_uops", a, pair) for a in (num, den)}
+        per_run.append((d, f, s_ms, s_ms_cyc, s_tb, dens[num] / dens[den]))
+    for n, (d, f, s_ms, s_ms_cyc, s_tb, rho) in enumerate(per_run, 1):
+        print(f"  {shape} run {n}: {num} - S = {d:.4g} cycles; front-end share {f:.3f}; "
+              f"microcode switch share {s_ms:.3f} (MS-active cycles {s_ms_cyc:.3f}); "
+              f"DSB-below-width share {s_tb:.3f}; taken-branch density {num}/S {rho:.3f}")
+    named = []
+    if all(r[2] >= NAMED_SHARE for r in per_run):
+        named.append("MICROCODE")
+    if all(r[4] >= NAMED_SHARE and r[5] >= TB_DENSITY for r in per_run):
+        named.append("TAKEN-BRANCH")
+    verdict = {0: "UNNAMED", 2: "BOTH (MICROCODE + TAKEN-BRANCH)"}.get(len(named), named[0] if named else "")
+    print(f"  {shape}: {verdict}")
+
+
 def main():
     host, prefixes = sys.argv[1], sys.argv[2:4]
     arts, keyed = [], []
@@ -149,6 +184,7 @@ def main():
     if any(a["provenance"]["void"]["void"] for a in arts):
         sys.exit("a run is void (METHODOLOGY.md §7); no reading")
     fe_set = arts[0]["provenance"].get("phase_set") == "delete_fe"
+    ms_set = arts[0]["provenance"].get("phase_set") == "delete_ms"
     print("\n| shape | counter | pair | per op (num) | per op (den) | run 1 [BCa 95%] | run 2 [BCa 95%] |")
     print("|---|---|---|---|---|---|---|")
     for key in keyed[0]:
@@ -172,6 +208,9 @@ def main():
             continue
         if fe_set and all(c["ci_lower"] > 1.0 for c in cyc):
             fe_reading(keyed, shape, num)
+            continue
+        if ms_set and all(c["ci_lower"] > 1.0 for c in cyc):
+            ms_reading(keyed, shape, num)
             continue
         if all(c["ci_lower"] > 1.0 for c in cyc):
             sh = [shares(k, shape, num) for k in keyed]

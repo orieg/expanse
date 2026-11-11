@@ -35,8 +35,10 @@ bp = driver.bp
 # "Diagnostic: delete-phase counters"): D, #1708's library, against stock.
 SET = os.environ.get("SNG_PHASE_SET", "gets")
 # `delete_fe` is the same design with the 1k find diagnostic's front-end
-# groups (README.md, "Diagnostic: front-end resource on the delete phase").
-if SET in ("delete", "delete_fe"):
+# groups (README.md, "Diagnostic: front-end resource on the delete phase");
+# `delete_ms` has the taken-branch and microcode groups (README.md,
+# "Diagnostic: taken branches and microcode on the delete phase").
+if SET in ("delete", "delete_fe", "delete_ms"):
     ARMS = {"D": f"{driver.D}/expcompat-45f83ac5e/lib", "S": driver.ARMS["S"]}
     # (shape, repeats of the measured phase, measured operations per process)
     # 10,000 repetitions: at 1,000 a process lasted 0.085 s, under the load
@@ -66,6 +68,12 @@ GROUPS = {
 }
 if SET == "delete_fe":
     GROUPS = dfc.GROUPS
+elif SET == "delete_ms":
+    GROUPS = {
+        "ms": ["idq.ms_uops", "idq.ms_switches", "idq.ms_cycles_any", "br_inst_retired.near_taken"],
+        "dsb": ["idq.dsb_cycles_any", "idq.dsb_cycles_ok", "idq.dsb_uops", "uops_issued.any"],
+        "fe": ["slots", "idq_uops_not_delivered.core", "br_inst_retired.all_branches", "idq.mite_uops"],
+    }
 GP_EXEMPT = {"slots"}
 PROBE = None
 
