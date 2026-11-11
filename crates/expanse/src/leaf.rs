@@ -161,156 +161,192 @@ pub(crate) unsafe fn locate_fixed<const KB: usize>(
     }
 }
 
-/// Binary search at a compile-time key width: the whole probe — load,
-/// widen, compare — becomes inline code instead of a call per step.
-/// This is the innermost loop of every leaf insert (issue #1 item 3).
-///
-/// # Safety
-///
-/// `keys` must be valid for reads of `KB * pop` bytes.
-///
-/// Forced inline: with the branchless band LLVM otherwise outlines it from
-/// `search_fixed`, and every leaf probe pays a call.
-#[inline(always)]
-pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
-    keys: *const u8,
-    pop: usize,
-    needle: u64,
-) -> usize {
-    // Every vectorized branch below must satisfy: cap_class(pop) * KB >=
-    // the kernel's fixed load width (see `simd_gates_within_cap_class`).
-    // cap_class rounds to multiples of FOUR over the range these gates cover
-    // (3..=16), so pop 9..=12 only guarantees 12 slots — gating those into the
-    // 16-byte kernel read out of bounds. Above 16 the ladder coarsens to
-    // {24, 32} (#826), which only ever *raises* the slot count a population is
-    // guaranteed, so every bound below stays satisfied by construction.
-    if KB == 1 && (13..=16).contains(&pop) {
-        // SAFETY: cap_class(pop >= 13) is 16, so keys holds at least 16 bytes.
-        unsafe { crate::bits::lower_bound_16_u8(keys, pop, needle as u8) }
-    } else if KB == 1 && (5..=8).contains(&pop) {
-        // SAFETY: cap_class(pop >= 5) is 8, so keys holds at least 8 bytes.
-        unsafe { crate::bits::lower_bound_8_u8(keys, pop, needle as u8) }
-    } else if KB == 2 && (5..=8).contains(&pop) {
-        // SAFETY: cap_class(pop >= 5) * 2 is 16, so keys holds at least 16 bytes.
-        unsafe { crate::bits::lower_bound_8_u16(keys, pop, needle as u16) }
-    } else if KB == 4 && (3..=4).contains(&pop) {
-        // SAFETY: cap_class(pop >= 3) * 4 is 16, so keys holds at least 16 bytes.
-        unsafe { crate::bits::lower_bound_4_u32(keys, pop, needle as u32) }
-    } else if pop <= 4 {
-        if pop == 0 {
-            0
-        } else if KB == 1 {
-            let n = needle as u8;
-            // SAFETY: keys is valid for pop bytes.
-            let c0 = unsafe { (*keys < n) as usize };
-            if pop == 1 {
-                c0
-            } else if pop == 2 {
-                // SAFETY: keys holds 2 bytes.
-                c0 + unsafe { (*keys.add(1) < n) as usize }
-            } else if pop == 3 {
-                // SAFETY: keys holds 3 bytes.
-                c0 + unsafe { (*keys.add(1) < n) as usize } + unsafe { (*keys.add(2) < n) as usize }
-            } else {
-                // SAFETY: keys holds 4 bytes.
-                c0 + unsafe { (*keys.add(1) < n) as usize }
-                    + unsafe { (*keys.add(2) < n) as usize }
-                    + unsafe { (*keys.add(3) < n) as usize }
+/// Defines a fixed-width lower bound. Both expansions share one body, so
+/// the plain one stays the branchy search that inserts and navigation use,
+/// and the `band` one adds the branchless search for 5..=24 keys that only
+/// lookups take: inlining that band into the insert walks changed their
+/// codegen by more than it saved (#1685).
+macro_rules! define_lower_bound_fixed {
+    ($(#[$attr:meta])* $vis:vis fn $name:ident $(, $band:ident)?) => {
+        $(#[$attr])*
+        $vis unsafe fn $name<const KB: usize>(keys: *const u8, pop: usize, needle: u64) -> usize {
+            // Every vectorized branch below must satisfy: cap_class(pop) * KB >=
+            // the kernel's fixed load width (see `simd_gates_within_cap_class`).
+            // cap_class rounds to multiples of FOUR over the range these gates cover
+            // (3..=16), so pop 9..=12 only guarantees 12 slots — gating those into the
+            // 16-byte kernel read out of bounds. Above 16 the ladder coarsens to
+            // {24, 32} (#826), which only ever *raises* the slot count a population is
+            // guaranteed, so every bound below stays satisfied by construction.
+            if KB == 1 && (13..=16).contains(&pop) {
+                // SAFETY: cap_class(pop >= 13) is 16, so keys holds at least 16 bytes.
+                unsafe { crate::bits::lower_bound_16_u8(keys, pop, needle as u8) }
+            } else if KB == 1 && (5..=8).contains(&pop) {
+                // SAFETY: cap_class(pop >= 5) is 8, so keys holds at least 8 bytes.
+                unsafe { crate::bits::lower_bound_8_u8(keys, pop, needle as u8) }
+            } else if KB == 2 && (5..=8).contains(&pop) {
+                // SAFETY: cap_class(pop >= 5) * 2 is 16, so keys holds at least 16 bytes.
+                unsafe { crate::bits::lower_bound_8_u16(keys, pop, needle as u16) }
+            } else if KB == 4 && (3..=4).contains(&pop) {
+                // SAFETY: cap_class(pop >= 3) * 4 is 16, so keys holds at least 16 bytes.
+                unsafe { crate::bits::lower_bound_4_u32(keys, pop, needle as u32) }
+            } else if pop <= 4 {
+                if pop == 0 {
+                    0
+                } else if KB == 1 {
+                    let n = needle as u8;
+                    // SAFETY: keys is valid for pop bytes.
+                    let c0 = unsafe { (*keys < n) as usize };
+                    if pop == 1 {
+                        c0
+                    } else if pop == 2 {
+                        // SAFETY: keys holds 2 bytes.
+                        c0 + unsafe { (*keys.add(1) < n) as usize }
+                    } else if pop == 3 {
+                        // SAFETY: keys holds 3 bytes.
+                        c0 + unsafe { (*keys.add(1) < n) as usize } + unsafe { (*keys.add(2) < n) as usize }
+                    } else {
+                        // SAFETY: keys holds 4 bytes.
+                        c0 + unsafe { (*keys.add(1) < n) as usize }
+                            // SAFETY: keys holds 4 bytes.
+                            + unsafe { (*keys.add(2) < n) as usize }
+                            // SAFETY: keys holds 4 bytes.
+                            + unsafe { (*keys.add(3) < n) as usize }
+                    }
+                } else if KB == 2 {
+                    let n = needle as u16;
+                    // SAFETY: keys holds at least 2 bytes.
+                    let c0 = unsafe { ((keys as *const u16).read_unaligned() < n) as usize };
+                    if pop == 1 {
+                        c0
+                    } else if pop == 2 {
+                        // SAFETY: keys holds 4 bytes.
+                        c0 + unsafe { ((keys.add(2) as *const u16).read_unaligned() < n) as usize }
+                    } else if pop == 3 {
+                        // SAFETY: keys holds 6 bytes.
+                        c0 + unsafe { ((keys.add(2) as *const u16).read_unaligned() < n) as usize }
+                            // SAFETY: keys holds 6 bytes.
+                            + unsafe { ((keys.add(4) as *const u16).read_unaligned() < n) as usize }
+                    } else {
+                        // SAFETY: keys holds 8 bytes.
+                        c0 + unsafe { ((keys.add(2) as *const u16).read_unaligned() < n) as usize }
+                            // SAFETY: keys holds 8 bytes.
+                            + unsafe { ((keys.add(4) as *const u16).read_unaligned() < n) as usize }
+                            // SAFETY: keys holds 8 bytes.
+                            + unsafe { ((keys.add(6) as *const u16).read_unaligned() < n) as usize }
+                    }
+                } else if KB == 4 {
+                    let n = needle as u32;
+                    // SAFETY: keys holds at least 4 bytes.
+                    let c0 = unsafe { ((keys as *const u32).read_unaligned() < n) as usize };
+                    if pop == 1 {
+                        c0
+                    } else if pop == 2 {
+                        // SAFETY: keys holds 8 bytes.
+                        c0 + unsafe { ((keys.add(4) as *const u32).read_unaligned() < n) as usize }
+                    } else if pop == 3 {
+                        // SAFETY: keys holds 12 bytes.
+                        c0 + unsafe { ((keys.add(4) as *const u32).read_unaligned() < n) as usize }
+                            // SAFETY: keys holds 12 bytes.
+                            + unsafe { ((keys.add(8) as *const u32).read_unaligned() < n) as usize }
+                    } else {
+                        // SAFETY: keys holds 16 bytes.
+                        c0 + unsafe { ((keys.add(4) as *const u32).read_unaligned() < n) as usize }
+                            // SAFETY: keys holds 16 bytes.
+                            + unsafe { ((keys.add(8) as *const u32).read_unaligned() < n) as usize }
+                            // SAFETY: keys holds 16 bytes.
+                            + unsafe { ((keys.add(12) as *const u32).read_unaligned() < n) as usize }
+                    }
+                } else {
+                    // SAFETY: keys holds pop * KB bytes.
+                    let c0 = unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 0) < needle) as usize };
+                    if pop == 1 {
+                        c0
+                    } else if pop == 2 {
+                        // SAFETY: keys holds 2 entries.
+                        c0 + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 1) < needle) as usize }
+                    } else if pop == 3 {
+                        // SAFETY: keys holds 3 entries.
+                        c0 + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 1) < needle) as usize }
+                            // SAFETY: keys holds 3 entries.
+                            + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 2) < needle) as usize }
+                    } else {
+                        // SAFETY: keys holds 4 entries.
+                        c0 + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 1) < needle) as usize }
+                            // SAFETY: keys holds 4 entries.
+                            + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 2) < needle) as usize }
+                            // SAFETY: keys holds 4 entries.
+                            + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 3) < needle) as usize }
+                    }
+                }
             }
-        } else if KB == 2 {
-            let n = needle as u16;
-            // SAFETY: keys holds at least 2 bytes.
-            let c0 = unsafe { ((keys as *const u16).read_unaligned() < n) as usize };
-            if pop == 1 {
-                c0
-            } else if pop == 2 {
-                // SAFETY: keys holds 4 bytes.
-                c0 + unsafe { ((keys.add(2) as *const u16).read_unaligned() < n) as usize }
-            } else if pop == 3 {
-                // SAFETY: keys holds 6 bytes.
-                c0 + unsafe { ((keys.add(2) as *const u16).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(4) as *const u16).read_unaligned() < n) as usize }
-            } else {
-                // SAFETY: keys holds 8 bytes.
-                c0 + unsafe { ((keys.add(2) as *const u16).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(4) as *const u16).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(6) as *const u16).read_unaligned() < n) as usize }
-            }
-        } else if KB == 4 {
-            let n = needle as u32;
-            // SAFETY: keys holds at least 4 bytes.
-            let c0 = unsafe { ((keys as *const u32).read_unaligned() < n) as usize };
-            if pop == 1 {
-                c0
-            } else if pop == 2 {
-                // SAFETY: keys holds 8 bytes.
-                c0 + unsafe { ((keys.add(4) as *const u32).read_unaligned() < n) as usize }
-            } else if pop == 3 {
-                // SAFETY: keys holds 12 bytes.
-                c0 + unsafe { ((keys.add(4) as *const u32).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(8) as *const u32).read_unaligned() < n) as usize }
-            } else {
-                // SAFETY: keys holds 16 bytes.
-                c0 + unsafe { ((keys.add(4) as *const u32).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(8) as *const u32).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(12) as *const u32).read_unaligned() < n) as usize }
-            }
-        } else {
-            // SAFETY: keys holds pop * KB bytes.
-            let c0 = unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 0) < needle) as usize };
-            if pop == 1 {
-                c0
-            } else if pop == 2 {
-                // SAFETY: keys holds 2 entries.
-                c0 + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 1) < needle) as usize }
-            } else if pop == 3 {
-                // SAFETY: keys holds 3 entries.
-                c0 + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 1) < needle) as usize }
-                    + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 2) < needle) as usize }
-            } else {
-                // SAFETY: keys holds 4 entries.
-                c0 + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 1) < needle) as usize }
-                    + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 2) < needle) as usize }
-                    + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 3) < needle) as usize }
+            $(else if pop <= 24 {
+                // The arm is present only when the macro is given `band`.
+                let _ = stringify!($band);
+                // Branchless lower bound. `k` is the largest power of two
+                // <= pop, so pop is in [k, 2k). One probe at `pop - k` leaves a
+                // window of k - 1 keys above it or fewer than k below it, and the
+                // steps k/2, ..., 1 cover that window whatever the comparisons say.
+                // The only branch is the trip count, log2(k), a function of `pop`
+                // alone. On random keys the comparison is a coin flip and was the
+                // lookup's mispredict site (#1685).
+                let k = 1usize << (usize::BITS - 1 - pop.leading_zeros());
+                // SAFETY: `pop - k < pop`.
+                let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;
+                let mut base = core::hint::select_unpredictable(first, pop - k + 1, 0);
+                let mut step = k >> 1;
+                while step > 0 {
+                    // SAFETY: the steps sum to k - 1, so a probe reaches at most
+                    // index `b0 + k - 2`, where `b0` is 0 or `pop - k + 1`; both
+                    // are below `pop`.
+                    let below =
+                        // SAFETY: the steps sum to k - 1, so a probe reaches at most
+                        // index `b0 + k - 2`, where `b0` is 0 or `pop - k + 1`; both
+                        // are below `pop`.
+                        unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;
+                    base = core::hint::select_unpredictable(below, base + step, base);
+                    step >>= 1;
+                }
+                base
+            })?
+            else {
+                let (mut lo, mut hi) = (0usize, pop);
+                while lo < hi {
+                    let mid = (lo + hi) / 2;
+                    // SAFETY: mid < pop per the loop bounds and caller contract.
+                    if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
+                        lo = mid + 1;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                lo
             }
         }
-    } else if pop <= 24 {
-        // Branchless lower bound. `k` is the largest power of two <= pop, so
-        // pop is in [k, 2k). One probe at `pop - k` leaves a window of k - 1
-        // keys above it or fewer than k below it, and the steps k/2, ..., 1
-        // cover that window whatever the comparisons say. The only branch is
-        // the trip count, log2(k), a function of `pop` alone. On random keys
-        // the comparison is a coin flip and was the leaf's mispredict site
-        // (#1685).
-        let k = 1usize << (usize::BITS - 1 - pop.leading_zeros());
-        // SAFETY: `pop - k < pop`.
-        let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;
-        let mut base = core::hint::select_unpredictable(first, pop - k + 1, 0);
-        let mut step = k >> 1;
-        while step > 0 {
-            // SAFETY: the steps sum to k - 1, so a probe reaches at most
-            // index `b0 + k - 2`, where `b0` is 0 or `pop - k + 1`; both bounds
-            // are below `pop`.
-            let below =
-                unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;
-            base = core::hint::select_unpredictable(below, base + step, base);
-            step >>= 1;
-        }
-        base
-    } else {
-        let (mut lo, mut hi) = (0usize, pop);
-        while lo < hi {
-            let mid = (lo + hi) / 2;
-            // SAFETY: mid < pop per the loop bounds and caller contract.
-            if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
-        }
-        lo
-    }
+    };
 }
+
+define_lower_bound_fixed!(
+    /// Binary search at a compile-time key width: the whole probe — load,
+    /// widen, compare — becomes inline code instead of a call per step.
+    /// This is the innermost loop of every leaf insert (issue #1 item 3).
+    ///
+    /// # Safety
+    ///
+    /// `keys` must be valid for reads of `KB * pop` bytes.
+    #[inline]
+    pub(crate) fn lower_bound_fixed
+);
+
+define_lower_bound_fixed!(
+    /// [`lower_bound_fixed`] for a lookup: 5..=24 keys outside its SIMD
+    /// kernels take a branchless search. Both return the same position.
+    ///
+    /// # Safety
+    ///
+    /// `keys` must be valid for reads of `KB * pop` bytes.
+    #[inline(always)]
+    fn lower_bound_lookup, band
+);
 
 /// In-place insert into a set leaf with spare class capacity: shifts keys
 /// `[pos..pop)` right one slot and writes `key` at `pos`.
@@ -679,6 +715,22 @@ pub(crate) unsafe fn search_fixed<const KB: usize>(
     pop: usize,
     key: Key,
 ) -> Option<usize> {
+    // SAFETY: forwarded caller contract.
+    unsafe { search_fixed_with::<KB, true>(keys, pop, key) }
+}
+
+/// [`search_fixed`]; `LOOKUP` selects [`lower_bound_lookup`] over
+/// [`lower_bound_fixed`]. An insert path's slot lookup passes `false`.
+///
+/// # Safety
+///
+/// As [`search_fixed`].
+#[inline(always)]
+pub(crate) unsafe fn search_fixed_with<const KB: usize, const LOOKUP: bool>(
+    keys: *const u8,
+    pop: usize,
+    key: Key,
+) -> Option<usize> {
     // SAFETY: caller guarantees keys holds at least KB * pop readable bytes in its class allocation.
     unsafe {
         if KB == 1 && pop == 16 {
@@ -754,7 +806,11 @@ pub(crate) unsafe fn search_fixed<const KB: usize>(
             None
         } else {
             let needle = crate::mutate::key_low(key, KB as u8);
-            let pos = lower_bound_fixed::<KB>(keys, pop, needle);
+            let pos = if LOOKUP {
+                lower_bound_lookup::<KB>(keys, pop, needle)
+            } else {
+                lower_bound_fixed::<KB>(keys, pop, needle)
+            };
             if pos < pop && crate::mutate::read_packed_fixed::<KB>(keys, pos) == needle {
                 Some(pos)
             } else {
@@ -1670,9 +1726,10 @@ mod tests {
 
     #[test]
     fn lower_bound_matches_reference_on_both_search_forms() {
-        // Every width, populations through the branchless band (5..=24) and
-        // the branchy one above it (#1685), each needle landing before, on
-        // and after every key.
+        // Every width, populations through the lookup's branchless band
+        // (5..=24) and the branchy search above it and in
+        // `lower_bound_fixed` (#1685), each needle landing before, on and
+        // after every key, through both entry points.
         for kb in 1u8..=7 {
             let span = if kb == 1 {
                 6u64
@@ -1692,9 +1749,26 @@ mod tests {
                 }
                 for needle in needles {
                     let expected = keys.partition_point(|&k| k < needle);
+                    let p = packed.as_ptr();
                     // SAFETY: `packed` holds `cap_class(pop)` keys of `kb` bytes.
-                    let got = unsafe { lower_bound(packed.as_ptr(), pop, kb, needle) };
+                    let got = unsafe { lower_bound(p, pop, kb, needle) };
                     assert_eq!(got, expected, "kb={kb} pop={pop} needle={needle:#x}");
+                    // SAFETY: as above; each arm's width is `kb`.
+                    let lookup = unsafe {
+                        match kb {
+                            1 => lower_bound_lookup::<1>(p, pop, needle),
+                            2 => lower_bound_lookup::<2>(p, pop, needle),
+                            3 => lower_bound_lookup::<3>(p, pop, needle),
+                            4 => lower_bound_lookup::<4>(p, pop, needle),
+                            5 => lower_bound_lookup::<5>(p, pop, needle),
+                            6 => lower_bound_lookup::<6>(p, pop, needle),
+                            _ => lower_bound_lookup::<7>(p, pop, needle),
+                        }
+                    };
+                    assert_eq!(
+                        lookup, expected,
+                        "lookup kb={kb} pop={pop} needle={needle:#x}"
+                    );
                 }
             }
         }
