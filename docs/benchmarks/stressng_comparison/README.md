@@ -373,6 +373,78 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - **What this establishes.** The same instructions cost N more cycles because the front end delivers them less well, with the decoded-uop path changing in a way consistent with the hot code's position within 64-byte lines. That supports the placement hypothesis. It does not establish it: no build has yet moved only the layout, which is #1684's fix step.
 - **Against stock (N/S, not the question here).** N retires 0.808× stock's instructions and takes 1.063× its cycles. Its front end leaves 3.26× as many issue slots empty as stock's (`idq_uops_not_delivered.core`, intervals [3.2385, 3.2818] and [3.2471, 3.3005]), while stock mispredicts about four times as many branches (N/S 0.2449 and 0.2428). The whole stress-ng process is measured here, insert and delete included, so this is the library's front-end cost over the cell and not the find path's alone.
 
+## Diagnostic: phase counters on the shapes Expanse loses
+
+**A diagnostic, not a pre-registered result** (#1680). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The comparison above finds Expanse slower than stock on the sparsematrix judy gets and on the 4 Mi `judy` inserts. Where do Expanse's extra cycles go in those phases: memory stalls, the front end, or something else? stress-ng's own rates time each phase, but a whole-process counter mixes the phases, so this diagnostic counts one phase only.
+
+**Design, fixed before the run** (`scripts/phase_probe.c`, `scripts/diag_phase_counters.py`, `run.sh <run> ref phase`):
+- `phase_probe` replays a stressor's key shape through the Judy API and enables `perf stat` (`-D -1 --control fifo:…`) only around the measured phase. It is built against this repository's clean-room `include/Judy.h`. Its draws come from splitmix64, so the keys follow each stressor's distribution and not its exact sequence, and every arm draws the same keys.
+  - `sm_default`: 10,000 draws of `(x, y)` on `[0, 500)²`, key `x << 32 | y`, each put when absent. The measured phase is both of the stressor's get phases (the same draws again, then as many fresh draws), repeated 200 times on the same array: 4,000,000 gets.
+  - `sm_big`: the same over 1,000,000 draws on `[0, 100000)²`, once: 2,000,000 gets.
+  - `judy_4m`: the inserts of `gen_index(i)` for `i` below 4,194,304, the measured phase: 4,194,304 inserts.
+- Three arms, differing only in `LD_LIBRARY_PATH`: N (the library of the pre-registered runs), N64 (its source with 64-byte function alignment, from the layout diagnostic) and S (stock).
+- User-mode `cpu_core` events, fixed `cycles` and `instructions` in every process, and one group per process:
+  - `mem`: `mem_load_retired.l1_miss`, `.l2_miss`, `.l3_miss`, `br_misp_retired.all_branches`;
+  - `stall`: `cycle_activity.stalls_total`, `.stalls_l1d_miss`, `.stalls_l2_miss`;
+  - `l3`: `cycle_activity.stalls_l3_miss` alone. The first launch's preflight found it counting 350 alone and 0 beside the other three stall events, the #1177 failure, and stopped before anything was timed;
+  - `fe`: the fixed `slots` counter, `idq_uops_not_delivered.core`, `dtlb_load_misses.walk_completed`, `br_inst_retired.all_branches`.
+- The preflight, the discard rule and the void rule are the counter diagnostic's. The preflight runs on `sm_big`, whose misses reach every cache level. A second launch's preflight on `sm_default` read `mem_load_retired.l3_miss` as 9 alone and 0 in its group, too few to tell a co-scheduling zero from run-to-run variation, and stopped before anything was timed. 12 rounds per run, cycling the arms through their six orders and shuffling (shape, group) within a round. Two independent runs under the host bench lock and the comparison's pin.
+- `scripts/diag_phase_counters_analyze.py` writes `results/diagnostic_phase_counters_ref_run{1,2}.json`: per shape, two-sample BCa 95% intervals on N/S, N64/S and N64/N for every counter, with per-operation means.
+
+**Reading rule, N against S, per shape, over both runs:**
+- If the `cycles` lower bound exceeds 1 in both runs (N takes more cycles than S), take the arms' means, and with ΔC = cycles_N − cycles_S:
+  - memory share m = Δ`cycle_activity.stalls_l1d_miss` / ΔC;
+  - front-end share f = Δ`idq_uops_not_delivered.core` / (w · ΔC), with w = slots_N / cycles_N.
+- MEMORY: m ≥ 0.5 in both runs and f < 0.5 in either. FRONT-END: the reverse. BOTH: both ≥ 0.5 in both runs. MIXED: neither.
+- NO GAP: the `cycles` upper bound is below 1 in both runs. UNRESOLVED: the cycle intervals disagree on a side.
+- The other counters are reported with their intervals and name which level of the hierarchy moved. They carry no verdict of their own.
+- A share names where the cycles went, not why the engine spends them. N64 against N says whether the layout matters on these phases, as it does on the 1k find.
+
+### Phase result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, perf 6.8.12, harness `bbeab35a8`, analysis `4cb8bb6cb`; artifacts `results/diagnostic_phase_counters_ref_run{1,2}.json`) (workloads: phase_sm_default, phase_sm_big, phase_judy_4m)
+
+**Hygiene.** Run 1 01:33:33–01:35:03 UTC and run 2 01:35:03–01:36:34, each under the bench lock.
+- 432 processes per run. One process of run 1 was discarded by the library A/B's rule, and none of run 2.
+- Max load1 was 0.80 and 0.96 against a void limit of 12.
+- Two earlier launches stopped in the preflight before anything was timed (`8b0cabeae` and `bbeab35a8` fixed them, as the design section records).
+- The first analysis stopped on a pair with zero counts in an arm (an L3 miss on the cache-resident `sm_default` array). `4cb8bb6cb` reports such a pair by its means with no interval; the raw rows are unchanged.
+
+**Reading.** The sparsematrix gets read FRONT-END and the 4 Mi inserts read MIXED. Per-operation means are below, with N/S over both runs.
+
+| Shape | Counter | N per op | S per op | N/S run 1 | N/S run 2 |
+|---|---|---|---|---|---|
+| `sm_default` | `cycles` | 181.9 | 120.4 | 1.5109 [1.5082, 1.5138] | 1.5105 [1.5079, 1.5130] |
+| `sm_default` | `instructions` | 281.9 | 275.9 | 1.0217 (bc) | 1.0217 (bc) |
+| `sm_default` | `br_misp_retired.all_branches` | 3.117 | 0.4891 | 6.3738 [6.3570, 6.3886] | 6.3953 [6.3793, 6.4118] |
+| `sm_default` | `idq_uops_not_delivered.core` | 469.8 | 54.36 | 8.6422 [8.5723, 8.7202] | 8.6266 [8.5483, 8.6929] |
+| `sm_default` | `cycle_activity.stalls_l1d_miss` | 2.474 | 0.9108 | 2.7161 [2.5561, 2.9190] | 2.6542 [2.5016, 2.8774] |
+| `sm_big` | `cycles` | 250.5 | 179.0 | 1.3995 [1.3976, 1.4014] | 1.3962 [1.3934, 1.3981] |
+| `sm_big` | `instructions` | 279.2 | 266.8 | 1.0468 (bc) | 1.0468 (bc) |
+| `sm_big` | `br_misp_retired.all_branches` | 2.312 | 0.5229 | 4.4212 [4.4150, 4.4267] | 4.4255 [4.4197, 4.4309] |
+| `sm_big` | `idq_uops_not_delivered.core` | 472.9 | 52.4 | 9.0250 [8.9863, 9.0490] | 8.9680 [8.8468, 9.0158] |
+| `sm_big` | `cycle_activity.stalls_l1d_miss` | 28.17 | 31.85 | 0.8842 [0.8750, 0.8939] | 0.8802 [0.8706, 0.8930] |
+| `judy_4m` | `cycles` | 189.5 | 167.4 | 1.1315 [1.1227, 1.1404] | 1.1328 [1.1225, 1.1410] |
+| `judy_4m` | `instructions` | 661.7 | 783.7 | 0.8443 (bc) | 0.8443 (bc) |
+| `judy_4m` | `br_misp_retired.all_branches` | 0.1748 | 0.1514 | 1.1539 [1.1501, 1.1591] | 1.1530 [1.1470, 1.1584] |
+| `judy_4m` | `idq_uops_not_delivered.core` | 68.77 | 37.70 | 1.8240 [1.8063, 1.8400] | 1.8163 [1.8037, 1.8307] |
+| `judy_4m` | `cycle_activity.stalls_l1d_miss` | 8.240 | 4.568 | 1.8040 [1.6284, 1.9680] | 1.9085 [1.7034, 2.0713] |
+
+- **Sparsematrix gets: FRONT-END on both sizes.**
+  - The front-end share of N's extra cycles is 1.125 and 1.124 at `sm_default` and 0.980 and 0.986 at `sm_big`. The memory share is 0.024–0.025 and −0.054 to −0.052.
+  - N retires about stock's instructions (1.02× and 1.05×) and mispredicts 6.4× and 4.4× as many branches: 2.6 and 1.8 extra mispredictions per get.
+  - The issue slots left empty after a misprediction, while the front end refetches, count in `idq_uops_not_delivered.core`. That is why the front-end share can exceed 1, and why it names the stage the cycles go to rather than the cause.
+  - That mispredictions drive these gets is consistent with the counters but not established by them. No instrument here splits the empty slots by what emptied them.
+  - Memory does not explain the gap: at `sm_big` N's L1D-miss stall cycles are 0.88× stock's.
+- **4 Mi inserts: MIXED.** N retires 0.84× stock's instructions and takes 1.13× its cycles. The memory share is 0.167 and 0.188 and the front-end share 0.233 and 0.230. N's L1D-miss stall cycles are 1.80–1.91× stock's, its empty slots 1.82×, and its mispredictions 1.15×. No single stage carries half the difference.
+- **Alignment does not move these phases.**
+  - N64/N cycles are 0.9894–0.9982, every interval inside [0.98, 1.02].
+  - N64/S cycles are 1.495 and 1.496 (`sm_default`), 1.389 and 1.392 (`sm_big`), and 1.127 and 1.131 (`judy_4m`).
+  - 64-byte function alignment, which fixed the 1k find, is not a fix for #1680.
+- **Not measured.** Why N mispredicts more here, and at which branches. A `perf record` of `br_misp_retired.all_branches` on the get phase would name them.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -435,4 +507,18 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref counters
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_find_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_find_counters_ref_run1 /var/tmp/stressng-eval/results/diag_find_counters_ref_run2
+```
+
+The phase-counter diagnostic needs `perf`, `cc` and the N64 library at `$SNG_D/expcompat-6ec29a656-fa64/lib` (the layout diagnostic's `scripts/build_layout_lib.sh`), and runs with the mode `phase`:
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref phase
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref phase
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_phase_counters_ref_run1 /var/tmp/stressng-eval/results/diag_phase_counters_ref_run2
 ```
