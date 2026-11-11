@@ -930,6 +930,14 @@
       "suite": "patricia_comparison"
     },
     {
+      "name": "hashbrown_comparison",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "ExpanseMap vs hashbrown (foldhash) vs BTreeMap through `docs/benchmarks/hashbrown_comparison/scripts/run_all.py --skip-ycsb`: the native, tail-latency, key-distribution and memory pillars, one process per round with BCa intervals and paired per-round ratios; writes `results/baseline_*.json`.",
+      "suite": "hashbrown_comparison"
+    },
+    {
       "name": "patricia_d2_paging",
       "available": true,
       "kind": "counters",

@@ -116,6 +116,62 @@ fn sync_set_remove_keeps_branch_u_above_its_floor() {
 /// Keys that put a `BranchU` below the top of the tree: two top digits (a
 /// linear root branch), 200 level-7 digits under each (a `BranchU` apiece),
 /// and two keys under each level-7 digit (a two-key immediate). 800 keys.
+/// The exclusive map removal reads a `BranchU`'s live slots from a lower
+/// bound kept in its header (#1679), and inserts never move that bound. A
+/// root of 256 one-key digits is drained with refills between the removals,
+/// so the bound falls below the live slots; the tree validates after every
+/// step (the validator rejects a bound above the live slots and a branch at
+/// or below its floor), and the branch is demoted once 160 digits remain.
+#[test]
+fn map_remove_lower_bound_survives_refills() {
+    let mut map = ExpanseMap::new();
+    let key = |d: u64| (d << 56) | 0x00AB_CDEF;
+    for d in 0..256u64 {
+        map.insert(key(d), d);
+    }
+    assert_eq!(
+        map.stats().node_counts.branch_u,
+        1,
+        "precondition: an uncompressed root"
+    );
+    let mut live: Vec<bool> = vec![true; 256];
+    let mut x = 0x2545_F491_4F6C_DD1Du64;
+    let mut demoted_at = None;
+    for step in 0..2_000u32 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let d = (x % 256) as usize;
+        // Three removals for every refill, so the population drains.
+        if x.is_multiple_of(4) {
+            if !live[d] {
+                map.insert(key(d as u64), d as u64);
+                live[d] = true;
+            }
+        } else if live[d] {
+            assert_eq!(map.remove(key(d as u64)), Some(d as u64), "step {step}");
+            live[d] = false;
+        }
+        map.validate_defensive()
+            .unwrap_or_else(|e| panic!("step {step}: {e}"));
+        let n = live.iter().filter(|&&l| l).count();
+        if demoted_at.is_none() && map.stats().node_counts.branch_u == 0 {
+            demoted_at = Some(n);
+        }
+        if n < 100 {
+            break;
+        }
+    }
+    assert_eq!(
+        demoted_at,
+        Some(expanse_trie::types::BRANCHU_TO_B_DOWN),
+        "the root is demoted when the removal reaches the floor"
+    );
+    for d in 0..256u64 {
+        assert_eq!(map.get(key(d)), live[d as usize].then_some(d), "digit {d}");
+    }
+}
+
 fn deep_keys() -> Vec<u64> {
     let mut keys = Vec::new();
     for top in [0x11u64, 0x22] {

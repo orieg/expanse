@@ -1382,6 +1382,11 @@ unsafe fn null_branch_u_slot<T, R>(
     // SAFETY: the slot is inside the locked, EBR-live branch, and this
     // writer is its one writer until the unlock.
     unsafe { Edge::store_at::<true>(edge_ptr, Edge::NULL) };
+    // The exclusive map walks keep a lower bound on the non-null slots
+    // (#1679); this null would leave it one too high, and 0 is a bound for
+    // every branch.
+    // SAFETY: as for the store above.
+    unsafe { BranchU::set_digits_lower::<true>(branch, 0) };
     // SAFETY: as for the store above. The count changes under the lock and
     // the unlock below advances the version, so a writer that read the old
     // count before its own lock fails that lock (step 2).
@@ -21426,6 +21431,39 @@ mod tests {
         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
         unsafe { alloc.bind_tree_word(core::ptr::from_ref(word)) };
         alloc.cover_root();
+    }
+
+    /// The optimistic removal nulls `BranchU` slots outside the exclusive
+    /// walk, so it resets the walk's lower bound on the live slots (#1679).
+    /// An exclusive removal sets the bound, 40 optimistic removals then
+    /// null slots in place, and the exclusive removals after them must
+    /// still see a bound at or below the live slots: the validator rejects
+    /// one above them, and so does the walk's own debug assertion.
+    #[test]
+    fn optimistic_branch_u_null_resets_the_lower_bound() {
+        let map = SyncExpanseMap::new();
+        let key = |d: u64| (d << 56) | 0x00AB_CDEF;
+        for d in 0..256u64 {
+            map.insert(key(d), d);
+        }
+        assert_eq!(
+            map.with_locked(|m| m.stats().node_counts.branch_u),
+            1,
+            "precondition"
+        );
+        let exclusive = |k| map.shared.remove_root_covered(|m| m.remove_shared(k));
+        assert_eq!(exclusive(key(0)), Some(0));
+        for d in 1..41u64 {
+            assert_eq!(map.remove(key(d)), Some(d));
+        }
+        for d in 41..60u64 {
+            assert_eq!(exclusive(key(d)), Some(d));
+            map.with_locked(|m| m.validate_defensive())
+                .unwrap_or_else(|e| panic!("digit {d}: {e}"));
+        }
+        for d in 0..256u64 {
+            assert_eq!(map.get(key(d)), (d >= 60).then_some(d), "digit {d}");
+        }
     }
 
     /// Wraps a test key. These are literals and generated keys the tests know
