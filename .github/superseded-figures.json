@@ -1419,8 +1419,8 @@
         "zipfian",
         "uniform"
       ],
-      "replacement": "docs/benchmarks/hashbrown_comparison/results/baseline_distributions.json and _run2 at 99d5b5ff: lookup Expanse/hashbrown in draw order clustered 1.938x [1.920, 1.965], sequential 1.532x [1.516, 1.556], zipfian 0.691x [0.669, 0.707], uniform 0.504x [0.497, 0.522]; with shuffled probes 0.643x, 0.607x, 0.472x, 0.476x; Expanse/BTreeMap draw order 7.998x, 5.749x, 5.938x, 4.232x",
-      "provenance": "commit 99d5b5ff, docs/benchmarks/hashbrown_comparison/results/baseline_distributions.json",
+      "replacement": "docs/benchmarks/hashbrown_comparison/results/baseline_distributions.json and _run2 at 4659016f: lookup Expanse/hashbrown in draw order clustered 1.919x [1.888, 1.957], sequential 1.384x [1.339, 1.421], zipfian 0.666x [0.633, 0.691], uniform 0.501x [0.495, 0.510]; with shuffled probes 0.639x, 0.602x, 0.467x, 0.480x; Expanse/BTreeMap draw order 8.085x, 5.433x, 5.978x, 4.261x",
+      "provenance": "commit 4659016f, docs/benchmarks/hashbrown_comparison/results/baseline_distributions.json",
       "rationale": "One in-process pass at 7d87dff7 with unseeded Zipfian keys and no rounds or interval; re-measured as 9 one-process rounds per run, two runs"
     },
     {
