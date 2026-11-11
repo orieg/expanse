@@ -402,6 +402,49 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 - The other counters are reported with their intervals and name which level of the hierarchy moved. They carry no verdict of their own.
 - A share names where the cycles went, not why the engine spends them. N64 against N says whether the layout matters on these phases, as it does on the 1k find.
 
+### Phase result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, perf 6.8.12, harness `bbeab35a8`, analysis `4cb8bb6cb`; artifacts `results/diagnostic_phase_counters_ref_run{1,2}.json`) (workloads: phase_sm_default, phase_sm_big, phase_judy_4m)
+
+**Hygiene.** Run 1 01:33:33–01:35:03 UTC and run 2 01:35:03–01:36:34, each under the bench lock.
+- 432 processes per run. One process of run 1 was discarded by the library A/B's rule, and none of run 2.
+- Max load1 was 0.80 and 0.96 against a void limit of 12.
+- Two earlier launches stopped in the preflight before anything was timed (`8b0cabeae` and `bbeab35a8` fixed them, as the design section records).
+- The first analysis stopped on a pair with zero counts in an arm (an L3 miss on the cache-resident `sm_default` array). `4cb8bb6cb` reports such a pair by its means with no interval; the raw rows are unchanged.
+
+**Reading.** The sparsematrix gets read FRONT-END and the 4 Mi inserts read MIXED. Per-operation means are below, with N/S over both runs.
+
+| Shape | Counter | N per op | S per op | N/S run 1 | N/S run 2 |
+|---|---|---|---|---|---|
+| `sm_default` | `cycles` | 181.9 | 120.4 | 1.5109 [1.5082, 1.5138] | 1.5105 [1.5079, 1.5130] |
+| `sm_default` | `instructions` | 281.9 | 275.9 | 1.0217 (bc) | 1.0217 (bc) |
+| `sm_default` | `br_misp_retired.all_branches` | 3.117 | 0.4891 | 6.3738 [6.3570, 6.3886] | 6.3953 [6.3793, 6.4118] |
+| `sm_default` | `idq_uops_not_delivered.core` | 469.8 | 54.36 | 8.6422 [8.5723, 8.7202] | 8.6266 [8.5483, 8.6929] |
+| `sm_default` | `cycle_activity.stalls_l1d_miss` | 2.474 | 0.9108 | 2.7161 [2.5561, 2.9190] | 2.6542 [2.5016, 2.8774] |
+| `sm_big` | `cycles` | 250.5 | 179.0 | 1.3995 [1.3976, 1.4014] | 1.3962 [1.3934, 1.3981] |
+| `sm_big` | `instructions` | 279.2 | 266.8 | 1.0468 (bc) | 1.0468 (bc) |
+| `sm_big` | `br_misp_retired.all_branches` | 2.312 | 0.5229 | 4.4212 [4.4150, 4.4267] | 4.4255 [4.4197, 4.4309] |
+| `sm_big` | `idq_uops_not_delivered.core` | 472.9 | 52.4 | 9.0250 [8.9863, 9.0490] | 8.9680 [8.8468, 9.0158] |
+| `sm_big` | `cycle_activity.stalls_l1d_miss` | 28.17 | 31.85 | 0.8842 [0.8750, 0.8939] | 0.8802 [0.8706, 0.8930] |
+| `judy_4m` | `cycles` | 189.5 | 167.4 | 1.1315 [1.1227, 1.1404] | 1.1328 [1.1225, 1.1410] |
+| `judy_4m` | `instructions` | 661.7 | 783.7 | 0.8443 (bc) | 0.8443 (bc) |
+| `judy_4m` | `br_misp_retired.all_branches` | 0.1748 | 0.1514 | 1.1539 [1.1501, 1.1591] | 1.1530 [1.1470, 1.1584] |
+| `judy_4m` | `idq_uops_not_delivered.core` | 68.77 | 37.70 | 1.8240 [1.8063, 1.8400] | 1.8163 [1.8037, 1.8307] |
+| `judy_4m` | `cycle_activity.stalls_l1d_miss` | 8.240 | 4.568 | 1.8040 [1.6284, 1.9680] | 1.9085 [1.7034, 2.0713] |
+
+- **Sparsematrix gets: FRONT-END on both sizes.**
+  - The front-end share of N's extra cycles is 1.125 and 1.124 at `sm_default` and 0.980 and 0.986 at `sm_big`. The memory share is 0.024–0.025 and −0.054 to −0.052.
+  - N retires about stock's instructions (1.02× and 1.05×) and mispredicts 6.4× and 4.4× as many branches: 2.6 and 1.8 extra mispredictions per get.
+  - The issue slots left empty after a misprediction, while the front end refetches, count in `idq_uops_not_delivered.core`. That is why the front-end share can exceed 1, and why it names the stage the cycles go to rather than the cause.
+  - That mispredictions drive these gets is consistent with the counters but not established by them. No instrument here splits the empty slots by what emptied them.
+  - Memory does not explain the gap: at `sm_big` N's L1D-miss stall cycles are 0.88× stock's.
+- **4 Mi inserts: MIXED.** N retires 0.84× stock's instructions and takes 1.13× its cycles. The memory share is 0.167 and 0.188 and the front-end share 0.233 and 0.230. N's L1D-miss stall cycles are 1.80–1.91× stock's, its empty slots 1.82×, and its mispredictions 1.15×. No single stage carries half the difference.
+- **Alignment does not move these phases.**
+  - N64/N cycles are 0.9894–0.9982, every interval inside [0.98, 1.02].
+  - N64/S cycles are 1.495 and 1.496 (`sm_default`), 1.389 and 1.392 (`sm_big`), and 1.127 and 1.131 (`judy_4m`).
+  - 64-byte function alignment, which fixed the 1k find, is not a fix for #1680.
+- **Not measured.** Why N mispredicts more here, and at which branches. A `perf record` of `br_misp_retired.all_branches` on the get phase would name them.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
