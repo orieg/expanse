@@ -809,6 +809,47 @@ Every other counter's interval is in the artifacts. The taken-branch counts are 
   That is the pattern of the plain-tree allocator accounting in `crates/expanse/src/alloc.rs` at D's commit: `bytes_in_use` (`fetch_add`/`fetch_sub` of the size), `live_allocs` (±1) and `total_allocs` (+1), each an atomic read-modify-write. The match is by operation pattern; the offsets were not checked against the struct layout. No sampled instruction is a `rep` string instruction (share 0.000 at both sizes), so the `rep movsb` hypothesis is REFUTED. Stock issues almost no microcode on these phases: 38 samples at 1 Ki, mostly in the probe's `read`/`write` system calls, and none at 4 Mi.
 - **Not priced here.** A locked read-modify-write costs more than its microcode switch. Its own latency and ordering are back-end costs, which these front-end counters do not measure. Whether the plain-tree accounting atomics cost delete cycles beyond the 4.6% is **unmeasured**. Who reads these counters, and what gating them would remove, is the audit AGENTS.md §8.22.1 asks for first (#930).
 
+## Diagnostic: unlocked accounting on the delete phase
+
+**A diagnostic ablation, not a pre-registered result and not a shippable change** (#1679). METHODOLOGY.md does not cover it, and nothing below changes a verdict above.
+
+**Question.** The attribution above puts D's microcode uops on the plain tree's locked accounting updates. What do those `lock` prefixes cost the delete phase in all, back end included?
+
+**Build.** Both libraries come from this section's commit, which adds the diagnostic feature `ablation-unlocked-plain-acct` (`crates/expanse/Cargo.toml`). They are built on the reference host under the bench lock by `scripts/build_layout_lib.sh`, with no rustflags:
+- **A**, with `expanse-trie/ablation-unlocked-plain-acct`. On a plain tree's allocation path (`alloc_raw_body!`) and free path (`free_raw`) in `crates/expanse/src/alloc.rs`, `bytes_in_use`, `live_allocs` and `total_allocs` update by a relaxed load and a store instead of a locked read-modify-write. A deferred tree's sharded accounting is unchanged.
+- **D**, with no feature. This D is not the `45f83ac5e` file of the earlier delete sections. It is this commit's engine, which includes #1705, #1710 and #1714.
+
+**Controls, before the timed run, on a host that is not the reference host (none of it timed):**
+- **Default unchanged.** D's source, built with the same toolchain, reproduces a build of its parent (`e63ed38dd`) byte for byte. If it does not, report before the run.
+- **Disassembly.** `objdump -d` of A and of D:
+  - in A, `map_remove::<false, false>` and every function that inlines the plain allocation or free path carry no `lock`-prefixed instruction on the accounting words;
+  - every `lock` instruction that remains in A is listed with its function.
+
+  Dumps go in `results/acct_ablation_disasm/`.
+- **Callgrind.** Instructions per delete for A and for D: `phase_probe` under `valgrind --tool=callgrind --toggle-collect=JudyLDel`, on both shapes. `del_1k` runs at fewer repetitions. A's count may rise, since a locked update becomes a load, an add and a store. For a diagnostic that rise is not a regression verdict.
+
+**Cells and instrument** (`run.sh <run> ref phase_delete_acct`, which runs `scripts/diag_phase_counters.py` with `SNG_PHASE_SET=delete_acct`):
+- **Shapes.** `del_1k` (10,000 × 1,024 deletes) and `del_4m` (4,194,304 deletes), as in the delete-phase sections above.
+- **Arms.** A, D and S (stock), differing only in `LD_LIBRARY_PATH`. The harness stops if A and D are the same file.
+- **Counters.** One user-mode `cpu_core` group: `cycles`, `instructions`, `slots`, `idq_uops_not_delivered.core`, `cycle_activity.stalls_total` and `br_inst_retired.near_taken`.
+- **Wall clock.** The phase's wall clock is `phase_ns`, the probe's own `CLOCK_MONOTONIC` time summed over the counted delete passes.
+- **Rounds.** 12 rounds per run, cycling through the six orders of the three arms, and two runs. The preflight runs on `del_4m`, arm D.
+- **Rules carried over.** The load windows and the discard and void rules are the phase-counter diagnostic's.
+- **Intervals.** `scripts/diag_phase_counters_analyze.py` writes `results/diagnostic_delete_acct_ref_run{1,2}.json`, with two-sample BCa 95% intervals on A/D, A/S and D/S for every counter and for `phase_ns`.
+
+**Reading rule, per shape, on `cycles`, over both runs** (`acct_reading` in the analyzer). Per run, the share is (D − A) / (D − S), on the arms' mean cycles: the part of D's cycle excess over stock that A removes.
+- **MATTER:** A/D's upper bound is below 1, and the share is at least 0.25, in both runs. The locked counters carry at least 0.25 of D's excess over stock. The 0.25 bar is the share the earlier front-end rules used to name a resource.
+- **SMALL:** A/D's upper bound is below 1 in both runs, and the share is below 0.25 in a run.
+- **NO EFFECT:** A/D's interval contains 1 in both runs.
+- **SLOWER:** A/D's lower bound is above 1 in both runs.
+- **MIXED:** any other combination.
+- **Wall clock.** The phase wall clock's A/D is read for its side of 1 in the same way. A run where it lies on another side than the cycle ratio is reported as WALL DISAGREES, never reinterpreted.
+- **Against stock.** BELOW STOCK if A/S's upper bound is below 1 in both runs, ABOVE STOCK if its lower bound is above 1 in both, otherwise NOT SEPARATED FROM STOCK.
+
+**Expected** (projected, not derived): A/D below 1 at both shapes. No size is predicted. The microcode-switch share above (0.046 of D's excess at 1 Ki, 0.014 at 4 Mi) bounds only the front-end part of the locked instructions' cost. Their back-end cost is what this run measures.
+
+**What the result does not decide.** Whether a shippable form exists is a separate decision. The counters are public: `NodeAlloc::live_allocs` and `total_allocs` in Rust, and `total_node_allocs` in the Python binding. AGENTS.md §2.6 and §8.22 apply. A MATTER reading says the `lock` prefixes cost delete cycles, not that this ablation's form is the fix.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -893,6 +934,8 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref layout
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_layout_analyze.py ref /var/tmp/stressng-eval/results/diag_layout_ref_run1 /var/tmp/stressng-eval/results/diag_layout_ref_run2
+```
+
 The phase-counter diagnostic needs `perf`, `cc` and the N64 library at `$SNG_D/expcompat-6ec29a656-fa64/lib` (the layout diagnostic's `scripts/build_layout_lib.sh`), and runs with the mode `phase`:
 
 ```bash
@@ -905,6 +948,8 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref phase
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_phase_counters_ref_run1 /var/tmp/stressng-eval/results/diag_phase_counters_ref_run2
+```
+
 The delete-fix diagnostic builds its two libraries first, from `git archive` exports of #1708's merge base and head, then runs with the mode `delete` on each host:
 
 ```bash
@@ -939,4 +984,26 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref phase_delete
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_phase_ref_run1 /var/tmp/stressng-eval/results/diag_delete_phase_ref_run2
+```
+
+The accounting ablation builds A and D from a `git archive` export of its pre-registration commit, then runs with the mode `phase_delete_acct`:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export> /var/tmp/stressng-eval/expcompat-1679acct-A/lib "" ablation-unlocked-plain-acct
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export> /var/tmp/stressng-eval/expcompat-1679acct-D/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref phase_delete_acct
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref phase_delete_acct
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_acct_ref_run1 /var/tmp/stressng-eval/results/diag_delete_acct_ref_run2
 ```

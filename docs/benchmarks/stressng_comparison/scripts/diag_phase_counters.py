@@ -38,8 +38,14 @@ SET = os.environ.get("SNG_PHASE_SET", "gets")
 # groups (README.md, "Diagnostic: front-end resource on the delete phase");
 # `delete_ms` has the taken-branch and microcode groups (README.md,
 # "Diagnostic: taken branches and microcode on the delete phase").
-if SET in ("delete", "delete_fe", "delete_ms"):
+# `delete_acct` is the accounting ablation (README.md, "Diagnostic: unlocked
+# accounting on the delete phase"): A and D, one commit built with and without
+# `ablation-unlocked-plain-acct`, against stock.
+if SET in ("delete", "delete_fe", "delete_ms", "delete_acct"):
     ARMS = {"D": f"{driver.D}/expcompat-45f83ac5e/lib", "S": driver.ARMS["S"]}
+    if SET == "delete_acct":
+        ARMS = {"A": f"{driver.D}/expcompat-1679acct-A/lib", "D": f"{driver.D}/expcompat-1679acct-D/lib",
+                "S": driver.ARMS["S"]}
     # (shape, repeats of the measured phase, measured operations per process)
     # 10,000 repetitions: at 1,000 a process lasted 0.085 s, under the load
     # window's minimum (`bench_provenance.MIN_WINDOW_S`, 0.1 s), and every
@@ -74,6 +80,9 @@ elif SET == "delete_ms":
         "dsb": ["idq.dsb_cycles_any", "idq.dsb_cycles_ok", "idq.dsb_uops", "uops_issued.any"],
         "fe": ["slots", "idq_uops_not_delivered.core", "br_inst_retired.all_branches", "idq.mite_uops"],
     }
+elif SET == "delete_acct":
+    GROUPS = {"acct": ["slots", "idq_uops_not_delivered.core", "cycle_activity.stalls_total",
+                       "br_inst_retired.near_taken"]}
 GP_EXEMPT = {"slots"}
 PROBE = None
 
@@ -107,7 +116,16 @@ def perf_phase(events, shape, repeats, arm, base):
     if rc != 0 or not Path(base + ".csv").exists():
         sys.exit(f"STOP: perf/probe exited {rc} for {shape} {events} on arm {arm}: "
                  f"{Path(base + '.log').read_text()[-800:]}")
-    return wall, ru, dfc.read_csv(base + ".csv")
+    rows = dfc.read_csv(base + ".csv")
+    if SET == "delete_acct":
+        # The probe's own clock over the counted delete passes, kept beside
+        # the counters as the phase's wall clock (`phase_probe.c`).
+        ns = [ln.split()[1] for ln in Path(base + ".log").read_text().splitlines()
+              if ln.startswith("phase_ns ")]
+        if len(ns) != 1 or int(ns[0]) <= 0:
+            sys.exit(f"STOP: no phase_ns line from the probe for {shape} on arm {arm}")
+        rows["phase_ns"] = (float(ns[0]), 100.0)
+    return wall, ru, rows
 
 
 def preflight(outdir):
@@ -144,6 +162,8 @@ def main():
             sys.exit(f"STOP: arm {arm} did not map libexpanse from {ARMS[arm]}: {proof}")
     if any("expanse" in x for x in proof["S"]):
         sys.exit(f"STOP: arm S mapped an Expanse object: {proof}")
+    if SET == "delete_acct" and driver.sha256(f"{ARMS['A']}/libJudy.so.1") == driver.sha256(f"{ARMS['D']}/libJudy.so.1"):
+        sys.exit("STOP: arms A and D are the same file, so the feature did not build in")
     prov = bp.new_provenance(
         "stressng_comparison", 1679 if SET.startswith("delete") else 1680,
         "N/S, N64/S and N64/N: the ratio of two arms' means of one user-mode counter over the "
@@ -175,7 +195,8 @@ def main():
                     rec = dict(run=run, round=rnd, cell=shape, group=g, arm=arm, order="".join(arms),
                                rc=0, failed=False, wall=wall, ops=ops,
                                own_cpu=ru.ru_utime + ru.ru_stime, load=load,
-                               counters={e: rows[e][0] for e in FIXED + GROUPS[g]})
+                               counters={e: rows[e][0] for e in FIXED + GROUPS[g]
+                                         + (["phase_ns"] if SET == "delete_acct" else [])})
                     out.write(json.dumps(rec) + "\n")
                     out.flush()
             print(f"{time.strftime('%H:%M:%S')} round {rnd} done", flush=True)

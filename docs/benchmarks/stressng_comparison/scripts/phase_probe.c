@@ -17,6 +17,10 @@
  *               phase is the deletes, `repeats` builds each followed by its
  *               counted delete pass, so each array is as warm as stress-ng's.
  *   del_4m      the same at 4,194,304 keys, once (`repeats` is 1).
+ *               Both delete shapes also print `phase_ns`, the CLOCK_MONOTONIC
+ *               time summed over the counted delete passes, read inside the
+ *               enable/disable bracket so the perf control round trips are
+ *               outside it (#1679, the accounting ablation).
  *
  * The draws come from splitmix64, not stress-ng's mwc32, so the keys follow
  * the stressor's distribution and not its exact sequence. Every arm draws
@@ -26,12 +30,17 @@
  * them just before the measured phase and disables them just after. Built
  * against this repository's clean-room include/Judy.h, and linked against
  * whichever libJudy.so.1 the dynamic loader finds.
+ *
+ * Passing `-` for both fifos runs without perf control, for a run under
+ * Callgrind, which brackets the phase by function instead.
  */
+#define _POSIX_C_SOURCE 200809L
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "Judy.h"
@@ -51,6 +60,8 @@ static int ctl_fd = -1, ack_fd = -1;
 static void perf_ctl(const char *cmd)
 {
 	char ack[8];
+	if (ctl_fd < 0)
+		return;
 	if (write(ctl_fd, cmd, strlen(cmd)) < 0 || read(ack_fd, ack, sizeof(ack)) <= 0) {
 		fprintf(stderr, "STOP: perf control '%s' failed\n", cmd);
 		exit(3);
@@ -142,6 +153,8 @@ static int judy_delete(uint64_t n, long repeats)
 	uint64_t i;
 	int rc;
 	long r;
+	struct timespec t0, t1;
+	uint64_t phase_ns = 0;
 
 	for (r = 0; r < repeats; r++) {
 		for (i = 0; i < n; i++) {
@@ -151,16 +164,21 @@ static int judy_delete(uint64_t n, long repeats)
 			*pv = i;
 		}
 		perf_ctl("enable\n");
+		clock_gettime(CLOCK_MONOTONIC, &t0);
 		for (i = n; i-- > 0;) {
 			JLD(rc, a, (Word_t)gen_index(i));
 			if (rc != 1)
 				return 2;
 		}
+		clock_gettime(CLOCK_MONOTONIC, &t1);
 		perf_ctl("disable\n");
+		phase_ns += (uint64_t)(t1.tv_sec - t0.tv_sec) * 1000000000ULL
+			+ (uint64_t)t1.tv_nsec - (uint64_t)t0.tv_nsec;
 		if (a != NULL)
 			return 2;
 	}
 	printf("deleted %lu x %ld\n", (unsigned long)n, repeats);
+	printf("phase_ns %llu\n", (unsigned long long)phase_ns);
 	return 0;
 }
 
@@ -173,10 +191,16 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	repeats = strtol(argv[2], NULL, 10);
-	ctl_fd = open(argv[3], O_WRONLY);
-	ack_fd = open(argv[4], O_RDONLY);
-	if (ctl_fd < 0 || ack_fd < 0 || repeats < 1) {
-		fprintf(stderr, "STOP: cannot open perf control fifos or bad repeats\n");
+	if (strcmp(argv[3], "-") != 0 || strcmp(argv[4], "-") != 0) {
+		ctl_fd = open(argv[3], O_WRONLY);
+		ack_fd = open(argv[4], O_RDONLY);
+		if (ctl_fd < 0 || ack_fd < 0) {
+			fprintf(stderr, "STOP: cannot open perf control fifos\n");
+			return 1;
+		}
+	}
+	if (repeats < 1) {
+		fprintf(stderr, "STOP: bad repeats\n");
 		return 1;
 	}
 	if (strcmp(argv[1], "sm_default") == 0)

@@ -4,20 +4,27 @@
 # layout-only builds"): build.sh's libexpanse build, with RUSTFLAGS as given
 # and nothing else changed, laid out as build.sh lays out expcompat/lib.
 #
-#   build_layout_lib.sh <source_dir> <dest_lib_dir> [rustflags]
+#   build_layout_lib.sh <source_dir> <dest_lib_dir> [rustflags] [trie_features]
 #
 # The source dir is a `git archive` of the commit to build. An empty rustflags
 # builds the source as build.sh does, which is the control that the toolchain
-# reproduces the measured file byte for byte.
+# reproduces the measured file byte for byte. `trie_features` names
+# `expanse-trie` features to build in (comma-separated, e.g. the #1679
+# accounting ablation's `ablation-unlocked-plain-acct`); empty builds none.
 # ==============================================================================
 set -euo pipefail
 SRC="${1:?source dir}"
 DEST="${2:?destination lib dir}"
 FLAGS="${3:-}"
+FEATURES="${4:-}"
+FEAT_ARGS=()
+if [ -n "${FEATURES}" ]; then
+  FEAT_ARGS=(--features "$(echo "${FEATURES}" | sed 's/[^,]*/expanse-trie\/&/g')")
+fi
 export PATH="${HOME}/.cargo/bin:${PATH}"
 TARGET="${DEST%/lib}-target"
 (cd "${SRC}" && EXPANSE_LINK_SONAME=1 CARGO_TARGET_DIR="${TARGET}" RUSTFLAGS="${FLAGS}" \
-  cargo build -q --release -p expanse-capi)
+  cargo build -q --release -p expanse-capi ${FEAT_ARGS[@]+"${FEAT_ARGS[@]}"})
 mkdir -p "${DEST}"
 cp "${TARGET}/release/libexpanse.so" "${DEST}/libexpanse.so.1.0.0"
 ln -sf libexpanse.so.1.0.0 "${DEST}/libexpanse.so.1"

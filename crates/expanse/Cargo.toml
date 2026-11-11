@@ -170,6 +170,14 @@ collector-census = ["std"]
 # arrays) and so changes memory and the reallocation schedule: never enable
 # it for a published benchmark outside the #1257 comparison.
 ablation-leaf-class-10 = []
+# Diagnostic-only (Refs #1679): a plain tree's three accounting counters
+# (`bytes_in_use`, `live_allocs`, `total_allocs`) update by a relaxed load and
+# store instead of a locked read-modify-write, on the allocation and free paths
+# only. Measures what the `lock` prefix costs the single-writer delete path.
+# A deferred tree's sharded accounting is unchanged. Two threads using one
+# plain allocator would lose updates, which the plain path already forbids;
+# never enable it outside that measurement.
+ablation-unlocked-plain-acct = []
 
 
 [dependencies]
