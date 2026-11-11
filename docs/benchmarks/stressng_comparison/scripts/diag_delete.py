@@ -5,7 +5,7 @@ A diagnostic outside METHODOLOGY.md's pre-registration (#1679). Three arms run
 the same stress-ng binary and judy stressor and differ only in
 `LD_LIBRARY_PATH`:
 - B: libexpanse built at #1708's merge base (`99ef70855`);
-- D: libexpanse built at #1708's head (`dd12b6e0e`), the removal-only lower
+- D: libexpanse built at #1708's head (`45f83ac5e`), the removal-only lower
   bound on a `BranchU`'s live slots;
 - S: stock libJudy.
 
@@ -29,7 +29,7 @@ import driver
 
 bp = driver.bp
 ARMS = {"B": f"{driver.D}/expcompat-99ef70855/lib",
-        "D": f"{driver.D}/expcompat-dd12b6e0e/lib",
+        "D": f"{driver.D}/expcompat-45f83ac5e/lib",
         "S": driver.ARMS["S"]}
 ORDERS = list(itertools.permutations(ARMS))
 ROUNDS = int(os.environ.get("SNG_DELETE_ROUNDS", "12"))

@@ -382,7 +382,7 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 **Design, fixed before the builds** (`scripts/build_layout_lib.sh`, `scripts/diag_delete.py`, `run.sh <run> <host> delete`):
 - Two library files, built on the reference host by `build.sh`'s libexpanse build with no flag:
   - B: #1708's merge base (`99ef70855`);
-  - D: #1708's head (`dd12b6e0e`).
+  - D: #1708's head (`45f83ac5e`). The design first named `dd12b6e0e`. That head was replaced before any build or run because it added a null guard that #1708 then reverted, and `45f83ac5e` is the code that merges.
 
   The second host runs the same files, copied and hash-checked.
 - Three arms, the same stress-ng binary and judy stressor, differing only in `LD_LIBRARY_PATH`: B, D and S (stock). Every `sng_judy_*` cell (1 Ki, 256 Ki and 4 Mi keys at W = 1, 2, 4, 8), one process per arm per cell per round.
@@ -468,7 +468,7 @@ docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 99ef7
 ```
 
 ```bash
-docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of dd12b6e0e> /var/tmp/stressng-eval/expcompat-dd12b6e0e/lib
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 45f83ac5e> /var/tmp/stressng-eval/expcompat-45f83ac5e/lib
 ```
 
 ```bash
