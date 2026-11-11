@@ -68,6 +68,12 @@ BENCH_N_MAP: Dict[str, int] = {
     "map_range": 10_000,
     "set_range": 10_000,
     "map_iterate": 50_000,
+    "set_iterate": 50_000,
+    # The compare suite's 10,000-key iteration cells (#1687).
+    "map_iterate/random_10k": 10_000,
+    "map_iterate/sparse_10k": 10_000,
+    "set_iterate/random_10k": 10_000,
+    "set_iterate/sparse_10k": 10_000,
     # Snapshot by deep copy (#1103): keys copied.
     "map_clone": 50_000,
     "set_clone": 50_000,
@@ -445,6 +451,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map_range",
             "set_range",
             "map_iterate",
+            "set_iterate",
             "map_clone",
             "set_clone",
             "map_nav",

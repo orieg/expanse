@@ -128,6 +128,14 @@ fn keys(dist: &str) -> Vec<u64> {
         // `digit(key, 8)`, so the concurrent map's per-top-digit dirty mask
         // has one bit for the whole population.
         "one_top_byte" => out.extend((0..POP).map(|_| ONE_TOP_BYTE | (rng.next() >> 8))),
+        // `i << 40`: every key in bytes 5..7, so each byte-4 expanse holds one
+        // key and the trie ends in single-key immediates (the compare suite's
+        // `sparse` class, #270, #1687).
+        "sparse" => out.extend((0..POP as u64).map(|i| i << 40)),
+        // The compare suite's 10,000-key population (#1687), where a
+        // `BTreeMap` walks a few contiguous leaf arrays.
+        "random_10k" => return (0..COMPARE_POP).map(|_| rng.next()).collect(),
+        "sparse_10k" => return (0..COMPARE_POP as u64).map(|i| i << 40).collect(),
         // The stress-ng `judy` stressor's keys (#1666), in its insert order.
         "gen_1k" | "gen_256k" | "gen_4m" => {
             return (0..gen_pop(dist)).map(gen_index).collect();
@@ -155,6 +163,10 @@ fn gen_pop(dist: &str) -> u64 {
         other => panic!("not a gen_* distribution: {other}"),
     }
 }
+
+/// Population of the `*_10k` distributions: the compare suite's smaller
+/// population (`benches/compare.rs`).
+const COMPARE_POP: usize = 10_000;
 
 /// The top byte every `one_top_byte` key carries.
 const ONE_TOP_BYTE: u64 = 0xA5 << 56;
@@ -243,6 +255,7 @@ fn map_insert(ks: Vec<u64>) -> u64 {
 #[bench::clustered(args = ("clustered",), setup = keys)]
 #[bench::dense_leaf(args = ("dense_leaf",), setup = keys)]
 #[bench::linear_leaf(args = ("linear_leaf",), setup = keys)]
+#[bench::sparse(args = ("sparse",), setup = keys)]
 fn set_insert(ks: Vec<u64>) -> u64 {
     let mut set = ExpanseSet::new();
     for &k in &ks {
@@ -1291,8 +1304,15 @@ fn set_clone(built: (ExpanseSet, Vec<u64>)) -> u64 {
     black_box(n)
 }
 
+// Full ascending walks. The `_10k` and `sparse` arms are the compare suite's
+// iteration cells (#1687); `set_iterate` is the same walk without values.
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_map)]
+#[bench::sequential(args = ("sequential",), setup = built_map)]
+#[bench::clustered(args = ("clustered",), setup = built_map)]
+#[bench::sparse(args = ("sparse",), setup = built_map)]
+#[bench::random_10k(args = ("random_10k",), setup = built_map)]
+#[bench::sparse_10k(args = ("sparse_10k",), setup = built_map)]
 fn map_iterate(built: (ExpanseMap, Vec<u64>)) -> u64 {
     let (map, _) = built;
     let mut sink = 0u64;
@@ -1301,6 +1321,23 @@ fn map_iterate(built: (ExpanseMap, Vec<u64>)) -> u64 {
     }
     // Leaked — see `map_get`.
     core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_set)]
+#[bench::sequential(args = ("sequential",), setup = built_set)]
+#[bench::sparse(args = ("sparse",), setup = built_set)]
+#[bench::random_10k(args = ("random_10k",), setup = built_set)]
+#[bench::sparse_10k(args = ("sparse_10k",), setup = built_set)]
+fn set_iterate(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (set, _) = built;
+    let mut sink = 0u64;
+    for k in set.iter() {
+        sink ^= k;
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(set);
     black_box(sink)
 }
 
@@ -4881,6 +4918,7 @@ library_benchmark_group!(
         set_subtree_condense,
         set_subtree_condense_control,
         map_iterate,
+        set_iterate,
         map_clone,
         set_clone,
         map_nav,
