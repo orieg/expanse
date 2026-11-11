@@ -110,6 +110,10 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat
 
 - **Architectures Supported in APT Repo**:
   - `amd64` (baseline `x86-64-v1`, plus the `glibc-hwcaps` `v2`/`v3`/`v4` variants, built by `scripts/build_hwcaps.sh` in the release job and validated by `scripts/test_hwcaps.sh` — #762)
+  - Every Expanse function in the `amd64` library, baseline and `glibc-hwcaps` variants alike, starts on a 64-byte boundary.
+    - The release job builds with `-C llvm-args=-align-all-functions=6`, through `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS`, and passes it to `scripts/build_hwcaps.sh` as `EXPANSE_HWCAPS_EXTRA_RUSTFLAGS`. `scripts/check_function_alignment.py` fails the job if a function is off a boundary.
+    - Without it, the speed of the stress-ng 1 Ki find depended on where the hot code fell in its 64-byte lines (#1684; `docs/benchmarks/stressng_comparison/README.md`, "Diagnostic: layout-only builds").
+    - A packager building the x86_64 Linux library from source gets the same layout by passing the same flag.
   - `arm64` (AArch64 Apple Silicon Linux, Graviton, Raspberry Pi 4/5)
   - `riscv64` (RV64GC embedded and server systems)
 
