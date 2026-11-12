@@ -2,7 +2,7 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
@@ -31,6 +31,9 @@
 # taken-branch and microcode groups (SNG_PHASE_SET=delete_ms; diag_delete_ms_*
 # raw rows), and `ms_attribution` samples the microcode uops' instructions
 # (scripts/diag_ms_attribution.py; diag_ms_attribution_* raw files).
+# `misp_attribution` samples the mispredicted branches and L1D-missing loads
+# of the #1680 shapes on main, N (5f4892932) against S (the same script with
+# SNG_ATTR=misp; diag_misp_attribution_* raw files).
 # `phase_delete_acct` runs the accounting ablation's arms A, D and S
 # (SNG_PHASE_SET=delete_acct; diag_delete_acct_* raw rows), from the two
 # libraries scripts/build_layout_lib.sh builds with and without
@@ -114,5 +117,7 @@ case "${MODE}" in
                 "${SNG_D}/results/diag_promote2_${HOST_LABEL}_run${RUN}" ;;
   ms_attribution) SNG_PHASE_SET=delete_ms python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_ms_attribution_${HOST_LABEL}_run${RUN}" ;;
+  misp_attribution) SNG_ATTR=misp SNG_PHASE_SET=gets_main python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_misp_attribution_${HOST_LABEL}_run${RUN}" ;;
   *) echo "REFUSE: unknown mode ${MODE}" >&2; exit 2 ;;
 esac

@@ -1,0 +1,19 @@
+==25== Callgrind, a call-graph generating cache profiler
+==25== Copyright (C) 2002-2017, and GNU GPL'd, by Josef Weidendorfer et al.
+==25== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==25== Command: /o2/phase_probe sm_big 1 - -
+==25== 
+==25== For interactive control, run 'callgrind_control -h'.
+==25== brk segment overflow in thread #1: can't grow to 0x483a000
+==25== (see section Limitations in user manual)
+==25== NOTE: further instances of this message will not be shown
+hits 1000093 sink 100359
+==25== 
+==25== Events    : Ir Bc Bcm Bi Bim
+==25== Collected : 640204223 102568029 2652940 18861259 10001103
+==25== 
+==25== I   refs:      640,204,223
+==25== 
+==25== Branches:      121,429,288  (102,568,029 cond + 18,861,259 ind)
+==25== Mispredicts:    12,654,043  (  2,652,940 cond + 10,001,103 ind)
+==25== Mispred rate:         10.4% (        2.6%     +       53.0%   )

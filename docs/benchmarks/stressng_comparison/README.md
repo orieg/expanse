@@ -23,6 +23,7 @@ stress-ng's `judy` and `sparsematrix` stressors run one binary against stock lib
 ### Primary metrics (E/S, higher means Expanse is faster)
 
 **Superseded for the `sng_judy_*` rows** by [The #1679 criterion on main](#the-1679-criterion-on-main) (reference host). These rows measure libexpanse at `6ec29a656`, before #1708, #1719 and #1720. They stay as the pre-registered record; the `sparsematrix` rows are not re-measured.
+**The `sng_sm_judy_*` rows are stale for main, pending re-measurement.** #1705 changed the linear-leaf search these gets reach after `6ec29a656`. On main, sampled mispredicts per get are 1.23 and 0.67 where the phase counters counted 3.12 and 2.31 on this table's library ([Diagnostic: where the #1680 shapes mispredict and miss](#diagnostic-where-the-1680-shapes-mispredict-and-miss)).
 
 | workload | W | metric | run 1 E/S [BCa 95%] | run 2 E/S [BCa 95%] | verdict |
 |---|---|---|---|---|---|
@@ -1182,6 +1183,97 @@ Every pre-registered target and bound holds in both runs, on the phase clock and
 ### Main result (second host)
 
 **Zen 5 pending: host busy with ExpanseDB CI.** Two pre-checks, at 10:34 and 10:53 UTC, found that host's CI job containers running. By the design's terms nothing runs beside them, so nothing was staged or changed there. The criterion therefore stands as measured on the reference host only, and #1679's two-host condition is not yet tested on main.
+
+## Diagnostic: Callgrind ranking of the #1680 shapes
+
+**A diagnostic, not a pre-registered result** (#1680). It ranks where Expanse's instructions go on the sparsematrix gets and the 4 Mi `judy` inserts, the two shapes the phase counters above found slower than stock, and asks whether the gap is in the instruction count.
+
+**Instruments:**
+- **Bench arms.** `crates/expanse/benches/instructions.rs` (workload `core_instructions`) at `bf4cc6dd9`, run unfiltered with `--callgrind-args=--branch-sim=yes` and line tables (`CARGO_PROFILE_BENCH_DEBUG=1`), with CI's rustc 1.99.1 and iai-callgrind-runner 0.16.1 in an Ubuntu 24.04 image. The arms are `map_get_slot_ptr/sm_*` (#1702), `map_get/sm_*` and `map_ins_slot/gen_4m`, with `map_get/random` and `map_ins_slot/random` for context. A function's cost is its `callgrind_annotate --inclusive=no` rows summed over the source files its inlined code is attributed to.
+- **Through the C ABI.** `scripts/phase_probe.c` under `valgrind --tool=callgrind --branch-sim=yes`, collecting inside `JudyLGet` (`sm_default`, `sm_big`) or `JudyLIns` (`judy_4m`) only. It is linked in turn against the suite's own files: N, libexpanse at `5f4892932` (sha256 `3734ffc9…`), and S, stock (`76f121a8…`). The sm shapes collect every get the probe makes, the build's lookups and both get phases: 30,000 and 3,000,000 calls.
+- **The branch model is Callgrind's.** `Bcm` and `Bim` are mispredicts of its simple predictor, not of the hardware's.
+
+### Callgrind result
+
+(measured: Callgrind 3.22.0 in an Ubuntu 24.04 container, rustc 1.99.1, bench arms at `bf4cc6dd9`, probe linked against N `3734ffc9…` and S `76f121a8…`; artifacts `results/callgrind_1680/`, tables from `scripts/callgrind_1680_summary.py` in `results/callgrind_1680/summary.txt`) (workloads: core_instructions, phase_sm_default, phase_sm_big, phase_judy_4m)
+
+**Through the C ABI, per call, N against S.** `Bc` and `Bi` are conditional and indirect branches executed:
+
+| Shape | Ir N/S | `Bc` S → N | `Bi` S → N | `Bcm` S → N | `Bim` S → N |
+|---|---|---|---|---|---|
+| `sm_default` gets | 215.2 / 224.4 = 0.959 | 18.83 → 37.75 | 3.02 → 5.95 | 0.562 → 1.528 | 3.021 → 2.985 |
+| `sm_big` gets | 213.4 / 213.8 = 0.998 | 17.73 → 34.19 | 2.01 → 6.29 | 0.564 → 0.884 | 2.014 → 3.334 |
+| `judy_4m` inserts | 645.8 / 761.5 = 0.848 | 45.75 → 89.43 | 4.55 → 8.04 | 0.440 → 1.786 | 4.083 → 4.572 |
+
+- **The gap is not the instruction count.** N executes 0.96×, 1.00× and 0.85× stock's instructions per call. The phase counters above count 1.02×, 1.05× and 0.84× on the hardware, the probe's own loop included.
+- **N executes about twice stock's branches.** It executes 1.93–2.01× the conditional branches and 1.77–3.12× the indirect ones.
+- **The simulated mispredicts do not reproduce the hardware's ratio.** Callgrind gives N 1.57–4.06× stock's conditional mispredicts. The phase counters measured `br_misp_retired.all_branches` at 6.4× (`sm_default`), 4.4× (`sm_big`) and 1.15× (`judy_4m`). Which of N's branches mispredict on the hardware is therefore not read from this model; the next diagnostic samples them.
+
+**Inside Expanse, per operation, bench arms:**
+
+| Arm | Ir/op | Ranked functions (share of Ir, Ir/op) | `Bim`/op |
+|---|---|---|---|
+| `map_get_slot_ptr/sm_10k` | 229.9 | `get::locate_slot_popcnt` 64.6%, 148.5; `leaf::search` 26.3%, 60.4; the arm's loop 9.1%, 21.0 | 3.023 |
+| `map_get_slot_ptr/sm_1m` | 228.6 | `get::locate_slot_popcnt` 68.1%, 155.7; `leaf::search` 22.7%, 51.9; the arm's loop 9.2%, 21.0 | 3.343 |
+| `map_get/random` (context) | 125.3 | `get::get_map_popcnt` 70.3%, 88.1; the arm's loop 16.8%, 21.0; `leaf::search` 12.9%, 16.2 | 3.000 |
+| `map_ins_slot/gen_4m` | 634.3 | `map_insert_with_path_flat::<true>` 73.7%, 467.5, and its recursive instance 4.8%, 30.6; the arm's loop 6.9%, 44.0; glibc `memset`, `_int_malloc`, `memcpy` 8.7%, 55.9; `upgrade_b_to_u` 1.2%, 7.7 | 4.568 |
+| `map_ins_slot/random` (context) | 505.6 | `map_insert_with_path_flat::<true>` 57.0%, 288.3, and its recursive instance 8.5%, 42.9; glibc `memset`, `memcpy`, `_int_malloc` 13.2%, 66.6; `build_map_leaf` 5.6%, 28.3 | 2.938 |
+
+- **Gets.** The C-ABI walk `locate_slot_popcnt` holds 64.6–68.1% of the instructions, and every simulated indirect mispredict falls at its per-level tag dispatch (`match tag`). The leaf search holds 22.7–26.3%, 51.9–60.4 instructions per get against 16.2 on `random`.
+- **4 Mi inserts.** `map_insert_with_path_flat` holds 78.5% with its recursive instance, and its tag dispatch holds 4.56 of the 4.57 simulated indirect mispredicts per insert. Allocation, zeroing and copying in glibc hold 8.7%.
+- **Not measured here.** Which of these branches mispredict on the hardware, and which loads miss.
+
+## Diagnostic: where the #1680 shapes mispredict and miss
+
+**A diagnostic, not a pre-registered result** (#1680). The phase counters found the sparsematrix gets FRONT-END with 4.4–6.4× stock's `br_misp_retired.all_branches`, and the 4 Mi inserts MIXED with 1.80–1.91× stock's L1D-miss stall cycles. This samples which instructions those events land on.
+
+**Design, fixed before the run** (`scripts/diag_ms_attribution.py` with `SNG_ATTR=misp`, `run.sh <run> ref misp_attribution`):
+- **Arms.** N, libexpanse at `5f4892932` (sha256 `3734ffc9…`), the library of "The #1679 criterion on main", and S, stock (`SNG_PHASE_SET=gets_main`).
+- **Shapes.** The phase-counter diagnostic's: `sm_default` (200 repetitions, 4,000,000 gets), `sm_big` (2,000,000 gets) and `judy_4m` (4,194,304 inserts).
+- **Sampling.** Per (shape, arm) two `phase_probe` processes under `perf record`, sampling user-mode `cpu_core` events with precise attribution (`upp`), period 503, enabled only around the measured phase:
+  - `br_misp_retired.all_branches`, which names the mispredicted branch;
+  - `mem_load_retired.l1_miss`, which names the load that missed L1D.
+- **Runs.** Two runs on the reference host under the host bench lock and the comparison's pin. One process per cell and run: a census of where the samples land, with no interval.
+- **Source lines.** The release library has no line tables. N's sampled addresses are mapped to source through a twin built from `5f4892932` with line tables, at N's build paths, by function name and offset within the function. A sampled function is mapped only if the twin's body equals N's instruction for instruction once addresses, jump and call targets, RIP-relative displacements and crate hashes are normalised. Otherwise it is reported by its disassembly only.
+  - *Amended before the run.* The first form of this bullet required the twin's whole `.text` to be byte-identical to N's. No line-table build can meet that: line tables change Cargo's metadata hash, and with it symbol names and function order. Passed through the profile or through `RUSTFLAGS` with stripping off, both builds give the same `.text`, which differs from N's. A control twin at N's paths without line tables reproduces N's `.text` byte for byte. In the line-table twin all 1,280 functions are equal to N's once normalised.
+
+**Reading rule:**
+- Per shape and kind, the functions' shares of the samples, every instruction holding at least 1% of them, and the events per operation estimated as samples × 503 / operations.
+- Each of N's instructions above 5% is assigned to one construct: the per-level tag dispatch, the leaf search, the branch digit search (linear `find` or bitmap rank), the insert path's bookkeeping, allocation, or other.
+- **Stable** when, in both runs, the same constructs hold N's three largest instruction shares on each shape and kind. Otherwise the census is reported as unstable and nothing is read from it.
+- No verdict. The census names which construct an engine change would target. Any such change is pre-registered on its own, before its code.
+
+### Attribution result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, perf 6.8.12, harness `a75168caf`, analysis `d2a14d6b5`; N sha256 `3734ffc9…`, S `76f121a8…`; artifacts `results/diagnostic_misp_attribution_ref.json`, perf text in `results/misp_attribution_raw/`) (workloads: phase_sm_default, phase_sm_big, phase_judy_4m)
+
+**Hygiene.** Run 1 ran 18:19:33–18:19:37 UTC and run 2 18:19:37–18:19:40, each under the bench lock. The worst foreign load over any recording was 0.04 and 0.06 core-equivalents, and max load1 was 0.0 and 0.16. `perf report --stats`, read afterwards from the recordings, shows no throttle or lost-sample records. Every recording kept 98.8–99.9% of its samples.
+
+**Correction to the analysis, disclosed.** The first analysis divided only the samples that `perf annotate` places in a symbol. On `judy_4m` most samples fall in libc and in stock's unexported functions, so its rates read low (N's mispredicts: 198 of 1,447 samples). `6dd96a4d3` counts every recorded sample, as the design's "samples × 503 / operations" states. The instruction ranking and construct assignment are unchanged.
+
+**Events per operation, both runs:**
+
+| Shape | Kind | N run 1 | N run 2 | S run 1 | S run 2 |
+|---|---|---|---|---|---|
+| `sm_default` | mispredicts | 1.231 | 1.239 | 0.487 | 0.485 |
+| `sm_default` | L1D-miss loads | 1.205 | 1.219 | 1.225 | 1.225 |
+| `sm_big` | mispredicts | 0.666 | 0.668 | 0.522 | 0.523 |
+| `sm_big` | L1D-miss loads | 2.484 | 2.481 | 1.984 | 1.982 |
+| `judy_4m` | mispredicts | 0.174 | 0.174 | 0.151 | 0.149 |
+| `judy_4m` | L1D-miss loads | 3.628 | 2.374 | 2.028 | 2.033 |
+
+- **Stock reproduces the phase counters.** Stock's sampled mispredicts per operation equal #1712's counted ones: 0.487 against 0.4891, 0.522 against 0.5229, 0.151 against 0.1514. That is a different instrument on the same file, not a paired claim.
+- **N on main mispredicts less on the gets than the published phase result shows.** Main's N gives 1.23–1.24 per get on `sm_default` and 0.67 on `sm_big`. The phase counters counted 3.117 and 2.312 on `6ec29a656`. Those are different libraries; #1705 (a branchless lower bound for linear leaves of 5–24 keys) landed between them. Which change accounts for the difference is not measured. N still mispredicts 2.5× stock's rate on `sm_default` and 1.28× on `sm_big`.
+- **The 4 Mi inserts mispredict at stock's rate.** 0.174 against 0.149–0.151 per insert, 1.15–1.17×, reproduces the phase counters' 1.15×. N's L1D-miss loads per insert are 3.628 and 2.374 in the two runs, against stock's 2.03 in both; N's rate is not stable between runs and is reported, not read.
+
+**Stability: UNSTABLE.** The rule holds on three of the six shape-and-kind cells: `sm_default` L1D misses, `sm_big` mispredicts and `sm_big` L1D misses. It fails on `sm_default` mispredicts (third instruction: 0.160 against 0.154 between two constructs), `judy_4m` mispredicts (14–17% of the samples annotated) and `judy_4m` L1D misses (the first two swap). By the design, nothing is read from the instruction census. N's instruction lists, with their source lines and inline chains, are in the artifact.
+
+**The analyzer's construct labels do not hold for three source lines.** Its file-based rules were fixed before the run and are not changed after it:
+- `node.rs:248`, a population read (`self.aux_word() & POP0_MASKS[level]`), is labelled "branch digit search";
+- `get.rs:1333`, the BranchU child's tag test (`if next_tag == 0x04`), is labelled "other";
+- `common.rs:19` and `:21`, the leaf search's size selection (`pop <= 16`, `pop <= 24`), are labelled "other".
+
+**Consequence for #1680.** The sparsematrix gap the comparison publishes on the reference host (0.63–0.83× on gets, `results/baseline_ref_run{1,2}.json`) was measured on `6ec29a656`, before #1705. By §8.7 it is stale for main until the `sng_sm_judy_*` cells are re-measured against stock on main. That measurement comes before any engine change chosen from this census.
 
 ## Reproduce
 
