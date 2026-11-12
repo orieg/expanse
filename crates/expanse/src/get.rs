@@ -362,7 +362,7 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 let pop = edge.pop0(lf) as usize + 1;
                 let base = edge.node_ptr();
                 // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
-                let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
+                let keys = unsafe { base.add(leaf::map_keys_offset_lookup(pop)) };
                 // SAFETY: keys spans pop * lf readable bytes.
                 let slot = (unsafe { leaf::search(keys, pop, lf, key) })?;
                 // SAFETY: slot < pop values live at the base.
@@ -938,7 +938,7 @@ unsafe fn step_map(lane: &mut Lane) -> Option<Option<u64>> {
             let base = edge.node_ptr();
             // SAFETY: map leaves are one live allocation of `pop` values
             // followed by the packed keys.
-            let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
+            let keys = unsafe { base.add(leaf::map_keys_offset_lookup(pop)) };
             // SAFETY: keys spans `pop * lf` readable bytes.
             let Some(slot) = (unsafe { leaf::search(keys, pop, lf, key) }) else {
                 return Some(None);
@@ -1364,7 +1364,7 @@ unsafe fn locate_slot_impl(
                     }
                     let pop = (*edge).pop0(kb) as usize + 1;
                     let base = (*edge).node_ptr();
-                    let keys = base.add(leaf::map_keys_offset(pop));
+                    let keys = base.add(leaf::map_keys_offset_lookup(pop));
                     let slot = leaf::search(keys, pop, kb, key)?;
                     return core::ptr::NonNull::new(base.cast::<u64>().add(slot));
                 }
