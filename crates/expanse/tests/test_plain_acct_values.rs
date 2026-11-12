@@ -23,8 +23,8 @@
 //! ablations that change them compile these tests out. 64-bit targets only,
 //! where the pinned sizes were taken. Not under Miri (the workloads are sized
 //! for the native test run; the allocator's own unit tests cover Miri).
+#![cfg(not(miri))]
 #![cfg(all(
-    not(miri),
     target_pointer_width = "64",
     not(feature = "ablation-leaf-class-10"),
     not(feature = "ablation-unpacked-suffix")
