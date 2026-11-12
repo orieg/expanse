@@ -26,11 +26,11 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; `sync_strmap_short_scan` and `sync_strmap_short_scan_capped` build 50k 22-byte `user<18 digits>` keys; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes (or 200k random 28-bit keys drained to 62.5k on 32-bit types), the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys; `sync_set_prev_locked/immed` and its optimistic twin `sync_set_prev/immed` build 50k keys in groups of `IMMED_GROUP` (12) consecutive low bytes under consecutive byte-1 values, a tree whose 4,167 terminals are all immediates; the stress-ng `judy` arms (#1666), `map_ins_slot/gen_4m` and `map_remove_revgen`, build `gen_index(i)` for `i` below 1,024 (`gen_1k`), 262,144 (`gen_256k`) or 4,194,304 (`gen_4m`); `map_small_tree` builds `SMALL_TREES` (500) maps of `SMALL_KEYS` (20) distinct keys uniform on `[0, 500)` |
-//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape; the `gen_*` arms insert in order of `i`, stress-ng's order, which is not sorted by key (bits 24..31 carry the complement of `i`'s low byte); `map_small_tree` inserts each tree's keys as drawn |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); in the `sync_set_prev_locked` and `sync_set_prev` arms every probe is a present key, so every call answers except the probes of the minimum (1 for `random` and `immed`, 2,083 for `leaf`), each answering `None`; the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one (both 64-bit and 32-bit types); `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; `sync_blobmap_reclaim_free` compacts, in setup, an arena of more than 512 4 KiB chunks with 63 of every 64 records removed, then makes `RECLAIM_FREE_INSERTS` (65) plain inserts of fresh keys, two epoch-advance intervals and one, so the advance that frees the retired chunk set falls inside them; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses; `sync_strmap_mem_used` reads `mem_used` `MEM_USED_READS` (4) times over the built `routes` or `short` map, with no probe; `sync_strmap_short_scan` and `sync_strmap_short_scan_capped` make `SHORT_SCANS` (1,000) scans, each from a population key drawn by the file's XorShift (with replacement) reading `limit` records, `limit` uniform on 1..=100, the capped arm with the refill capped at `limit`; `map_remove_revgen` removes every key once in reverse insert order (stress-ng's delete phase) and drops the emptied map inside the arm; `map_small_tree` runs each tree's whole life once — a boxed map, 20 `ins_slot_plain`, `mem_used`, `clear_plain`, drop — counted per tree |
-//! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%), and `sync32_map_get` (50%) |
-//! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`); `sync32_map_get`'s misses are draws from its keyspace rejected on membership |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; `sync_strmap_short_scan` and `sync_strmap_short_scan_capped` build 50k 22-byte `user<18 digits>` keys; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes (or 200k random 28-bit keys drained to 62.5k on 32-bit types), the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys; `sync_set_prev_locked/immed` and its optimistic twin `sync_set_prev/immed` build 50k keys in groups of `IMMED_GROUP` (12) consecutive low bytes under consecutive byte-1 values, a tree whose 4,167 terminals are all immediates; the stress-ng `judy` arms (#1666), `map_ins_slot/gen_4m` and `map_remove_revgen`, build `gen_index(i)` for `i` below 1,024 (`gen_1k`), 262,144 (`gen_256k`) or 4,194,304 (`gen_4m`); `map_small_tree` builds `SMALL_TREES` (500) maps of `SMALL_KEYS` (20) distinct keys uniform on `[0, 500)`; the stress-ng `sparsematrix` arm `map_get_slot_ptr` (#1680) builds `x << 32 | y` over 10,000 draws on `[0, 500)²` (`sm_10k`) or 1,000,000 draws on `[0, 100000)²` (`sm_1m`), repeats kept once |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape; the `gen_*` arms insert in order of `i`, stress-ng's order, which is not sorted by key (bits 24..31 carry the complement of `i`'s low byte); `map_small_tree` inserts each tree's keys as drawn; `map_get_slot_ptr` inserts its draws as drawn, skipping a draw already present |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); in the `sync_set_prev_locked` and `sync_set_prev` arms every probe is a present key, so every call answers except the probes of the minimum (1 for `random` and `immed`, 2,083 for `leaf`), each answering `None`; the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one (both 64-bit and 32-bit types); `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; `sync_blobmap_reclaim_free` compacts, in setup, an arena of more than 512 4 KiB chunks with 63 of every 64 records removed, then makes `RECLAIM_FREE_INSERTS` (65) plain inserts of fresh keys, two epoch-advance intervals and one, so the advance that frees the retired chunk set falls inside them; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses; `sync_strmap_mem_used` reads `mem_used` `MEM_USED_READS` (4) times over the built `routes` or `short` map, with no probe; `sync_strmap_short_scan` and `sync_strmap_short_scan_capped` make `SHORT_SCANS` (1,000) scans, each from a population key drawn by the file's XorShift (with replacement) reading `limit` records, `limit` uniform on 1..=100, the capped arm with the refill capped at `limit`; `map_remove_revgen` removes every key once in reverse insert order (stress-ng's delete phase) and drops the emptied map inside the arm; `map_small_tree` runs each tree's whole life once — a boxed map, 20 `ins_slot_plain`, `mem_used`, `clear_plain`, drop — counted per tree; `map_get_slot_ptr` probes its draws again in draw order (repeats included), then as many fresh draws, one `get_slot_ptr` each, and `map_get/sm_*` makes the same probes through `get` over the same map |
+//! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%), `sync32_map_get` (50%), and `map_get_slot_ptr` and `map_get/sm_*` (50%) |
+//! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`); `sync32_map_get`'s misses are draws from its keyspace rejected on membership, and so are `map_get_slot_ptr`'s, from its `(x, y)` generator |
 //! | `value_dereference` | `black_box` on retrieved values |
 //! | `measured_region` | Clean (setup in setup) |
 //! | `arm_symmetry` | Internal trie paths |
@@ -294,6 +294,8 @@ fn map_ins_slot(ks: Vec<u64>) -> u64 {
 #[bench::clustered(args = ("clustered",), setup = built_map)]
 #[bench::dense_leaf(args = ("dense_leaf",), setup = built_map)]
 #[bench::linear_leaf(args = ("linear_leaf",), setup = built_map)]
+#[bench::sm_10k(args = ("sm_10k",), setup = built_sm_map)]
+#[bench::sm_1m(args = ("sm_1m",), setup = built_sm_map)]
 fn map_get(built: (ExpanseMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
     let mut sink = 0u64;
@@ -431,6 +433,72 @@ fn map_remove_revgen(built: (ExpanseMap, Vec<u64>)) -> u64 {
         removed += u64::from(map.remove_plain(black_box(k)).is_some());
     }
     black_box(removed)
+}
+
+/// stress-ng's `sparsematrix --sparsematrix-method judy` cells (#1680):
+/// `--sparsematrix-items`, then `--sparsematrix-size`, its default and the
+/// `big` cell of the stress-ng suite.
+fn sm_shape(dist: &str) -> (usize, u64) {
+    match dist {
+        "sm_10k" => (10_000, 500),
+        "sm_1m" => (1_000_000, 100_000),
+        other => panic!("not an sm_* distribution: {other}"),
+    }
+}
+
+/// stress-ng's sparsematrix key for cell `(x, y)`: `x << 32 | y`.
+fn sm_key(rng: &mut XorShift, size: u64) -> u64 {
+    let x = rng.next() % size;
+    let y = rng.next() % size;
+    (x << 32) | y
+}
+
+/// A map built as the sparsematrix judy stressor builds it: `items` draws of
+/// `(x, y)` uniform on `[0, size)`, each inserted with `ins_slot_plain` (what
+/// `JudyLIns` calls) when absent, so a repeated draw keeps its first value.
+/// The probes are the stressor's two get phases: the same draws again, in
+/// order, all present; then as many fresh draws from the same generator,
+/// rejected on membership, all absent (AGENTS.md §8.6).
+fn built_sm_map(dist: &str) -> (ExpanseMap, Vec<u64>) {
+    let (items, size) = sm_shape(dist);
+    let mut rng = XorShift(0x2545_F491_4F6C_DD1D);
+    let mut map = ExpanseMap::new();
+    let mut probes = Vec::with_capacity(2 * items);
+    for _ in 0..items {
+        let k = sm_key(&mut rng, size);
+        if map.get_slot_ptr(k).is_none() {
+            // SAFETY: valid until the next mutation; written immediately.
+            unsafe { map.ins_slot_plain(k).as_ptr().write(k ^ 0x5A5A) };
+        }
+        probes.push(k);
+    }
+    while probes.len() < 2 * items {
+        let k = sm_key(&mut rng, size);
+        if map.get_slot_ptr(k).is_none() {
+            probes.push(k);
+        }
+    }
+    (map, probes)
+}
+
+// The sparsematrix judy stressor's gets (#1680): `get_slot_ptr`, what
+// `JudyLGet` calls, over its hit phase and then its miss phase, each value
+// read through the returned slot.
+#[library_benchmark]
+#[bench::sm_10k(args = ("sm_10k",), setup = built_sm_map)]
+#[bench::sm_1m(args = ("sm_1m",), setup = built_sm_map)]
+fn map_get_slot_ptr(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        if let Some(p) = map.get_slot_ptr(black_box(k)) {
+            // SAFETY: the map is not mutated while the slot is read.
+            sink ^= unsafe { p.as_ptr().read() };
+        }
+    }
+    // Leaked, as `map_get` does: dropping it here would count the teardown.
+    core::mem::forget(map);
+    black_box(sink)
 }
 
 /// Trees in the `map_small_tree` arm.
@@ -4876,6 +4944,7 @@ library_benchmark_group!(
         map_ins_slot,
         map_small_tree,
         map_get,
+        map_get_slot_ptr,
         set_contains,
         map_get_batch,
         set_contains_batch,
