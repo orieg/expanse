@@ -944,6 +944,114 @@ Every other counter's interval is in the artifacts. The taken-branch counts are 
 - **What it means.** The `lock` prefixes cost nothing in instruction count. What moves the counts is the compiler's code generation in the callers that inline the allocation path, as in the split before it. This is measured as instruction deltas on lines and functions whose source did not change. The register-allocation cause is read from the disassembly, not measured.
 - **AArch64:** not done in this run.
 
+## Promotion, judged on timing
+
+**The unlocked plain-tree accounting promoted to the default, judged on wall clock** (#1679, AGENTS.md §2.7 and §6). Pre-registered here before any timed run of the promoted build, as §8.8's second commit.
+- **What is promoted.** The diagnostic `ablation-unlocked-plain-acct` form: every plain-path counter update in `alloc_raw_body!` and `free_raw` becomes a relaxed load and store. The inverse `ablation-locked-plain-acct` restores the locked updates, and the old name becomes a `compile_error!`.
+- **Why it is now sound.** Since #1719, `NodeAlloc` is `Send` and not `Sync`, so no safe caller can reach one allocator from two threads.
+- **Why wall clock decides.** The change removes stalls, not work: §6 makes wall clock primary for such a change. Its Callgrind costs are already known from Step 0. The owner accepted them as a written trade-off, so this section judges the promotion on timing.
+
+### Callgrind: costs known before this registration
+
+The arms below rose above +0.1% in Step 0 (`results/step0_unlocked/`, measured on code identical to this promotion's, against `573b64d50`; #1719 changed no arm). They are **known before this registration, accepted by the owner, and not predictions**.
+- **Bound per accepted arm.** This PR's own CI run (`instruction-counts`, and the smoke and `vs_stock` jobs) must not exceed its Step 0 value by more than the 0.1% resolution.
+- **Every other arm** stays within +0.1%, all `sync_*` arms included.
+- **An arm over its bound** fails the registration: stop, report, and move no bound.
+
+| Harness | Arm | Step 0 | Bound |
+|---|---|---|---|
+| instructions | `set_oscillate/random` | +3.025% | +3.125% |
+| instructions | `set_insert/clustered` | +2.321% | +2.421% |
+| instructions | `set_insert/sparse` | +1.300% | +1.400% |
+| instructions | `set_insert/linear_leaf` | +1.060% | +1.160% |
+| instructions | `set_insert/dense_leaf` | +1.053% | +1.153% |
+| instructions | `set_insert/random` | +1.038% | +1.138% |
+| instructions | `set_clear_refill/random` | +0.968% | +1.068% |
+| instructions | `set_subtree_split/e1024` | +0.895% | +0.995% |
+| instructions | `set_subtree_condense/h1` | +0.873% | +0.973% |
+| instructions | `set_subtree_condense_control/h1` | +0.865% | +0.965% |
+| instructions | `set_subtree_condense/wide` | +0.805% | +0.905% |
+| instructions | `set_subtree_condense_control/wide` | +0.769% | +0.869% |
+| instructions | `set_subtree_boundary_oscillate/band9` | +0.760% | +0.860% |
+| instructions | `set_refill/random` | +0.757% | +0.857% |
+| instructions | `set_remove/random` | +0.745% | +0.845% |
+| instructions | `set_subtree_boundary_oscillate/band2` | +0.735% | +0.835% |
+| instructions | `set_remove_partial/random60` | +0.711% | +0.811% |
+| instructions | `set_compact_drained/random60` | +0.680% | +0.780% |
+| instructions | `set_rebuild_drained/random60` | +0.663% | +0.763% |
+| instructions | `map_compact_drained/random60` | +0.659% | +0.759% |
+| instructions | `set_subtree_split_control/e1024` | +0.508% | +0.608% |
+| instructions | `strmap_refill/routes` | +0.477% | +0.577% |
+| instructions | `set_insert/sequential` | +0.452% | +0.552% |
+| instructions | `map_remove_revgen/gen_256k` | +0.392% | +0.492% |
+| instructions | `map_remove_revgen/gen_4m` | +0.391% | +0.491% |
+| instructions | `map_remove/random` | +0.323% | +0.423% |
+| instructions | `blobmap_insert_inline/random` | +0.295% | +0.395% |
+| instructions | `map_rebuild_drained/random60` | +0.290% | +0.390% |
+| instructions | `blobmap_remove/random` | +0.287% | +0.387% |
+| instructions | `blobmap_insert/random` | +0.272% | +0.372% |
+| instructions | `map_clone/random` | +0.242% | +0.342% |
+| instructions | `map_remove_revgen/gen_1k` | +0.228% | +0.328% |
+| instructions | `strmap_clear_refill/routes` | +0.210% | +0.310% |
+| instructions | `map_regrow_after_shrink/random60` | +0.188% | +0.288% |
+| instructions | `map_remove_partial/random60` | +0.179% | +0.279% |
+| instructions | `blobmap_churn/random` | +0.124% | +0.224% |
+| instructions | `map_small_tree/hashjudy` | +0.119% | +0.219% |
+| smoke (trie) | `map_insert/random` | +0.207% | +0.307% |
+| smoke (trie) | `map_ins_slot/random` | +0.206% | +0.306% |
+| smoke (capi) | `judy1_set/clustered` | +2.187% | +2.287% |
+| smoke (capi) | `judy1_set/random` | +0.674% | +0.774% |
+| smoke (capi) | `judy1_set/sequential` | +0.408% | +0.508% |
+| smoke (capi) | `judyl_insert/random` | +0.332% | +0.432% |
+| vs_stock | `judy1_set_expanse/clustered` | +2.126% | +2.226% |
+| vs_stock | `judy1_set_expanse/random` | +0.887% | +0.987% |
+| vs_stock | `judyl_insert_expanse_dl/clustered` | +0.442% | +0.542% |
+| vs_stock | `judyl_churn_expanse_dl/random` | +0.412% | +0.512% |
+| vs_stock | `judysl_insert_expanse_dl/random` | +0.323% | +0.423% |
+| vs_stock | `judyl_insert_expanse/random` | +0.296% | +0.396% |
+| vs_stock | `judyl_churn_expanse/random` | +0.189% | +0.289% |
+| vs_stock | `judyl_insert_expanse_dl/random` | +0.182% | +0.282% |
+| vs_stock | `judysl_insert_expanse_dl/clustered` | +0.137% | +0.237% |
+| vs_stock | `judyl_insert_expanse/clustered` | +0.101% | +0.201% |
+
+### Wall clock
+
+**Cells.** `scripts/phase_probe.c` drives each through the C API, so stock libjudy runs the same code.
+- **Targets:** the two delete shapes, `del_1k` and `del_4m`.
+- **No-loss cells:** the shapes of the worst instruction losers, added in `585c76b2c` before this registration:
+  - `osc_1`: `set_oscillate`'s insert-then-remove of one key at a time, which never allocates;
+  - `j1s_clustered` and `j1s_sparse`: set inserts on the Callgrind bench's own `clustered` and `sparse` keys. `j1s_clustered` is also `judy1_set` on clustered keys through the C API;
+  - `ins_1k`: one insert shape at 1 Ki keys.
+
+| field | `phase_osc_1` | `phase_j1s_clustered` | `phase_j1s_sparse` | `phase_ins_1k` |
+|---|---|---|---|---|
+| `workload_id` | `phase_osc_1` | `phase_j1s_clustered` | `phase_j1s_sparse` | `phase_ins_1k` |
+| `group` | promote2 | promote2 | promote2 | promote2 |
+| `population` | 50,000 keys, at most one present at a time | 50,000 | 50,000 | 1,024 |
+| `insertion_order` | generator | generator | generator | generator |
+| `probes_and_reuse` | 30 passes of 50,000 J1S+J1U pairs | 400 builds | 150 builds | 6,000 builds |
+| `hit_rate` | 100% (each J1U finds its key) | n/a (inserts) | n/a (inserts) | n/a (inserts) |
+| `miss_gen_method` | n/a | n/a | n/a | n/a |
+| `value_dereference` | none (`Judy1`) | none (`Judy1`) | none (`Judy1`) | one store per JLI slot |
+| `measured_region` | the pairs only | the inserts only; J1C and J1FA outside | as `j1s_clustered` | the inserts only; JLFA outside |
+| `arm_symmetry` | P, M and S run the same binary, differing only in `LD_LIBRARY_PATH` | same | same | same |
+| `statistics` | two-sample BCa 95%, 12 processes per arm per run, 2 runs | same | same | same |
+| `verdict` | no-loss bound | no-loss bound | no-loss bound | no-loss bound |
+
+**Arms and instrument** (`run.sh <run> ref phase_promote2`; the `promote2` set of `scripts/diag_phase_counters.py`):
+- **Arms.** P (this PR's head) and M (its merge base on `main`) are built on the reference host under the bench lock by `scripts/build_layout_lib.sh`. S is stock.
+- **Measurements.** The probe's own phase clock (`phase_ns`), plus one user-mode `cpu_core` group: `cycles`, `instructions`, `mem_inst_retired.lock_loads`, `cycle_activity.stalls_total` and `idq_uops_not_delivered.core`, three general-purpose events.
+- **Rounds.** 12 rounds per run, cycling through the six orders of the three arms, one process per (round, shape, arm), and two runs. The P-core pin applies.
+- **Load and rules.** Load windows carry the busy-CPU delta (§8.17). The discard and void rules are the phase-counter diagnostic's.
+
+**Reading, P against M, in both runs** (`promote2_reading` in `scripts/diag_phase_counters_analyze.py`). It applies to the phase wall clock and to `cycles` alike:
+- **Target.** `del_1k` and `del_4m` are FASTER: the upper bound is below 1.
+- **No-loss bound.** On `osc_1`, `j1s_clustered`, `j1s_sparse` and `ins_1k`, the upper bound is at most **1.020**. That is a 2% tolerance, named here and never moved. It is the upper edge of this suite's SAME band, [0.98, 1.02], and code layout alone moves this instrument by about 1%: the phase-counter diagnostic's alignment-only builds read N64/N cycles of 0.9894–0.9982.
+- **Verdict.** PASS only if every target and every bound holds in both runs. Otherwise FAIL: stop, report, and move no bound.
+- **Counters, as expectations (projected).** `mem_inst_retired.lock_loads` per operation is 0 on P, whose plain paths run no locked instruction, and positive on M. They are reported, not gated.
+
+**The `allow-regression:` line** is added to the pull request only after a PASS. It cites this section and the PR's own CI run, and names every losing arm.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

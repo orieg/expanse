@@ -219,7 +219,7 @@ def acct_reading(keyed, shape):
 # delete shapes must be FASTER, and every other shape may not lose more than
 # NO_LOSS_TOL, on both the phase wall clock and cycles, in both runs.
 P2_TARGETS = ("del_1k", "del_4m")
-NO_LOSS_TOL = 1.010
+NO_LOSS_TOL = 1.020
 
 
 def promote2_reading(keyed):
