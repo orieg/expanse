@@ -2499,6 +2499,38 @@ The `compare` cells this change does not reach (`set_insert_build`, `map_iter`) 
 - **Counters.** `results/counters_point_lookup_c3e1ed3a3_probes4096_run{1,2}.json` and `results/counters_point_lookup_b6640076b_probes4096_run{1,2}.json`: `map_get` at 10k is 1.068 and `set_contains` at 10k is 1.049, in both replicates; at 1M both are 0.595–0.621.
 - **Disclosure, `compare` run 1.** From 18:20 to 18:27 UTC, another session's ssh connection to the reference host hung and stayed open. That session started no work after 17:43. In run 1's load record, foreign load is at most 0.05 core-equivalents in each of the 106 arm windows and 0.02 from start to end, and the host guard reported quiet. Under §8.17 the run is kept.
 
+#### Pre-registration: the lookup walks' keys offset from a table ([#1680](https://github.com/orieg/expanse/issues/1680))
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. The change under test is `map_keys_offset_lookup` in `crates/expanse/src/leaf.rs`: the lookup walks (`walk_map_impl`, `step_map`, `locate_slot_impl`) read a linear map leaf's keys offset from a 64-entry table indexed by `pop & 63`, where `cap_class`'s compare chain stood. Nothing else moves; the mutation paths, the 32-bit engine and the OCC reader keep `map_keys_offset`.
+
+**Observed before this commit, and therefore not evidence for it.** A Callgrind replica of `instructions.rs` (rustc 1.99.1, Ubuntu 24.04, base `bf4cc6dd9`, head `036b9f19b`): every arm at most +0.038%; the `sm` and leaf get arms −1.61% to −2.66%. Only runs that start after this commit count: one full CI run at the pull request's head, two increment runs on the reference host, two `compare` runs at the head and two at the merge base, and the same increment runs on the second host when its bench lock is free (pending otherwise, and the verdict says so).
+
+**Definitions.**
+- *G/M, G/S, M/S*: the stress-ng arms of `docs/benchmarks/stressng_comparison/scripts/diag_increment.py` — G the head's library, M the merge base's, S stock — as two-sample BCa 95% intervals of the ratio of means of stress-ng's own per-phase rates over each run's 12 rounds, every cell of that suite's METHODOLOGY.md §5 (`diag_increment_analyze.py`). Verdicts are that METHODOLOGY.md's §8 rule over both runs.
+- *Shift* and *side*: `scripts/compare_shift.py` over the `compare` runs, on every Expanse cell of `map_get`, `map_get_cold_dram`, `set_lookup` and `map_iter`.
+- *Instruction change*: an arm's change against main in the CI job named; for wasm fuel, against main's run at the merge base.
+
+**Target, all of which must hold.**
+- `sng_sm_judy_default` gets at W = 1 and W = 8: G/M lower end above 1.0 in both runs. Expected (projected): 1.01–1.06.
+- x86-64 deterministic Callgrind: `map_get/sm_10k`, `map_get/sm_1m`, `map_get_slot_ptr/sm_10k` and `map_get_slot_ptr/sm_1m` below main.
+
+**Bounds, every one of which must hold** (the owner's no-regression terms, #1680):
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| x86-64 deterministic, x86-64 smoke, AArch64 Callgrind | every arm | ≤ +0.1%, and no `allow-regression:` line |
+| wasm32, wasm64 fuel | every arm, against main's run at the merge base | ≤ +0.1% |
+| stress-ng, reference host | every primary cell-metric (L1) | not SLOWER against stock (G/S) where M/S is FASTER or EQUIVALENT |
+| stress-ng, reference host | every primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| `compare` | every lookup and iteration cell (C1) | not SLOWER against a competitor at the head where FASTER or EQUIVALENT at the base |
+| `compare` | every lookup and iteration cell (C2) | shift lower end not above 1.02 in both pairings |
+| CI | full workspace tests (`PROPTEST_CASES=500`), Tier-1 Miri, the differential oracle against stock | pass |
+| `git diff` | `crates/expanse-capi`, `include/` | empty |
+
+The concurrency `sync_*` paths are outside the change (the OCC reader keeps `map_keys_offset`); their Callgrind arms are bounded above, and the `concurrency` wall-clock suite is reported, not gated.
+
+**Verdict.** PASS only if every target holds and every bound holds. Otherwise FAIL: the change is reverted and recorded with the cell that broke its bound, and no bound is moved (§8.19).
+
 **Trie-adversarial key classes (workload: `core_compare`)** *(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0, `performance` governor, pinned to CPUs 0-15; commit `4659016f`; runs [43126394060](https://github.com/orieg/expanse/actions/runs/43126394060) and [43133695465](https://github.com/orieg/expanse/actions/runs/43133695465), host guard quiet; artifacts [`results/baseline_compare_adversarial.json`](../results/baseline_compare_adversarial.json) and [`results/baseline_compare_adversarial_run2.json`](../results/baseline_compare_adversarial_run2.json))*. The `set_lookup` and `map_get` groups also run the five classes of [Barrett's Judy versus hash-table comparison](https://www.nothings.org/computer/judy/) (`workload_common::KeyGen`): `rand22`, 22 random bits in the low bytes (a dense random $2^{22}$ sub-range; 890,427 distinct keys of 1M draws, 9,986 of 10k); `rand22_bswap`, the same keys byte-reversed into the top bytes; `ascii_upper` and `ascii_alnum`, one character per byte; and `stride64`, `i * 64`. `map_get` gained a `miss` arm on every distribution, listed below for the four TESTING.md classes too. Misses come from the population's own generator resumed at N and rejected on membership (AGENTS.md §8.6). Cells and ratios are built as in the tables above: unions of the two runs' BCa intervals, † where a cell's two run intervals do not overlap; every ratio interval is a plain BCa interval (`bca`) in both runs. Worst foreign load in any arm's window: 0.02 core-equivalents in run 1 and 0.03 in run 2. Only the new arms are published from this pair; the other arms it re-measured are in the artifacts, and the tables above stay on the 82eb56af pair. `HashSet`/`HashMap` here are `std::collections`'s, with SipHash-1-3.
 
 **`ExpanseSet`, 10,000 keys** (ns per lookup; ratios are Expanse's time over the competitor's):
