@@ -26,3 +26,29 @@ pub(crate) const fn cap_class(pop: usize) -> usize {
         (pop + 3) & !3
     }
 }
+
+/// Fails the build if any listed type implements `Sync`.
+///
+/// Stable Rust has no negative bound, so this is the ambiguity construction:
+/// every type gets the `()` impl, a `Sync` type gets a second one, and the
+/// inferred `_` then has two candidates, which is an error (E0283). The
+/// `compile_fail` doctests on the public types guard the same property from
+/// outside the crate; this guards it at the definition, in every build,
+/// `no_std` included (it names nothing from `std`). Its users, `alloc` and
+/// `occ`, exist on 64-bit targets only.
+#[cfg(target_pointer_width = "64")]
+macro_rules! assert_not_sync {
+    ($($t:ty),+ $(,)?) => {
+        const _: fn() = || {
+            trait AmbiguousIfSync<A> {
+                fn probe() {}
+            }
+            impl<T: ?Sized> AmbiguousIfSync<()> for T {}
+            struct IsSync;
+            impl<T: ?Sized + Sync> AmbiguousIfSync<IsSync> for T {}
+            $(let _ = <$t as AmbiguousIfSync<_>>::probe;)+
+        };
+    };
+}
+#[cfg(target_pointer_width = "64")]
+pub(crate) use assert_not_sync;
