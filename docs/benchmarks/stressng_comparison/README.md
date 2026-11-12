@@ -23,6 +23,7 @@ stress-ng's `judy` and `sparsematrix` stressors run one binary against stock lib
 ### Primary metrics (E/S, higher means Expanse is faster)
 
 **Superseded for the `sng_judy_*` rows** by [The #1679 criterion on main](#the-1679-criterion-on-main) (reference host). These rows measure libexpanse at `6ec29a656`, before #1708, #1719 and #1720. They stay as the pre-registered record; the `sparsematrix` rows are not re-measured.
+**The `sng_sm_judy_*` rows are stale for main, pending re-measurement.** #1705 changed the linear-leaf search these gets reach after `6ec29a656`. On main, sampled mispredicts per get are 1.23 and 0.67 where the phase counters counted 3.12 and 2.31 on this table's library ([Diagnostic: where the #1680 shapes mispredict and miss](#diagnostic-where-the-1680-shapes-mispredict-and-miss)).
 
 | workload | W | metric | run 1 E/S [BCa 95%] | run 2 E/S [BCa 95%] | verdict |
 |---|---|---|---|---|---|
@@ -1241,6 +1242,38 @@ Every pre-registered target and bound holds in both runs, on the phase clock and
 - Each of N's instructions above 5% is assigned to one construct: the per-level tag dispatch, the leaf search, the branch digit search (linear `find` or bitmap rank), the insert path's bookkeeping, allocation, or other.
 - **Stable** when, in both runs, the same constructs hold N's three largest instruction shares on each shape and kind. Otherwise the census is reported as unstable and nothing is read from it.
 - No verdict. The census names which construct an engine change would target. Any such change is pre-registered on its own, before its code.
+
+### Attribution result
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, perf 6.8.12, harness `a75168caf`, analysis `d2a14d6b5`; N sha256 `3734ffc9…`, S `76f121a8…`; artifacts `results/diagnostic_misp_attribution_ref.json`, perf text in `results/misp_attribution_raw/`) (workloads: phase_sm_default, phase_sm_big, phase_judy_4m)
+
+**Hygiene.** Run 1 ran 18:19:33–18:19:37 UTC and run 2 18:19:37–18:19:40, each under the bench lock. The worst foreign load over any recording was 0.04 and 0.06 core-equivalents, and max load1 was 0.0 and 0.16. `perf report --stats`, read afterwards from the recordings, shows no throttle or lost-sample records. Every recording kept 98.8–99.9% of its samples.
+
+**Correction to the analysis, disclosed.** The first analysis divided only the samples that `perf annotate` places in a symbol. On `judy_4m` most samples fall in libc and in stock's unexported functions, so its rates read low (N's mispredicts: 198 of 1,447 samples). `6dd96a4d3` counts every recorded sample, as the design's "samples × 503 / operations" states. The instruction ranking and construct assignment are unchanged.
+
+**Events per operation, both runs:**
+
+| Shape | Kind | N run 1 | N run 2 | S run 1 | S run 2 |
+|---|---|---|---|---|---|
+| `sm_default` | mispredicts | 1.231 | 1.239 | 0.487 | 0.485 |
+| `sm_default` | L1D-miss loads | 1.205 | 1.219 | 1.225 | 1.225 |
+| `sm_big` | mispredicts | 0.666 | 0.668 | 0.522 | 0.523 |
+| `sm_big` | L1D-miss loads | 2.484 | 2.481 | 1.984 | 1.982 |
+| `judy_4m` | mispredicts | 0.174 | 0.174 | 0.151 | 0.149 |
+| `judy_4m` | L1D-miss loads | 3.628 | 2.374 | 2.028 | 2.033 |
+
+- **Stock reproduces the phase counters.** Stock's sampled mispredicts per operation equal #1712's counted ones: 0.487 against 0.4891, 0.522 against 0.5229, 0.151 against 0.1514. That is a different instrument on the same file, not a paired claim.
+- **N on main mispredicts less on the gets than the published phase result shows.** Main's N gives 1.23–1.24 per get on `sm_default` and 0.67 on `sm_big`. The phase counters counted 3.117 and 2.312 on `6ec29a656`. Those are different libraries; #1705 (a branchless lower bound for linear leaves of 5–24 keys) landed between them. Which change accounts for the difference is not measured. N still mispredicts 2.5× stock's rate on `sm_default` and 1.28× on `sm_big`.
+- **The 4 Mi inserts mispredict at stock's rate.** 0.174 against 0.149–0.151 per insert, 1.15–1.17×, reproduces the phase counters' 1.15×. N's L1D-miss loads per insert are 3.628 and 2.374 in the two runs, against stock's 2.03 in both; N's rate is not stable between runs and is reported, not read.
+
+**Stability: UNSTABLE.** The rule holds on three of the six shape-and-kind cells: `sm_default` L1D misses, `sm_big` mispredicts and `sm_big` L1D misses. It fails on `sm_default` mispredicts (third instruction: 0.160 against 0.154 between two constructs), `judy_4m` mispredicts (14–17% of the samples annotated) and `judy_4m` L1D misses (the first two swap). By the design, nothing is read from the instruction census. N's instruction lists, with their source lines and inline chains, are in the artifact.
+
+**The analyzer's construct labels do not hold for three source lines.** Its file-based rules were fixed before the run and are not changed after it:
+- `node.rs:248`, a population read (`self.aux_word() & POP0_MASKS[level]`), is labelled "branch digit search";
+- `get.rs:1333`, the BranchU child's tag test (`if next_tag == 0x04`), is labelled "other";
+- `common.rs:19` and `:21`, the leaf search's size selection (`pop <= 16`, `pop <= 24`), are labelled "other".
+
+**Consequence for #1680.** The sparsematrix gap the comparison publishes on the reference host (0.63–0.83× on gets, `results/baseline_ref_run{1,2}.json`) was measured on `6ec29a656`, before #1705. By §8.7 it is stale for main until the `sng_sm_judy_*` cells are re-measured against stock on main. That measurement comes before any engine change chosen from this census.
 
 ## Reproduce
 
