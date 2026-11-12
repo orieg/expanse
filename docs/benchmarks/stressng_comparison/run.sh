@@ -2,7 +2,7 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|ms_attribution]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
@@ -104,6 +104,8 @@ case "${MODE}" in
                 "${SNG_D}/results/diag_delete_ms_${HOST_LABEL}_run${RUN}" ;;
   phase_delete_acct) SNG_PHASE_SET=delete_acct python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_delete_acct_${HOST_LABEL}_run${RUN}" ;;
+  phase_promote2) SNG_PHASE_SET=promote2 python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_promote2_${HOST_LABEL}_run${RUN}" ;;
   ms_attribution) SNG_PHASE_SET=delete_ms python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_ms_attribution_${HOST_LABEL}_run${RUN}" ;;
   *) echo "REFUSE: unknown mode ${MODE}" >&2; exit 2 ;;

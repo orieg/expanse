@@ -23,9 +23,11 @@ MIN_VALID = 8
 # The gets set's pairs; the delete set (`phase_set` "delete", #1679) has one.
 PAIRS_BY_SET = {"gets": [("N", "S"), ("N64", "S"), ("N64", "N")], "delete": [("D", "S")],
                 "delete_fe": [("D", "S")], "delete_ms": [("D", "S")],
-                "delete_acct": [("A", "D"), ("A", "S"), ("D", "S")]}
+                "delete_acct": [("A", "D"), ("A", "S"), ("D", "S")],
+                "promote2": [("P", "M"), ("P", "S"), ("M", "S")]}
 NAME_BY_SET = {"gets": "phase_counters", "delete": "delete_phase", "delete_fe": "delete_fe",
-               "delete_ms": "delete_ms", "delete_acct": "delete_acct"}
+               "delete_ms": "delete_ms", "delete_acct": "delete_acct",
+               "promote2": "promote2"}
 # The delete_acct set's rule (README.md, "Diagnostic: unlocked accounting on
 # the delete phase"): the share of D's cycle excess over S that A removes, at
 # which the locked counters are said to matter.
@@ -213,6 +215,40 @@ def acct_reading(keyed, shape):
           else "ABOVE STOCK" if all(x == "above" for x in a_s) else "NOT SEPARATED FROM STOCK"))
 
 
+# The promote2 rule (README.md, "Promotion, judged on timing"): the two
+# delete shapes must be FASTER, and every other shape may not lose more than
+# NO_LOSS_TOL, on both the phase wall clock and cycles, in both runs.
+P2_TARGETS = ("del_1k", "del_4m")
+NO_LOSS_TOL = 1.010
+
+
+def promote2_reading(keyed):
+    """README.md's promote2 verdict over both runs; returns True for PASS."""
+    ok = True
+    for shape in sorted({k[0] for k in keyed[0]}):
+        cells = {m: [k[(shape, m, "P/M")] for k in keyed] for m in ("phase_ns", "cycles")}
+        if any(c["ci_upper"] is None for cs in cells.values() for c in cs):
+            print(f"  {shape}: NO READING (too few valid processes) -> counts as NOT MET")
+            ok = False
+            continue
+        for m, cs in cells.items():
+            print(f"  {shape} {m}: P/M " + "; ".join(
+                f"run {n} {c['ratio']:.4f} [{c['ci_lower']:.4f}, {c['ci_upper']:.4f}]" for n, c in enumerate(cs, 1)))
+        lk = keyed[0].get((shape, "mem_inst_retired.lock_loads", "P/M"))
+        if lk is not None:
+            print(f"  {shape} lock_loads per process (run 1): P {lk.get('mean_P')}, M {lk.get('mean_M')}")
+        ups = [c["ci_upper"] for cs in cells.values() for c in cs]
+        if shape in P2_TARGETS:
+            good = all(u < 1.0 for u in ups)
+            print(f"  {shape}: target FASTER {'MET' if good else 'NOT MET'}")
+        else:
+            good = all(u <= NO_LOSS_TOL for u in ups)
+            print(f"  {shape}: no-loss bound (upper <= {NO_LOSS_TOL}) {'MET' if good else 'NOT MET'}")
+        ok = ok and good
+    print(f"promote2 verdict: {'PASS' if ok else 'FAIL'}")
+    return ok
+
+
 def main():
     host, prefixes = sys.argv[1], sys.argv[2:4]
     arts, keyed = [], []
@@ -232,6 +268,7 @@ def main():
     fe_set = arts[0]["provenance"].get("phase_set") == "delete_fe"
     ms_set = arts[0]["provenance"].get("phase_set") == "delete_ms"
     acct_set = arts[0]["provenance"].get("phase_set") == "delete_acct"
+    promote2_set = arts[0]["provenance"].get("phase_set") == "promote2"
     print("\n| shape | counter | pair | per op (num) | per op (den) | run 1 [BCa 95%] | run 2 [BCa 95%] |")
     print("|---|---|---|---|---|---|---|")
     for key in keyed[0]:
@@ -245,6 +282,10 @@ def main():
                + ("" if c["ci_method"] == CI_METHOD_BCA else f" ({c['ci_method']})") for c in cs]
         print(f"| {key[0]} | `{key[1]}` | {key[2]} | {cs[0]['per_op_' + num]:.4g} | "
               f"{cs[0]['per_op_' + den]:.4g} | {txt[0]} | {txt[1]} |")
+    if promote2_set:
+        print("\nreading rule (README.md), promote2, P against M per shape:")
+        promote2_reading(keyed)
+        return
     if acct_set:
         print("\nreading rule (README.md), A against D and S per shape:")
         for shape in sorted({k[0] for k in keyed[0]}):

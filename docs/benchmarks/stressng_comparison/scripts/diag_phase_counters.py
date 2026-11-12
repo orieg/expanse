@@ -41,7 +41,21 @@ SET = os.environ.get("SNG_PHASE_SET", "gets")
 # `delete_acct` is the accounting ablation (README.md, "Diagnostic: unlocked
 # accounting on the delete phase"): A and D, one commit built with and without
 # `ablation-unlocked-plain-acct`, against stock.
-if SET in ("delete", "delete_fe", "delete_ms", "delete_acct"):
+# `promote2` is the timed promotion of the unlocked plain-tree accounting
+# (README.md, "Promotion, judged on timing"): P (the promotion's head), M (its
+# merge base) and S (stock), on the two delete shapes it targets and the four
+# shapes whose Callgrind counts it raises.
+if SET == "promote2":
+    ARMS = {"P": f"{driver.D}/expcompat-1679p2-P/lib", "M": f"{driver.D}/expcompat-1679p2-M/lib",
+            "S": driver.ARMS["S"]}
+    # (shape, repeats, measured operations per process): repeats sized so a
+    # process's phase lasts a few tenths of a second, above the load window's
+    # minimum (`bench_provenance.MIN_WINDOW_S`).
+    SHAPES = [("del_1k", 10_000, 10_000 * 1024), ("del_4m", 1, 4_194_304),
+              ("osc_1", 30, 30 * 50_000), ("j1s_clustered", 400, 400 * 50_000),
+              ("j1s_sparse", 150, 150 * 50_000), ("ins_1k", 6_000, 6_000 * 1024)]
+    PREFLIGHT = ("del_4m", 1, "M")
+elif SET in ("delete", "delete_fe", "delete_ms", "delete_acct"):
     ARMS = {"D": f"{driver.D}/expcompat-45f83ac5e/lib", "S": driver.ARMS["S"]}
     if SET == "delete_acct":
         ARMS = {"A": f"{driver.D}/expcompat-1679acct-A/lib", "D": f"{driver.D}/expcompat-1679acct-D/lib",
@@ -80,6 +94,9 @@ elif SET == "delete_ms":
         "dsb": ["idq.dsb_cycles_any", "idq.dsb_cycles_ok", "idq.dsb_uops", "uops_issued.any"],
         "fe": ["slots", "idq_uops_not_delivered.core", "br_inst_retired.all_branches", "idq.mite_uops"],
     }
+elif SET == "promote2":
+    GROUPS = {"p2": ["mem_inst_retired.lock_loads", "cycle_activity.stalls_total",
+                     "idq_uops_not_delivered.core"]}
 elif SET == "delete_acct":
     GROUPS = {"acct": ["slots", "idq_uops_not_delivered.core", "cycle_activity.stalls_total",
                        "br_inst_retired.near_taken"]}
@@ -117,7 +134,7 @@ def perf_phase(events, shape, repeats, arm, base):
         sys.exit(f"STOP: perf/probe exited {rc} for {shape} {events} on arm {arm}: "
                  f"{Path(base + '.log').read_text()[-800:]}")
     rows = dfc.read_csv(base + ".csv")
-    if SET == "delete_acct":
+    if SET in ("delete_acct", "promote2"):
         # The probe's own clock over the counted delete passes, kept beside
         # the counters as the phase's wall clock (`phase_probe.c`).
         ns = [ln.split()[1] for ln in Path(base + ".log").read_text().splitlines()
@@ -162,6 +179,8 @@ def main():
             sys.exit(f"STOP: arm {arm} did not map libexpanse from {ARMS[arm]}: {proof}")
     if any("expanse" in x for x in proof["S"]):
         sys.exit(f"STOP: arm S mapped an Expanse object: {proof}")
+    if SET == "promote2" and driver.sha256(f"{ARMS['P']}/libJudy.so.1") == driver.sha256(f"{ARMS['M']}/libJudy.so.1"):
+        sys.exit("STOP: arms P and M are the same file")
     if SET == "delete_acct" and driver.sha256(f"{ARMS['A']}/libJudy.so.1") == driver.sha256(f"{ARMS['D']}/libJudy.so.1"):
         sys.exit("STOP: arms A and D are the same file, so the feature did not build in")
     prov = bp.new_provenance(
@@ -196,7 +215,7 @@ def main():
                                rc=0, failed=False, wall=wall, ops=ops,
                                own_cpu=ru.ru_utime + ru.ru_stime, load=load,
                                counters={e: rows[e][0] for e in FIXED + GROUPS[g]
-                                         + (["phase_ns"] if SET == "delete_acct" else [])})
+                                         + (["phase_ns"] if SET in ("delete_acct", "promote2") else [])})
                     out.write(json.dumps(rec) + "\n")
                     out.flush()
             print(f"{time.strftime('%H:%M:%S')} round {rnd} done", flush=True)
