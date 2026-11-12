@@ -1,0 +1,4 @@
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+valgrind-3.22.0
+iai-callgrind-runner 0.16.1
+image: Ubuntu 24.04, glibc 2.39

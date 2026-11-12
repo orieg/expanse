@@ -1,0 +1,59 @@
+arms compared: 294 (base 294, head 294); above +0.1%: 44; below -0.1%: 43
+  +4.537%  instructions::cost::set_oscillate random:keys("random")  3,306,017 -> 3,456,019
+  +3.941%  instructions::cost::map_oscillate random:keys("random")  3,806,026 -> 3,956,020
+  +3.258%  instructions::cost::map_insert sequential:keys("sequential")  8,800,990 -> 9,087,742
+  +1.629%  instructions::cost::map_insert dense_leaf:keys("dense_leaf")  23,103,104 -> 23,479,496
+  +1.610%  instructions::cost::map_insert linear_leaf:keys("linear_leaf")  24,878,869 -> 25,279,316
+  +1.582%  instructions::cost::map_insert clustered:keys("clustered")  17,255,753 -> 17,528,689
+  +1.562%  instructions::cost::map_insert small:keys("small")  24,231,106 -> 24,609,610
+  +1.367%  instructions::cost::map_collect sequential:entries("sequential")  8,554,553 -> 8,671,492
+  +1.231%  instructions::cost::set_subtree_split_control e1024:split_leaf_setup(expanse_trie  383,353 -> 388,073
+  +1.148%  instructions::cost::map_insert random:keys("random")  25,021,495 -> 25,308,687
+  +0.958%  instructions::cost::map_collect random:entries("random")  24,771,420 -> 25,008,614
+  +0.881%  instructions::cost::map_rebuild_drained random60:drained_partial_map("random60")  40,008,345 -> 40,360,623
+  +0.776%  instructions::cost::sync_map_compact_baseline random60:drained_partial_sync_map("random60")  45,991,930 -> 46,348,997
+  +0.752%  instructions::cost::map_collect random_sorted:entries("random_sorted")  24,056,523 -> 24,237,353
+  +0.667%  instructions::cost::map_clear_refill random:built_map("random")  27,686,763 -> 27,871,314
+  +0.566%  instructions::cost::map_small_tree hashjudy:small_tree_keys("hashjudy")  16,612,987 -> 16,707,051
+  +0.447%  instructions::cost::map_clone random:built_map("random")  28,621,024 -> 28,748,991
+  +0.428%  instructions::cost::set_insert dense_leaf:keys("dense_leaf")  17,972,825 -> 18,049,806
+  +0.426%  instructions::cost::sync_set_insert random:keys("random")  45,347,369 -> 45,540,651
+  +0.359%  instructions::cost::sync_strmap_insert routes:str_keys("routes")  77,915,774 -> 78,195,360
+  +0.345%  instructions::cost::map_ins_slot random:keys("random")  25,270,608 -> 25,357,820
+  +0.312%  instructions::cost::bytesmap_overwrite routes:built_bytesmap("routes")  35,336,400 -> 35,446,505
+  +0.307%  instructions::cost::blobmap_overwrite random:built_blobmap("random")  19,587,351 -> 19,647,522
+  +0.288%  instructions::cost::set_insert linear_leaf:keys("linear_leaf")  18,885,531 -> 18,939,947
+  +0.279%  instructions::cost::sync_map_churn random:built_sync_map("random")  119,315,237 -> 119,647,553
+  +0.256%  instructions::cost::blobmap_churn random:built_blobmap("random")  74,558,979 -> 74,750,082
+  +0.251%  instructions::cost::sync_strmap_churn routes:built_sync_strmap("routes")  189,693,291 -> 190,170,331
+  +0.222%  instructions::cost::set_compact_drained random60:drained_partial_set("random60")  16,331,380 -> 16,367,643
+  +0.216%  instructions::cost::set_rebuild_drained random60:drained_partial_set("random60")  16,756,167 -> 16,792,430
+  +0.201%  instructions::cost::sync_map_insert random:keys("random")  49,229,405 -> 49,328,372
+  +0.184%  instructions::cost::strmap_oscillate routes:str_keys("routes")  27,135,167 -> 27,185,173
+  +0.181%  instructions::cost::map_compact_drained random60:drained_partial_map("random60")  16,841,430 -> 16,871,873
+  +0.175%  instructions::cost::bytesmap_insert routes:str_keys("routes")  78,896,472 -> 79,034,699
+  +0.170%  instructions::cost::sync_map_remove random:built_sync_map("random")  48,876,105 -> 48,959,309
+  +0.169%  instructions::cost::map_from_sorted_iter random_sorted:entries("random_sorted")  10,511,545 -> 10,529,295
+  +0.160%  instructions::cost::sync_set_churn random:built_sync_set("random")  92,659,048 -> 92,807,122
+  +0.154%  instructions::cost::map_from_sorted_iter sequential:entries("sequential")  3,305,091 -> 3,310,197
+  +0.154%  instructions::cost::blobmap_insert random:keys("random")  31,397,100 -> 31,445,537
+  +0.134%  instructions::cost::bytesmap_churn routes:built_bytesmap("routes")  148,111,254 -> 148,309,068
+  +0.130%  instructions::cost::set_insert sparse:keys("sparse")  23,798,878 -> 23,829,714
+  +0.118%  instructions::cost::sync_blobmap_remove random:built_sync_blobmap("random")  50,508,435 -> 50,567,928
+  +0.115%  instructions::cost::map_churn random:built_map("random")  58,570,899 -> 58,638,065
+  +0.104%  instructions::cost::map_ins_slot gen_4m:keys("gen_4m")  2,659,864,097 -> 2,662,633,633
+  +0.102%  instructions::cost::sync_strmap_remove routes:built_sync_strmap("routes")  86,017,302 -> 86,105,275
+improved:
+  -1.010%  instructions::cost::map_remove_partial random60:built_partial_map("random60")
+  -0.872%  instructions::cost::strmap_insert routes:str_keys("routes")
+  -0.872%  instructions::cost::strmap_insert_plain routes:str_keys("routes")
+  -0.829%  instructions::cost::set_subtree_condense wide:condense_setup(SUBTREE_T_WIDE
+  -0.822%  instructions::cost::map_clone sequential:built_map("sequential")
+  -0.791%  instructions::cost::set_subtree_condense_control wide:condense_setup(SUBTREE_T_WIDE
+  -0.770%  instructions::cost::set_subtree_condense h1:condense_setup(SUBTREE_T_H1
+  -0.763%  instructions::cost::set_subtree_condense_control h1:condense_setup(SUBTREE_T_H1
+  -0.643%  instructions::cost::set_subtree_boundary_oscillate band9:osc_setup(9)
+  -0.638%  instructions::cost::set_subtree_boundary_oscillate band2:osc_setup(2)
+  -0.627%  instructions::cost::set_insert clustered:keys("clustered")
+  -0.582%  instructions::cost::map_remove random:built_map("random")
+sync_* arms: 89, max +0.776%, min -0.559%

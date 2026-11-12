@@ -988,6 +988,31 @@ Values stay identical. `crates/expanse/tests/test_plain_acct_values.rs` pins `me
 
 **Correction to the audit above.** `ExpanseMap32`, `ExpanseSet32` and `sync32` allocate through the 32-bit engine's own `Arena`, not `NodeAlloc`, so the change does not reach them. The pinned-values test's negative controls show it: no mutation of the update sites moves `ExpanseMap32`'s values.
 
+### Promotion: attribution of gate 1, and one fix (reverted)
+
+(measured: Callgrind of the `instructions` bench, unfiltered, rustc 1.99.1 (the CI toolchain), valgrind 3.22.0, iai-callgrind-runner 0.16.1, Ubuntu 24.04, on a host that is not the reference host; base `573b64d50`, the split `672cef0e5`, the fix `e79eb6986`; artifacts `results/acct_promotion_callgrind/`)
+
+**Instrument check.** The base-against-split comparison reproduces CI run 43126937195: 294 arms, the same 20 above +0.1% and the same 42 below −0.1%. `map_insert/sequential` differs from CI by 7 instructions. A first attempt with rustc 1.98.1 did not match CI and is not used.
+
+**Attribution: register pressure from code inlined into every caller, mostly code that does not run.** The split put a second size-class test and both forms of the counter updates into the `#[inline(always)]` allocation and free paths.
+
+| Arm | Delta (Ir) | Where |
+|---|---|---|
+| `set_oscillate/random` | +50,000 (+1.51%) | All on `benches/instructions.rs` line 526, `sink += u64::from(set.remove(black_box(k)))`: 50,000 → 100,000. The loop inserts and removes one key in a root leaf and never allocates. In the disassembly, base keeps `sink` in `%r15` and the split keeps it on the stack. The wrapper's `%rsp`-relative instructions go from 291 to 313. |
+| `map_insert/sequential` | +106,664 (+1.21%) | Unchanged lines inlined into the bench wrapper: `common.rs` +61,360, `ptr/mod.rs` +27,202, `map.rs` +14,002. |
+| `strmap_raw_insert/clean` | +310,561 (+0.76%) | `map_insert_with_path_flat::<false>`: its `mutate.rs` lines +242,068 and `mutate_map.rs` lines +134,492, against `atomic.rs` −42,216 (the counter updates). The function's `%rsp`-relative instructions go from 738 to 910. |
+| `sync_map_compact_baseline/random60` | +130,318 (+0.28%) | The same function's `mutate.rs` lines (+335,171) and `Extend::extend` (+221,868), during the rebuild of a plain tree. |
+| `map_remove_partial/random60` (control) | −997,312 (−1.43%) | `alloc.rs`, `atomic.rs` and `cell.rs` lines −404,287, with `map_remove`'s own lines +122,369. Its stack-relative count fell from 246 to 238. |
+
+The suspected mechanism, the slab-class branch inlined into every caller (AGENTS.md §2.1.5), is **confirmed** for the rising arms by the unchanged-source disassembly diffs above. The counter sites themselves get cheaper (`atomic.rs` lines fall in every arm). The losses come from what the extra inlined code does to the code around it.
+
+**One fix, aimed at that cause: NOT MET, reverted.** The fix (`e79eb6986`, reverted in `d74b8ca3d`) moved the counter updates into the existing class branch, so there is no second test. It also moved the locked updates for system-allocator blocks to `#[cold] #[inline(never)]` functions.
+- **Static code** came back toward base. `map_insert_with_path_flat::<false>` has 766 `%rsp`-relative instructions (base 738, split 910) and no `lock` left.
+- **Executed instructions** rose further: 44 of 294 arms above +0.1%, against 20 for the split. The worst are `set_oscillate/random` +4.54%, `map_oscillate/random` +3.94% and `map_insert/sequential` +3.26%, and the `sync_*` arms reach +0.78%.
+- **Why**, given the smaller static code: not measured.
+
+**Where gate 1 stands.** Still NOT MET, on the split as committed. The bound and the reading rule are unchanged, and nothing timed has run.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

@@ -1,0 +1,52 @@
+=== set_oscillate.random
+total: 3,306,017 -> 3,356,017 (+50,000, +1.512%)
+       +50,000         150,017 ->        200,017  crates/expanse/benches/instructions.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+            -1       1,100,020 ->      1,100,019  crates/expanse/src/set.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+=== map_insert.sequential
+total: 8,800,990 -> 8,907,654 (+106,664, +1.212%)
+       +61,360         624,001 ->        685,361  crates/expanse/src/common.rs:instructions::map_insert::__iai_callgrind_wrapper_mod::map_insert
+       +27,202         350,461 ->        377,663  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mod.rs:instructions::map_insert::__iai_callgrind_wrapper_mod::map_insert
+       +14,002       2,033,819 ->      2,047,821  crates/expanse/src/map.rs:instructions::map_insert::__iai_callgrind_wrapper_mod::map_insert
+        +9,518         162,064 ->        171,582  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/non_null.rs:instructions::map_insert::__iai_callgrind_wrapper_mod::map_insert
+        +6,681          97,972 ->        104,653  crates/expanse/src/mutate.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+        -4,070         369,661 ->        365,591  crates/expanse/src/mutate_map.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+        -3,551          46,192 ->         42,641  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mod.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+        -3,321          82,628 ->         79,307  crates/expanse/src/node.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+        +2,947          22,846 ->         25,793  crates/expanse/src/leaf.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+        -2,720         149,959 ->        147,239  crates/expanse/benches/instructions.rs:instructions::map_insert::__iai_callgrind_wrapper_mod::map_insert
+=== strmap_raw_insert.clean
+total: 40,823,744 -> 41,134,305 (+310,561, +0.761%)
+      +242,068       1,446,328 ->      1,688,396  crates/expanse/src/mutate.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+      +134,492       6,320,434 ->      6,454,926  crates/expanse/src/mutate_map.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+       -47,115       1,177,916 ->      1,130,801  crates/expanse/src/node.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+       -44,234         471,161 ->        426,927  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mut_ptr.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+       +44,199         260,364 ->        304,563  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/non_null.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+       -42,216         171,707 ->        129,491  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/sync/atomic.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+       +30,702         724,343 ->        755,045  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mod.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+        +5,426          65,269 ->         70,695  crates/expanse/src/leaf.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+        -4,872         267,560 ->        262,688  crates/expanse/src/alloc.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+        -4,776          52,151 ->         47,375  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/alloc/unix.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+=== sync_map_compact_baseline.random60
+total: 45,991,930 -> 46,122,248 (+130,318, +0.283%)
+      -335,912       7,079,397 ->      6,743,485  crates/expanse/src/mutate_map.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+      +335,171       2,256,075 ->      2,591,246  crates/expanse/src/mutate.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+      +221,868       4,841,832 ->      5,063,700  crates/expanse/src/iter.rs:<expanse_trie::map::ExpanseMap as core::iter::traits::collect::Extend<(u64, u64)>>::extend::<expanse_trie::map::MapIter>
+       -93,414         193,498 ->        100,084  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/alloc/unix.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+       -80,145       2,031,906 ->      1,951,761  crates/expanse/src/node.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+       +75,999       1,881,739 ->      1,957,738  crates/expanse/src/common.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+       +65,347       1,099,028 ->      1,164,375  crates/expanse/src/leaf.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+       +62,485         688,175 ->        750,660  crates/expanse/src/map.rs:<expanse_trie::map::ExpanseMap as core::iter::traits::collect::Extend<(u64, u64)>>::extend::<expanse_trie::map::MapIter>
+       -56,840       1,011,290 ->        954,450  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mod.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+       -42,462         512,409 ->        469,947  crates/expanse/src/alloc.rs:expanse_trie::mutate_map::map_insert_with_path_flat::<false>
+=== map_remove_partial.random60
+total: 69,775,251 -> 68,777,939 (-997,312, -1.429%)
+      -412,500       3,025,000 ->      2,612,500  crates/expanse/src/map.rs:instructions::map_remove_partial::__iai_callgrind_wrapper_mod::map_remove_partial
+      -176,730         176,730 ->              0  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/cell.rs:expanse_trie::mutate_map::map_remove::<false, false>'2
+      -168,513       2,627,365 ->      2,458,852  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mod.rs:expanse_trie::mutate_map::map_remove::<false, false>'2
+      +122,369      15,720,388 ->     15,842,757  crates/expanse/src/mutate_map.rs:expanse_trie::mutate_map::map_remove::<false, false>'2
+      -117,569       1,073,351 ->        955,782  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/sync/atomic.rs:expanse_trie::mutate_map::map_remove::<false, false>'2
+      -109,988       1,787,699 ->      1,677,711  crates/expanse/src/alloc.rs:expanse_trie::mutate_map::map_remove::<false, false>'2
+       -90,928       3,055,698 ->      2,964,770  crates/expanse/src/common.rs:expanse_trie::mutate_map::map_remove::<false, false>'2
+           -11       4,807,543 ->      4,807,532  crates/expanse/src/node.rs:expanse_trie::mutate_map::map_remove::<false, false>'2
+            -2         137,509 ->        137,507  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/slice/iter/macros.rs:instructions::map_remove_partial::__iai_callgrind_wrapper_mod::map_remove_partial
+            +1         275,001 ->        275,002  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/non_null.rs:instructions::map_remove_partial::__iai_callgrind_wrapper_mod::map_remove_partial
