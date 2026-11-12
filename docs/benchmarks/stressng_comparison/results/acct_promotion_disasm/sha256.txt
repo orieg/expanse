@@ -1,0 +1,2 @@
+61c4343bb3dc8fc8accdf0ed73d8c52688ce6da2d00a571b923423ba0e8b5ab8  /w/lib-M/libexpanse.so.1.0.0
+0d0007194d164d0298fe7e1c2769f37722e9dffb093071bc11488e93478c294b  /w/lib-P/libexpanse.so.1.0.0

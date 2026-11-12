@@ -956,6 +956,38 @@ Values stay identical. `crates/expanse/tests/test_plain_acct_values.rs` pins `me
 
 **Not decided here.** Merging is the owner's decision after the gates are read. The `pub` accessors keep their signatures, so the public API snapshot does not change. Release note (proposed): "A plain tree's allocator accounting no longer uses locked updates for blocks served from its per-tree freelists; values and the public API are unchanged." Whether that goes in a patch or a minor release is open: no observable behaviour changes, by the audit above.
 
+### Promotion result: gates 1 and 2
+
+(measured: CI `Perf / Callgrind Deterministic Instructions`, [run 43126937195](https://github.com/orieg/expanse/actions/runs/43126937195), head `672cef0e5` against merge base `573b64d50`; disassembly from builds of the same two commits with rustc 1.98.1 on a host that is not the reference host, `results/acct_promotion_disasm/`)
+
+**Gate 1, Callgrind: NOT MET.** In the `instructions::cost` harness, 20 of 112 arms rose above +0.1%, and 42 fell below −0.1%. Per the pre-registration, nothing timed runs.
+
+| Arm | Change |
+|---|---|
+| `set_oscillate/random` | +1.51% |
+| `map_insert/sequential` | +1.21% |
+| `strmap_raw_insert/clean` | +0.76% |
+| `strmap_transcode_insert/clean` | +0.69% |
+| `ordered_bytesmap_insert/clean` | +0.66% |
+| `map_collect/sequential` | +0.60% |
+| `set_insert/dense_leaf` | +0.49% |
+| `sync_map_compact_baseline/random60` | +0.28% |
+| `sync_bytesmap_insert/routes` | +0.17% |
+| `sync_set_churn/random` | +0.11% |
+
+- **Smoke job.** The `Perf / Callgrind Fast Smoke` job in the same run adds `set_insert/clustered` +1.14% and `judyl_insert/sequential` +0.55%.
+- **Improvements.** The largest are `map_remove_partial/random60` −1.43%, `map_remove/random` −1.06%, `map_clone/sequential` −1.04%, `map_regrow_after_shrink/random60` −1.00% and `map_churn/random` −0.99%.
+- **The `sync_*` arms moved** (−0.25% to +0.28%), although `Deferred::charge`/`discharge` did not change. The OCC instantiations carry the plain path behind the runtime `deferred_if` test, so the plain path's code generation reaches them.
+- **Not attributed.** No per-function base-against-head profile has been taken. Which code moves the rising arms is unmeasured.
+
+**Gate 2, disassembly: NOT MET as written. The instrument was wrong, so this says nothing either way about the code.**
+- **`<true, …>` instantiations.** They are not deferred-only: 26 of them change their `lock` count. Some go down, where an unlocked branch replaced a locked one; some go up, such as `build_leaf::<true>` 6 → 9, where the locked branch is now inlined twice.
+- **Plain instantiations.** They keep both branches inline: `map_remove::<false, false>` holds 66 `lock` instructions in P against 92 in M (the diagnostic build had 0). A static listing cannot show which branch runs.
+- **Mis-sorted names.** `<false>` in a `bytesmap` name is a different parameter, so the census sorted some deferred shard updates as plain.
+- **No revision.** The gate is not revised after the fact (§8.19).
+
+**Correction to the audit above.** `ExpanseMap32`, `ExpanseSet32` and `sync32` allocate through the 32-bit engine's own `Arena`, not `NodeAlloc`, so the change does not reach them. The pinned-values test's negative controls show it: no mutation of the update sites moves `ExpanseMap32`'s values.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

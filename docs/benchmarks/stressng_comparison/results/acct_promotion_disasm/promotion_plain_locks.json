@@ -1,0 +1,4874 @@
+[
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "52d67",
+  "insn": "lock incq (%rax)",
+  "calls_within_window": [
+   "<std::hash::random::RandomState as core::hash::BuildHasher"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "52f3f",
+  "insn": "lock addq $0x10,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "52f45",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "52f4b",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53631",
+  "insn": "lock sub %rbp,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53636",
+  "insn": "lock decq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "5366f",
+  "insn": "lock sub %rbp,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53677",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "539be",
+  "insn": "lock add %rbp,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "539c3",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "539c9",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53a54",
+  "insn": "lock add %rbx,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53a5c",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53a64",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53db5",
+  "insn": "lock sub %r12,0x220(%r15)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53dbd",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53e08",
+  "insn": "lock sub %r12,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53e0d",
+  "insn": "lock decq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53e76",
+  "insn": "lock add %r8,0x220(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53e7e",
+  "insn": "lock incq 0x228(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53e86",
+  "insn": "lock incq 0x238(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53ff7",
+  "insn": "lock sub %rbp,0x220(%r15)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "53fff",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "54745",
+  "insn": "lock sub %rax,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "5474d",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::insert_slot_inner::<false>",
+  "addr": "54c1f",
+  "insn": "lock decq (%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4b191",
+  "insn": "lock incq (%rax)",
+  "calls_within_window": [
+   "<std::hash::random::RandomState as core::hash::BuildHasher"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4ba55",
+  "insn": "lock addq $0x10,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4ba5b",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4ba61",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4bdfc",
+  "insn": "lock decq (%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c4fb",
+  "insn": "lock sub %r12,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c500",
+  "insn": "lock decq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c534",
+  "insn": "lock sub %r12,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c53c",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c6ac",
+  "insn": "lock add %rdx,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c6b4",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c6bc",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c716",
+  "insn": "lock add %r14,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c71b",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c721",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c7b7",
+  "insn": "lock subq $0x10,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c7bd",
+  "insn": "lock decq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c7f0",
+  "insn": "lock sub %r12,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c7f8",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c94a",
+  "insn": "lock add %r13,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c952",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c95a",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c998",
+  "insn": "lock add %rcx,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c9a0",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4c9a8",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4cdb9",
+  "insn": "lock sub %r12,0x220(%r15)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4cdc1",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4ce07",
+  "insn": "lock sub %r12,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4ce0c",
+  "insn": "lock decq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4cea1",
+  "insn": "lock add %r13,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4cea9",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4ceb1",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d2bc",
+  "insn": "lock add %r13,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d2c1",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d2c7",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d313",
+  "insn": "lock add %r13,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d31b",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d323",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d5bb",
+  "insn": "lock sub %rax,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d5c3",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d7af",
+  "insn": "lock add %r12,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d7b4",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d7ba",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d804",
+  "insn": "lock add %r12,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d80c",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d814",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d84c",
+  "insn": "lock add %r12,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d854",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4d85c",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4db1c",
+  "insn": "lock sub %r13,(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4db21",
+  "insn": "lock decq 0x8(%rbx,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4db4d",
+  "insn": "lock sub %r13,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4db55",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4dbea",
+  "insn": "lock sub %r13,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4dbf2",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4e063",
+  "insn": "lock add %r13,0x220(%r15)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, true"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4e06b",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, true"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4e073",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, true"
+  ]
+ },
+ {
+  "function": "<expanse_trie::bytesmap::ExpanseBytesMap>::remove_impl::<false>",
+  "addr": "4e5dc",
+  "insn": "lock decq (%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "5540d",
+  "insn": "lock add %rbp,0x220(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "55415",
+  "insn": "lock incq 0x228(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "5541d",
+  "insn": "lock incq 0x238(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "554ce",
+  "insn": "lock add %rbp,0x220(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "554d6",
+  "insn": "lock incq 0x228(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "554de",
+  "insn": "lock incq 0x238(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "e568d",
+  "insn": "lock add %rbp,0x220(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "e5695",
+  "insn": "lock incq 0x228(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "e569d",
+  "insn": "lock incq 0x238(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "e574e",
+  "insn": "lock add %rbp,0x220(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "e5756",
+  "insn": "lock incq 0x228(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+  "addr": "e575e",
+  "insn": "lock incq 0x238(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1FreeArray",
+  "addr": "401b7",
+  "insn": "lock sub %rcx,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1FreeArray",
+  "addr": "401bf",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1FreeArray",
+  "addr": "40275",
+  "insn": "lock sub %rcx,0x220(%r15)",
+  "calls_within_window": [
+   "core::ptr::drop_glue::<alloc::boxed::Box<expanse_trie::set::ExpanseSet"
+  ]
+ },
+ {
+  "function": "Judy1FreeArray",
+  "addr": "4027d",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": [
+   "core::ptr::drop_glue::<alloc::boxed::Box<expanse_trie::set::ExpanseSet"
+  ]
+ },
+ {
+  "function": "Judy1Set",
+  "addr": "4173c",
+  "insn": "lock sub %rsi,0x220(%rbx)",
+  "calls_within_window": [
+   "expanse_trie::mutate::insert_with_path_flat"
+  ]
+ },
+ {
+  "function": "Judy1Set",
+  "addr": "41744",
+  "insn": "lock decq 0x228(%rbx)",
+  "calls_within_window": [
+   "expanse_trie::mutate::insert_with_path_flat"
+  ]
+ },
+ {
+  "function": "Judy1Set",
+  "addr": "41776",
+  "insn": "lock sub %rsi,0x220(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Set",
+  "addr": "4177e",
+  "insn": "lock decq 0x228(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Set",
+  "addr": "41887",
+  "insn": "lock add %r14,0x220(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Set",
+  "addr": "4188f",
+  "insn": "lock incq 0x228(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Set",
+  "addr": "41897",
+  "insn": "lock incq 0x238(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Set",
+  "addr": "41b06",
+  "insn": "lock sub %rax,0x220(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Set",
+  "addr": "41b0e",
+  "insn": "lock decq 0x228(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Unset",
+  "addr": "42222",
+  "insn": "lock add %r8,0x220(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Unset",
+  "addr": "4222a",
+  "insn": "lock incq 0x228(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Unset",
+  "addr": "42232",
+  "insn": "lock incq 0x238(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Unset",
+  "addr": "423f2",
+  "insn": "lock add %r8,0x220(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Unset",
+  "addr": "423fa",
+  "insn": "lock incq 0x228(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Unset",
+  "addr": "42402",
+  "insn": "lock incq 0x238(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Unset",
+  "addr": "424de",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Unset",
+  "addr": "424e6",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Unset",
+  "addr": "42592",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "Judy1Unset",
+  "addr": "4259a",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "43047",
+  "insn": "lock add %rbp,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "4304f",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "43057",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "4308d",
+  "insn": "lock add %r12,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "43095",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "4309d",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "4369d",
+  "insn": "lock add %rbp,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "436a5",
+  "insn": "lock incq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "436ad",
+  "insn": "lock incq 0x238(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "4389d",
+  "insn": "lock sub %rsi,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "438a5",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "438ce",
+  "insn": "lock sub %rsi,0x220(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLDel",
+  "addr": "438d6",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLFreeArray",
+  "addr": "440b6",
+  "insn": "lock sub %rsi,0x220(%r15)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, true"
+  ]
+ },
+ {
+  "function": "JudyLFreeArray",
+  "addr": "440be",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, true"
+  ]
+ },
+ {
+  "function": "JudyLFreeArray",
+  "addr": "440e4",
+  "insn": "lock sub %rsi,0x220(%r15)",
+  "calls_within_window": [
+   "core::ptr::drop_glue::<alloc::boxed::Box<expanse_trie::map::ExpanseMap"
+  ]
+ },
+ {
+  "function": "JudyLFreeArray",
+  "addr": "440ec",
+  "insn": "lock decq 0x228(%r15)",
+  "calls_within_window": [
+   "core::ptr::drop_glue::<alloc::boxed::Box<expanse_trie::map::ExpanseMap"
+  ]
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "44830",
+  "insn": "lock sub %rsi,0x220(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::map_insert_with_path_flat::<false"
+  ]
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "44838",
+  "insn": "lock decq 0x228(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::map_insert_with_path_flat::<false"
+  ]
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "44b11",
+  "insn": "lock sub %rsi,0x220(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "44b19",
+  "insn": "lock decq 0x228(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "44ff1",
+  "insn": "lock add %r13,0x220(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "44ff9",
+  "insn": "lock incq 0x228(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "45001",
+  "insn": "lock incq 0x238(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "451fc",
+  "insn": "lock sub %rsi,0x220(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "45204",
+  "insn": "lock decq 0x228(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "45255",
+  "insn": "lock add %r13,0x220(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "4525d",
+  "insn": "lock incq 0x228(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "45265",
+  "insn": "lock incq 0x238(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "45850",
+  "insn": "lock sub %rax,0x220(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudyLIns",
+  "addr": "45858",
+  "insn": "lock decq 0x228(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "46d38",
+  "insn": "lock add %r13,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "46d40",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "46d48",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "46dac",
+  "insn": "lock add %rdx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "46db4",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "46dbc",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "471a0",
+  "insn": "lock add %r13,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "471a8",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "471b0",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "473ac",
+  "insn": "lock sub %rsi,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "473b4",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47401",
+  "insn": "lock sub %rsi,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47409",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47646",
+  "insn": "lock add %r13,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "4764e",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47656",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "4768e",
+  "insn": "lock add %rbx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47696",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "4769e",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47aa4",
+  "insn": "lock add %r13,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47aac",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47ab4",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47c80",
+  "insn": "lock sub %rsi,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47c88",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47cb8",
+  "insn": "lock sub %rsi,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "47cc0",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "4826e",
+  "insn": "lock add %rdx,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "48276",
+  "insn": "lock incq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "4827e",
+  "insn": "lock incq 0x218(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "482bb",
+  "insn": "lock add %rdx,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "482c3",
+  "insn": "lock incq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "482cb",
+  "insn": "lock incq 0x218(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "48521",
+  "insn": "lock add %rdx,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "48529",
+  "insn": "lock incq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "48531",
+  "insn": "lock incq 0x218(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "488af",
+  "insn": "lock sub %rsi,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "488b7",
+  "insn": "lock decq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "488f4",
+  "insn": "lock sub %rsi,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLDel",
+  "addr": "488fc",
+  "insn": "lock decq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "49779",
+  "insn": "lock sub %rsi,0x200(%rbx)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::map_insert_with_path_flat::<false"
+  ]
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "49781",
+  "insn": "lock decq 0x208(%rbx)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::map_insert_with_path_flat::<false"
+  ]
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "49ba0",
+  "insn": "lock sub %rsi,0x200(%r13)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::map_insert_with_path_flat::<false",
+   "<[u64]"
+  ]
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "49ba8",
+  "insn": "lock decq 0x208(%r13)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::map_insert_with_path_flat::<false",
+   "<[u64]"
+  ]
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a0cf",
+  "insn": "lock add %rbx,0x200(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a0d7",
+  "insn": "lock incq 0x208(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a0df",
+  "insn": "lock incq 0x218(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a2d2",
+  "insn": "lock sub %rsi,0x200(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a2da",
+  "insn": "lock decq 0x208(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a337",
+  "insn": "lock sub %rsi,0x200(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a33f",
+  "insn": "lock decq 0x208(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a3df",
+  "insn": "lock sub %rsi,0x200(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a3e7",
+  "insn": "lock decq 0x208(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a9d1",
+  "insn": "lock add %r11,0x200(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a9d9",
+  "insn": "lock incq 0x208(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4a9e1",
+  "insn": "lock incq 0x218(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4ab7b",
+  "insn": "lock sub %rsi,0x200(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "JudySLIns",
+  "addr": "4ab83",
+  "insn": "lock decq 0x208(%r13)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::build_leaf::<false>",
+  "addr": "9b3b2",
+  "insn": "lock add %r14,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::build_leaf::<false>",
+  "addr": "9b3ba",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::build_leaf::<false>",
+  "addr": "9b3c2",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::build_leaf::<false>",
+  "addr": "1685c5",
+  "insn": "lock add %rbx,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::build_leaf::<false>",
+  "addr": "1685cd",
+  "insn": "lock incq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::build_leaf::<false>",
+  "addr": "1685d5",
+  "insn": "lock incq 0x218(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::build_leaf::<false>",
+  "addr": "168615",
+  "insn": "lock add %rbx,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::build_leaf::<false>",
+  "addr": "16861d",
+  "insn": "lock incq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::build_leaf::<false>",
+  "addr": "168625",
+  "insn": "lock incq 0x218(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_b_to_l7::<false>",
+  "addr": "a0600",
+  "insn": "lock sub %rsi,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_b_to_l7::<false>",
+  "addr": "a0608",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_b_to_l7::<false>",
+  "addr": "174c10",
+  "insn": "lock sub %rsi,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_b_to_l7::<false>",
+  "addr": "174c18",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+  "addr": "9f650",
+  "insn": "lock add %r13,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+  "addr": "9f658",
+  "insn": "lock incq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+  "addr": "9f660",
+  "insn": "lock incq 0x218(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+  "addr": "9f70d",
+  "insn": "lock subq $0x1040,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+  "addr": "9f719",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+  "addr": "173390",
+  "insn": "lock add %r13,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+  "addr": "173398",
+  "insn": "lock incq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+  "addr": "1733a0",
+  "insn": "lock incq 0x218(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+  "addr": "17344d",
+  "insn": "lock subq $0x1040,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+  "addr": "173459",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "9bab0",
+  "insn": "lock sub %rsi,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "9bab8",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "9bc99",
+  "insn": "lock subq $0x1040,0x200(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, false"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "9bca5",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, false"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "9bda0",
+  "insn": "lock sub %rcx,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "9bda8",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "9bde4",
+  "insn": "lock sub %rcx,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "9bdec",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "16f000",
+  "insn": "lock sub %rsi,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "16f008",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "16f1e9",
+  "insn": "lock subq $0x1040,0x200(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, false"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "16f1f5",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, false"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "16f2f0",
+  "insn": "lock sub %rcx,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "16f2f8",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "16f334",
+  "insn": "lock sub %rcx,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, false>",
+  "addr": "16f33c",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9bff0",
+  "insn": "lock sub %rsi,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9bff8",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9c1d9",
+  "insn": "lock subq $0x1040,0x200(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, true"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9c1e5",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, true"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9c220",
+  "insn": "lock sub %rcx,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9c228",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9c3b5",
+  "insn": "lock sub %rcx,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9c3bd",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9c3f9",
+  "insn": "lock sub %rcx,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9c401",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "9c478",
+  "insn": "lock sub %rsi,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f540",
+  "insn": "lock sub %rsi,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f548",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f729",
+  "insn": "lock subq $0x1040,0x200(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, true"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f735",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree::<false, true"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f770",
+  "insn": "lock sub %rcx,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f778",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f905",
+  "insn": "lock sub %rcx,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f90d",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f949",
+  "insn": "lock sub %rcx,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f951",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree::<false, true>",
+  "addr": "16f9c8",
+  "insn": "lock sub %rsi,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "180fc0",
+  "insn": "lock sub %rdx,0x200(%r14)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "180fc8",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1810d9",
+  "insn": "lock sub %rdx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1810de",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181141",
+  "insn": "lock sub %rdx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181146",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1812c1",
+  "insn": "lock subq $0x1040,0x200(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree_unpublished::<false"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1812cd",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": [
+   "expanse_trie::mutate::free_subtree_unpublished::<false"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "18143b",
+  "insn": "lock sub %r13,(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt",
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181440",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt",
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "18148b",
+  "insn": "lock sub %r13,(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181490",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1814b1",
+  "insn": "lock sub %r13,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1814b9",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181547",
+  "insn": "lock sub %r13,0x200(%r14)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "18154f",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181591",
+  "insn": "lock subq $0x1040,(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt",
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "18159a",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt",
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1815ea",
+  "insn": "lock subq $0x80,(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt",
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1815f3",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt",
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181632",
+  "insn": "lock subq $0x40,(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181638",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "18167a",
+  "insn": "lock subq $0x80,(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181683",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1816d0",
+  "insn": "lock subq $0x1040,(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt",
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1816d9",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt",
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181729",
+  "insn": "lock subq $0x80,(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt",
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181732",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt",
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181771",
+  "insn": "lock subq $0x40,(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "181777",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": [
+   "__tls_get_addr@plt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1817cc",
+  "insn": "lock subq $0x80,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+  "addr": "1817d5",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a17d4",
+  "insn": "lock addq $0x1040,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a17e0",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a17ed",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a2246",
+  "insn": "lock sub %rax,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a224e",
+  "insn": "lock decq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a22a1",
+  "insn": "lock sub %rax,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a22a9",
+  "insn": "lock decq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a27c1",
+  "insn": "lock add %rbp,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a27c9",
+  "insn": "lock incq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a27d1",
+  "insn": "lock incq 0x218(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a27f1",
+  "insn": "lock add %rbp,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a27f9",
+  "insn": "lock incq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a2801",
+  "insn": "lock incq 0x218(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a29ee",
+  "insn": "lock sub %rax,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a29f6",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a2a32",
+  "insn": "lock sub %rax,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a2a3a",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a2b88",
+  "insn": "lock subq $0x1040,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a2b94",
+  "insn": "lock decq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a30ac",
+  "insn": "lock add %r9,0x200(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a30b4",
+  "insn": "lock incq 0x208(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a30bc",
+  "insn": "lock incq 0x218(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a3288",
+  "insn": "lock sub %rsi,0x200(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "a3290",
+  "insn": "lock decq 0x208(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "1827f9",
+  "insn": "lock addq $0x1040,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "182805",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "182811",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "183256",
+  "insn": "lock sub %rax,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "18325e",
+  "insn": "lock decq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "1832b1",
+  "insn": "lock sub %rax,0x200(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "1832b9",
+  "insn": "lock decq 0x208(%r15)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "1837e7",
+  "insn": "lock add %rbp,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "1837ef",
+  "insn": "lock incq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "1837f7",
+  "insn": "lock incq 0x218(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "183817",
+  "insn": "lock add %rbp,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "18381f",
+  "insn": "lock incq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "183827",
+  "insn": "lock incq 0x218(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "183a13",
+  "insn": "lock sub %rax,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "183a1b",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "183a57",
+  "insn": "lock sub %rax,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "183a5f",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "183ba7",
+  "insn": "lock subq $0x1040,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "183bb3",
+  "insn": "lock decq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "1840b8",
+  "insn": "lock add %r9,0x200(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "1840c0",
+  "insn": "lock incq 0x208(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "1840c8",
+  "insn": "lock incq 0x218(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "184296",
+  "insn": "lock sub %rsi,0x200(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::remove::<false, false>",
+  "addr": "18429e",
+  "insn": "lock decq 0x208(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+  "addr": "9d111",
+  "insn": "lock addq $0x1040,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+  "addr": "9d11d",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+  "addr": "9d128",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+  "addr": "9d340",
+  "insn": "lock sub %rsi,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+  "addr": "9d348",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+  "addr": "170ee1",
+  "insn": "lock addq $0x1040,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+  "addr": "170eed",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+  "addr": "170ef8",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+  "addr": "171110",
+  "insn": "lock sub %rsi,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+  "addr": "171118",
+  "insn": "lock decq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_l7_to_b::<false>",
+  "addr": "9ded0",
+  "insn": "lock add %r12,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_l7_to_b::<false>",
+  "addr": "9ded8",
+  "insn": "lock incq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_l7_to_b::<false>",
+  "addr": "9dee0",
+  "insn": "lock incq 0x218(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_l7_to_b::<false>",
+  "addr": "171c70",
+  "insn": "lock add %r12,0x200(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_l7_to_b::<false>",
+  "addr": "171c78",
+  "insn": "lock incq 0x208(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate::upgrade_l7_to_b::<false>",
+  "addr": "171c80",
+  "insn": "lock incq 0x218(%r14)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "5f401",
+  "insn": "lock add %rcx,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "5f409",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "5f411",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "5f4c0",
+  "insn": "lock add %rcx,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "5f4c8",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "5f4d0",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "f6321",
+  "insn": "lock add %rcx,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "f6329",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "f6331",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "f63e0",
+  "insn": "lock add %rcx,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "f63e8",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+  "addr": "f63f0",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_map_leaf::<false>",
+  "addr": "5d7dc",
+  "insn": "lock add %rbp,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_map_leaf::<false>",
+  "addr": "5d7e4",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_map_leaf::<false>",
+  "addr": "5d7ec",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_map_leaf::<false>",
+  "addr": "ec22a",
+  "insn": "lock add %r15,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_map_leaf::<false>",
+  "addr": "ec232",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_map_leaf::<false>",
+  "addr": "ec23a",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_map_leaf::<false>",
+  "addr": "ec27a",
+  "insn": "lock add %r15,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_map_leaf::<false>",
+  "addr": "ec282",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::build_map_leaf::<false>",
+  "addr": "ec28a",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "76deb",
+  "insn": "lock add %rdx,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "76df3",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "76dfb",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "77170",
+  "insn": "lock sub %rsi,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "77178",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "77e55",
+  "insn": "lock add %rax,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "77e5d",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "77e65",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "78109",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "78111",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "7826c",
+  "insn": "lock add %r12,0x200(%rcx)",
+  "calls_within_window": [
+   "expanse_trie::leaf::lower_bound_fixed::<5"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "78274",
+  "insn": "lock incq 0x208(%rcx)",
+  "calls_within_window": [
+   "expanse_trie::leaf::lower_bound_fixed::<5"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "7827c",
+  "insn": "lock incq 0x218(%rcx)",
+  "calls_within_window": [
+   "expanse_trie::leaf::lower_bound_fixed::<5"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "789ab",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "789b3",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "789f2",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "789fa",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "79006",
+  "insn": "lock add %r12,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "7900e",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "79016",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "7961f",
+  "insn": "lock add %rdx,0x200(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "79627",
+  "insn": "lock incq 0x208(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "7962f",
+  "insn": "lock incq 0x218(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "79b6b",
+  "insn": "lock sub %rax,0x200(%r11)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "79b73",
+  "insn": "lock decq 0x208(%r11)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "7a1c3",
+  "insn": "lock sub %rsi,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "7a1cb",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "7a542",
+  "insn": "lock sub %rsi,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "7a54a",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10d6ab",
+  "insn": "lock add %rdx,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10d6b3",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10d6bb",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10da33",
+  "insn": "lock sub %rsi,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10da3b",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10e708",
+  "insn": "lock add %rax,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10e710",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10e718",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10e9bc",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10e9c4",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10eb2c",
+  "insn": "lock add %r12,0x200(%rcx)",
+  "calls_within_window": [
+   "expanse_trie::leaf::lower_bound_fixed::<5"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10eb34",
+  "insn": "lock incq 0x208(%rcx)",
+  "calls_within_window": [
+   "expanse_trie::leaf::lower_bound_fixed::<5"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10eb3c",
+  "insn": "lock incq 0x218(%rcx)",
+  "calls_within_window": [
+   "expanse_trie::leaf::lower_bound_fixed::<5"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10f017",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10f01f",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10f274",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10f27c",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10f8d6",
+  "insn": "lock add %r12,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10f8de",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10f8e6",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10fed5",
+  "insn": "lock add %rdx,0x200(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10fedd",
+  "insn": "lock incq 0x208(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "10fee5",
+  "insn": "lock incq 0x218(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "1103c3",
+  "insn": "lock sub %rax,0x200(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "1103cb",
+  "insn": "lock decq 0x208(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "110a42",
+  "insn": "lock sub %rsi,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "110a4a",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "110dc5",
+  "insn": "lock sub %rsi,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+  "addr": "110dcd",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "60a35",
+  "insn": "lock addq $0x40,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "60a3b",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "60a41",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "61bf7",
+  "insn": "lock sub %rbx,0x200(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "61bff",
+  "insn": "lock decq 0x208(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "61e4b",
+  "insn": "lock addq $0x10,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "61e51",
+  "insn": "lock incq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "61e57",
+  "insn": "lock incq 0x10(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "61ee0",
+  "insn": "lock sub %rbx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "61ee5",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6211f",
+  "insn": "lock add %rbx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "62124",
+  "insn": "lock incq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6212a",
+  "insn": "lock incq 0x10(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6282c",
+  "insn": "lock add %r13,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "62834",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6283c",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "62865",
+  "insn": "lock add %r13,(%r12,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6286a",
+  "insn": "lock incq 0x8(%r12,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "62870",
+  "insn": "lock incq 0x10(%r12,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "631c8",
+  "insn": "lock add %rbx,0x200(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "631d0",
+  "insn": "lock incq 0x208(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "631d8",
+  "insn": "lock incq 0x218(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63a17",
+  "insn": "lock sub %rbx,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63a1f",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63a5d",
+  "insn": "lock sub %rbx,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63a62",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63c94",
+  "insn": "lock addq $0x40,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63c9a",
+  "insn": "lock incq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63ca0",
+  "insn": "lock incq 0x10(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63f17",
+  "insn": "lock sub %rbx,0x200(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63f1f",
+  "insn": "lock decq 0x208(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63f57",
+  "insn": "lock sub %rbx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "63f5c",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6419e",
+  "insn": "lock add %r14,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "641a3",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "641a9",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "642b9",
+  "insn": "lock addq $0x10,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "642bf",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "642c5",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "645f0",
+  "insn": "lock sub %rbx,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "645f5",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6461f",
+  "insn": "lock sub %rbx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "64627",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6466b",
+  "insn": "lock sub %rbx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "64673",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "646e4",
+  "insn": "lock add %r14,0x200(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "646ec",
+  "insn": "lock incq 0x208(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "646f4",
+  "insn": "lock incq 0x218(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "64722",
+  "insn": "lock addq $0x10,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "64728",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6472e",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "64d2d",
+  "insn": "lock sub %r15,0x0(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "64d33",
+  "insn": "lock decq 0x8(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "64d59",
+  "insn": "lock sub %r15,0x200(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "64d61",
+  "insn": "lock decq 0x208(%rbp)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "650e2",
+  "insn": "lock add %rdx,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "650e7",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "650ed",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "65142",
+  "insn": "lock add %rdx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6514a",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "65152",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "65277",
+  "insn": "lock sub %rbx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "6527f",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "652b6",
+  "insn": "lock sub %rbx,(%rcx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "652bb",
+  "insn": "lock decq 0x8(%rcx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f7931",
+  "insn": "lock addq $0x40,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f7937",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f793d",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f8b1d",
+  "insn": "lock sub %rbx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f8b25",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f8d7b",
+  "insn": "lock addq $0x10,0x0(%r13,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f8d82",
+  "insn": "lock incq 0x8(%r13,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f8d88",
+  "insn": "lock incq 0x10(%r13,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f8e06",
+  "insn": "lock sub %rbx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f8e0b",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f90a9",
+  "insn": "lock add %rbp,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f90ae",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f90b4",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f983e",
+  "insn": "lock add %r13,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f9846",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f984e",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f9894",
+  "insn": "lock add %r13,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f9899",
+  "insn": "lock incq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "f989f",
+  "insn": "lock incq 0x10(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fa05d",
+  "insn": "lock add %rbp,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fa065",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fa06d",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "faa7a",
+  "insn": "lock sub %rbx,0x200(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "faa82",
+  "insn": "lock decq 0x208(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "faabd",
+  "insn": "lock sub %rbx,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "faac2",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fab0b",
+  "insn": "lock addq $0x40,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fab11",
+  "insn": "lock incq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fab17",
+  "insn": "lock incq 0x10(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fafad",
+  "insn": "lock sub %rbx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fafb5",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fafe9",
+  "insn": "lock sub %rbx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fafee",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb208",
+  "insn": "lock add %r14,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb20d",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb213",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb5e0",
+  "insn": "lock sub %r14,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb5e5",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb60b",
+  "insn": "lock sub %r14,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb613",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb654",
+  "insn": "lock sub %r14,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb65c",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": [
+   "expanse_trie::get::locate_slot_popcnt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb72a",
+  "insn": "lock addq $0x10,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb730",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb736",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb798",
+  "insn": "lock add %r14,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb7a0",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb7a8",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb7d3",
+  "insn": "lock addq $0x10,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb7d9",
+  "insn": "lock incq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fb7df",
+  "insn": "lock incq 0x10(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fbde7",
+  "insn": "lock sub %r15,0x0(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fbded",
+  "insn": "lock decq 0x8(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fbe2c",
+  "insn": "lock sub %r15,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fbe34",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fc1c6",
+  "insn": "lock add %rdx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fc1cb",
+  "insn": "lock incq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fc1d1",
+  "insn": "lock incq 0x10(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fc226",
+  "insn": "lock add %rdx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fc22e",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fc236",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fc361",
+  "insn": "lock sub %r15,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fc369",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fc39d",
+  "insn": "lock sub %r15,(%rcx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+  "addr": "fc3a2",
+  "insn": "lock decq 0x8(%rcx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "66257",
+  "insn": "lock addq $0x40,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6625d",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "66263",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6723a",
+  "insn": "lock addq $0x10,0x0(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67241",
+  "insn": "lock incq 0x8(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67247",
+  "insn": "lock incq 0x10(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6743d",
+  "insn": "lock add %r13,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67442",
+  "insn": "lock incq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67448",
+  "insn": "lock incq 0x10(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67501",
+  "insn": "lock sub %r15,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67509",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6753d",
+  "insn": "lock sub %r15,(%r12,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67542",
+  "insn": "lock decq 0x8(%r12,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67b39",
+  "insn": "lock sub %r14,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67b3e",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67b62",
+  "insn": "lock sub %r14,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67b6a",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67cb4",
+  "insn": "lock add %r14,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67cbc",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67cc4",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67d0c",
+  "insn": "lock add %r14,(%r12,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67d11",
+  "insn": "lock incq 0x8(%r12,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67d17",
+  "insn": "lock incq 0x10(%r12,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67d89",
+  "insn": "lock sub %r14,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "67d91",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "68559",
+  "insn": "lock add %r13,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "68561",
+  "insn": "lock incq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "68569",
+  "insn": "lock incq 0x218(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "68c96",
+  "insn": "lock sub %rbx,0x200(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "68c9e",
+  "insn": "lock decq 0x208(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "68cd4",
+  "insn": "lock sub %rbx,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "68cd9",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "68f47",
+  "insn": "lock addq $0x40,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "68f4d",
+  "insn": "lock incq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "68f53",
+  "insn": "lock incq 0x10(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69173",
+  "insn": "lock sub %r15,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6917b",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "691c0",
+  "insn": "lock sub %r15,(%r12,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "691c5",
+  "insn": "lock decq 0x8(%r12,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69370",
+  "insn": "lock add %r14,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69375",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6937b",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "693ff",
+  "insn": "lock addq $0x10,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69405",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6940b",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "695e2",
+  "insn": "lock add %r14,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "695ea",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "695f2",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69620",
+  "insn": "lock addq $0x10,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69626",
+  "insn": "lock incq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6962c",
+  "insn": "lock incq 0x10(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69be9",
+  "insn": "lock sub %r15,0x0(%r13,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69bef",
+  "insn": "lock decq 0x8(%r13,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69c1b",
+  "insn": "lock sub %r15,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69c23",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69f58",
+  "insn": "lock add %rdx,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69f5d",
+  "insn": "lock incq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69f63",
+  "insn": "lock incq 0x10(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69fe4",
+  "insn": "lock add %rdx,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69fec",
+  "insn": "lock incq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "69ff4",
+  "insn": "lock incq 0x218(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6a1b1",
+  "insn": "lock sub %r14,0x200(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6a1b9",
+  "insn": "lock decq 0x208(%r10)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6a1ed",
+  "insn": "lock sub %r14,(%rcx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "6a1f2",
+  "insn": "lock decq 0x8(%rcx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fd267",
+  "insn": "lock addq $0x40,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fd26d",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fd273",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fe058",
+  "insn": "lock sub %rbx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fe060",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fe2ca",
+  "insn": "lock addq $0x10,0x0(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fe2d1",
+  "insn": "lock incq 0x8(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fe2d7",
+  "insn": "lock incq 0x10(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fe355",
+  "insn": "lock sub %rbx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fe35a",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fe524",
+  "insn": "lock add %r13,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fe529",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fe52f",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fec5e",
+  "insn": "lock add %r14,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fec66",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fec6e",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fec94",
+  "insn": "lock add %r14,0x0(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "fec9a",
+  "insn": "lock incq 0x8(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "feca0",
+  "insn": "lock incq 0x10(%rbp,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "ff3a2",
+  "insn": "lock add %r13,0x200(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "ff3aa",
+  "insn": "lock incq 0x208(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "ff3b2",
+  "insn": "lock incq 0x218(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "ffc50",
+  "insn": "lock sub %rbx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "ffc58",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "ffc94",
+  "insn": "lock sub %rbx,(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "ffc99",
+  "insn": "lock decq 0x8(%r14,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "ffd02",
+  "insn": "lock addq $0x40,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "ffd08",
+  "insn": "lock incq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "ffd0e",
+  "insn": "lock incq 0x10(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100112",
+  "insn": "lock sub %rbx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "10011a",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "10015c",
+  "insn": "lock sub %rbx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100161",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100305",
+  "insn": "lock add %r14,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "10030a",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100310",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "1005cc",
+  "insn": "lock sub %r14,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "1005d1",
+  "insn": "lock decq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "1005f7",
+  "insn": "lock sub %r14,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "1005ff",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100643",
+  "insn": "lock sub %r14,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "10064b",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": [
+   "expanse_trie::get::locate_slot_popcnt"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100719",
+  "insn": "lock addq $0x10,(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "10071f",
+  "insn": "lock incq 0x8(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100725",
+  "insn": "lock incq 0x10(%rbx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "10077a",
+  "insn": "lock add %r14,0x200(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100782",
+  "insn": "lock incq 0x208(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "10078a",
+  "insn": "lock incq 0x218(%rbx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "1007b5",
+  "insn": "lock addq $0x10,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "1007bb",
+  "insn": "lock incq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "1007c1",
+  "insn": "lock incq 0x10(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100d50",
+  "insn": "lock sub %r15,0x0(%r13,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100d56",
+  "insn": "lock decq 0x8(%r13,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100d8e",
+  "insn": "lock sub %r15,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "100d96",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "1010e3",
+  "insn": "lock add %rdx,(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "1010e8",
+  "insn": "lock incq 0x8(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "1010ee",
+  "insn": "lock incq 0x10(%r15,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "101170",
+  "insn": "lock add %rdx,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "101178",
+  "insn": "lock incq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "101180",
+  "insn": "lock incq 0x218(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "10134d",
+  "insn": "lock sub %r15,0x200(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "101355",
+  "insn": "lock decq 0x208(%rax)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "101389",
+  "insn": "lock sub %r15,(%rcx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+  "addr": "10138e",
+  "insn": "lock decq 0x8(%rcx,%rax,1)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5b7da",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": [
+   "expanse_trie::leaf::locate"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5b7e2",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": [
+   "expanse_trie::leaf::locate"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5be66",
+  "insn": "lock add %rbp,0x200(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5be6e",
+  "insn": "lock incq 0x208(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5be76",
+  "insn": "lock incq 0x218(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5be96",
+  "insn": "lock sub %rax,0x200(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5be9e",
+  "insn": "lock decq 0x208(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5bf48",
+  "insn": "lock add %rbp,0x200(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5bf50",
+  "insn": "lock incq 0x208(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5bf58",
+  "insn": "lock incq 0x218(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c12c",
+  "insn": "lock sub %rax,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c134",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c170",
+  "insn": "lock sub %rax,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c178",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c333",
+  "insn": "lock subq $0x1040,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c33f",
+  "insn": "lock decq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c4d1",
+  "insn": "lock add %r15,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c4d9",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c4e1",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c731",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c739",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c9a0",
+  "insn": "lock sub %rcx,0x200(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5c9a8",
+  "insn": "lock decq 0x208(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5cd12",
+  "insn": "lock add %rbp,0x200(%rsi)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::write_map_immed::<false"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5cd1a",
+  "insn": "lock incq 0x208(%rsi)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::write_map_immed::<false"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5cd22",
+  "insn": "lock incq 0x218(%rsi)",
+  "calls_within_window": [
+   "expanse_trie::mutate_map::write_map_immed::<false"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5cf7e",
+  "insn": "lock sub %rax,0x200(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5cf86",
+  "insn": "lock decq 0x208(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5d0c5",
+  "insn": "lock add %r9,0x200(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5d0cd",
+  "insn": "lock incq 0x208(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5d0d5",
+  "insn": "lock incq 0x218(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5d28b",
+  "insn": "lock sub %rsi,0x200(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "5d293",
+  "insn": "lock decq 0x208(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ea1fa",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": [
+   "expanse_trie::leaf::locate"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ea202",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": [
+   "expanse_trie::leaf::locate"
+  ]
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ea886",
+  "insn": "lock add %rbp,0x200(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ea88e",
+  "insn": "lock incq 0x208(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ea896",
+  "insn": "lock incq 0x218(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ea8b6",
+  "insn": "lock sub %rax,0x200(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ea8be",
+  "insn": "lock decq 0x208(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ea968",
+  "insn": "lock add %rbp,0x200(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ea970",
+  "insn": "lock incq 0x208(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ea978",
+  "insn": "lock incq 0x218(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eab4c",
+  "insn": "lock sub %rax,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eab54",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eab90",
+  "insn": "lock sub %rax,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eab98",
+  "insn": "lock decq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ead53",
+  "insn": "lock subq $0x1040,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ead5f",
+  "insn": "lock decq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eaef1",
+  "insn": "lock add %r15,0x200(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eaef9",
+  "insn": "lock incq 0x208(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eaf01",
+  "insn": "lock incq 0x218(%rdi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eb151",
+  "insn": "lock sub %rax,0x200(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eb159",
+  "insn": "lock decq 0x208(%rcx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eb3cc",
+  "insn": "lock sub %rcx,0x200(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eb3d4",
+  "insn": "lock decq 0x208(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eb74c",
+  "insn": "lock add %rbp,0x200(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eb754",
+  "insn": "lock incq 0x208(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eb75c",
+  "insn": "lock incq 0x218(%rsi)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eb9b8",
+  "insn": "lock sub %rax,0x200(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "eb9c0",
+  "insn": "lock decq 0x208(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ebaff",
+  "insn": "lock add %r9,0x200(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ebb07",
+  "insn": "lock incq 0x208(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ebb0f",
+  "insn": "lock incq 0x218(%r8)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ebcc5",
+  "insn": "lock sub %rsi,0x200(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::map_remove::<false, false>",
+  "addr": "ebccd",
+  "insn": "lock decq 0x208(%r9)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::write_map_immed::<false>",
+  "addr": "5ecc7",
+  "insn": "lock add %rbx,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::write_map_immed::<false>",
+  "addr": "5eccf",
+  "insn": "lock incq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::write_map_immed::<false>",
+  "addr": "5ecd7",
+  "insn": "lock incq 0x218(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::write_map_immed::<false>",
+  "addr": "f5737",
+  "insn": "lock add %rbx,0x200(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::write_map_immed::<false>",
+  "addr": "f573f",
+  "insn": "lock incq 0x208(%rdx)",
+  "calls_within_window": []
+ },
+ {
+  "function": "expanse_trie::mutate_map::write_map_immed::<false>",
+  "addr": "f5747",
+  "insn": "lock incq 0x218(%rdx)",
+  "calls_within_window": []
+ }
+]
