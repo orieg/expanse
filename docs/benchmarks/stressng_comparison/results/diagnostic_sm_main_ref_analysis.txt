@@ -1,0 +1,72 @@
+run 1: 144 processes, 0 discarded; max load1 5.85 (void above 12.0): valid -> docs/benchmarks/stressng_comparison/results/diagnostic_sm_main_ref_run1.json
+run 2: 144 processes, 0 discarded; max load1 5.27 (void above 12.0): valid -> docs/benchmarks/stressng_comparison/results/diagnostic_sm_main_ref_run2.json
+
+| cell | W | metric | pair | run 1 [BCa 95%] | run 2 [BCa 95%] | side |
+|---|---|---|---|---|---|---|
+| sng_sm_judy_big | 1 | `bogo-ops-per-second-real-time` | E/S | 0.818 [0.817, 0.819] | 0.819 [0.817, 0.820] | SLOWER |
+| sng_sm_judy_big | 1 | `bogo-ops-per-second-real-time` | N/E | 1.409 [1.407, 1.411] | 1.408 [1.405, 1.411] | FASTER |
+| sng_sm_judy_big | 1 | `bogo-ops-per-second-real-time` | N/S | 1.152 [1.151, 1.154] | 1.153 [1.150, 1.155] | FASTER |
+| sng_sm_judy_big | 1 | `judy-gets-per-sec` | E/S | 0.673 [0.672, 0.674] | 0.676 [0.675, 0.678] | SLOWER |
+| sng_sm_judy_big | 1 | `judy-gets-per-sec` | N/E | 1.688 [1.682, 1.691] | 1.683 [1.678, 1.687] | FASTER |
+| sng_sm_judy_big | 1 | `judy-gets-per-sec` | N/S | 1.136 [1.133, 1.139] | 1.138 [1.134, 1.141] | FASTER |
+| sng_sm_judy_big | 1 | `judy-puts-per-sec` | E/S | 1.093 [1.090, 1.095] | 1.092 [1.087, 1.095] | FASTER |
+| sng_sm_judy_big | 1 | `judy-puts-per-sec` | N/E | 1.096 [1.093, 1.099] | 1.098 [1.095, 1.104] | FASTER |
+| sng_sm_judy_big | 1 | `judy-puts-per-sec` | N/S | 1.198 [1.195, 1.200] | 1.199 [1.197, 1.202] | FASTER |
+| sng_sm_judy_big | 1 | `wall` | E/S | 1.220 [1.219, 1.222] | 1.219 [1.217, 1.221] | FASTER |
+| sng_sm_judy_big | 1 | `wall` | N/E | 0.712 [0.711, 0.713] | 0.713 [0.711, 0.714] | SLOWER |
+| sng_sm_judy_big | 1 | `wall` | N/S | 0.869 [0.868, 0.870] | 0.869 [0.867, 0.870] | SLOWER |
+| sng_sm_judy_big | 8 | `bogo-ops-per-second-real-time` | E/S | 0.954 [0.953, 0.954] | 0.953 [0.952, 0.953] | SLOWER |
+| sng_sm_judy_big | 8 | `bogo-ops-per-second-real-time` | N/E | 1.144 [1.143, 1.146] | 1.143 [1.142, 1.144] | FASTER |
+| sng_sm_judy_big | 8 | `bogo-ops-per-second-real-time` | N/S | 1.091 [1.090, 1.093] | 1.089 [1.088, 1.090] | FASTER |
+| sng_sm_judy_big | 8 | `judy-gets-per-sec` | E/S | 0.829 [0.828, 0.829] | 0.828 [0.828, 0.829] | SLOWER |
+| sng_sm_judy_big | 8 | `judy-gets-per-sec` | N/E | 1.200 [1.199, 1.201] | 1.198 [1.197, 1.199] | FASTER |
+| sng_sm_judy_big | 8 | `judy-gets-per-sec` | N/S | 0.994 [0.994, 0.996] | 0.992 [0.992, 0.993] | SAME |
+| sng_sm_judy_big | 8 | `judy-puts-per-sec` | E/S | 1.161 [1.160, 1.162] | 1.159 [1.157, 1.162] | FASTER |
+| sng_sm_judy_big | 8 | `judy-puts-per-sec` | N/E | 1.063 [1.060, 1.064] | 1.066 [1.064, 1.067] | FASTER |
+| sng_sm_judy_big | 8 | `judy-puts-per-sec` | N/S | 1.234 [1.230, 1.236] | 1.235 [1.233, 1.238] | FASTER |
+| sng_sm_judy_big | 8 | `wall` | E/S | 1.049 [1.048, 1.050] | 1.050 [1.049, 1.051] | FASTER |
+| sng_sm_judy_big | 8 | `wall` | N/E | 0.876 [0.875, 0.877] | 0.876 [0.875, 0.877] | SLOWER |
+| sng_sm_judy_big | 8 | `wall` | N/S | 0.918 [0.917, 0.919] | 0.920 [0.919, 0.921] | SLOWER |
+| sng_sm_judy_default | 1 | `bogo-ops-per-second-real-time` | E/S | 0.755 [0.753, 0.757] | 0.754 [0.753, 0.755] | SLOWER |
+| sng_sm_judy_default | 1 | `bogo-ops-per-second-real-time` | N/E | 1.331 [1.329, 1.333] | 1.332 [1.330, 1.333] | FASTER |
+| sng_sm_judy_default | 1 | `bogo-ops-per-second-real-time` | N/S | 1.005 [1.003, 1.007] | 1.005 [1.003, 1.006] | SAME |
+| sng_sm_judy_default | 1 | `judy-gets-per-sec` | E/S | 0.627 [0.626, 0.629] | 0.627 [0.626, 0.628] | SLOWER |
+| sng_sm_judy_default | 1 | `judy-gets-per-sec` | N/E | 1.493 [1.490, 1.495] | 1.495 [1.493, 1.497] | FASTER |
+| sng_sm_judy_default | 1 | `judy-gets-per-sec` | N/S | 0.937 [0.935, 0.939] | 0.937 [0.936, 0.939] | SLOWER |
+| sng_sm_judy_default | 1 | `judy-puts-per-sec` | E/S | 0.958 [0.956, 0.963] | 0.957 [0.956, 0.959] | SLOWER |
+| sng_sm_judy_default | 1 | `judy-puts-per-sec` | N/E | 1.120 [1.119, 1.122] | 1.119 [1.118, 1.121] | FASTER |
+| sng_sm_judy_default | 1 | `judy-puts-per-sec` | N/S | 1.074 [1.072, 1.078] | 1.072 [1.070, 1.074] | FASTER |
+| sng_sm_judy_default | 1 | `wall` | E/S | 1.323 [1.320, 1.326] | 1.324 [1.322, 1.326] | FASTER |
+| sng_sm_judy_default | 1 | `wall` | N/E | 0.752 [0.751, 0.753] | 0.752 [0.751, 0.753] | SLOWER |
+| sng_sm_judy_default | 1 | `wall` | N/S | 0.995 [0.993, 0.997] | 0.996 [0.994, 0.997] | SAME |
+| sng_sm_judy_default | 8 | `bogo-ops-per-second-real-time` | E/S | 0.755 [0.753, 0.756] | 0.757 [0.756, 0.759] | SLOWER |
+| sng_sm_judy_default | 8 | `bogo-ops-per-second-real-time` | N/E | 1.330 [1.328, 1.332] | 1.328 [1.327, 1.330] | FASTER |
+| sng_sm_judy_default | 8 | `bogo-ops-per-second-real-time` | N/S | 1.003 [1.002, 1.004] | 1.006 [1.004, 1.008] | SAME |
+| sng_sm_judy_default | 8 | `judy-gets-per-sec` | E/S | 0.628 [0.627, 0.629] | 0.630 [0.629, 0.631] | SLOWER |
+| sng_sm_judy_default | 8 | `judy-gets-per-sec` | N/E | 1.491 [1.488, 1.493] | 1.488 [1.485, 1.491] | FASTER |
+| sng_sm_judy_default | 8 | `judy-gets-per-sec` | N/S | 0.936 [0.935, 0.938] | 0.937 [0.936, 0.939] | SLOWER |
+| sng_sm_judy_default | 8 | `judy-puts-per-sec` | E/S | 0.956 [0.952, 0.957] | 0.960 [0.958, 0.964] | SLOWER |
+| sng_sm_judy_default | 8 | `judy-puts-per-sec` | N/E | 1.120 [1.119, 1.124] | 1.119 [1.118, 1.120] | FASTER |
+| sng_sm_judy_default | 8 | `judy-puts-per-sec` | N/S | 1.071 [1.069, 1.072] | 1.075 [1.072, 1.079] | FASTER |
+| sng_sm_judy_default | 8 | `wall` | E/S | 1.324 [1.323, 1.326] | 1.322 [1.319, 1.324] | FASTER |
+| sng_sm_judy_default | 8 | `wall` | N/E | 0.752 [0.751, 0.753] | 0.752 [0.752, 0.753] | SLOWER |
+| sng_sm_judy_default | 8 | `wall` | N/S | 0.996 [0.995, 0.997] | 0.995 [0.993, 0.996] | SAME |
+
+#1680 gets criterion on main (N/S verdict EQUIVALENT or FASTER, METHODOLOGY.md §8):
+  sng_sm_judy_big W1: N/S 1.136 [1.133, 1.139] | 1.138 [1.134, 1.141] -> FASTER (PARITY OR BETTER)
+  sng_sm_judy_big W8: N/S 0.994 [0.994, 0.996] | 0.992 [0.992, 0.993] -> SLOWER (BELOW PARITY)
+  sng_sm_judy_default W1: N/S 0.937 [0.935, 0.939] | 0.937 [0.936, 0.939] -> SLOWER (BELOW PARITY)
+  sng_sm_judy_default W8: N/S 0.936 [0.935, 0.938] | 0.937 [0.936, 0.939] -> SLOWER (BELOW PARITY)
+  #1680 gets criterion on this host: NOT MET
+
+N/S verdict against the published E/S verdict (results/baseline_ref_run{1,2}.json):
+| cell | W | metric | published E/S run 1 | run 2 | verdict | N/S run 1 | run 2 | verdict | changed |
+|---|---|---|---|---|---|---|---|---|---|
+| sng_sm_judy_big | 1 | `judy-gets-per-sec` | 0.673 [0.669, 0.676] | 0.674 [0.672, 0.676] | SLOWER | 1.136 [1.133, 1.139] | 1.138 [1.134, 1.141] | FASTER | CHANGED |
+| sng_sm_judy_big | 1 | `judy-puts-per-sec` | 1.089 [1.087, 1.091] | 1.090 [1.087, 1.092] | FASTER | 1.198 [1.195, 1.200] | 1.199 [1.197, 1.202] | FASTER |  |
+| sng_sm_judy_big | 8 | `judy-gets-per-sec` | 0.833 [0.832, 0.834] | 0.832 [0.831, 0.833] | SLOWER | 0.994 [0.994, 0.996] | 0.992 [0.992, 0.993] | SLOWER |  |
+| sng_sm_judy_big | 8 | `judy-puts-per-sec` | 1.164 [1.159, 1.167] | 1.163 [1.158, 1.165] | FASTER | 1.234 [1.230, 1.236] | 1.235 [1.233, 1.238] | FASTER |  |
+| sng_sm_judy_default | 1 | `judy-gets-per-sec` | 0.630 [0.627, 0.633] | 0.626 [0.624, 0.629] | SLOWER | 0.937 [0.935, 0.939] | 0.937 [0.936, 0.939] | SLOWER |  |
+| sng_sm_judy_default | 1 | `judy-puts-per-sec` | 0.957 [0.956, 0.958] | 0.958 [0.956, 0.959] | SLOWER | 1.074 [1.072, 1.078] | 1.072 [1.070, 1.074] | FASTER | CHANGED |
+| sng_sm_judy_default | 8 | `judy-gets-per-sec` | 0.628 [0.627, 0.630] | 0.629 [0.628, 0.631] | SLOWER | 0.936 [0.935, 0.938] | 0.937 [0.936, 0.939] | SLOWER |  |
+| sng_sm_judy_default | 8 | `judy-puts-per-sec` | 0.957 [0.956, 0.958] | 0.956 [0.954, 0.957] | SLOWER | 1.071 [1.069, 1.072] | 1.075 [1.072, 1.079] | FASTER | CHANGED |
