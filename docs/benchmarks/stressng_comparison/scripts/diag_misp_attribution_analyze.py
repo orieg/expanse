@@ -4,8 +4,12 @@
 
 Reads `diag_ms_attribution.py`'s two runs (`SNG_ATTR=misp`), writes
 `results/diagnostic_misp_attribution_<host>.json` and prints, per shape and
-kind, each arm's events per operation (samples x period / operations), its
-largest functions, and N's instructions holding at least 1% of the samples.
+kind, each arm's events per operation (every recorded sample x period /
+operations), its largest functions, and N's instructions holding at least 1%
+of the annotated samples. A sample outside an annotatable symbol (libc,
+stock's unexported functions) counts in the rate and in `annotated_fraction`,
+not in the instruction shares; `share_of_all` gives each instruction's share
+of every sample.
 
 Source lines: N's library has no line tables. An N instruction is mapped
 through the line-table twin (`twin`, built from the same commit at N's build
@@ -135,11 +139,14 @@ def main():
         for c in art["cells"]:
             key = (c["workload_id"], c["kind"], c["arm"])
             cell = {"run": run_no, "workload_id": c["workload_id"], "kind": c["kind"], "arm": c["arm"],
-                    "event": c["event"], "samples": c["samples"], "ops": c["ops"],
-                    "events_per_op": c["samples"] * PERIOD / c["ops"],
+                    "event": c["event"], "samples": c["perf_script_samples"],
+                    "annotated_samples": c["samples"],
+                    "annotated_fraction": c["samples"] / c["perf_script_samples"],
+                    "ops": c["ops"], "events_per_op": c["perf_script_samples"] * PERIOD / c["ops"],
                     "functions": c["functions"][:8], "instructions": []}
             for x in c["instructions"]:
                 row = {k: x[k] for k in ("dso", "symbol", "addr", "insn", "share")}
+                row["share_of_all"] = x["samples"] / c["perf_script_samples"]
                 if c["arm"] == "N" and "expanse" in (x["dso"] or ""):
                     addr = int(x["addr"], 16)
                     fn = containing(nf, addr)
@@ -166,12 +173,13 @@ def main():
     print(f"-> {shown(dest)}")
     for c in out["cells"]:
         print(f"\n## run {c['run']} {c['workload_id']} {c['kind']} {c['arm']}: {c['events_per_op']:.3f} events/op "
-              f"({c['samples']:.0f} samples)")
+              f"({c['samples']:.0f} samples, {c['annotated_fraction']:.1%} annotated)")
         for f in c["functions"][:4]:
             print(f"   {f['pct']:5.1f}% {f['symbol'][:90]}")
         for r in c["instructions"][:8]:
             where = (r.get("inline_chain") or [""])[0][:110]
-            print(f"   {r['share']:.3f} {r.get('construct', ''):20} {r['insn'][:40]:40} {where}")
+            print(f"   {r['share']:.3f} ({r['share_of_all']:.3f} of all) {r.get('construct', ''):20} "
+                  f"{r['insn'][:36]:36} {where}")
             if r.get("source"):
                 print(f"         `{r['source'][:100]}`")
     print("\nstability:", json.dumps(out["stability"]["per_shape_kind"]))
