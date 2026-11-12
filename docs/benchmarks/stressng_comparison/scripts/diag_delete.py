@@ -17,14 +17,23 @@ main"), with the arms:
   is unchanged from there to the design commit);
 - S: stock libJudy.
 
-Every `sng_judy_*` cell of METHODOLOGY.md §5 (1 Ki, 256 Ki and 4 Mi keys, W =
+With `SNG_DELETE_SET=sm_main` it re-measures the `sparsematrix judy` cells
+against stock on main (README.md, "The sparsematrix cells on main", #1680),
+with the arms:
+- E: the library of the published comparison (`6ec29a656`, the reference
+  host's `expcompat/lib`);
+- N: the same main library as `main`;
+- S: stock libJudy.
+
+Every `sng_judy_*` cell of METHODOLOGY.md §5 (every `sng_sm_judy_*` cell for
+`sm_main`) (1 Ki, 256 Ki and 4 Mi keys, W =
 1, 2, 4, 8), one process per arm per cell per round. The rounds cycle through
 the six orders of the three arms. Load windows and the provenance are
 `diag_lib_ab.py`'s.
 
 Usage: diag_delete.py <run_number> <host_label> <out_prefix>
 Environment: SNG_D, REPO_ROOT, SNG_DELETE_ROUNDS (default 12, a multiple of 6),
-SNG_DELETE_SET (`fix`, the default, or `main`).
+SNG_DELETE_SET (`fix`, the default, `main` or `sm_main`).
 """
 import itertools
 import json
@@ -44,7 +53,11 @@ SETS = {
     "main": {"D": f"{driver.D}/expcompat-45f83ac5e/lib",
              "N": f"{driver.D}/expcompat-5f4892932/lib",
              "S": driver.ARMS["S"]},
+    "sm_main": {"E": driver.ARMS["E"],
+                "N": f"{driver.D}/expcompat-5f4892932/lib",
+                "S": driver.ARMS["S"]},
 }
+CELL_PREFIX = {"fix": "sng_judy_", "main": "sng_judy_", "sm_main": "sng_sm_judy_"}
 SET = os.environ.get("SNG_DELETE_SET", "fix")
 if SET not in SETS:
     sys.exit(f"STOP: unknown SNG_DELETE_SET={SET}")
@@ -72,21 +85,22 @@ def main():
     driver.D = f"{driver.D}/diag_delete" + ("" if SET == "fix" else f"_{SET}")
     os.makedirs(f"{driver.D}/out", exist_ok=True)
     prov = bp.new_provenance(
-        "stressng_comparison", 1679,
-        ("D/B, D/S and B/S" if SET == "fix" else "N/S, N/D and D/S")
+        "stressng_comparison", 1680 if SET == "sm_main" else 1679,
+        {"fix": "D/B, D/S and B/S", "main": "N/S, N/D and D/S", "sm_main": "N/S, N/E and E/S"}[SET]
         + ": the ratio of two arms' means of stress-ng's own per-phase rate "
         "(or wall clock), with a two-sample BCa 95% interval over the run's rounds",
         repo_root=driver.REPO_ROOT, host_label=host, run=run, rounds=ROUNDS,
-        diagnostic=("the #1679 delete fix, outside METHODOLOGY.md's pre-registration"
-                    if SET == "fix" else
-                    "the #1679 criterion re-measured on main, outside METHODOLOGY.md's pre-registration"),
+        diagnostic={"fix": "the #1679 delete fix",
+                    "main": "the #1679 criterion re-measured on main",
+                    "sm_main": "the sparsematrix judy cells re-measured on main (#1680)"}[SET]
+        + ", outside METHODOLOGY.md's pre-registration",
         arm_set=SET,
         binary=driver.BIN, arms=ARMS, arm_orders=["".join(o) for o in ORDERS],
         cell_isolation="process",
         sha256={"binary": driver.sha256(driver.BIN),
                 **{f"arm_{a}": driver.sha256(f"{d}/libJudy.so.1") for a, d in ARMS.items()}},
         library_proof=library_proof())
-    cs = [c for c in driver.cells() if c[0].startswith("sng_judy_")]
+    cs = [c for c in driver.cells() if c[0].startswith(CELL_PREFIX[SET])]
     with open(f"{prefix}.jsonl", "a") as out:
         for rnd in range(ROUNDS):
             order = list(cs)

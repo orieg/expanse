@@ -2,7 +2,7 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution|sm_main]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
@@ -23,6 +23,8 @@
 # the arm set `main` (SNG_DELETE_SET=main: #1708's library, main at
 # 5f4892932 and stock), the #1679 criterion re-measured on main; it writes
 # diag_delete_main_* raw rows.
+# `sm_main` is the same driver on the sparsematrix judy cells, arms E, N and S
+# (#1680; README.md, "The sparsematrix cells on main"); diag_sm_main_* raw rows.
 # With `phase_delete`, it is the same driver on the #1679 delete phase
 # (SNG_PHASE_SET=delete), against #1708's library; it writes
 # diag_delete_phase_* raw rows. With `phase_delete_fe`, the same with the
@@ -115,6 +117,8 @@ case "${MODE}" in
                 "${SNG_D}/results/diag_delete_acct_${HOST_LABEL}_run${RUN}" ;;
   phase_promote2) SNG_PHASE_SET=promote2 python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_promote2_${HOST_LABEL}_run${RUN}" ;;
+  sm_main)    SNG_DELETE_SET=sm_main python3 "${SCRIPT_DIR}/scripts/diag_delete.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_sm_main_${HOST_LABEL}_run${RUN}" ;;
   ms_attribution) SNG_PHASE_SET=delete_ms python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_ms_attribution_${HOST_LABEL}_run${RUN}" ;;
   misp_attribution) SNG_ATTR=misp SNG_PHASE_SET=gets_main python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \

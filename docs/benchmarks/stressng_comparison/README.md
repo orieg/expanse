@@ -22,8 +22,8 @@ stress-ng's `judy` and `sparsematrix` stressors run one binary against stock lib
 
 ### Primary metrics (E/S, higher means Expanse is faster)
 
-**Superseded for the `sng_judy_*` rows** by [The #1679 criterion on main](#the-1679-criterion-on-main) (reference host). These rows measure libexpanse at `6ec29a656`, before #1708, #1719 and #1720. They stay as the pre-registered record; the `sparsematrix` rows are not re-measured.
-**The `sng_sm_judy_*` rows are stale for main, pending re-measurement.** #1705 changed the linear-leaf search these gets reach after `6ec29a656`. On main, sampled mispredicts per get are 1.23 and 0.67 where the phase counters counted 3.12 and 2.31 on this table's library ([Diagnostic: where the #1680 shapes mispredict and miss](#diagnostic-where-the-1680-shapes-mispredict-and-miss)).
+**Superseded for the `sng_judy_*` rows** by [The #1679 criterion on main](#the-1679-criterion-on-main) (reference host). These rows measure libexpanse at `6ec29a656`, before #1708, #1719 and #1720. They stay as the pre-registered record.
+**Superseded for the `sng_sm_judy_*` rows** by [The sparsematrix cells on main](#the-sparsematrix-cells-on-main) (reference host). They measure `6ec29a656`, before #1705, #1708, #1719 and #1720, and stay as the pre-registered record.
 
 | workload | W | metric | run 1 E/S [BCa 95%] | run 2 E/S [BCa 95%] | verdict |
 |---|---|---|---|---|---|
@@ -1273,7 +1273,52 @@ Every pre-registered target and bound holds in both runs, on the phase clock and
 - `get.rs:1333`, the BranchU child's tag test (`if next_tag == 0x04`), is labelled "other";
 - `common.rs:19` and `:21`, the leaf search's size selection (`pop <= 16`, `pop <= 24`), are labelled "other".
 
-**Consequence for #1680.** The sparsematrix gap the comparison publishes on the reference host (0.63–0.83× on gets, `results/baseline_ref_run{1,2}.json`) was measured on `6ec29a656`, before #1705. By §8.7 it is stale for main until the `sng_sm_judy_*` cells are re-measured against stock on main. That measurement comes before any engine change chosen from this census.
+**Consequence for #1680.** The sparsematrix gap the comparison publishes on the reference host (0.63–0.83× on gets, `results/baseline_ref_run{1,2}.json`) was measured on `6ec29a656`, before #1705. By §8.7 it is stale for main until the `sng_sm_judy_*` cells are re-measured against stock on main. That measurement comes before any engine change chosen from this census. It is [The sparsematrix cells on main](#the-sparsematrix-cells-on-main).
+
+## The sparsematrix cells on main
+
+**A re-measure against stock, outside METHODOLOGY.md's pre-registration** (#1680). The `sng_sm_judy_*` rows above measure `6ec29a656`. #1705 changed the linear-leaf search these gets reach after it, and #1708, #1719 and #1720 landed too. This re-runs those cells against stock on main, with "The #1679 criterion on main"'s design.
+
+**Design, fixed before the run** (`scripts/diag_delete.py` with `SNG_DELETE_SET=sm_main`, `run.sh <run> <host> sm_main`):
+- **Arms.** The same stress-ng binary and sparsematrix stressor, differing only in `LD_LIBRARY_PATH`:
+  - N: libexpanse at `5f4892932` (sha256 `3734ffc9…`), the file "The #1679 criterion on main" measured. No library source (`crates/expanse/src`, `crates/expanse-capi`) changes between it and this design's commit.
+  - E: the library of the published comparison, `6ec29a656` (`da5814a7…`), the reference host's `expcompat/lib`, hash-checked before the run.
+  - S: stock (`76f121a8…`).
+- **Cells and rounds.** Every `sng_sm_judy_*` cell of METHODOLOGY.md §5 (`default` and `big`, W = 1 and 8), one process per arm per cell per round, 12 rounds per run cycling the six orders of the three arms. Two independent runs under the host bench lock and that host's pin.
+- **Second host.** The reference host's files, copied and hash-checked, on the delete-fix diagnostic's governor and runner terms.
+- **Analysis.** `scripts/diag_delete_analyze.py` writes `results/diagnostic_sm_main_<host>_run{1,2}.json`: two-sample BCa 95% intervals on N/S, N/E and E/S for gets, puts, bogo-ops/s and wall clock. Load windows, the discard rule and the void rule are the delete-fix diagnostic's.
+
+**Reading rule:**
+- **#1680's gets criterion, as the issue states it ("parity or better with stock"):** at every `sng_sm_judy_*` cell, the N/S gets verdict (METHODOLOGY.md §8) is EQUIVALENT or FASTER, on both hosts.
+- **Changed side:** every gets and puts cell whose N/S verdict differs from the published E/S verdict above.
+- **N/E** is what changed since the published table. It combines #1705, #1708, #1719, #1720 and any code placement between the two files, which this design cannot separate.
+
+**Expected** (projected): N/E on gets above 1, since the attribution diagnostic sampled fewer mispredicts per get on N than the phase counters counted on E. Whether the gets reach stock is not predicted.
+
+### Sparsematrix result (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, harness `c068d07e3`; N sha256 `3734ffc9…`, E `da5814a7…`, S `76f121a8…`, binary `490c0595…`; artifacts `results/diagnostic_sm_main_ref_run{1,2}.json`, reading in `results/diagnostic_sm_main_ref_analysis.txt`) (workloads: sng_sm_judy_default, sng_sm_judy_big)
+
+**Hygiene.** Run 1 ran 18:37:30–18:41:14 UTC and run 2 18:41:14–18:46:29, each under the bench lock. 144 processes per run and none discarded. The worst foreign load over any process was 0.06 and 0.03 core-equivalents, and max load1 was 5.85 and 5.27 against a void limit of 12.
+
+**#1680's gets criterion: NOT MET on the reference host.** N/S on gets, BCa 95%:
+
+| Cell | W | N/S run 1 | N/S run 2 | Verdict | Published E/S verdict |
+|---|---|---|---|---|---|
+| `sng_sm_judy_big` | 1 | 1.136 [1.133, 1.139] | 1.138 [1.134, 1.141] | FASTER | SLOWER |
+| `sng_sm_judy_big` | 8 | 0.994 [0.994, 0.996] | 0.992 [0.992, 0.993] | SLOWER | SLOWER |
+| `sng_sm_judy_default` | 1 | 0.937 [0.935, 0.939] | 0.937 [0.936, 0.939] | SLOWER | SLOWER |
+| `sng_sm_judy_default` | 8 | 0.936 [0.935, 0.938] | 0.937 [0.936, 0.939] | SLOWER | SLOWER |
+
+- `sng_sm_judy_big` at W = 8 lies inside [0.95, 1.05] but below 1 in both runs, so METHODOLOGY.md §8's rule reads SLOWER, not EQUIVALENT.
+- **Changed side: 3 of 8 cell-metrics.** The `big` W = 1 gets went from SLOWER to FASTER, and the `default` puts at W = 1 and 8 from SLOWER to FASTER (1.071–1.075). Every other gets and puts cell keeps its side; the `big` puts stay FASTER at 1.198–1.235.
+- **N/E, what changed since the published table:** gets 1.488–1.495 (`default`) and 1.198–1.688 (`big`), puts 1.063–1.120, every interval above 1 in both runs. It is the combined effect of #1705, #1708, #1719, #1720 and code placement, which this design does not separate.
+- **The published arms reproduce.** E/S gets here are 0.627–0.829, against the published 0.626–0.833.
+- **Open gap.** The `default` gets (10,000 draws on `[0, 500)²`) are 0.936–0.937× stock at both W, and the `big` gets at W = 8 are 0.992–0.996×.
+
+### Sparsematrix result (second host)
+
+**Zen 5 pending.** That host's bench lock is held by another job, which this measurement does not run beside or disturb. #1680's two-host condition is not yet tested on main.
 
 ## Reproduce
 

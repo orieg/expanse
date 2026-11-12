@@ -15,6 +15,12 @@ published E/S verdict in `results/baseline_<host>_run{1,2}.json`, and every
 delete cell whose side of stock differs from the published D/S in
 `results/diagnostic_delete_<host>_run{1,2}.json`.
 
+For the arm set `sm_main` (README.md, "The sparsematrix cells on main",
+#1680) it writes `results/diagnostic_sm_main_<host>_run<N>.json` with the pairs
+N/S, N/E and E/S on the `sparsematrix judy` rates, reads #1680's gets
+criterion on N/S, and lists every cell-metric whose N/S verdict differs from
+the published E/S verdict.
+
 Usage: diag_delete_analyze.py <host_label> <run1_prefix> <run2_prefix>
 """
 import json
@@ -28,8 +34,12 @@ from bca_bootstrap import CI_METHOD_BCA, bca_bootstrap_ratio_ci_with_method
 MIN_VALID = 8
 METRICS = ["judy-delete-operations-per-sec", "judy-insert-operations-per-sec",
            "judy-find-operations-per-sec", "bogo-ops-per-second-real-time", "wall"]
+SM_METRICS = ["judy-gets-per-sec", "judy-puts-per-sec", "bogo-ops-per-second-real-time", "wall"]
 PAIR_SETS = {"fix": [("D", "B"), ("D", "S"), ("B", "S")],
-             "main": [("N", "S"), ("N", "D"), ("D", "S")]}
+             "main": [("N", "S"), ("N", "D"), ("D", "S")],
+             "sm_main": [("N", "S"), ("N", "E"), ("E", "S")]}
+ARTIFACT = {"fix": "diagnostic_delete", "main": "diagnostic_delete_main", "sm_main": "diagnostic_sm_main"}
+GETS = "judy-gets-per-sec"
 DELETE = "judy-delete-operations-per-sec"
 
 
@@ -37,12 +47,13 @@ def analyse_run(prefix):
     recs = [json.loads(line) for line in open(f"{prefix}.jsonl")]
     prov = json.loads(open(f"{prefix}.provenance.json").read())
     pairs = PAIR_SETS[prov.get("arm_set", "fix")]
+    metrics = SM_METRICS if prov.get("arm_set") == "sm_main" else METRICS
     by = defaultdict(list)
     for r in recs:
         by[(r["cell"], r["w"], r["arm"])].append(r)
     cells = []
     for cell, w in sorted({(r["cell"], r["w"]) for r in recs}):
-        for metric in METRICS:
+        for metric in metrics:
             for num, den in pairs:
                 a = [r for r in by[(cell, w, num)] if valid(r)]
                 b = [r for r in by[(cell, w, den)] if valid(r)]
@@ -137,13 +148,40 @@ def main_set_reading(host, keyed):
               f"{sn} | {'CHANGED' if so != sn else ''} |")
 
 
+def sm_main_reading(host, keyed):
+    """#1680's gets criterion on N/S, and every cell-metric that changed side
+    against the published E/S table."""
+    cells = sorted({(k[0], k[1]) for k in keyed[0]})
+    print("\n#1680 gets criterion on main (N/S verdict EQUIVALENT or FASTER, METHODOLOGY.md §8):")
+    met = True
+    for cell, w in cells:
+        ns = [k[(cell, w, GETS, "N/S")] for k in keyed]
+        v = verdict([(c["ci_lower"], c["ci_upper"]) for c in ns])
+        ok = v in ("EQUIVALENT", "FASTER")
+        met &= ok
+        print(f"  {cell} W{w}: N/S {fmt(ns[0])} | {fmt(ns[1])} -> {v} ({'PARITY OR BETTER' if ok else 'BELOW PARITY'})")
+    print(f"  #1680 gets criterion on this host: {'MET' if met else 'NOT MET'}")
+    base = published(f"baseline_{host}", lambda c: c["workload_id"].startswith("sng_sm_judy_"))
+    print(f"\nN/S verdict against the published E/S verdict (results/baseline_{host}_run{{1,2}}.json):")
+    print("| cell | W | metric | published E/S run 1 | run 2 | verdict | N/S run 1 | run 2 | verdict | changed |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
+    for cell, w in cells:
+        for metric in SM_METRICS[:2]:
+            old = [b[(cell, w, metric)] for b in base]
+            new = [k[(cell, w, metric, "N/S")] for k in keyed]
+            vo = verdict([(c["ci_lower"], c["ci_upper"]) for c in old])
+            vn = verdict([(c["ci_lower"], c["ci_upper"]) for c in new])
+            print(f"| {cell} | {w} | `{metric}` | {fmt(old[0])} | {fmt(old[1])} | {vo} | "
+                  f"{fmt(new[0])} | {fmt(new[1])} | {vn} | {'CHANGED' if vo != vn else ''} |")
+
+
 def main():
     host, prefixes = sys.argv[1], sys.argv[2:4]
     arts, keyed = [], []
     for n, prefix in enumerate(prefixes, 1):
         art, recs = analyse_run(prefix)
         arm_set = art["provenance"].get("arm_set", "fix")
-        name = "diagnostic_delete" + ("" if arm_set == "fix" else f"_{arm_set}")
+        name = ARTIFACT[arm_set]
         dest = RESULTS / f"{name}_{host}_run{n}.json"
         dest.write_text(json.dumps(art, indent=1) + "\n")
         v = art["provenance"]["void"]
@@ -164,10 +202,14 @@ def main():
         txt = [fmt(c) for c in cs]
         sd = side([(c["ci_lower"], c["ci_upper"]) for c in cs])
         print(f"| {key[0]} | {key[1]} | `{key[2]}` | {key[3]} | {txt[0]} | {txt[1]} | {sd} |")
-    if {a["provenance"].get("arm_set", "fix") for a in arts} != {"fix"}:
-        if {a["provenance"].get("arm_set") for a in arts} != {"main"}:
-            sys.exit("the two runs come from different arm sets")
+    sets = {a["provenance"].get("arm_set", "fix") for a in arts}
+    if len(sets) != 1:
+        sys.exit("the two runs come from different arm sets")
+    if sets == {"main"}:
         main_set_reading(host, keyed)
+        return
+    if sets == {"sm_main"}:
+        sm_main_reading(host, keyed)
         return
     print("\nreading rule (README.md), delete rate:")
     met = True
