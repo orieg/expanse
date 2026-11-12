@@ -898,6 +898,52 @@ Every other counter's interval is in the artifacts. The taken-branch counts are 
 - **Which stage moved.** Total stall cycles fall to 0.42–0.50× D's at 1 Ki and 0.84–0.85× at 4 Mi. The undelivered-uop slots move only at 4 Mi (0.66×). At 1 Ki they are 0.96–1.01×, and run 1's interval contains 1.
 - **Scope.** This measures the `lock` prefixes' total cost on these two shapes, through one implementation that drops them. It does not show that this form is safe to ship. The counters are public (`NodeAlloc::live_allocs` and `total_allocs`, Python's `total_node_allocs`), and AGENTS.md §2.6 and §8.22 apply. Any shippable version is the owner's call.
 
+## Step 0: the unlocked accounting, measured without code
+
+**A zero-code measurement, pre-registered before it runs** (#1679). It decides the shape of the next promotion attempt.
+- **Why not the split.** The attempt in #1718 keyed the lock on block size, and its Callgrind gate failed: 20 of 294 arms above +0.1%.
+- **What it compares.** The form measured here is the existing diagnostic feature `ablation-unlocked-plain-acct`: every plain-path counter update unlocked, with no size test and no added code. It is compared with `main`.
+- **Why it can now be the default.** Making `NodeAlloc` `Send` and not `Sync` is a separate soundness fix: no safe caller can then share one allocator across threads, so the locked updates protect nothing.
+
+**Builds and instrument.** Callgrind on a host that is not the reference host, in the `cg968-noble` image (Ubuntu 24.04, glibc 2.39) with rustc 1.99.1, the CI toolchain. That combination reproduced CI run 43126937195 arm for arm.
+- **Two builds of one commit** (`main` at this section's parent): M, default features; U, with `ablation-unlocked-plain-acct`.
+- **Arms:** every arm of CI's instruction jobs:
+  - `expanse-trie`'s `instructions`, `search_instructions`, `rmw_instructions` and `smoke_instructions`;
+  - `expanse-capi`'s `smoke_instructions` and `vs_stock`, with stock libjudy from the image's `libjudy-dev`.
+- **AArch64.** If a 64-bit Arm build is available, its disassembly records whether the locked updates compile to `__aarch64_ldadd8_relax` calls (outline atomics) or to LSE instructions, and what the unlocked form compiles to. That is a record, not a gate.
+
+**Reading, over every arm, U against M:**
+- **(i) Fully unlocked.** Every arm is within +0.1%. The next promotion unlocks every plain-path update.
+- **(ii) Keyed on `OCC`.** Some arms exceed +0.1%, and for each of them the per-function delta (`callgrind_annotate --inclusive=no`, U against M) falls only in `<true, …>` instantiations or in the `Sync*` wrappers' code. The next promotion keys the unlock on the `OCC` const parameter: `OCC = false` unlocked, `OCC = true` locked token for token, so no runtime test is added.
+- **(iii) Stop.** Any arm exceeds +0.1% with part of its delta in a `<false, …>` function or in a plain-tree caller. That function is attributed (per-line annotation, and `objdump` where its source did not change), and the next promotion waits for the owner.
+- **Fixed in advance.** The bound is §6's review threshold and is not moved. A delta in a function of neither kind (`libc`, the bench harness) counts against (i) and is attributed under (iii).
+
+### Step 0 result
+
+(measured: Callgrind, rustc 1.99.1, valgrind 3.22.0, Ubuntu 24.04, on a host that is not the reference host; M and U built from `fc10d6e47` (code of `573b64d50`); artifacts `results/step0_unlocked/`)
+
+**Reading: (iii).** Unlocking every plain-path update, with no added code, puts plain-tree arms above +0.1%. Per the pre-registration, the next promotion waits for the owner.
+
+| Harness | Arms | Above +0.1% | Below −0.1% |
+|---|---|---|---|
+| `instructions` | 294 | 37 | 7 |
+| `search_instructions` | 50 | 0 | 0 |
+| `rmw_instructions` | 12 | 0 | 0 |
+| `smoke_instructions` (`expanse-trie`) | 20 | 2 | 3 |
+| `smoke_instructions` (`expanse-capi`) | 14 | 4 | 1 |
+| `vs_stock` | 51 | 10 | 4 |
+
+- **The losses are plain-tree arms, mostly the set.** The worst are `set_oscillate/random` +3.03%, `set_insert/clustered` +2.32%, `set_insert/sparse` +1.30%, and `set_insert` on the other key shapes +1.04% to +1.06%. The map loses less: `map_remove/random` +0.32%, `map_remove_revgen` +0.39%. Through the C ABI, `judy1_set_expanse/clustered` (`vs_stock`) is +2.13% and `judy1_set/clustered` (smoke) +2.19%.
+- **No deferred arm moved.** All 89 `sync_*` arms are within −0.08% and +0.01%.
+- **The string map gains.** The largest improvements are `strmap_churn/routes` −1.06% and `strmap_refill_small` −0.46%.
+- **The counter sites cost nothing extra.** Each unlocked update compiles to one un-prefixed memory instruction (`sub %rax,0x200(%rcx)`, `decq 0x208(%rcx)`), the same count as `lock sub` and `lock decq` (`disasm/map_remove_false_false.{M,U}.s`).
+- **Where the deltas sit:**
+  - `set_oscillate/random`: exactly +2 instructions per operation, all on the bench loop's iterator lines. That loop never allocates. Its wrapper got statically smaller (1,404 → 1,377 instructions, and 291 → 274 `%rsp`-relative), and its registers were reassigned (the accumulator moved from `%r15` to `%r14`).
+  - `set_insert/clustered`: +240,417 Ir on `mutate.rs` lines inlined into `insert_with_path_flat`, whose source did not change; its `%rsp`-relative instructions went from 555 to 574.
+  - `map_remove/random`: +67,583 on `alloc.rs` lines and +44,378 on `ptr` lines, against −49,185 on `common.rs` lines.
+- **What it means.** The `lock` prefixes cost nothing in instruction count. What moves the counts is the compiler's code generation in the callers that inline the allocation path, as in the split before it. This is measured as instruction deltas on lines and functions whose source did not change. The register-allocation cause is read from the disassembly, not measured.
+- **AArch64:** not done in this run.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

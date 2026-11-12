@@ -1,0 +1,346 @@
+--------------------------------------------------------------------------------
+Profile data file 't-M/iai/expanse-trie/instructions/cost/set_oscillate.random/callgrind.set_oscillate.random.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 32768 B, 64 B, 8-way associative
+D1 cache: 32768 B, 64 B, 8-way associative
+LL cache: 8388608 B, 64 B, 16-way associative
+Timerange: Basic block 0 - 906546
+Trigger: Program termination
+Profiled target:  /w/t-M/release/deps/instructions-3b2618e4bcd701fb --iai-run cost 13 0 instructions::cost::set_oscillate (PID 2298, part 1, thread 1)
+Events recorded:  Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Events shown:     Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Event sort order: Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Thresholds:       99 0 0 0 0 0 0 0 0
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                 Dr                 Dw               I1mr        D1mr           D1mw        ILmr        DLmr       DLmw        
+--------------------------------------------------------------------------------
+3,306,017 (100.0%) 1,150,383 (100.0%) 904,726 (100.0%) 57 (100.0%) 6,276 (100.0%) 87 (100.0%) 57 (100.0%) 0          68 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                 Dr               Dw               I1mr        D1mr           D1mw        ILmr        DLmr       DLmw         file:function
+--------------------------------------------------------------------------------
+1,100,020 (33.27%) 400,001 (34.77%) 200,015 (22.11%)  5 ( 8.77%)     1 ( 0.02%)  4 ( 4.60%)  5 ( 8.77%) 0           1 ( 1.47%)  src-M/crates/expanse/src/set.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+  600,691 (18.17%) 450,252 (39.14%) 350,251 (38.71%)  4 ( 7.02%)     0           0           4 ( 7.02%) .           .           /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/sync/atomic.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+  300,000 ( 9.07%)  50,000 ( 4.35%)       0           1 ( 1.75%)     0           0           1 ( 1.75%) .           .           /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/slice/mod.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+  200,252 ( 6.06%)  49,999 ( 4.35%)  50,253 ( 5.55%)  .              .           .           .          .           .           src-M/crates/expanse/src/alloc.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+  200,003 ( 6.05%)       1 ( 0.00%) 100,001 (11.05%)  2 ( 3.51%)     0           0           2 ( 3.51%) .           .           /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/hint.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+  150,017 ( 4.54%)  50,008 ( 4.35%)  50,006 ( 5.53%)  1 ( 1.75%) 6,252 (99.62%)  0           1 ( 1.75%) .           .           src-M/crates/expanse/benches/instructions.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate [/w/t-M/release/deps/instructions-3b2618e4bcd701fb]
+  150,008 ( 4.54%)       0           50,002 ( 5.53%)  1 ( 1.75%)     0           1 ( 1.15%)  1 ( 1.75%) .           .           /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/slice/iter/macros.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+  150,003 ( 4.54%)       1 ( 0.00%) 100,001 (11.05%)  1 ( 1.75%)     0           0           1 ( 1.75%) .           .           /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mod.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+  150,000 ( 4.54%)  50,000 ( 4.35%)       .           .              .           .           .          .           .           src-M/crates/expanse/src/mutate.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+  100,000 ( 3.02%)  50,000 ( 4.35%)       .           .              .           .           .          .           .           /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/convert/num.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+  100,000 ( 3.02%)       .                .           .              .           .           .          .           .           /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/once/futex.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+   50,002 ( 1.51%)  50,000 ( 4.35%)       1 ( 0.00%)  1 ( 1.75%)     0           0           1 ( 1.75%) .           .           /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/non_null.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+   50,000 ( 1.51%)       0                0           1 ( 1.75%)     0           0           1 ( 1.75%) .           .           /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sync/once_lock.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate
+
+--------------------------------------------------------------------------------
+-- Auto-annotated source: src-M/crates/expanse/src/mutate.rs
+--------------------------------------------------------------------------------
+Ir               Dr              Dw I1mr D1mr D1mw ILmr DLmr DLmw 
+
+-- line 747 ----------------------------------------
+      .               .          .          .          .          .          .          .          .                               bump_pop0(self.edges[i], self.levels[i], delta);
+      .               .          .          .          .          .          .          .          .                           }
+      .               .          .          .          .          .          .          .          .                       }
+      .               .          .          .          .          .          .          .          .                   }
+      .               .          .          .          .          .          .          .          .               }
+      .               .          .          .          .          .          .          .          .           
+      .               .          .          .          .          .          .          .          .               #[inline(always)]
+      .               .          .          .          .          .          .          .          .               pub(crate) fn clear(&mut self) {
+150,000 ( 4.54%) 50,000 ( 4.35%) .          .          .          .          .          .          .                   if self.depth != 0 {
+      .               .          .          .          .          .          .          .          .                       if self.pending_pop > 0 {
+      .               .          .          .          .          .          .          .          .                           // SAFETY: flushing pending population before clearing path references.
+      .               .          .          .          .          .          .          .          .                           unsafe {
+      .               .          .          .          .          .          .          .          .                               self.flush();
+      .               .          .          .          .          .          .          .          .                           }
+      .               .          .          .          .          .          .          .          .                       }
+      .               .          .          .          .          .          .          .          .                       self.prefix = u64::MAX;
+      .               .          .          .          .          .          .          .          .                       self.depth = 0;
+-- line 763 ----------------------------------------
+
+--------------------------------------------------------------------------------
+-- Auto-annotated source: src-M/crates/expanse/benches/instructions.rs
+--------------------------------------------------------------------------------
+Ir               Dr              Dw              I1mr       D1mr           D1mw       ILmr       DLmr DLmw 
+
+-- line 511 ----------------------------------------
+      .               .               .          .              .          .          .          .          .               for &k in &ks {
+      .               .               .          .              .          .          .          .          .                   map.insert(black_box(k), black_box(k));
+      .               .               .          .              .          .          .          .          .                   sink ^= map.remove(black_box(k)).unwrap_or(0);
+      .               .               .          .              .          .          .          .          .               }
+      .               .               .          .              .          .          .          .          .               core::mem::forget(map);
+      .               .               .          .              .          .          .          .          .               black_box(sink)
+      .               .               .          .              .          .          .          .          .           }
+      .               .               .          .              .          .          .          .          .           
+     17 ( 0.00%)      8 ( 0.00%)      6 ( 0.00%) 1 ( 1.75%)     1 ( 0.02%) 0          1 ( 1.75%) .          .           #[library_benchmark]
+3,306,017 (100.0%) 1,150,383 (100.0%) 904,726 (100.0%) 57 (100.0%) 6,276 (100.0%) 87 (100.0%) 57 (100.0%) 0          68 (100.0%)  => src-M/crates/expanse/benches/instructions.rs:instructions::set_oscillate::__iai_callgrind_wrapper_mod::set_oscillate (1x)
+      .               .               .          .              .          .          .          .          .           #[bench::random(args = ("random",), setup = keys)]
+      .               .               .          .              .          .          .          .          .           fn set_oscillate(ks: Vec<u64>) -> u64 {
+      .               .               .          .              .          .          .          .          .               let mut set = ExpanseSet::new();
+      .               .               .          .              .          .          .          .          .               let mut sink = 0u64;
+100,000 ( 3.02%) 50,000 ( 4.35%) 50,000 ( 5.53%) 0          6,251 (99.60%) .          .          .          .               for &k in &ks {
+      .               .               .          .              .          .          .          .          .                   set.insert(black_box(k));
+ 50,000 ( 1.51%)      .               .          .              .          .          .          .          .                   sink += u64::from(set.remove(black_box(k)));
+      .               .               .          .              .          .          .          .          .               }
+      .               .               .          .              .          .          .          .          .               core::mem::forget(set);
+      .               .               .          .              .          .          .          .          .               black_box(sink)
+      .               .               .          .              .          .          .          .          .           }
+      .               .               .          .              .          .          .          .          .           
+      .               .               .          .              .          .          .          .          .           #[library_benchmark]
+      .               .               .          .              .          .          .          .          .           #[bench::random(args = ("random",), setup = built_map)]
+      .               .               .          .              .          .          .          .          .           fn map_refill(built: (ExpanseMap, Vec<u64>)) -> u64 {
+-- line 534 ----------------------------------------
+
+--------------------------------------------------------------------------------
+-- Auto-annotated source: src-M/crates/expanse/src/alloc.rs
+--------------------------------------------------------------------------------
+Ir               Dr              Dw              I1mr D1mr D1mw ILmr DLmr DLmw 
+
+-- line 133 ----------------------------------------
+      .               .               .          .          .          .          .          .          .                       // accounted above as in every build (module docs).
+      .               .               .          .          .          .          .          .          .                       #[cfg(miri)]
+      .               .               .          .          .          .          .          .          .                       if $s.exact_size {
+      .               .               .          .          .          .          .          .          .                           return Self::$system($bytes, $align);
+      .               .               .          .          .          .          .          .          .                       }
+      .               .               .          .          .          .          .          .          .           
+      .               .               .          .          .          .          .          .          .                       if let Some(class) = class_for($bytes, $align) {
+      .               .               .          .          .          .          .          .          .                           let head = $s.freelists[class].load(Ordering::Relaxed);
+100,000 ( 3.02%)      .               .          .          .          .          .          .          .                           if !head.is_null() {
+      .               .               .          .          .          .          .          .          .                               #[cfg(debug_assertions)]
+      .               .               .          .          .          .          .          .          .                               let _bookkeeping = $s.enter_bookkeeping();
+      .               .               .          .          .          .          .          .          .                               // The guard alone cannot see the whole pop: the load above it
+      .               .               .          .          .          .          .          .          .                               // is outside the region, so two threads that read one `head`
+      .               .               .          .          .          .          .          .          .                               // and then take the guard one after another never overlap
+      .               .               .          .          .          .          .          .          .                               // inside it, and each returns the same block to its caller.
+      .               .               .          .          .          .          .          .          .                               // Re-reading under the guard catches that interleaving, since
+      .               .               .          .          .          .          .          .          .                               // the first thread's store lands before the second gets in.
+-- line 149 ----------------------------------------
+-- line 159 ----------------------------------------
+      .               .               .          .          .          .          .          .          .                                    NodeAlloc."
+      .               .               .          .          .          .          .          .          .                               );
+      .               .               .          .          .          .          .          .          .                               debug_assert!(
+      .               .               .          .          .          .          .          .          .                                   !$s.occ_enabled(),
+      .               .               .          .          .          .          .          .          .                                   "alloc_raw popped per-tree freelist under OCC: per-tree freelists \
+      .               .               .          .          .          .          .          .          .                                    are single-writer only; OCC allocations must use collector freelist"
+      .               .               .          .          .          .          .          .          .                               );
+      .               .               .          .          .          .          .          .          .                               // SAFETY: head points to a valid FreeBlock previously freed to this class.
+ 49,999 ( 1.51%) 49,999 ( 4.35%)      .          .          .          .          .          .          .                               let next = unsafe { (*head).next };
+      .               .               .          .          .          .          .          .          .                               $s.freelists[class].store(next, Ordering::Relaxed);
+      .               .               .          .          .          .          .          .          .                               let raw = head.cast::<u8>();
+      .               .               .          .          .          .          .          .          .                               $fill!(raw, $bytes);
+      .               .               .          .          .          .          .          .          .                               return NonNull::new(raw).expect("non-null free block");
+      .               .               .          .          .          .          .          .          .                           }
+      .               .               .          .          .          .          .          .          .           
+      .               .               .          .          .          .          .          .          .                           if $bytes <= 256 {
+      .               .               .          .          .          .          .          .          .                               #[cfg(debug_assertions)]
+-- line 175 ----------------------------------------
+-- line 183 ----------------------------------------
+      .               .               .          .          .          .          .          .          .                               let Some(page_ptr) = NonNull::new(page_raw) else {
+      .               .               .          .          .          .          .          .          .                                   handle_alloc_error(page_layout)
+      .               .               .          .          .          .          .          .          .                               };
+      .               .               .          .          .          .          .          .          .           
+      .               .               .          .          .          .          .          .          .                               // Embed intrusive SlabPage header at the start of the page
+      .               .               .          .          .          .          .          .          .                               let slab_page = page_ptr.as_ptr().cast::<SlabPage>();
+      .               .               .          .          .          .          .          .          .                               // SAFETY: page_raw is a fresh 4KB zeroed allocation.
+      .               .               .          .          .          .          .          .          .                               unsafe {
+      1 ( 0.00%)      0               1 ( 0.00%) .          .          .          .          .          .                                   (*slab_page).next = $s.slab_pages.load(Ordering::Relaxed);
+      1 ( 0.00%)      0               1 ( 0.00%) .          .          .          .          .          .                                   (*slab_page).class = class;
+      .               .               .          .          .          .          .          .          .                               }
+      .               .               .          .          .          .          .          .          .                               $s.slab_pages.store(slab_page, Ordering::Relaxed);
+      .               .               .          .          .          .          .          .          .           
+      .               .               .          .          .          .          .          .          .                               let header_offset = SLAB_HEADER;
+      .               .               .          .          .          .          .          .          .                               let step = accounted_size;
+      .               .               .          .          .          .          .          .          .                               let available_bytes = SLAB_PAGE_SIZE - header_offset;
+      .               .               .          .          .          .          .          .          .                               let num_blocks = available_bytes / step;
+      .               .               .          .          .          .          .          .          .           
+      .               .               .          .          .          .          .          .          .                               for i in (1..num_blocks).rev() {
+      .               .               .          .          .          .          .          .          .                                   let blk_ptr =
+      .               .               .          .          .          .          .          .          .                                       // SAFETY: ptr is inside the allocated SLAB_PAGE_SIZE buffer.
+      .               .               .          .          .          .          .          .          .                                       unsafe { page_raw.add(header_offset + i * step) }.cast::<FreeBlock>();
+      .               .               .          .          .          .          .          .          .                                   let cur_head = $s.freelists[class].load(Ordering::Relaxed);
+      .               .               .          .          .          .          .          .          .                                   // SAFETY: blk_ptr is valid memory.
+    251 ( 0.01%)      0             251 ( 0.03%) .          .          .          .          .          .                                   unsafe { (*blk_ptr).next = cur_head };
+      .               .               .          .          .          .          .          .          .                                   $s.freelists[class].store(blk_ptr, Ordering::Relaxed);
+      .               .               .          .          .          .          .          .          .                               }
+      .               .               .          .          .          .          .          .          .           
+      .               .               .          .          .          .          .          .          .                               // SAFETY: header_offset is aligned to CACHE_LINE.
+      .               .               .          .          .          .          .          .          .                               let raw = unsafe { page_raw.add(header_offset) };
+      .               .               .          .          .          .          .          .          .                               $fill!(raw, $bytes);
+      .               .               .          .          .          .          .          .          .                               return NonNull::new(raw).expect("non-null free block");
+      .               .               .          .          .          .          .          .          .                           }
+-- line 215 ----------------------------------------
+-- line 1483 ----------------------------------------
+      .               .               .          .          .          .          .          .          .                   }
+      .               .               .          .          .          .          .          .          .           
+      .               .               .          .          .          .          .          .          .                   if let Some(class) = class_for(bytes, align) {
+      .               .               .          .          .          .          .          .          .                       #[cfg(debug_assertions)]
+      .               .               .          .          .          .          .          .          .                       let _bookkeeping = self.enter_bookkeeping();
+      .               .               .          .          .          .          .          .          .                       let block = ptr.as_ptr().cast::<FreeBlock>();
+      .               .               .          .          .          .          .          .          .                       let head = self.freelists[class].load(Ordering::Relaxed);
+      .               .               .          .          .          .          .          .          .                       // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
+ 50,000 ( 1.51%)      0          50,000 ( 5.53%) .          .          .          .          .          .                       unsafe { (*block).next = head };
+      .               .               .          .          .          .          .          .          .                       self.freelists[class].store(block, Ordering::Relaxed);
+      .               .               .          .          .          .          .          .          .                       return;
+      .               .               .          .          .          .          .          .          .                   }
+      .               .               .          .          .          .          .          .          .           
+      .               .               .          .          .          .          .          .          .                   let layout = Self::layout_for(bytes, align);
+      .               .               .          .          .          .          .          .          .                   // SAFETY: per this function's contract, `ptr`/`layout` match
+      .               .               .          .          .          .          .          .          .                   // the original allocation.
+      .               .               .          .          .          .          .          .          .                   unsafe { dealloc(ptr.as_ptr(), layout) };
+-- line 1499 ----------------------------------------
+
+--------------------------------------------------------------------------------
+-- Auto-annotated source: src-M/crates/expanse/src/set.rs
+--------------------------------------------------------------------------------
+Ir               Dr               Dw               I1mr       D1mr       D1mw       ILmr       DLmr       DLmw       
+
+-- line 170 ----------------------------------------
+      .                .                .          .          .          .          .          .          .               debug_assert!(ins);
+      .                .                .          .          .          .          .          .          .               top
+      .                .                .          .          .          .          .          .          .           }
+      .                .                .          .          .          .          .          .          .           
+      .                .                .          .          .          .          .          .          .           impl ExpanseSet {
+      .                .                .          .          .          .          .          .          .               /// Creates an empty set.
+      .                .                .          .          .          .          .          .          .               #[must_use]
+      .                .                .          .          .          .          .          .          .               pub fn new() -> Self {
+     20 ( 0.00%)       1 ( 0.00%)      15 ( 0.00%) 2 ( 3.51%) 1 ( 0.02%) 4 ( 4.60%) 2 ( 3.51%) 0          1 ( 1.47%)          Self {
+     43 ( 0.00%)       2 ( 0.00%)      16 ( 0.00%) 0          1 ( 0.02%) 8 ( 9.20%) .          .          .           => ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms (1x)
+      .                .                .          .          .          .          .          .          .                       root: Root::Empty,
+      .                .                .          .          .          .          .          .          .                       tree_pop: 0,
+      .                .                .          .          .          .          .          .          .                       alloc: NodeAlloc::new(),
+      .                .                .          .          .          .          .          .          .                       path: core::cell::UnsafeCell::new(crate::mutate::InsertPath::empty()),
+      .                .                .          .          .          .          .          .          .                   }
+      .                .                .          .          .          .          .          .          .               }
+      .                .                .          .          .          .          .          .          .           
+      .                .                .          .          .          .          .          .          .               #[inline(always)]
+-- line 186 ----------------------------------------
+-- line 579 ----------------------------------------
+      .                .                .          .          .          .          .          .          .                       Root::Leaf { keys, .. } => (1, keys.as_ptr() as u64, 0),
+      .                .                .          .          .          .          .          .          .                       Root::Tree { top, .. } => (2, top.word0(), top.aux_word()),
+      .                .                .          .          .          .          .          .          .                   }
+      .                .                .          .          .          .          .          .          .               }
+      .                .                .          .          .          .          .          .          .           
+      .                .                .          .          .          .          .          .          .               /// Inserts `key`; returns `true` if it was newly inserted.
+      .                .                .          .          .          .          .          .          .               #[inline(always)]
+      .                .                .          .          .          .          .          .          .               pub fn insert(&mut self, key: Key) -> bool {
+ 50,000 ( 1.51%)  50,000 ( 4.35%)       .          .          .          .          .          .          .                   noting_root_rewrite!(self, t => t.insert_checked(key))
+      .                .                .          .          .          .          .          .          .               }
+      .                .                .          .          .          .          .          .          .           
+      .                .                .          .          .          .          .          .          .               /// [`Self::insert`]'s body: the plain insert, with the sharing mode
+      .                .                .          .          .          .          .          .          .               /// tested only where a shared set would take another path, and the
+      .                .                .          .          .          .          .          .          .               /// out-of-line [`Self::insert_deferred`] taken there. An unshared set's
+      .                .                .          .          .          .          .          .          .               /// inline code then holds no shared arm (#1086, AGENTS.md §2.1
+      .                .                .          .          .          .          .          .          .               /// invariant 5).
+      .                .                .          .          .          .          .          .          .               ///
+      .                .                .          .          .          .          .          .          .               /// A tree root is tested first, and its warm path, which most inserts of
+      .                .                .          .          .          .          .          .          .               /// a clustered load take, runs before any test of the mode: the shared
+      .                .                .          .          .          .          .          .          .               /// engine never arms it (#1191). A root leaf or an empty root tests the
+      .                .                .          .          .          .          .          .          .               /// mode once, before anything else, as every insert did before.
+      .                .                .          .          .          .          .          .          .               #[inline(always)]
+      .                .                .          .          .          .          .          .          .               fn insert_checked(&mut self, key: Key) -> bool {
+100,000 ( 3.02%)  50,000 ( 4.35%)       .          .          .          .          .          .          .                   if let Root::Tree { .. } = self.root {
+      .                .                .          .          .          .          .          .          .                       return self.insert_tree::<true>(key);
+      .                .                .          .          .          .          .          .          .                   }
+      .                .                .          .          .          .          .          .          .                   #[cfg(feature = "std")]
+ 50,000 ( 1.51%)       .                .          .          .          .          .          .          .                   if self.alloc.occ_enabled() {
+      .                .                .          .          .          .          .          .          .                       return self.insert_deferred(key);
+      .                .                .          .          .          .          .          .          .                   }
+      .                .                .          .          .          .          .          .          .                   // SAFETY: the root was tested not to be a tree above, and the test of
+      .                .                .          .          .          .          .          .          .                   // the mode reads only the allocator.
+      .                .                .          .          .          .          .          .          .                   unsafe { self.insert_root_leaf(key) }
+      .                .                .          .          .          .          .          .          .               }
+      .                .                .          .          .          .          .          .          .           
+      .                .                .          .          .          .          .          .          .               /// [`Self::insert`] on a set whose allocator defers to a collector,
+-- line 614 ----------------------------------------
+-- line 1014 ----------------------------------------
+      .                .                .          .          .          .          .          .          .               ///
+      .                .                .          .          .          .          .          .          .               /// # Safety
+      .                .                .          .          .          .          .          .          .               ///
+      .                .                .          .          .          .          .          .          .               /// The root is not a tree. The arms then match on two states, where a
+      .                .                .          .          .          .          .          .          .               /// test of the mode between the caller's test and this one would
+      .                .                .          .          .          .          .          .          .               /// otherwise make the match test for a tree again (#1191).
+      .                .                .          .          .          .          .          .          .               #[inline(always)]
+      .                .                .          .          .          .          .          .          .               unsafe fn insert_root_leaf(&mut self, key: Key) -> bool {
+100,000 ( 3.02%)  50,000 ( 4.35%)       .          .          .          .          .          .          .                   match &mut self.root {
+      .                .                .          .          .          .          .          .          .                       Root::Empty => {
+      .                .                .          .          .          .          .          .          .                           let keys = self.alloc.alloc_bytes_plain(root_leaf_size(1));
+      .                .                .          .          .          .          .          .          .                           // SAFETY: fresh 8-byte allocation, cache-line aligned.
+      .                .                .          .          .          .          .          .          .                           unsafe { keys.as_ptr().cast::<u64>().write(key) };
+150,000 ( 4.54%)       0          150,000 (16.58%) .          .          .          .          .          .                           self.root = Root::Leaf { keys, pop: 1 };
+      .                .                .          .          .          .          .          .          .                           true
+ 50,000 ( 1.51%)       .                .          .          .          .          .          .          .                       }
+      .                .                .          .          .          .          .          .          .                       Root::Leaf { keys, pop } => {
+      .                .                .          .          .          .          .          .          .                           let (keys, pop) = (*keys, *pop);
+      .                .                .          .          .          .          .          .          .                           // SAFETY: root leaf holds `pop` keys.
+      .                .                .          .          .          .          .          .          .                           let slice =
+      .                .                .          .          .          .          .          .          .                               unsafe { core::slice::from_raw_parts(keys.as_ptr().cast::<u64>(), pop) };
+      .                .                .          .          .          .          .          .          .                           let at = if pop > 0 {
+      .                .                .          .          .          .          .          .          .                               // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
+      .                .                .          .          .          .          .          .          .                               let last = unsafe { *keys.as_ptr().cast::<u64>().add(pop - 1) };
+-- line 1037 ----------------------------------------
+-- line 1474 ----------------------------------------
+      .                .                .          .          .          .          .          .          .               #[inline(always)]
+      .                .                .          .          .          .          .          .          .               fn remove_inner_plain(&mut self, key: Key) -> bool {
+      .                .                .          .          .          .          .          .          .                   self.remove_inner_dispatch::<false, false>(key)
+      .                .                .          .          .          .          .          .          .               }
+      .                .                .          .          .          .          .          .          .           
+      .                .                .          .          .          .          .          .          .               #[inline(always)]
+      .                .                .          .          .          .          .          .          .               fn remove_inner_dispatch<const OCC: bool, const NESTED: bool>(&mut self, key: Key) -> bool {
+      .                .                .          .          .          .          .          .          .                   self.path.get_mut().clear();
+250,000 ( 7.56%)  50,000 ( 4.35%)       0          1 ( 1.75%) 0          0          1 ( 1.75%) .          .                   match &mut self.root {
+      .                .                .          .          .          .          .          .          .                       Root::Empty => false,
+      .                .                .          .          .          .          .          .          .                       Root::Leaf { keys, pop } => {
+ 50,000 ( 1.51%)  50,000 ( 4.35%)       .          .          .          .          .          .          .                           let (keys, pop) = (*keys, *pop);
+      .                .                .          .          .          .          .          .          .                           // SAFETY: root leaf holds `pop` keys.
+      .                .                .          .          .          .          .          .          .                           let slice =
+      .                .                .          .          .          .          .          .          .                               unsafe { core::slice::from_raw_parts(keys.as_ptr().cast::<u64>(), pop) };
+      .                .                .          .          .          .          .          .          .                           let Ok(at) = slice.binary_search(&key) else {
+      .                .                .          .          .          .          .          .          .                               return false;
+      .                .                .          .          .          .          .          .          .                           };
+      .                .                .          .          .          .          .          .          .                           if pop == 1 {
+      .                .                .          .          .          .          .          .          .                               // SAFETY: last key removed; free the leaf.
+-- line 1493 ----------------------------------------
+-- line 1526 ----------------------------------------
+      .                .                .          .          .          .          .          .          .                           true
+      .                .                .          .          .          .          .          .          .                       }
+      .                .                .          .          .          .          .          .          .                       Root::Tree { top } => {
+      .                .                .          .          .          .          .          .          .                           // One OCC check per operation, where the runtime dispatch
+      .                .                .          .          .          .          .          .          .                           // always sat (see `insert_inner`).
+      .                .                .          .          .          .          .          .          .                           let (removed, now) =
+      .                .                .          .          .          .          .          .          .                               tree_remove::<OCC, NESTED>(&self.alloc, &mut self.tree_pop, top, key);
+      .                .                .          .          .          .          .          .          .                           if removed {
+ 50,000 ( 1.51%)       .                .          .          .          .          .          .          .                               if now == 0 {
+      .                .                .          .          .          .          .          .          .                                   debug_assert!(top.is_null());
+      .                .                .          .          .          .          .          .          .                                   // A root-state change: on a shared tree whose engine
+      .                .                .          .          .          .          .          .          .                                   // covers the root, the tree word brackets it (a no-op
+      .                .                .          .          .          .          .          .          .                                   // elsewhere; one load on this rare path).
+      .                .                .          .          .          .          .          .          .                                   crate::occ::tree_begin_if::<OCC>(&self.alloc);
+      .                .                .          .          .          .          .          .          .                                   self.root = Root::Empty;
+      .                .                .          .          .          .          .          .          .                                   crate::occ::tree_end_if::<OCC>(&self.alloc);
+      .                .                .          .          .          .          .          .          .                               } else if now < ROOT_LEAF_CAP as u64 {
+-- line 1542 ----------------------------------------
+
+250,000 ( 7.56%) 150,000 (13.04%)  50,000 ( 5.53%) 2 ( 3.51%) 0          0          2 ( 3.51%) .          .           <counts for unidentified lines in src-M/crates/expanse/src/set.rs>
+
+--------------------------------------------------------------------------------
+The following files chosen for auto-annotation could not be found:
+--------------------------------------------------------------------------------
+  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/convert/num.rs
+  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/hint.rs
+  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mod.rs
+  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/non_null.rs
+  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/slice/iter/macros.rs
+  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/slice/mod.rs
+  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/sync/atomic.rs
+  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sync/once_lock.rs
+  /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/sync/once/futex.rs
+
+--------------------------------------------------------------------------------
+Ir                 Dr               Dw               I1mr       D1mr           D1mw       ILmr       DLmr       DLmw       
+--------------------------------------------------------------------------------
+1,350,289 (40.84%) 400,008 (34.77%) 250,274 (27.66%) 4 ( 7.02%) 6,253 (99.63%) 4 ( 4.60%) 4 ( 7.02%) 0          1 ( 1.47%)  events annotated
+
