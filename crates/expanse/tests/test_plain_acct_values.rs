@@ -12,6 +12,12 @@
 //! default build and under the inverse ablation feature alike, so an update
 //! that drops, doubles or misdirects a count on either path fails here.
 //!
+//! `ExpanseMap`, `ExpanseSet` and `ExpanseStrMap` allocate through
+//! `NodeAlloc`, whose update sites this pins: breaking any one of them, on the
+//! locked or the unlocked branch, fails at least two of these tests.
+//! `ExpanseMap32` allocates through the 32-bit engine's own `Arena`, which
+//! those sites do not touch; it is pinned as a control that stays put.
+//!
 //! Allocation sizes depend on the leaf ladder and on where string suffixes
 //! live, so the pinned values hold only for the default layout: the layout
 //! ablations that change them compile these tests out. 64-bit targets only,
