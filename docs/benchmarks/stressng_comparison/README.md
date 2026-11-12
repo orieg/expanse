@@ -898,6 +898,26 @@ Every other counter's interval is in the artifacts. The taken-branch counts are 
 - **Which stage moved.** Total stall cycles fall to 0.42–0.50× D's at 1 Ki and 0.84–0.85× at 4 Mi. The undelivered-uop slots move only at 4 Mi (0.66×). At 1 Ki they are 0.96–1.01×, and run 1's interval contains 1.
 - **Scope.** This measures the `lock` prefixes' total cost on these two shapes, through one implementation that drops them. It does not show that this form is safe to ship. The counters are public (`NodeAlloc::live_allocs` and `total_allocs`, Python's `total_node_allocs`), and AGENTS.md §2.6 and §8.22 apply. Any shippable version is the owner's call.
 
+## Step 0: the unlocked accounting, measured without code
+
+**A zero-code measurement, pre-registered before it runs** (#1679). It decides the shape of the next promotion attempt.
+- **Why not the split.** The attempt in #1718 keyed the lock on block size, and its Callgrind gate failed: 20 of 294 arms above +0.1%.
+- **What it compares.** The form measured here is the existing diagnostic feature `ablation-unlocked-plain-acct`: every plain-path counter update unlocked, with no size test and no added code. It is compared with `main`.
+- **Why it can now be the default.** Making `NodeAlloc` `Send` and not `Sync` is a separate soundness fix: no safe caller can then share one allocator across threads, so the locked updates protect nothing.
+
+**Builds and instrument.** Callgrind on a host that is not the reference host, in the `cg968-noble` image (Ubuntu 24.04, glibc 2.39) with rustc 1.99.1, the CI toolchain. That combination reproduced CI run 43126937195 arm for arm.
+- **Two builds of one commit** (`main` at this section's parent): M, default features; U, with `ablation-unlocked-plain-acct`.
+- **Arms:** every arm of CI's instruction jobs:
+  - `expanse-trie`'s `instructions`, `search_instructions`, `rmw_instructions` and `smoke_instructions`;
+  - `expanse-capi`'s `smoke_instructions` and `vs_stock`, with stock libjudy from the image's `libjudy-dev`.
+- **AArch64.** If a 64-bit Arm build is available, its disassembly records whether the locked updates compile to `__aarch64_ldadd8_relax` calls (outline atomics) or to LSE instructions, and what the unlocked form compiles to. That is a record, not a gate.
+
+**Reading, over every arm, U against M:**
+- **(i) Fully unlocked.** Every arm is within +0.1%. The next promotion unlocks every plain-path update.
+- **(ii) Keyed on `OCC`.** Some arms exceed +0.1%, and for each of them the per-function delta (`callgrind_annotate --inclusive=no`, U against M) falls only in `<true, …>` instantiations or in the `Sync*` wrappers' code. The next promotion keys the unlock on the `OCC` const parameter: `OCC = false` unlocked, `OCC = true` locked token for token, so no runtime test is added.
+- **(iii) Stop.** Any arm exceeds +0.1% with part of its delta in a `<false, …>` function or in a plain-tree caller. That function is attributed (per-line annotation, and `objdump` where its source did not change), and the next promotion waits for the owner.
+- **Fixed in advance.** The bound is §6's review threshold and is not moved. A delta in a function of neither kind (`libc`, the bench harness) counts against (i) and is attributed under (iii).
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
