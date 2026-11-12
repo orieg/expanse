@@ -2,7 +2,7 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
@@ -19,7 +19,10 @@
 # With `delete`, it is the #1679 delete-fix
 # diagnostic (scripts/diag_delete.py) on the `judy` cells; it needs the two
 # libraries scripts/build_layout_lib.sh builds at #1708's merge base and head,
-# and writes diag_delete_* raw rows.
+# and writes diag_delete_* raw rows. `delete_main` is the same driver with
+# the arm set `main` (SNG_DELETE_SET=main: #1708's library, main at
+# 5f4892932 and stock), the #1679 criterion re-measured on main; it writes
+# diag_delete_main_* raw rows.
 # With `phase_delete`, it is the same driver on the #1679 delete phase
 # (SNG_PHASE_SET=delete), against #1708's library; it writes
 # diag_delete_phase_* raw rows. With `phase_delete_fe`, the same with the
@@ -97,6 +100,8 @@ case "${MODE}" in
                 "${SNG_D}/results/diag_phase_counters_${HOST_LABEL}_run${RUN}" ;;
   delete)     python3 "${SCRIPT_DIR}/scripts/diag_delete.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_delete_${HOST_LABEL}_run${RUN}" ;;
+  delete_main) SNG_DELETE_SET=main python3 "${SCRIPT_DIR}/scripts/diag_delete.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_delete_main_${HOST_LABEL}_run${RUN}" ;;
   phase_delete) SNG_PHASE_SET=delete python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_delete_phase_${HOST_LABEL}_run${RUN}" ;;
   phase_delete_fe) SNG_PHASE_SET=delete_fe python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
