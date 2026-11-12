@@ -2,7 +2,8 @@
 """`lock`-prefixed instructions per function in two `objdump -d -C` dumps
 (README.md, "Diagnostic: unlocked accounting on the delete phase").
 
-Reads the dumps of D (no feature) and A (`ablation-unlocked-plain-acct`) and
+Reads the dumps of D (no feature) and A (`ablation-unlocked-plain-acct`, retired
+since the promotion and built from its own commit) and
 writes, beside them:
 - `lock_summary.json`: per function, its `lock` instructions in D and in A;
 - `map_remove_plain_{D,A}.dis`: the full disassembly of

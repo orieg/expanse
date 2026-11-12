@@ -111,6 +111,13 @@ if [ "$QUICK" -eq 0 ]; then
   grep -Eq 'test result: ok\. [1-9][0-9]* passed' "${TMPDIR:-/tmp}/gate-ablation-unit.log" \
     || { echo "the ablation_ filter ran zero unit tests" >&2; exit 1; }
   cargo test -p expanse-trie --features "$ABL" --test test_concurrency_ablations
+  # Same as the CI `test` job's locked-accounting step (Refs #1679): the pinned
+  # plain-tree accounting values must hold under the locked inverse too.
+  echo "  + plain-tree accounting under ablation-locked-plain-acct"
+  cargo test -p expanse-trie --features ablation-locked-plain-acct --test test_plain_acct_values 2>&1 \
+    | tee "${TMPDIR:-/tmp}/gate-locked-acct.log"
+  grep -Eq 'test result: ok\. [1-9][0-9]* passed' "${TMPDIR:-/tmp}/gate-locked-acct.log" \
+    || { echo "test_plain_acct_values ran zero tests under ablation-locked-plain-acct" >&2; exit 1; }
 else
   step "3/6 cargo test — skipped (--quick)"
 fi

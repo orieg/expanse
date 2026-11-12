@@ -31,7 +31,8 @@
 # `phase_delete_acct` runs the accounting ablation's arms A, D and S
 # (SNG_PHASE_SET=delete_acct; diag_delete_acct_* raw rows), from the two
 # libraries scripts/build_layout_lib.sh builds with and without
-# `ablation-unlocked-plain-acct`.
+# `ablation-unlocked-plain-acct` (retired since the promotion; it exists at
+# the diagnostic's own commit, `cc924b150`).
 #
 # <host_label> is `ref` (reference host) or `zen5` (second host); it selects the
 # core pin of METHODOLOGY.md §3. SNG_D names the host's stress-ng tree, built by

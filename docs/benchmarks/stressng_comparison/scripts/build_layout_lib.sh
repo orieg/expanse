@@ -10,7 +10,7 @@
 # builds the source as build.sh does, which is the control that the toolchain
 # reproduces the measured file byte for byte. `trie_features` names
 # `expanse-trie` features to build in (comma-separated, e.g. the #1679
-# accounting ablation's `ablation-unlocked-plain-acct`); empty builds none.
+# accounting inverse `ablation-locked-plain-acct`); empty builds none.
 # ==============================================================================
 set -euo pipefail
 SRC="${1:?source dir}"

@@ -40,7 +40,8 @@ SET = os.environ.get("SNG_PHASE_SET", "gets")
 # "Diagnostic: taken branches and microcode on the delete phase").
 # `delete_acct` is the accounting ablation (README.md, "Diagnostic: unlocked
 # accounting on the delete phase"): A and D, one commit built with and without
-# `ablation-unlocked-plain-acct`, against stock.
+# `ablation-unlocked-plain-acct` (retired since the promotion; built from its
+# own commit, `cc924b150`), against stock.
 # `promote2` is the timed promotion of the unlocked plain-tree accounting
 # (README.md, "Promotion, judged on timing"): P (the promotion's head), M (its
 # merge base) and S (stock), on the two delete shapes it targets and the four

@@ -1081,6 +1081,17 @@ jobs:
       - name: Test with unpacked string suffixes
         run: cargo test -p expanse-trie --features ablation-unpacked-suffix
 
+      # `ablation-locked-plain-acct` (Refs #1679) restores the locked updates of
+      # a plain tree's allocator accounting that the default replaced; the
+      # pinned-values test must read the same counts under it.
+      - name: Test the plain-tree accounting under the locked inverse
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p expanse-trie --features ablation-locked-plain-acct --test test_plain_acct_values 2>&1 | tee locked-acct.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' locked-acct.log \
+            || { echo "::error::test_plain_acct_values ran zero tests under ablation-locked-plain-acct"; exit 1; }
+
       # `ablation-branchu-header-count` (Refs #1202) keeps a child count in
       # every BranchU header; the default build compiles its maintenance to
       # nothing. The validator and the debug cross-check after every null
