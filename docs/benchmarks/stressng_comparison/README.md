@@ -22,6 +22,8 @@ stress-ng's `judy` and `sparsematrix` stressors run one binary against stock lib
 
 ### Primary metrics (E/S, higher means Expanse is faster)
 
+**Superseded for the `sng_judy_*` rows** by [The #1679 criterion on main](#the-1679-criterion-on-main) (reference host). These rows measure libexpanse at `6ec29a656`, before #1708, #1719 and #1720. They stay as the pre-registered record; the `sparsematrix` rows are not re-measured.
+
 | workload | W | metric | run 1 E/S [BCa 95%] | run 2 E/S [BCa 95%] | verdict |
 |---|---|---|---|---|---|
 | `sng_judy_1k` | 1 | `judy-delete-operations-per-sec` | 0.814 [0.813, 0.816] | 0.816 [0.814, 0.817] | SLOWER |
@@ -558,6 +560,8 @@ The outside wall-clock ratio agrees with the inverse of stress-ng's bogo-ops/s r
 **Hygiene.** Run 1 01:38:00–01:44:26 UTC and run 2 01:44:26–01:51:52, each under the bench lock. 432 processes per run. Run 1 discarded 8, its worst foreign load 1.09 core-equivalents; run 2 discarded none. Max load1 was 5.03 and 4.27 against a void limit of 12.
 
 **Reading: #1679's criterion is NOT MET on this host.** D/B on the delete rate is FASTER at every cell and W, and D/S is at or above stock only at 256 Ki keys.
+
+**D/S is superseded on main** by [The #1679 criterion on main](#the-1679-criterion-on-main), which re-measures the same cells with #1719 and #1720 in the library. D/B stands as the measure of #1708's change.
 
 | Cell | W | D/B run 1 | D/B run 2 | D/S run 1 | D/S run 2 |
 |---|---|---|---|---|---|
@@ -1129,6 +1133,51 @@ Every pre-registered target and bound holds in both runs, on the phase clock and
 - **N/D** shows what changed since the delete-fix diagnostic. It is the combined effect of #1719 and #1720 and of any code placement between the two files, which this design cannot separate.
 
 **Expected** (projected): N/D on delete at or above 1 at every size, since #1720's timed promotion measured P/M 0.85–0.96 on the delete phase's time per operation. Whether the 1 Ki and 4 Mi delete cells reach stock is not predicted.
+
+### Main result (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, governor `powersave`, rustc 1.98.1, harness `5b7d578aa`; N sha256 `3734ffc9…`, D `f6bb333e…`, S `76f121a8…`, binary `490c0595…`; artifacts `results/diagnostic_delete_main_ref_run{1,2}.json`) (workloads: sng_judy_1k, sng_judy_256k, sng_judy_4m)
+
+**Builds.** Under the bench lock, 10:19:47–10:20:45 UTC.
+- **Control.** The rebuilt D reproduced `f6bb333e…` byte for byte, so the toolchain matches the delete-fix diagnostic's.
+- **N's file.** It is the file #1720's timed promotion measured as P (`3734ffc9…`).
+
+**Hygiene.**
+- **Runs.** Run 1 ran 10:20:45–10:26:42 UTC and run 2 10:26:42–10:33:36, each under the bench lock, with 432 processes per run.
+- **Discards.** Run 1 discarded 7 processes, all in round 3, with a worst foreign load of 1.02 core-equivalents. Run 2 discarded none.
+- **Load.** Max load1 was 4.00 and 4.35, against a void limit of 12.
+
+**Reading: #1679's criterion is NOT MET on this host.**
+- **1 Ki and 256 Ki.** The delete rate is at or above stock at every W, in both runs.
+- **4 Mi.** It stays below stock at every W.
+
+| Cell | W | N/S delete run 1 | N/S delete run 2 |
+|---|---|---|---|
+| 1k | 1 | 1.035 [1.031, 1.038] | 1.037 [1.036, 1.039] |
+| 1k | 2 | 1.041 [1.034, 1.046] | 1.040 [1.036, 1.044] |
+| 1k | 4 | 1.033 [1.026, 1.038] | 1.033 [1.027, 1.039] |
+| 1k | 8 | 1.035 [1.034, 1.037] | 1.036 [1.034, 1.037] |
+| 256k | 1 | 1.150 [1.128, 1.172] | 1.172 [1.148, 1.189] |
+| 256k | 2 | 1.164 [1.146, 1.182] | 1.162 [1.147, 1.177] |
+| 256k | 4 | 1.177 [1.171, 1.183] | 1.181 [1.174, 1.187] |
+| 256k | 8 | 1.188 [1.186, 1.190] | 1.188 [1.187, 1.190] |
+| 4m | 1 | 0.939 [0.932, 0.948] | 0.939 [0.938, 0.941] |
+| 4m | 2 | 0.943 [0.940, 0.947] | 0.944 [0.941, 0.947] |
+| 4m | 4 | 0.931 [0.925, 0.937] | 0.927 [0.922, 0.933] |
+| 4m | 8 | 0.962 [0.960, 0.966] | 0.961 [0.960, 0.962] |
+
+**Changed side against the published tables.**
+- **Against this host's E/S table** (`6ec29a656`, above), 14 of the 36 `judy` cell-metrics change verdict. Every other verdict holds.
+  - Delete moves from SLOWER to FASTER at every 1 Ki and 256 Ki cell (8 cells). At 4 Mi it stays SLOWER, at 0.93–0.96 against 0.64–0.65.
+  - Find at 1 Ki moves from SLOWER to EQUIVALENT at W = 1 and 2, and to FASTER at W = 4 and 8.
+  - Find at 4 Mi moves from INCONCLUSIVE (W = 1) and EQUIVALENT (W = 2) to FASTER.
+  - Insert keeps its side everywhere. It stays SLOWER at 4 Mi, at 0.95–0.99 against 0.88–0.89, and is 1.44–1.45× stock at 1 Ki.
+- **Against the delete-fix diagnostic's D/S:** the four 1 Ki delete cells move from below stock to above it. 256 Ki stays above stock, and 4 Mi below.
+
+**What changed since the delete-fix diagnostic (N/D, both runs).** This is the combined effect of #1719, #1720 and code placement, which this design does not separate.
+- **Delete:** 1.13–1.14× at 1 Ki, 1.06–1.07× at 256 Ki and 1.05–1.06× at 4 Mi.
+- **Insert:** 1.30–1.32× at 1 Ki, 1.09–1.10× at 256 Ki and 1.08–1.10× at 4 Mi.
+- **Find:** within 1% at 1 Ki. At 256 Ki it is 0.96–0.98, slower than D but still 1.13–1.17× stock. At 4 Mi it is 0.997–1.10. Why find at 256 Ki moved is not measured.
 
 ## Reproduce
 
