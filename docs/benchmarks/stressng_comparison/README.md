@@ -1222,6 +1222,25 @@ Every pre-registered target and bound holds in both runs, on the phase clock and
 - **4 Mi inserts.** `map_insert_with_path_flat` holds 78.5% with its recursive instance, and its tag dispatch holds 4.56 of the 4.57 simulated indirect mispredicts per insert. Allocation, zeroing and copying in glibc hold 8.7%.
 - **Not measured here.** Which of these branches mispredict on the hardware, and which loads miss.
 
+## Diagnostic: where the #1680 shapes mispredict and miss
+
+**A diagnostic, not a pre-registered result** (#1680). The phase counters found the sparsematrix gets FRONT-END with 4.4–6.4× stock's `br_misp_retired.all_branches`, and the 4 Mi inserts MIXED with 1.80–1.91× stock's L1D-miss stall cycles. This samples which instructions those events land on.
+
+**Design, fixed before the run** (`scripts/diag_ms_attribution.py` with `SNG_ATTR=misp`, `run.sh <run> ref misp_attribution`):
+- **Arms.** N, libexpanse at `5f4892932` (sha256 `3734ffc9…`), the library of "The #1679 criterion on main", and S, stock (`SNG_PHASE_SET=gets_main`).
+- **Shapes.** The phase-counter diagnostic's: `sm_default` (200 repetitions, 4,000,000 gets), `sm_big` (2,000,000 gets) and `judy_4m` (4,194,304 inserts).
+- **Sampling.** Per (shape, arm) two `phase_probe` processes under `perf record`, sampling user-mode `cpu_core` events with precise attribution (`upp`), period 503, enabled only around the measured phase:
+  - `br_misp_retired.all_branches`, which names the mispredicted branch;
+  - `mem_load_retired.l1_miss`, which names the load that missed L1D.
+- **Runs.** Two runs on the reference host under the host bench lock and the comparison's pin. One process per cell and run: a census of where the samples land, with no interval.
+- **Source lines.** The release library has no line tables. N's sampled addresses are mapped to source through a twin built from `5f4892932` with line tables, accepted only if its `.text` section is byte-identical to N's.
+
+**Reading rule:**
+- Per shape and kind, the functions' shares of the samples, every instruction holding at least 1% of them, and the events per operation estimated as samples × 503 / operations.
+- Each of N's instructions above 5% is assigned to one construct: the per-level tag dispatch, the leaf search, the branch digit search (linear `find` or bitmap rank), the insert path's bookkeeping, allocation, or other.
+- **Stable** when, in both runs, the same constructs hold N's three largest instruction shares on each shape and kind. Otherwise the census is reported as unstable and nothing is read from it.
+- No verdict. The census names which construct an engine change would target. Any such change is pre-registered on its own, before its code.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
