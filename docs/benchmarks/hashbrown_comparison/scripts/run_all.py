@@ -9,6 +9,7 @@ Executes all 5 benchmark harnesses:
 4. hashbrown_container_dists (Ankerl/Tessil key distributions)
 5. hashbrown_memory_alloc (GlobalAlloc live heap tracking)
 6. hashbrown_pop_sweep (log-spaced population sweep: hit, miss, bytes/key)
+7. hashbrown_fifo_churn (constant-size FIFO churn: ns per insert+remove pair)
 
 Saves JSON outputs into results/ and regenerates SVG comparison charts.
 
@@ -100,6 +101,7 @@ BENCHES = [
     ("hashbrown_container_dists", "baseline_distributions.json"),
     ("hashbrown_memory_alloc", "baseline_memory.json"),
     ("hashbrown_pop_sweep", "baseline_pop_sweep.json"),
+    ("hashbrown_fifo_churn", "baseline_fifo_churn.json"),
 ]
 
 def run_ycsb(quick: bool) -> None:
@@ -189,6 +191,10 @@ SWEEP_METRICS = {
     "hit_mops": ("hit_mops", {}),
     "miss_mops": ("miss_mops", {}),
 }
+#: The churn's timed metric: lower is better, so its paired ratio is the
+#: competitor over Expanse (above 1 = Expanse faster), as for tail latency.
+CHURN_METRIC = "ns_per_pair"
+CHURN_EXACT = ("bytes_per_key_built", "bytes_per_key_churned")
 #: The sweep's exact census fields: one count per (cell, arm), the same in
 #: every round.
 SWEEP_EXACT = ("live_bytes", "bytes_per_key")
@@ -211,6 +217,14 @@ def annotate(bench_name: str, payload):
         for cell in payload["cells"]:
             cell.update(annotate_throughput(cell["rounds_raw"], SWEEP_METRICS))
         payload["summary"] = sweep_summary(payload["cells"])
+    elif bench_name == "hashbrown_fifo_churn":
+        for cell in payload["cells"]:
+            series = {arm: _by_round(cell["rounds_raw"], arm, CHURN_METRIC) for arm in ARMS}
+            cell["intervals"] = {CHURN_METRIC: {arm: interval([v for _, v in sorted(series[arm].items())])
+                                                for arm in ARMS}}
+            cell["ratio_over_expanse"] = {CHURN_METRIC: {
+                c: _paired(series[c], series[SUBJECT], f"{CHURN_METRIC} {c}/{SUBJECT}")
+                for c in COMPETITORS}}
     elif bench_name == "hashbrown_tail_latency":
         cells = {c["arm"]: c for c in payload["latency"]}
         series = {arm: {q: {r["round"]: float(r[q]) for r in cells[arm]["rounds_raw"]}
@@ -235,7 +249,7 @@ def stamp(parsed, prov: dict) -> dict:
 # The pillars that time something: one process per round. The memory census
 # counts bytes, which no round changes, and runs once.
 TIMED = ("hashbrown_native_suite", "hashbrown_tail_latency", "hashbrown_container_dists",
-         "hashbrown_pop_sweep")
+         "hashbrown_pop_sweep", "hashbrown_fifo_churn")
 
 # A native cell's published per-arm fields, per op.
 NATIVE_FIELDS = {
@@ -364,6 +378,28 @@ def merge_rounds(bench_name: str, runs: list) -> object:
         out["rounds"] = len(runs)
         out["throughput"] = cells
         return out
+    if bench_name == "hashbrown_fifo_churn":
+        cells = []
+        for idx, cell in enumerate(first["cells"]):
+            key = (cell["distribution"], cell["population"])
+            if any((p["cells"][idx]["distribution"], p["cells"][idx]["population"]) != key
+                   for p, _ in runs):
+                raise RuntimeError(f"{bench_name}: round processes disagree on the cells")
+            rows = _rows(runs, lambda p, i=idx: p["cells"][i]["rounds_raw"])
+            exact = {}
+            for arm in ARMS:
+                arm_rows = [r for r in rows if r["arm"] == arm]
+                exact[arm] = {f: arm_rows[0][f] for f in CHURN_EXACT}
+                for r in arm_rows:
+                    if any(r[f] != exact[arm][f] for f in CHURN_EXACT):
+                        raise RuntimeError(f"{bench_name} {key} {arm}: the live-heap count "
+                                           f"differs between rounds ({r['round']})")
+            cells.append({**{k: v for k, v in cell.items() if k != "rounds_raw"},
+                          "exact": exact,
+                          CHURN_METRIC: {arm: _mean([r[CHURN_METRIC] for r in rows
+                                                     if r["arm"] == arm]) for arm in ARMS},
+                          "rounds_raw": rows})
+        return {"rounds": len(runs), "cells": cells}
     if bench_name == "hashbrown_pop_sweep":
         out = {k: v for k, v in first.items() if k != "cells"}
         cells = []
@@ -531,6 +567,12 @@ def _synthetic_process(bench_name: str, rd: int):
                                 "rounds_raw": rows},
                                {"distribution": "zipfian", "population": 100,
                                 "rounds_raw": zrows}]}
+    if bench_name == "hashbrown_fifo_churn":
+        rows = [{"round": rd, "arm": arm, "ns_per_pair": 50.0 + 10 * k + rd,
+                 "bytes_per_key_built": 20.0 + k, "bytes_per_key_churned": 21.0 + k}
+                for k, arm in enumerate(ARMS)]
+        return {"cells": [{"distribution": "random", "population": 1000, "batch": 128,
+                           "timed_pairs": 1024, "rounds_raw": rows}]}
     if bench_name == "hashbrown_pop_sweep":
         # Expanse loses to hashbrown on hits at 16 and 100 keys and wins at 31.
         cells = []
@@ -605,6 +647,12 @@ def self_test() -> int:
     assert crossovers([(1, "expanse"), (2, "tie"), (3, "competitor")]) == [
         {"from_population": 1, "to_population": 3, "from_winner": "expanse",
          "to_winner": "competitor", "ties_between": [2]}]
+    churn = annotate("hashbrown_fifo_churn", merged("hashbrown_fifo_churn"))["cells"][0]
+    # expanse = 50 + rd, hashbrown = 60 + rd: competitor over Expanse, per round.
+    want = sum((60 + rd) / (50 + rd) for rd in range(3)) / 3
+    got = churn["ratio_over_expanse"]["ns_per_pair"]["hashbrown"]["point"]
+    assert abs(got - want) < 1e-12, (got, want)
+    assert churn["exact"]["btree"]["bytes_per_key_churned"] == 23.0, churn["exact"]
     # A live-heap count that differs between rounds is refused.
     bad = [(_synthetic_process("hashbrown_pop_sweep", rd), window) for rd in range(3)]
     bad[2][0]["cells"][0]["rounds_raw"][0]["live_bytes"] += 8

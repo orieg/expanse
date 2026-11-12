@@ -19,7 +19,7 @@ This directory contains the reproducible benchmark suite, raw measurements, meth
 
 ## 2. Key Findings & Empirical Results
 
-The YCSB pillar and Pillars 2, 4 and 6 carry their own provenance below. Pillars 3 and 5 were measured together:
+The YCSB pillar and Pillars 2, 4, 6 and 7 carry their own provenance below. Pillars 3 and 5 were measured together:
 
 *(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `powersave` governor, CPUs `0-15`, commit 2f82cd07; `run.sh --skip-ycsb`, two runs of 9 rounds, one process per round with the arm order rotated; every round process in its own load window, foreign busy CPU at most 0.04 core-equivalents in any window; means with BCa 95% intervals, ratios paired per round, run 1 first and run 2 in parentheses; `results/baseline_{native,tail_latency,memory}.json`, run 2 at `results/baseline_*_run2.json`)*
 
@@ -233,6 +233,33 @@ Sweep summary per distribution, live heap bytes per key over all 26 populations 
 | 1,778,279 | [0.205, 0.209] | [0.111, 0.143] | **[3.983, 4.033]** | 26.0 | 24.6 | 27.1 |
 | 3,162,278 | [0.253, 0.262] | [0.104, 0.123] | **[4.419, 4.501]** | 27.2 | 32.1 | 27.1 |
 | 4,194,304 | [0.305, 0.308] | [0.296, 0.382] | **[5.741, 5.844]** | 27.6 | 26.9 | 27.1 |
+
+---
+
+### Pillar 7: Constant-Size FIFO Churn
+Build N keys, then repeatedly insert a batch of 128 fresh keys and remove the 128 oldest, holding the population at N — the churn workload of [Barrett's Judy versus hash-table comparison](https://www.nothings.org/computer/judy/), where the hash table won at every size (workload: `hashbrown_fifo_churn`). N/128 untimed batches replace every built key once; the timed region is 8,192 batches (1,048,576 insert+remove pairs). N = 100,000 sits below the 30 MiB LLC for every arm and N = 4,194,304 above it; on sequential keys FIFO eviction deletes a contiguous prefix. Times are ns per insert+remove pair, means of 9 rounds with BCa 95% intervals, run 2 in parentheses; the ratio is the competitor's time over Expanse's, paired per round, so above 1 = Expanse faster. `hashbrown` uses its default hasher (foldhash).
+
+*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `performance` governor, CPUs `0-15`, commit cc70a809; bench_baremetal runs [43143702033](https://github.com/orieg/expanse/actions/runs/43143702033) and [43144512438](https://github.com/orieg/expanse/actions/runs/43144512438), `run_all.py --skip-ycsb`, 9 rounds each, one process per round with the arm order rotated; foreign busy CPU at most 0.08 core-equivalents in any round's window; `results/baseline_fifo_churn.json` and run 2 at `results/baseline_fifo_churn_run2.json`; live-heap counts exact and identical in every round of both runs)*
+
+| Keys, N | `ExpanseMap` ns/pair | `hashbrown` ns/pair | `BTreeMap` ns/pair | `hashbrown` ÷ Expanse | `BTreeMap` ÷ Expanse |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| random, 100,000 | 81.6 [81.2, 82.6] (81.0 [80.8, 81.3]) | 9.1 [9.0, 9.2] (9.0 [9.0, 9.1]) | 167.5 [167.1, 168.1] (167.3 [167.1, 167.7]) | 0.111× [0.110, 0.112] (0.112× [0.111, 0.113]) | **2.053× [2.036, 2.061]** (2.064× [2.057, 2.073]) |
+| random, 4,194,304 | 215.1 [214.3, 216.8] (214.8 [214.3, 215.3]) | 31.9 [31.8, 32.0] (31.9 [31.8, 31.9]) | 530.4 [529.6, 531.6] (530.2 [529.4, 531.1]) | 0.148× [0.147, 0.149] (0.148× [0.148, 0.149]) | **2.466× [2.452, 2.474]** (2.469× [2.461, 2.476]) |
+| sequential, 100,000 | 32.8 [32.7, 32.8] (32.9 [32.8, 33.0]) | 8.8 [8.6, 9.0] (9.1 [8.8, 9.5]) | 57.7 [57.6, 57.8] (57.8 [57.7, 57.8]) | 0.267× [0.262, 0.274] (0.276× [0.268, 0.289]) | **1.761× [1.759, 1.764]** (1.758× [1.750, 1.763]) |
+| sequential, 4,194,304 | 36.3 [36.2, 36.4] (37.1 [36.2, 38.7]) | 31.9 [31.8, 32.2] (32.3 [31.9, 32.8]) | 69.2 [69.1, 69.3] (69.1 [69.0, 69.2]) | 0.880× [0.874, 0.885] (0.871× [0.850, 0.884]) | **1.905× [1.899, 1.913]** (1.866× [1.785, 1.904]) |
+
+Live heap bytes per key, after the build → after the churn (exact):
+
+| Keys, N | `ExpanseMap` | `hashbrown` | `BTreeMap` |
+| :--- | :--- | :--- | :--- |
+| random, 100,000 | 30.5 → 33.0 | 22.3 → 44.6 | 27.2 → 28.5 |
+| random, 4,194,304 | 28.7 → 30.2 | 34.0 → 34.0 | 27.1 → 28.4 |
+| sequential, 100,000 | 9.3 → 9.3 | 22.3 → 44.6 | 34.3 → 34.3 |
+| sequential, 4,194,304 | 8.6 → 8.6 | 34.0 → 34.0 | 34.3 → 34.3 |
+
+- **`hashbrown` wins every churn cell, as in Barrett's comparison**: an insert+remove pair costs Expanse 9.0× `hashbrown`'s time on random keys at 100,000 (0.111×) and 6.8× at 4,194,304 (0.148×); on sequential keys the gap narrows to 3.7× (0.267×) and 1.14× (0.880×). Both runs agree on every cell.
+- **Expanse is faster than `BTreeMap` in every cell**, 1.76× to 2.47×.
+- **Footprint after churn**: Expanse's random-key footprint grows by 8% at 100,000 keys (30.5 → 33.0 B/key) and 5% at 4,194,304 (28.7 → 30.2); sequential keys hold steady. `hashbrown` doubles its table during the churn at 100,000 keys (22.3 → 44.6 B/key, a table that was at the bottom of its resize sawtooth when built) and stays at 34.0 at 4,194,304. Why Expanse retains the extra bytes is not measured here (`docs/benchmarks/remove_retention/` covers the remove path's retention).
 
 ---
 
