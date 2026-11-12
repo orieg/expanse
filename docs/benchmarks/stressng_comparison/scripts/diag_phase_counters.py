@@ -71,6 +71,13 @@ elif SET == "gets":
     ARMS = {"N": driver.ARMS["E"], "N64": f"{driver.D}/expcompat-6ec29a656-fa64/lib", "S": driver.ARMS["S"]}
     SHAPES = [("sm_default", 200, 200 * 20_000), ("sm_big", 1, 2_000_000), ("judy_4m", 1, 4_194_304)]
     PREFLIGHT = ("sm_big", 1, "N")
+elif SET == "gets_main":
+    # The #1680 shapes on main (README.md, "Diagnostic: where the #1680
+    # shapes mispredict and miss"): N is main at `5f4892932`, the library of
+    # "The #1679 criterion on main", against stock.
+    ARMS = {"N": f"{driver.D}/expcompat-5f4892932/lib", "S": driver.ARMS["S"]}
+    SHAPES = [("sm_default", 200, 200 * 20_000), ("sm_big", 1, 2_000_000), ("judy_4m", 1, 4_194_304)]
+    PREFLIGHT = ("sm_big", 1, "N")
 else:
     sys.exit(f"STOP: unknown SNG_PHASE_SET {SET}")
 ORDERS = list(itertools.permutations(ARMS))

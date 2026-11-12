@@ -1,0 +1,16 @@
+==17== Callgrind, a call-graph generating cache profiler
+==17== Copyright (C) 2002-2017, and GNU GPL'd, by Josef Weidendorfer et al.
+==17== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==17== Command: /o2/phase_probe sm_default 1 - -
+==17== 
+==17== For interactive control, run 'callgrind_control -h'.
+hits 10405 sink 293
+==17== 
+==17== Events    : Ir Bc Bcm Bi Bim
+==17== Collected : 6731400 564860 16875 90615 90615
+==17== 
+==17== I   refs:      6,731,400
+==17== 
+==17== Branches:        655,475  (564,860 cond + 90,615 ind)
+==17== Mispredicts:     107,490  ( 16,875 cond + 90,615 ind)
+==17== Mispred rate:       16.4% (    3.0%     +  100.0%   )

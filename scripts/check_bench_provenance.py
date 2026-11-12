@@ -366,6 +366,10 @@ NO_ROUNDS = {
     # so there are no rounds to keep. The verbatim perf text sits beside it in
     # `ms_attribution_raw/`.
     "stressng_comparison/results/diagnostic_ms_attribution_ref.json",
+    # The same census for the #1680 shapes: one `perf record` per (shape, arm,
+    # kind) and run, events per operation and sample shares with no interval.
+    # The perf text sits beside it in `misp_attribution_raw/`.
+    "stressng_comparison/results/diagnostic_misp_attribution_ref.json",
 }
 
 # The comparative suites this gate governs: the ones whose runners drive an
