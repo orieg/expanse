@@ -133,7 +133,9 @@ def main():
     repo = Path(__file__).resolve().parents[4]
     runs = [json.loads(Path(j).read_text()) for j in (j1, j2)]
     nf, tf = functions(nlib), functions(twin)
-    out = {"provenance": [r["provenance"] for r in runs], "cells": []}
+    # Run 1's provenance at the top, as the provenance gate reads it; run 2's
+    # nested beside it, so both runs' hosts, pins and load windows are kept.
+    out = {"provenance": dict(runs[0]["provenance"], run2_provenance=runs[1]["provenance"]), "cells": []}
     tops = {}
     for run_no, art in enumerate(runs, 1):
         for c in art["cells"]:
