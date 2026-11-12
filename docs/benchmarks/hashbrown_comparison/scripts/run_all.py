@@ -8,6 +8,7 @@ Executes all 5 benchmark harnesses:
 3. hashbrown_tail_latency (HdrHistogram P50-P99.99)
 4. hashbrown_container_dists (Ankerl/Tessil key distributions)
 5. hashbrown_memory_alloc (GlobalAlloc live heap tracking)
+6. hashbrown_pop_sweep (log-spaced population sweep: hit, miss, bytes/key)
 
 Saves JSON outputs into results/ and regenerates SVG comparison charts.
 
@@ -98,6 +99,7 @@ BENCHES = [
     ("hashbrown_tail_latency", "baseline_tail_latency.json"),
     ("hashbrown_container_dists", "baseline_distributions.json"),
     ("hashbrown_memory_alloc", "baseline_memory.json"),
+    ("hashbrown_pop_sweep", "baseline_pop_sweep.json"),
 ]
 
 def run_ycsb(quick: bool) -> None:
@@ -183,6 +185,13 @@ DIST_METRICS = {
 }
 #: DIST_METRICS a distribution may lack: `zipfian` has no miss pass.
 OPTIONAL_DIST_METRICS = ("lookup_miss_mops",)
+SWEEP_METRICS = {
+    "hit_mops": ("hit_mops", {}),
+    "miss_mops": ("miss_mops", {}),
+}
+#: The sweep's exact census fields: one count per (cell, arm), the same in
+#: every round.
+SWEEP_EXACT = ("live_bytes", "bytes_per_key")
 PERCENTILES = ("p50_ns", "p75_ns", "p90_ns", "p95_ns", "p99_ns", "p99_9_ns", "p99_99_ns",
                "max_ns")
 
@@ -198,6 +207,10 @@ def annotate(bench_name: str, payload):
     elif bench_name == "hashbrown_container_dists":
         for cell in payload["throughput"]:
             cell.update(annotate_throughput(cell["rounds_raw"], DIST_METRICS))
+    elif bench_name == "hashbrown_pop_sweep":
+        for cell in payload["cells"]:
+            cell.update(annotate_throughput(cell["rounds_raw"], SWEEP_METRICS))
+        payload["summary"] = sweep_summary(payload["cells"])
     elif bench_name == "hashbrown_tail_latency":
         cells = {c["arm"]: c for c in payload["latency"]}
         series = {arm: {q: {r["round"]: float(r[q]) for r in cells[arm]["rounds_raw"]}
@@ -221,7 +234,8 @@ def stamp(parsed, prov: dict) -> dict:
 
 # The pillars that time something: one process per round. The memory census
 # counts bytes, which no round changes, and runs once.
-TIMED = ("hashbrown_native_suite", "hashbrown_tail_latency", "hashbrown_container_dists")
+TIMED = ("hashbrown_native_suite", "hashbrown_tail_latency", "hashbrown_container_dists",
+         "hashbrown_pop_sweep")
 
 # A native cell's published per-arm fields, per op.
 NATIVE_FIELDS = {
@@ -239,6 +253,65 @@ def _mean(xs: list[float]) -> float:
 def _rows(runs: list, pick) -> list[dict]:
     """Every process's rows under `pick(payload)`, each carrying its process's window."""
     return [{**r, "load": window} for payload, window in runs for r in pick(payload)]
+
+
+def _side(iv: dict) -> str:
+    """Which arm a paired ratio interval (Expanse over competitor) favours."""
+    if iv.get("ci_lower") is None:
+        return "no_interval"
+    if iv["ci_lower"] > 1.0:
+        return "expanse"
+    if iv["ci_upper"] < 1.0:
+        return "competitor"
+    return "tie"
+
+
+def crossovers(points: list[tuple[int, str]]) -> list[dict]:
+    """Every change of winner along a population-ordered `(population, side)` list.
+
+    A crossover is stated as the interval between the last population where
+    one arm won and the first where the other did; populations whose interval
+    contains 1 between them are listed as `ties_between`, not counted as a
+    winner.
+    """
+    out, last, ties = [], None, []
+    for pop, side in points:
+        if side in ("tie", "no_interval"):
+            if last is not None:
+                ties.append(pop)
+            continue
+        if last is not None and side != last[1]:
+            out.append({"from_population": last[0], "to_population": pop,
+                        "from_winner": last[1], "to_winner": side, "ties_between": ties})
+        last, ties = (pop, side), []
+    return out
+
+
+def sweep_summary(cells: list[dict]) -> dict:
+    """Per distribution: memory min / mean / max bytes/key per arm over the
+    sweep, and every crossover of each lookup metric against each competitor.
+
+    Derived from the cells' own exact counts and paired intervals, so a figure
+    in the suite README resolves to this block (AGENTS.md section 8.2).
+    """
+    out = {}
+    for dist in dict.fromkeys(c["distribution"] for c in cells):
+        dc = sorted((c for c in cells if c["distribution"] == dist),
+                    key=lambda c: c["population"])
+        mem = {}
+        for arm in ARMS:
+            v = [c["exact"][arm]["bytes_per_key"] for c in dc]
+            lo = min(range(len(v)), key=v.__getitem__)
+            hi = max(range(len(v)), key=v.__getitem__)
+            mem[arm] = {"min": v[lo], "min_at": dc[lo]["population"],
+                        "mean": sum(v) / len(v),
+                        "max": v[hi], "max_at": dc[hi]["population"], "points": len(v)}
+        cross = {m: {f"{SUBJECT}_over_{c}": crossovers(
+                    [(x["population"], _side(x["ratios"][m][f"{SUBJECT}_over_{c}"]))
+                     for x in dc]) for c in COMPETITORS} for m in SWEEP_METRICS}
+        out[dist] = {"bytes_per_key": mem, "crossovers": cross,
+                     "populations": [c["population"] for c in dc]}
+    return out
 
 
 def merge_rounds(bench_name: str, runs: list) -> object:
@@ -290,6 +363,33 @@ def merge_rounds(bench_name: str, runs: list) -> object:
                           "rounds_raw": rows})
         out["rounds"] = len(runs)
         out["throughput"] = cells
+        return out
+    if bench_name == "hashbrown_pop_sweep":
+        out = {k: v for k, v in first.items() if k != "cells"}
+        cells = []
+        for idx, cell in enumerate(first["cells"]):
+            key = (cell["distribution"], cell["population"])
+            if any((p["cells"][idx]["distribution"], p["cells"][idx]["population"]) != key
+                   for p, _ in runs):
+                raise RuntimeError(f"{bench_name}: round processes disagree on the cells")
+            rows = _rows(runs, lambda p, i=idx: p["cells"][i]["rounds_raw"])
+            exact = {}
+            for arm in ARMS:
+                arm_rows = [r for r in rows if r["arm"] == arm]
+                exact[arm] = {f: arm_rows[0][f] for f in SWEEP_EXACT}
+                # The census is an exact count; a round that disagrees is a
+                # harness fault, not a sample to average (AGENTS.md 8.1).
+                for r in arm_rows:
+                    if any(r[f] != exact[arm][f] for f in SWEEP_EXACT):
+                        raise RuntimeError(f"{bench_name} {key} {arm}: the live-heap count "
+                                           f"differs between rounds ({r['round']})")
+            cells.append({**{k: v for k, v in cell.items() if k != "rounds_raw"},
+                          "exact": exact,
+                          **{m: {arm: _mean([r[m] for r in rows if r["arm"] == arm])
+                                 for arm in ARMS} for m in SWEEP_METRICS},
+                          "rounds_raw": rows})
+        out["rounds"] = len(runs)
+        out["cells"] = cells
         return out
     raise ValueError(f"{bench_name} is not a timed pillar")
 
@@ -431,6 +531,16 @@ def _synthetic_process(bench_name: str, rd: int):
                                 "rounds_raw": rows},
                                {"distribution": "zipfian", "population": 100,
                                 "rounds_raw": zrows}]}
+    if bench_name == "hashbrown_pop_sweep":
+        # Expanse loses to hashbrown on hits at 16 and 100 keys and wins at 31.
+        cells = []
+        for pop, exp in ((16, 10.0), (31, 30.0), (100, 10.0)):
+            rows = [{"round": rd, "arm": arm, "hit_mops": (exp if arm == "expanse" else 20.0) + rd,
+                     "miss_mops": 5.0 + k + rd, "live_bytes": 64 * pop * (k + 1),
+                     "bytes_per_key": 64.0 * (k + 1)} for k, arm in enumerate(ARMS)]
+            cells.append({"distribution": "random", "population": pop, "distinct_keys": pop,
+                          "rounds_raw": rows})
+        return {"probes_per_pass": 64, "cells": cells}
     return {"memory": [{"population": 1000, "random_keys_bytes_per_key": {"expanse": 1.0}}]}
 
 
@@ -485,6 +595,24 @@ def self_test() -> int:
     by = {c["distribution"]: c for c in ann["throughput"]}
     assert "lookup_miss_mops" in by["uniform"]["ratios"], by["uniform"]["ratios"]
     assert "lookup_miss_mops" not in by["zipfian"]["ratios"], by["zipfian"]["ratios"]
+
+    sweep = annotate("hashbrown_pop_sweep", merged("hashbrown_pop_sweep"))
+    got = sweep["summary"]["random"]["crossovers"]["hit_mops"]["expanse_over_hashbrown"]
+    assert [(c["from_population"], c["to_population"], c["to_winner"]) for c in got] == [
+        (16, 31, "expanse"), (31, 100, "competitor")], got
+    mem = sweep["summary"]["random"]["bytes_per_key"]["btree"]
+    assert mem["min"] == mem["max"] == 192.0 and mem["points"] == 3, mem
+    assert crossovers([(1, "expanse"), (2, "tie"), (3, "competitor")]) == [
+        {"from_population": 1, "to_population": 3, "from_winner": "expanse",
+         "to_winner": "competitor", "ties_between": [2]}]
+    # A live-heap count that differs between rounds is refused.
+    bad = [(_synthetic_process("hashbrown_pop_sweep", rd), window) for rd in range(3)]
+    bad[2][0]["cells"][0]["rounds_raw"][0]["live_bytes"] += 8
+    try:
+        merge_rounds("hashbrown_pop_sweep", bad)
+        raise AssertionError("a census that moves between rounds must raise")
+    except RuntimeError:
+        pass
 
     # The annotations: every interval names its construction, and a paired
     # ratio is formed per round, not from the two means.
