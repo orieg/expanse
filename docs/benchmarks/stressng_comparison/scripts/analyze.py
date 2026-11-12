@@ -25,6 +25,18 @@ from bca_bootstrap import CI_METHOD_BCA, bca_bootstrap_ratio_ci_with_method  # n
 # writes into the committed results directory.
 RESULTS = Path(os.environ.get("SNG_RESULTS_DIR", SUITE / "results"))
 
+
+def shown(path):
+    """A results path as printed: relative to the repository root, so console
+    output pasted into a committed artifact carries no home directory (the
+    `pii` discipline check); outside the repository, the results directory's
+    variable name and the file name."""
+    p = Path(path).resolve()
+    try:
+        return str(p.relative_to(REPO_ROOT.resolve()))
+    except ValueError:
+        return f"$SNG_RESULTS_DIR/{p.name}"
+
 FOREIGN_MAX = 0.5
 MIN_VALID = 8
 PRIMARY = {
@@ -114,7 +126,7 @@ def main():
         disc = [r for r in recs if not valid(r)]
         v = art["provenance"]["void"]
         print(f"run {n}: {len(recs)} processes, {len(disc)} discarded; max load1 {v['max_load1']} "
-              f"(void above {v['limit']}): {'VOID' if v['void'] else 'valid'} -> {dest}")
+              f"(void above {v['limit']}): {'VOID' if v['void'] else 'valid'} -> {shown(dest)}")
         arts.append(art)
     if any(a["provenance"]["void"]["void"] for a in arts):
         sys.exit("a run is void (METHODOLOGY.md §7); no verdict")

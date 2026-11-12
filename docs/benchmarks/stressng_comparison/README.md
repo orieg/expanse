@@ -898,6 +898,213 @@ Every other counter's interval is in the artifacts. The taken-branch counts are 
 - **Which stage moved.** Total stall cycles fall to 0.42–0.50× D's at 1 Ki and 0.84–0.85× at 4 Mi. The undelivered-uop slots move only at 4 Mi (0.66×). At 1 Ki they are 0.96–1.01×, and run 1's interval contains 1.
 - **Scope.** This measures the `lock` prefixes' total cost on these two shapes, through one implementation that drops them. It does not show that this form is safe to ship. The counters are public (`NodeAlloc::live_allocs` and `total_allocs`, Python's `total_node_allocs`), and AGENTS.md §2.6 and §8.22 apply. Any shippable version is the owner's call.
 
+## Step 0: the unlocked accounting, measured without code
+
+**A zero-code measurement, pre-registered before it runs** (#1679). It decides the shape of the next promotion attempt.
+- **Why not the split.** The attempt in #1718 keyed the lock on block size, and its Callgrind gate failed: 20 of 294 arms above +0.1%.
+- **What it compares.** The form measured here is the existing diagnostic feature `ablation-unlocked-plain-acct`: every plain-path counter update unlocked, with no size test and no added code. It is compared with `main`.
+- **Why it can now be the default.** Making `NodeAlloc` `Send` and not `Sync` is a separate soundness fix: no safe caller can then share one allocator across threads, so the locked updates protect nothing.
+
+**Builds and instrument.** Callgrind on a host that is not the reference host, in the `cg968-noble` image (Ubuntu 24.04, glibc 2.39) with rustc 1.99.1, the CI toolchain. That combination reproduced CI run 43126937195 arm for arm.
+- **Two builds of one commit** (`main` at this section's parent): M, default features; U, with `ablation-unlocked-plain-acct`.
+- **Arms:** every arm of CI's instruction jobs:
+  - `expanse-trie`'s `instructions`, `search_instructions`, `rmw_instructions` and `smoke_instructions`;
+  - `expanse-capi`'s `smoke_instructions` and `vs_stock`, with stock libjudy from the image's `libjudy-dev`.
+- **AArch64.** If a 64-bit Arm build is available, its disassembly records whether the locked updates compile to `__aarch64_ldadd8_relax` calls (outline atomics) or to LSE instructions, and what the unlocked form compiles to. That is a record, not a gate.
+
+**Reading, over every arm, U against M:**
+- **(i) Fully unlocked.** Every arm is within +0.1%. The next promotion unlocks every plain-path update.
+- **(ii) Keyed on `OCC`.** Some arms exceed +0.1%, and for each of them the per-function delta (`callgrind_annotate --inclusive=no`, U against M) falls only in `<true, …>` instantiations or in the `Sync*` wrappers' code. The next promotion keys the unlock on the `OCC` const parameter: `OCC = false` unlocked, `OCC = true` locked token for token, so no runtime test is added.
+- **(iii) Stop.** Any arm exceeds +0.1% with part of its delta in a `<false, …>` function or in a plain-tree caller. That function is attributed (per-line annotation, and `objdump` where its source did not change), and the next promotion waits for the owner.
+- **Fixed in advance.** The bound is §6's review threshold and is not moved. A delta in a function of neither kind (`libc`, the bench harness) counts against (i) and is attributed under (iii).
+
+### Step 0 result
+
+(measured: Callgrind, rustc 1.99.1, valgrind 3.22.0, Ubuntu 24.04, on a host that is not the reference host; M and U built from `fc10d6e47` (code of `573b64d50`); artifacts `results/step0_unlocked/`)
+
+**Reading: (iii).** Unlocking every plain-path update, with no added code, puts plain-tree arms above +0.1%. Per the pre-registration, the next promotion waits for the owner.
+
+| Harness | Arms | Above +0.1% | Below −0.1% |
+|---|---|---|---|
+| `instructions` | 294 | 37 | 7 |
+| `search_instructions` | 50 | 0 | 0 |
+| `rmw_instructions` | 12 | 0 | 0 |
+| `smoke_instructions` (`expanse-trie`) | 20 | 2 | 3 |
+| `smoke_instructions` (`expanse-capi`) | 14 | 4 | 1 |
+| `vs_stock` | 51 | 10 | 4 |
+
+- **The losses are plain-tree arms, mostly the set.** The worst are `set_oscillate/random` +3.03%, `set_insert/clustered` +2.32%, `set_insert/sparse` +1.30%, and `set_insert` on the other key shapes +1.04% to +1.06%. The map loses less: `map_remove/random` +0.32%, `map_remove_revgen` +0.39%. Through the C ABI, `judy1_set_expanse/clustered` (`vs_stock`) is +2.13% and `judy1_set/clustered` (smoke) +2.19%.
+- **No deferred arm moved.** All 89 `sync_*` arms are within −0.08% and +0.01%.
+- **The string map gains.** The largest improvements are `strmap_churn/routes` −1.06% and `strmap_refill_small` −0.46%.
+- **The counter sites cost nothing extra.** Each unlocked update compiles to one un-prefixed memory instruction (`sub %rax,0x200(%rcx)`, `decq 0x208(%rcx)`), the same count as `lock sub` and `lock decq` (`disasm/map_remove_false_false.{M,U}.s`).
+- **Where the deltas sit:**
+  - `set_oscillate/random`: exactly +2 instructions per operation, all on the bench loop's iterator lines. That loop never allocates. Its wrapper got statically smaller (1,404 → 1,377 instructions, and 291 → 274 `%rsp`-relative), and its registers were reassigned (the accumulator moved from `%r15` to `%r14`).
+  - `set_insert/clustered`: +240,417 Ir on `mutate.rs` lines inlined into `insert_with_path_flat`, whose source did not change; its `%rsp`-relative instructions went from 555 to 574.
+  - `map_remove/random`: +67,583 on `alloc.rs` lines and +44,378 on `ptr` lines, against −49,185 on `common.rs` lines.
+- **What it means.** The `lock` prefixes cost nothing in instruction count. What moves the counts is the compiler's code generation in the callers that inline the allocation path, as in the split before it. This is measured as instruction deltas on lines and functions whose source did not change. The register-allocation cause is read from the disassembly, not measured.
+- **AArch64:** not done in this run.
+
+## Promotion, judged on timing
+
+**The unlocked plain-tree accounting promoted to the default, judged on wall clock** (#1679, AGENTS.md §2.7 and §6). Pre-registered here before any timed run of the promoted build, as §8.8's second commit.
+- **What is promoted.** The diagnostic `ablation-unlocked-plain-acct` form: every plain-path counter update in `alloc_raw_body!` and `free_raw` becomes a relaxed load and store. The inverse `ablation-locked-plain-acct` restores the locked updates, and the old name becomes a `compile_error!`.
+- **Why it is now sound.** Since #1719, `NodeAlloc` is `Send` and not `Sync`, so no safe caller can reach one allocator from two threads.
+- **Why wall clock decides.** The change removes stalls, not work: §6 makes wall clock primary for such a change. Its Callgrind costs are already known from Step 0. The owner accepted them as a written trade-off, so this section judges the promotion on timing.
+
+### Callgrind: costs known before this registration
+
+The arms below rose above +0.1% in Step 0 (`results/step0_unlocked/`, measured on code identical to this promotion's, against `573b64d50`; #1719 changed no arm). They are **known before this registration, accepted by the owner, and not predictions**.
+- **Bound per accepted arm.** This PR's own CI run (`instruction-counts`, and the smoke and `vs_stock` jobs) must not exceed its Step 0 value by more than the 0.1% resolution.
+- **Every other arm** stays within +0.1%, all `sync_*` arms included.
+- **An arm over its bound** fails the registration: stop, report, and move no bound.
+
+| Harness | Arm | Step 0 | Bound |
+|---|---|---|---|
+| instructions | `set_oscillate/random` | +3.025% | +3.125% |
+| instructions | `set_insert/clustered` | +2.321% | +2.421% |
+| instructions | `set_insert/sparse` | +1.300% | +1.400% |
+| instructions | `set_insert/linear_leaf` | +1.060% | +1.160% |
+| instructions | `set_insert/dense_leaf` | +1.053% | +1.153% |
+| instructions | `set_insert/random` | +1.038% | +1.138% |
+| instructions | `set_clear_refill/random` | +0.968% | +1.068% |
+| instructions | `set_subtree_split/e1024` | +0.895% | +0.995% |
+| instructions | `set_subtree_condense/h1` | +0.873% | +0.973% |
+| instructions | `set_subtree_condense_control/h1` | +0.865% | +0.965% |
+| instructions | `set_subtree_condense/wide` | +0.805% | +0.905% |
+| instructions | `set_subtree_condense_control/wide` | +0.769% | +0.869% |
+| instructions | `set_subtree_boundary_oscillate/band9` | +0.760% | +0.860% |
+| instructions | `set_refill/random` | +0.757% | +0.857% |
+| instructions | `set_remove/random` | +0.745% | +0.845% |
+| instructions | `set_subtree_boundary_oscillate/band2` | +0.735% | +0.835% |
+| instructions | `set_remove_partial/random60` | +0.711% | +0.811% |
+| instructions | `set_compact_drained/random60` | +0.680% | +0.780% |
+| instructions | `set_rebuild_drained/random60` | +0.663% | +0.763% |
+| instructions | `map_compact_drained/random60` | +0.659% | +0.759% |
+| instructions | `set_subtree_split_control/e1024` | +0.508% | +0.608% |
+| instructions | `strmap_refill/routes` | +0.477% | +0.577% |
+| instructions | `set_insert/sequential` | +0.452% | +0.552% |
+| instructions | `map_remove_revgen/gen_256k` | +0.392% | +0.492% |
+| instructions | `map_remove_revgen/gen_4m` | +0.391% | +0.491% |
+| instructions | `map_remove/random` | +0.323% | +0.423% |
+| instructions | `blobmap_insert_inline/random` | +0.295% | +0.395% |
+| instructions | `map_rebuild_drained/random60` | +0.290% | +0.390% |
+| instructions | `blobmap_remove/random` | +0.287% | +0.387% |
+| instructions | `blobmap_insert/random` | +0.272% | +0.372% |
+| instructions | `map_clone/random` | +0.242% | +0.342% |
+| instructions | `map_remove_revgen/gen_1k` | +0.228% | +0.328% |
+| instructions | `strmap_clear_refill/routes` | +0.210% | +0.310% |
+| instructions | `map_regrow_after_shrink/random60` | +0.188% | +0.288% |
+| instructions | `map_remove_partial/random60` | +0.179% | +0.279% |
+| instructions | `blobmap_churn/random` | +0.124% | +0.224% |
+| instructions | `map_small_tree/hashjudy` | +0.119% | +0.219% |
+| smoke (trie) | `map_insert/random` | +0.207% | +0.307% |
+| smoke (trie) | `map_ins_slot/random` | +0.206% | +0.306% |
+| smoke (capi) | `judy1_set/clustered` | +2.187% | +2.287% |
+| smoke (capi) | `judy1_set/random` | +0.674% | +0.774% |
+| smoke (capi) | `judy1_set/sequential` | +0.408% | +0.508% |
+| smoke (capi) | `judyl_insert/random` | +0.332% | +0.432% |
+| vs_stock | `judy1_set_expanse/clustered` | +2.126% | +2.226% |
+| vs_stock | `judy1_set_expanse/random` | +0.887% | +0.987% |
+| vs_stock | `judyl_insert_expanse_dl/clustered` | +0.442% | +0.542% |
+| vs_stock | `judyl_churn_expanse_dl/random` | +0.412% | +0.512% |
+| vs_stock | `judysl_insert_expanse_dl/random` | +0.323% | +0.423% |
+| vs_stock | `judyl_insert_expanse/random` | +0.296% | +0.396% |
+| vs_stock | `judyl_churn_expanse/random` | +0.189% | +0.289% |
+| vs_stock | `judyl_insert_expanse_dl/random` | +0.182% | +0.282% |
+| vs_stock | `judysl_insert_expanse_dl/clustered` | +0.137% | +0.237% |
+| vs_stock | `judyl_insert_expanse/clustered` | +0.101% | +0.201% |
+
+### Wall clock
+
+**Cells.** `scripts/phase_probe.c` drives each through the C API, so stock libjudy runs the same code.
+- **Targets:** the two delete shapes, `del_1k` and `del_4m`.
+- **No-loss cells:** the shapes of the worst instruction losers, added in `585c76b2c` before this registration:
+  - `osc_1`: `set_oscillate`'s insert-then-remove of one key at a time, which never allocates;
+  - `j1s_clustered` and `j1s_sparse`: set inserts on the Callgrind bench's own `clustered` and `sparse` keys. `j1s_clustered` is also `judy1_set` on clustered keys through the C API;
+  - `ins_1k`: one insert shape at 1 Ki keys.
+
+| field | `phase_osc_1` | `phase_j1s_clustered` | `phase_j1s_sparse` | `phase_ins_1k` |
+|---|---|---|---|---|
+| `workload_id` | `phase_osc_1` | `phase_j1s_clustered` | `phase_j1s_sparse` | `phase_ins_1k` |
+| `group` | promote2 | promote2 | promote2 | promote2 |
+| `population` | 50,000 keys, at most one present at a time | 50,000 | 50,000 | 1,024 |
+| `insertion_order` | generator | generator | generator | generator |
+| `probes_and_reuse` | 30 passes of 50,000 J1S+J1U pairs | 400 builds | 150 builds | 6,000 builds |
+| `hit_rate` | 100% (each J1U finds its key) | n/a (inserts) | n/a (inserts) | n/a (inserts) |
+| `miss_gen_method` | n/a | n/a | n/a | n/a |
+| `value_dereference` | none (`Judy1`) | none (`Judy1`) | none (`Judy1`) | one store per JLI slot |
+| `measured_region` | the pairs only | the inserts only; J1C and J1FA outside | as `j1s_clustered` | the inserts only; JLFA outside |
+| `arm_symmetry` | P, M and S run the same binary, differing only in `LD_LIBRARY_PATH` | same | same | same |
+| `statistics` | two-sample BCa 95%, 12 processes per arm per run, 2 runs | same | same | same |
+| `verdict` | no-loss bound | no-loss bound | no-loss bound | no-loss bound |
+
+**Arms and instrument** (`run.sh <run> ref phase_promote2`; the `promote2` set of `scripts/diag_phase_counters.py`):
+- **Arms.** P (this PR's head) and M (its merge base on `main`) are built on the reference host under the bench lock by `scripts/build_layout_lib.sh`. S is stock.
+- **Measurements.** The probe's own phase clock (`phase_ns`), plus one user-mode `cpu_core` group: `cycles`, `instructions`, `mem_inst_retired.lock_loads`, `cycle_activity.stalls_total` and `idq_uops_not_delivered.core`, three general-purpose events.
+- **Rounds.** 12 rounds per run, cycling through the six orders of the three arms, one process per (round, shape, arm), and two runs. The P-core pin applies.
+- **Load and rules.** Load windows carry the busy-CPU delta (§8.17). The discard and void rules are the phase-counter diagnostic's.
+
+**Reading, P against M, in both runs** (`promote2_reading` in `scripts/diag_phase_counters_analyze.py`). It applies to the phase wall clock and to `cycles` alike:
+- **Target.** `del_1k` and `del_4m` are FASTER: the upper bound is below 1.
+- **No-loss bound.** On `osc_1`, `j1s_clustered`, `j1s_sparse` and `ins_1k`, the upper bound is at most **1.020**. That is a 2% tolerance, named here and never moved. It is the upper edge of this suite's SAME band, [0.98, 1.02], and code layout alone moves this instrument by about 1%: the phase-counter diagnostic's alignment-only builds read N64/N cycles of 0.9894–0.9982.
+- **Verdict.** PASS only if every target and every bound holds in both runs. Otherwise FAIL: stop, report, and move no bound.
+- **Counters, as expectations (projected).** `mem_inst_retired.lock_loads` per operation is 0 on P, whose plain paths run no locked instruction, and positive on M. They are reported, not gated.
+
+**The `allow-regression:` line** is added to the pull request only after a PASS. It cites this section and the PR's own CI run, and names every losing arm.
+
+### Promotion result
+
+#### Wall clock: PASS
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, perf 6.8.12, rustc 1.98.1; P built from `48a2fd692` (sha256 `3734ffc9…`), M from `c83d32bed` (`96204cd9…`), S stock (`76f121a8…`); harness `48a2fd692`; artifacts `results/diagnostic_promote2_ref_run{1,2}.json`) (workloads: phase_del_1k, phase_del_4m, phase_osc_1, phase_j1s_clustered, phase_j1s_sparse, phase_ins_1k)
+
+**Hygiene.**
+- **Builds and runs.** Builds ran 05:39:29–05:40:27 UTC under the bench lock. Run 1 ran 05:40:27–05:41:57 and run 2 05:41:57–05:43:28, each under the lock.
+- **Processes.** 216 processes per run. The worst foreign load over any process was 0.06 and 0.07 core-equivalents, and max load1 was 0.97 and 1.06 against a void limit of 12.
+- **Discards.** Each run discarded 12 processes, all of them stock's `osc_1` cell, and all because none had a load reading: stock runs that shape in less than the load window's 0.1 s minimum. S is context only, and no P or M process was discarded.
+
+**Every target and every bound holds in both runs**, on the phase clock and on `cycles`. P/M, phase clock, BCa 95%:
+
+| Shape | Role | Run 1 | Run 2 |
+|---|---|---|---|
+| `del_1k` | target | 0.8644 [0.8594, 0.8695] | 0.8502 [0.8230, 0.8666] |
+| `del_4m` | target | 0.9616 [0.9496, 0.9737] | 0.9614 [0.9498, 0.9736] |
+| `osc_1` | no-loss | 0.8736 [0.8642, 0.8775] | 0.8774 [0.8736, 0.8825] |
+| `j1s_clustered` | no-loss | 0.9627 [0.9584, 0.9673] | 0.9559 [0.9510, 0.9639] |
+| `j1s_sparse` | no-loss | 0.9450 [0.9330, 0.9603] | 0.9327 [0.9162, 0.9407] |
+| `ins_1k` | no-loss | 0.7680 [0.7623, 0.7730] | 0.7679 [0.7634, 0.7717] |
+
+- **Every shape is faster.** That includes the four whose Callgrind counts the change raises: their upper bounds are below 1, not just below the 1.020 tolerance. `cycles` agrees with the phase clock on every shape (`results/diagnostic_promote2_ref_analysis.txt`).
+- **The `lock_loads` expectation was not met; it was reported, not gated.** P still executes locked loads on these paths. Per operation, run 1 medians:
+
+  | Shape | P | M | S |
+  |---|---|---|---|
+  | `osc_1` | 10.0 | 15.0 | 0 |
+  | `ins_1k` | 0.156 | 2.47 | 0.020 |
+  | `del_1k` | 0.039 | 2.0 | 0.0003 |
+  | `del_4m` | 0.0 | 0.79 | 0.0005 |
+
+  Stock executes almost none, so P's remaining locked loads are Expanse code outside the accounting counters. Their source is not attributed.
+- **Correction to two earlier records.** On `osc_1`, M − P is 5 locked loads per insert/remove pair: the three counter updates of one allocation plus the two of one free. So through the C API each pair allocates and frees a block. The Step 0 result and #1718's attribution state that the Rust bench's `set_oscillate` loop "never allocates". That was not verified and is unverified, not established. Their per-line Callgrind attributions are measurements and stand.
+
+#### Callgrind: every arm within its bound
+
+(measured: CI `Perf / Callgrind Deterministic Instructions` and `Perf / Callgrind Fast Smoke`, [run 43162806617](https://github.com/orieg/expanse/actions/runs/43162806617), head `48a2fd692` against `c83d32bed`, rustc 1.99.1; `vs_stock` as amended below; artifacts `results/promote2_callgrind/`)
+
+- **The accepted arms.** All 53 are within their bounds, at their Step 0 values to within 0.002 points. Two examples: `set_oscillate/random` +3.025% (bound +3.125%), and `judy1_set/clustered` (smoke) +2.187% (bound +2.287%).
+- **No other arm** is above +0.1% across the 288 distinct `instructions` arms, the 50 `search_instructions` arms, the 12 `rmw_instructions` arms and the 34 smoke arms.
+- **The `sync_*` arms** are all within −0.080% and +0.011%.
+
+**Amendment, made after the CI run and before the verdict** (AGENTS.md §8.19).
+- **What could not be checked as written.** The registration names the PR's own `vs_stock` job as the instrument for the 10 `vs_stock` bounds. That job compares Expanse with stock and never with `main`, so it carries no number to check them against.
+- **What checked them instead.** They were measured with Step 0's own instrument: the same container and rustc 1.99.1, which reproduced CI's verdict arm for arm. Base `c83d32bed` and head `48a2fd692` were each run once.
+- **Result.** All 10 equal their Step 0 values to the third decimal and are within their bounds. `judy1_set_expanse/clustered`, for example, is +2.126% against a bound of +2.226%.
+- **Unchanged.** No bound moved.
+
+#### Verdict: PASS
+
+Every pre-registered target and bound holds in both runs, on the phase clock and on `cycles`, and every Callgrind arm is within its bound. Merging is the owner's decision.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -1054,4 +1261,26 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref phase_delete_acct
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_acct_ref_run1 /var/tmp/stressng-eval/results/diag_delete_acct_ref_run2
+```
+
+The timed accounting promotion builds P from an export of its head and M from an export of its merge base, then runs with the mode `phase_promote2`:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of head> /var/tmp/stressng-eval/expcompat-1679p2-P/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of merge base> /var/tmp/stressng-eval/expcompat-1679p2-M/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref phase_promote2
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref phase_promote2
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_promote2_ref_run1 /var/tmp/stressng-eval/results/diag_promote2_ref_run2
 ```

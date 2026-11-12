@@ -1,0 +1,47 @@
+accepted instructions   set_insert/sequential                         Step0 +0.452%  PR +0.452%  bound +0.552%
+accepted instructions   set_insert/random                             Step0 +1.038%  PR +1.038%  bound +1.138%
+accepted instructions   set_insert/clustered                          Step0 +2.321%  PR +2.321%  bound +2.421%
+accepted instructions   set_insert/dense_leaf                         Step0 +1.053%  PR +1.055%  bound +1.153%
+accepted instructions   set_insert/linear_leaf                        Step0 +1.060%  PR +1.060%  bound +1.160%
+accepted instructions   set_insert/sparse                             Step0 +1.300%  PR +1.301%  bound +1.400%
+accepted instructions   map_small_tree/hashjudy                       Step0 +0.119%  PR +0.119%  bound +0.219%
+accepted instructions   map_remove/random                             Step0 +0.323%  PR +0.323%  bound +0.423%
+accepted instructions   map_remove_revgen/gen_1k                      Step0 +0.228%  PR +0.228%  bound +0.328%
+accepted instructions   map_remove_revgen/gen_256k                    Step0 +0.392%  PR +0.392%  bound +0.492%
+accepted instructions   map_remove_revgen/gen_4m                      Step0 +0.391%  PR +0.391%  bound +0.491%
+accepted instructions   set_remove/random                             Step0 +0.745%  PR +0.745%  bound +0.845%
+accepted instructions   set_oscillate/random                          Step0 +3.025%  PR +3.025%  bound +3.125%
+accepted instructions   set_refill/random                             Step0 +0.757%  PR +0.757%  bound +0.857%
+accepted instructions   set_clear_refill/random                       Step0 +0.968%  PR +0.968%  bound +1.068%
+accepted instructions   set_remove_partial/random60                   Step0 +0.711%  PR +0.711%  bound +0.811%
+accepted instructions   map_remove_partial/random60                   Step0 +0.179%  PR +0.179%  bound +0.279%
+accepted instructions   set_rebuild_drained/random60                  Step0 +0.663%  PR +0.662%  bound +0.763%
+accepted instructions   map_rebuild_drained/random60                  Step0 +0.290%  PR +0.290%  bound +0.390%
+accepted instructions   set_compact_drained/random60                  Step0 +0.680%  PR +0.679%  bound +0.780%
+accepted instructions   map_compact_drained/random60                  Step0 +0.659%  PR +0.659%  bound +0.759%
+accepted instructions   map_regrow_after_shrink/random60              Step0 +0.188%  PR +0.188%  bound +0.288%
+accepted instructions   set_subtree_boundary_oscillate/band2          Step0 +0.735%  PR +0.735%  bound +0.835%
+accepted instructions   set_subtree_boundary_oscillate/band9          Step0 +0.760%  PR +0.760%  bound +0.860%
+accepted instructions   set_subtree_split/e1024                       Step0 +0.895%  PR +0.895%  bound +0.995%
+accepted instructions   set_subtree_split_control/e1024               Step0 +0.508%  PR +0.508%  bound +0.608%
+accepted instructions   set_subtree_condense/h1                       Step0 +0.873%  PR +0.873%  bound +0.973%
+accepted instructions   set_subtree_condense/wide                     Step0 +0.805%  PR +0.805%  bound +0.905%
+accepted instructions   set_subtree_condense_control/h1               Step0 +0.865%  PR +0.865%  bound +0.965%
+accepted instructions   set_subtree_condense_control/wide             Step0 +0.769%  PR +0.769%  bound +0.869%
+accepted instructions   map_clone/random                              Step0 +0.242%  PR +0.242%  bound +0.342%
+accepted instructions   strmap_refill/routes                          Step0 +0.477%  PR +0.477%  bound +0.577%
+accepted instructions   strmap_clear_refill/routes                    Step0 +0.210%  PR +0.210%  bound +0.310%
+accepted instructions   blobmap_insert/random                         Step0 +0.272%  PR +0.272%  bound +0.372%
+accepted instructions   blobmap_insert_inline/random                  Step0 +0.295%  PR +0.295%  bound +0.395%
+accepted instructions   blobmap_remove/random                         Step0 +0.287%  PR +0.287%  bound +0.387%
+accepted instructions   blobmap_churn/random                          Step0 +0.124%  PR +0.124%  bound +0.224%
+accepted smoke (trie)   map_insert/random                             Step0 +0.207%  PR +0.207%  bound +0.307%
+accepted smoke (trie)   map_ins_slot/random                           Step0 +0.206%  PR +0.206%  bound +0.306%
+accepted smoke (capi)   judyl_insert/random                           Step0 +0.332%  PR +0.332%  bound +0.432%
+accepted smoke (capi)   judy1_set/sequential                          Step0 +0.408%  PR +0.408%  bound +0.508%
+accepted smoke (capi)   judy1_set/random                              Step0 +0.674%  PR +0.674%  bound +0.774%
+accepted smoke (capi)   judy1_set/clustered                           Step0 +2.187%  PR +2.187%  bound +2.287%
+arms per (harness, baseline): {('instructions', 'main_base'): 292, ('search_instructions', 'search_main_base'): 50, ('rmw_instructions', 'rmw_main_base'): 12, ('smoke (trie)', 'smoke_base'): 20, ('smoke (capi)', 'smoke_base'): 14}
+accepted seen: 43 of 53 ; missing: [('vs_stock', 'judy1_set_expanse/clustered'), ('vs_stock', 'judy1_set_expanse/random'), ('vs_stock', 'judyl_churn_expanse/random'), ('vs_stock', 'judyl_churn_expanse_dl/random'), ('vs_stock', 'judyl_insert_expanse/clustered'), ('vs_stock', 'judyl_insert_expanse/random'), ('vs_stock', 'judyl_insert_expanse_dl/clustered'), ('vs_stock', 'judyl_insert_expanse_dl/random'), ('vs_stock', 'judysl_insert_expanse_dl/clustered'), ('vs_stock', 'judysl_insert_expanse_dl/random')]
+violations: 0
+sync arms: 107 max 0.01056 min -0.07993

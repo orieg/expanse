@@ -108,19 +108,20 @@ macro_rules! alloc_raw_body {
                 return Self::$system($bytes, $align);
             }
 
-            #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
+            // A plain tree's accounting (Refs #1679): a relaxed load and store
+            // per counter, which x86 emits without a `lock` prefix. Sound
+            // because a `NodeAlloc` is `Send` and not `Sync`, so only its owner
+            // reaches this path; a shared tree's allocator left above, through
+            // its deferred cell. `ablation-locked-plain-acct` restores the
+            // locked read-modify-write.
+            #[cfg(feature = "ablation-locked-plain-acct")]
             $s.bytes_in_use
                 .fetch_add(accounted_size, Ordering::Relaxed);
-            #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
+            #[cfg(feature = "ablation-locked-plain-acct")]
             $s.live_allocs.fetch_add(1, Ordering::Relaxed);
-            #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
+            #[cfg(feature = "ablation-locked-plain-acct")]
             $s.total_allocs.fetch_add(1, Ordering::Relaxed);
-            // Diagnostic (Refs #1679, `Cargo.toml`): the same three updates as
-            // a relaxed load and store, which x86 emits without a `lock`
-            // prefix. Lost updates under concurrent use of one plain
-            // allocator, which the plain path's single-writer contract rules
-            // out; never for production.
-            #[cfg(feature = "ablation-unlocked-plain-acct")]
+            #[cfg(not(feature = "ablation-locked-plain-acct"))]
             {
                 let b = $s.bytes_in_use.load(Ordering::Relaxed);
                 $s.bytes_in_use
@@ -804,7 +805,8 @@ const ROOT_COVER_HELD: u8 = 2;
 ///
 /// Counters are relaxed atomics, and they order nothing: the OCC read
 /// protocol carries the fences. A concurrent wrapper reads them while its
-/// writers run.
+/// writers run. Their owner updates them on the plain path with a relaxed
+/// load and store, not a locked read-modify-write (Refs #1679).
 #[derive(Debug)]
 pub struct NodeAlloc {
     bytes_in_use: AtomicUsize,
@@ -1102,7 +1104,11 @@ impl NodeAlloc {
             return 0;
         }
         // Nothing live: every page and every free block goes, so the
-        // per-block page census below has nothing to decide.
+        // per-block page census below has nothing to decide. This trusts the
+        // counter to be exact: a missed decrement would leave live blocks on
+        // pages released here. A plain tree's counter is exact because only
+        // its owner updates it (`NodeAlloc` is not `Sync`), even though its
+        // updates are unlocked (Refs #1679); the deferred case returned above.
         if *self.bytes_in_use.get_mut() == 0 {
             return self.release_all_unused();
         }
@@ -1509,13 +1515,13 @@ impl NodeAlloc {
             return;
         }
 
-        #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
+        // `alloc_raw_body!`'s accounting, inverted (Refs #1679).
+        #[cfg(feature = "ablation-locked-plain-acct")]
         self.bytes_in_use
             .fetch_sub(accounted_size, Ordering::Relaxed);
-        #[cfg(not(feature = "ablation-unlocked-plain-acct"))]
+        #[cfg(feature = "ablation-locked-plain-acct")]
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
-        // Diagnostic (Refs #1679): `alloc_raw_body!`'s unlocked form, inverted.
-        #[cfg(feature = "ablation-unlocked-plain-acct")]
+        #[cfg(not(feature = "ablation-locked-plain-acct"))]
         {
             let b = self.bytes_in_use.load(Ordering::Relaxed);
             self.bytes_in_use

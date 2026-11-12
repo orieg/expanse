@@ -22,6 +22,19 @@
  *               enable/disable bracket so the perf control round trips are
  *               outside it (#1679, the accounting ablation).
  *
+ *   osc_1       Judy1: for each of 50,000 keys drawn by the Callgrind bench's
+ *               XorShift (seed 0x0DDB1A5E5EED0001), J1S then J1U of that key on
+ *               an array that starts and ends empty, `repeats` times; the
+ *               shape of the bench's `set_oscillate` arm, which never
+ *               allocates (#1679 promotion).
+ *   j1s_clustered  Judy1: J1S of the bench's 50,000 `clustered` keys (runs of
+ *               256 consecutive keys under a random base) into an empty
+ *               array, `repeats` times, each array freed outside the phase.
+ *   j1s_sparse  the same with the bench's `sparse` keys, i << 40.
+ *   ins_1k      JudyL: JLI of gen_index(i) for i below 1,024 into an empty
+ *               array, `repeats` times, each freed outside the phase.
+ *               These four print `phase_ns` as the delete shapes do.
+ *
  * The draws come from splitmix64, not stress-ng's mwc32, so the keys follow
  * the stressor's distribution and not its exact sequence. Every arm draws
  * the same keys. `repeats` repeats the measured phase on the same array, for
@@ -146,6 +159,135 @@ static uint64_t gen_index(uint64_t i)
 	return ((~i & 0xff) << 24) | (i & 0xffffff);
 }
 
+#define BENCH_POP 50000
+
+/* The Callgrind bench's XorShift (`crates/expanse/benches/instructions.rs`). */
+static uint64_t xs_state;
+
+static uint64_t xorshift(void)
+{
+	uint64_t x = xs_state;
+	x ^= x << 13;
+	x ^= x >> 7;
+	x ^= x << 17;
+	xs_state = x;
+	return x;
+}
+
+static void bench_keys(const char *dist, Word_t *out)
+{
+	uint64_t i, base = 0;
+
+	xs_state = 0x0DDB1A5E5EED0001ULL;
+	for (i = 0; i < BENCH_POP; i++) {
+		if (strcmp(dist, "random") == 0)
+			out[i] = (Word_t)xorshift();
+		else if (strcmp(dist, "clustered") == 0) {
+			if (i % 256 == 0)
+				base = xorshift() & ~(uint64_t)0xff;
+			out[i] = (Word_t)(base + (i % 256));
+		} else
+			out[i] = (Word_t)(i << 40);
+	}
+}
+
+static uint64_t ns_between(const struct timespec *t0, const struct timespec *t1)
+{
+	return (uint64_t)(t1->tv_sec - t0->tv_sec) * 1000000000ULL
+		+ (uint64_t)t1->tv_nsec - (uint64_t)t0->tv_nsec;
+}
+
+static int judy1_oscillate(long repeats)
+{
+	static Word_t keys[BENCH_POP];
+	Pvoid_t a = NULL;
+	struct timespec t0, t1;
+	uint64_t phase_ns = 0, sink = 0;
+	long r;
+	int rc, i;
+
+	bench_keys("random", keys);
+	for (r = 0; r < repeats; r++) {
+		perf_ctl("enable\n");
+		clock_gettime(CLOCK_MONOTONIC, &t0);
+		for (i = 0; i < BENCH_POP; i++) {
+			J1S(rc, a, keys[i]);
+			if (rc == JERR)
+				return 2;
+			J1U(rc, a, keys[i]);
+			sink += (uint64_t)rc;
+		}
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		perf_ctl("disable\n");
+		phase_ns += ns_between(&t0, &t1);
+		if (a != NULL)
+			return 2;
+	}
+	printf("oscillated %d x %ld sink %llu\n", BENCH_POP, repeats, (unsigned long long)sink);
+	printf("phase_ns %llu\n", (unsigned long long)phase_ns);
+	return sink == (uint64_t)BENCH_POP * (uint64_t)repeats ? 0 : 2;
+}
+
+static int judy1_insert(const char *dist, long repeats)
+{
+	static Word_t keys[BENCH_POP];
+	Pvoid_t a = NULL;
+	struct timespec t0, t1;
+	uint64_t phase_ns = 0;
+	Word_t freed, count = 0;
+	long r;
+	int rc, i;
+
+	bench_keys(dist, keys);
+	for (r = 0; r < repeats; r++) {
+		perf_ctl("enable\n");
+		clock_gettime(CLOCK_MONOTONIC, &t0);
+		for (i = 0; i < BENCH_POP; i++) {
+			J1S(rc, a, keys[i]);
+			if (rc == JERR)
+				return 2;
+		}
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		perf_ctl("disable\n");
+		phase_ns += ns_between(&t0, &t1);
+		J1C(count, a, 0, -1);
+		J1FA(freed, a);
+		(void)freed;
+	}
+	printf("inserted %s %lu x %ld\n", dist, (unsigned long)count, repeats);
+	printf("phase_ns %llu\n", (unsigned long long)phase_ns);
+	return 0;
+}
+
+static int judyl_insert_1k(long repeats)
+{
+	Pvoid_t a = NULL;
+	PWord_t pv;
+	struct timespec t0, t1;
+	uint64_t phase_ns = 0, i;
+	Word_t freed;
+	long r;
+
+	for (r = 0; r < repeats; r++) {
+		perf_ctl("enable\n");
+		clock_gettime(CLOCK_MONOTONIC, &t0);
+		for (i = 0; i < 1024; i++) {
+			JLI(pv, a, (Word_t)gen_index(i));
+			if (pv == NULL || pv == PJERR)
+				return 2;
+			*pv = i;
+		}
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		perf_ctl("disable\n");
+		phase_ns += ns_between(&t0, &t1);
+		JLFA(freed, a);
+		(void)freed;
+	}
+	printf("inserted 1024 x %ld\n", repeats);
+	printf("phase_ns %llu\n", (unsigned long long)phase_ns);
+	return 0;
+}
+
 static int judy_delete(uint64_t n, long repeats)
 {
 	Pvoid_t a = NULL;
@@ -213,6 +355,14 @@ int main(int argc, char **argv)
 		return judy_delete(1024, repeats);
 	if (strcmp(argv[1], "del_4m") == 0)
 		return judy_delete(4194304, 1);
+	if (strcmp(argv[1], "osc_1") == 0)
+		return judy1_oscillate(repeats);
+	if (strcmp(argv[1], "j1s_clustered") == 0)
+		return judy1_insert("clustered", repeats);
+	if (strcmp(argv[1], "j1s_sparse") == 0)
+		return judy1_insert("sparse", repeats);
+	if (strcmp(argv[1], "ins_1k") == 0)
+		return judyl_insert_1k(repeats);
 	fprintf(stderr, "STOP: unknown shape %s\n", argv[1]);
 	return 1;
 }
