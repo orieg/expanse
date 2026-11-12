@@ -50,8 +50,10 @@
 //! own tests, which opt back into pooling. Nothing here exists outside
 //! `cfg(miri)`.
 //!
-//! The tree itself is single-writer; Phase 7's concurrent wrappers add
-//! shared readers, so the counters are (relaxed) atomics.
+//! A [`NodeAlloc`] has one owner: it is `Send` and not `Sync`. A
+//! concurrent wrapper shares its tree by deferring the allocator to its
+//! collector, and reads the counters beside its writers, so the counters
+//! are (relaxed) atomics.
 
 #[cfg(feature = "std")]
 use crate::occ::Collector;
@@ -773,9 +775,36 @@ const ROOT_COVER_HELD: u8 = 2;
 /// `align_of::<T>()` via [`Self::alloc_node`], at [`RAW_ALIGN`] via
 /// [`Self::alloc_bytes`] — and keeps byte-exact accounting.
 ///
-/// Counters are relaxed atomics (Phase 7): accounting must stay exact
-/// when a concurrent wrapper shares the tree across threads, and the
-/// counters order nothing — the OCC read protocol carries the fences.
+/// **One owner: `Send`, not `Sync`.** Allocation and free update this
+/// handle's per-tree freelists and slab list by plain load/store pairs (see
+/// `freelists`), so two threads inside one `NodeAlloc` at once could be
+/// handed the same block, and one could read a free block's link while the
+/// other fills it. The type rules that out for safe code: a `NodeAlloc`
+/// moves between threads, and cannot be shared between them by reference.
+/// To share a tree, use a `Sync*` wrapper. It defers the allocator to its
+/// collector ([`Self::defer_to`]), after which allocation goes to the
+/// collector's locked freelists and per-writer accounting shards, and the
+/// wrapper's own `Sync` implementation covers its threads' use of the
+/// handle.
+///
+/// The handle moves between threads:
+///
+/// ```no_run
+/// fn assert_send<T: Send>() {}
+/// assert_send::<expanse_trie::alloc::NodeAlloc>();
+/// ```
+///
+/// and is not shareable between them. This is the same program with the
+/// bound swapped, so what fails below is the missing `Sync` and nothing else:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::alloc::NodeAlloc>();
+/// ```
+///
+/// Counters are relaxed atomics, and they order nothing: the OCC read
+/// protocol carries the fences. A concurrent wrapper reads them while its
+/// writers run.
 #[derive(Debug)]
 pub struct NodeAlloc {
     bytes_in_use: AtomicUsize,
@@ -837,7 +866,28 @@ pub struct NodeAlloc {
     /// The field does not exist in any other build.
     #[cfg(miri)]
     exact_size: bool,
+    /// Withdraws `Sync` and keeps `Send`: `Cell<()>` is `Send` and not `Sync`,
+    /// and a `PhantomData` of it is zero-sized. See the type's documentation.
+    _not_sync: core::marker::PhantomData<core::cell::Cell<()>>,
 }
+
+// See `NodeAlloc`'s doc comment. A future `!Send` field must fail the build,
+// since a tree and its allocator move between threads; and a change that makes
+// the type `Sync` again must fail it too, because that makes two threads in one
+// allocator's freelists expressible in safe code again.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<NodeAlloc>();
+};
+crate::common::assert_not_sync!(NodeAlloc);
+
+// The marker is a `Cell`, which is not `RefUnwindSafe`, and the auto trait
+// would follow it, and from it every container that owns a `NodeAlloc`.
+// Nothing about the allocator changed across an unwind: its state is atomics
+// and a `OnceLock`, as before, and the `Cell` is phantom. The bound is
+// restored so that withdrawing `Sync` is the only change to the type's public
+// surface.
+impl core::panic::RefUnwindSafe for NodeAlloc {}
 
 impl Default for NodeAlloc {
     fn default() -> Self {
@@ -857,6 +907,7 @@ impl Default for NodeAlloc {
             bookkeeping_busy: core::sync::atomic::AtomicBool::new(false),
             #[cfg(miri)]
             exact_size: true,
+            _not_sync: core::marker::PhantomData,
         }
     }
 }
@@ -995,8 +1046,12 @@ impl NodeAlloc {
         let mut page = self.slab_pages.load(Ordering::Relaxed);
         while !page.is_null() {
             // SAFETY: every entry of the slab list is a live page this handle
-            // carved, and its header was written before it was linked. The
-            // list is single-writer and `&self` excludes a plain tree's writer.
+            // carved, and its header was written before it was linked. Nothing
+            // links or unlinks a page meanwhile: `NodeAlloc` is not `Sync`, so
+            // no other thread is inside this handle through safe code, and
+            // this call allocates nothing. A deferred tree carves no pages
+            // (`defer_to` asserts it), so its wrapper's threads never reach
+            // this list.
             unsafe {
                 pages[(*page).class] += 1;
                 page = (*page).next;
