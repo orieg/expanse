@@ -1052,6 +1052,59 @@ The arms below rose above +0.1% in Step 0 (`results/step0_unlocked/`, measured o
 
 **The `allow-regression:` line** is added to the pull request only after a PASS. It cites this section and the PR's own CI run, and names every losing arm.
 
+### Promotion result
+
+#### Wall clock: PASS
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, perf 6.8.12, rustc 1.98.1; P built from `48a2fd692` (sha256 `3734ffc9…`), M from `c83d32bed` (`96204cd9…`), S stock (`76f121a8…`); harness `48a2fd692`; artifacts `results/diagnostic_promote2_ref_run{1,2}.json`) (workloads: phase_del_1k, phase_del_4m, phase_osc_1, phase_j1s_clustered, phase_j1s_sparse, phase_ins_1k)
+
+**Hygiene.**
+- **Builds and runs.** Builds ran 05:39:29–05:40:27 UTC under the bench lock. Run 1 ran 05:40:27–05:41:57 and run 2 05:41:57–05:43:28, each under the lock.
+- **Processes.** 216 processes per run. The worst foreign load over any process was 0.06 and 0.07 core-equivalents, and max load1 was 0.97 and 1.06 against a void limit of 12.
+- **Discards.** Each run discarded 12 processes, all of them stock's `osc_1` cell, and all because none had a load reading: stock runs that shape in less than the load window's 0.1 s minimum. S is context only, and no P or M process was discarded.
+
+**Every target and every bound holds in both runs**, on the phase clock and on `cycles`. P/M, phase clock, BCa 95%:
+
+| Shape | Role | Run 1 | Run 2 |
+|---|---|---|---|
+| `del_1k` | target | 0.8644 [0.8594, 0.8695] | 0.8502 [0.8230, 0.8666] |
+| `del_4m` | target | 0.9616 [0.9496, 0.9737] | 0.9614 [0.9498, 0.9736] |
+| `osc_1` | no-loss | 0.8736 [0.8642, 0.8775] | 0.8774 [0.8736, 0.8825] |
+| `j1s_clustered` | no-loss | 0.9627 [0.9584, 0.9673] | 0.9559 [0.9510, 0.9639] |
+| `j1s_sparse` | no-loss | 0.9450 [0.9330, 0.9603] | 0.9327 [0.9162, 0.9407] |
+| `ins_1k` | no-loss | 0.7680 [0.7623, 0.7730] | 0.7679 [0.7634, 0.7717] |
+
+- **Every shape is faster.** That includes the four whose Callgrind counts the change raises: their upper bounds are below 1, not just below the 1.020 tolerance. `cycles` agrees with the phase clock on every shape (`results/diagnostic_promote2_ref_analysis.txt`).
+- **The `lock_loads` expectation was not met; it was reported, not gated.** P still executes locked loads on these paths. Per operation, run 1 medians:
+
+  | Shape | P | M | S |
+  |---|---|---|---|
+  | `osc_1` | 10.0 | 15.0 | 0 |
+  | `ins_1k` | 0.156 | 2.47 | 0.020 |
+  | `del_1k` | 0.039 | 2.0 | 0.0003 |
+  | `del_4m` | 0.0 | 0.79 | 0.0005 |
+
+  Stock executes almost none, so P's remaining locked loads are Expanse code outside the accounting counters. Their source is not attributed.
+- **Correction to two earlier records.** On `osc_1`, M − P is 5 locked loads per insert/remove pair: the three counter updates of one allocation plus the two of one free. So through the C API each pair allocates and frees a block. The Step 0 result and #1718's attribution state that the Rust bench's `set_oscillate` loop "never allocates". That was not verified and is unverified, not established. Their per-line Callgrind attributions are measurements and stand.
+
+#### Callgrind: every arm within its bound
+
+(measured: CI `Perf / Callgrind Deterministic Instructions` and `Perf / Callgrind Fast Smoke`, [run 43162806617](https://github.com/orieg/expanse/actions/runs/43162806617), head `48a2fd692` against `c83d32bed`, rustc 1.99.1; `vs_stock` as amended below; artifacts `results/promote2_callgrind/`)
+
+- **The accepted arms.** All 53 are within their bounds, at their Step 0 values to within 0.002 points. Two examples: `set_oscillate/random` +3.025% (bound +3.125%), and `judy1_set/clustered` (smoke) +2.187% (bound +2.287%).
+- **No other arm** is above +0.1% across the 288 distinct `instructions` arms, the 50 `search_instructions` arms, the 12 `rmw_instructions` arms and the 34 smoke arms.
+- **The `sync_*` arms** are all within −0.080% and +0.011%.
+
+**Amendment, made after the CI run and before the verdict** (AGENTS.md §8.19).
+- **What could not be checked as written.** The registration names the PR's own `vs_stock` job as the instrument for the 10 `vs_stock` bounds. That job compares Expanse with stock and never with `main`, so it carries no number to check them against.
+- **What checked them instead.** They were measured with Step 0's own instrument: the same container and rustc 1.99.1, which reproduced CI's verdict arm for arm. Base `c83d32bed` and head `48a2fd692` were each run once.
+- **Result.** All 10 equal their Step 0 values to the third decimal and are within their bounds. `judy1_set_expanse/clustered`, for example, is +2.126% against a bound of +2.226%.
+- **Unchanged.** No bound moved.
+
+#### Verdict: PASS
+
+Every pre-registered target and bound holds in both runs, on the phase clock and on `cycles`, and every Callgrind arm is within its bound. Merging is the owner's decision.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -1208,4 +1261,26 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref phase_delete_acct
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_acct_ref_run1 /var/tmp/stressng-eval/results/diag_delete_acct_ref_run2
+```
+
+The timed accounting promotion builds P from an export of its head and M from an export of its merge base, then runs with the mode `phase_promote2`:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of head> /var/tmp/stressng-eval/expcompat-1679p2-P/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of merge base> /var/tmp/stressng-eval/expcompat-1679p2-M/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref phase_promote2
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref phase_promote2
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_promote2_ref_run1 /var/tmp/stressng-eval/results/diag_promote2_ref_run2
 ```
