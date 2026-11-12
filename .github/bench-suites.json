@@ -695,6 +695,30 @@
       "suite": "hashbrown_comparison"
     },
     {
+      "name": "hashbrown_pop_sweep",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "hashbrown_pop_sweep",
+      "result_pattern": "\"hit_mops\": ",
+      "windows": "markers",
+      "summary": "Log-spaced population sweep (16 to 4M keys) of hit and miss lookup and live heap bytes/key against hashbrown and BTreeMap, locating the crossovers; one round per process, so the BCa intervals come from `hashbrown_comparison`.",
+      "suite": "hashbrown_comparison"
+    },
+    {
+      "name": "hashbrown_fifo_churn",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "hashbrown_fifo_churn",
+      "result_pattern": "\"ns_per_pair\": ",
+      "windows": "markers",
+      "summary": "Constant-size FIFO churn (insert a batch of 128, remove the 128 oldest) against hashbrown and BTreeMap, below and above the LLC; one round per process, so the BCa intervals come from `hashbrown_comparison`.",
+      "suite": "hashbrown_comparison"
+    },
+    {
       "name": "hashbrown_memory_alloc",
       "available": true,
       "kind": "wallclock",
@@ -928,6 +952,14 @@
       "runner": "builtin",
       "summary": "Expanse vs three radix tries (`patricia_tree`, `fast_radix_trie`, `qp-trie`) through `docs/benchmarks/patricia_comparison/scripts/run_all.py`: live-heap census (requested and usable bytes), point lookup at 100% and 50% hit, cold-build insert in both orders, shared-prefix string lookup across four prefix lengths, full traversal and prefix scan; paired per-round ratios with BCa intervals; writes `results/baseline_*.json`.",
       "suite": "patricia_comparison"
+    },
+    {
+      "name": "hashbrown_comparison",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "ExpanseMap vs hashbrown (foldhash) vs BTreeMap through `docs/benchmarks/hashbrown_comparison/scripts/run_all.py --skip-ycsb`: the native, tail-latency, key-distribution and memory pillars, one process per round with BCa intervals and paired per-round ratios; writes `results/baseline_*.json`.",
+      "suite": "hashbrown_comparison"
     },
     {
       "name": "patricia_d2_paging",

@@ -68,6 +68,12 @@ BENCH_N_MAP: Dict[str, int] = {
     "map_range": 10_000,
     "set_range": 10_000,
     "map_iterate": 50_000,
+    "set_iterate": 50_000,
+    # The compare suite's 10,000-key iteration cells (#1687).
+    "map_iterate/random_10k": 10_000,
+    "map_iterate/sparse_10k": 10_000,
+    "set_iterate/random_10k": 10_000,
+    "set_iterate/sparse_10k": 10_000,
     # Snapshot by deep copy (#1103): keys copied.
     "map_clone": 50_000,
     "set_clone": 50_000,
@@ -93,6 +99,13 @@ BENCH_N_MAP: Dict[str, int] = {
     "map_remove_revgen": 262_144,
     "map_remove_revgen/gen_1k": 1_024,
     "map_remove_revgen/gen_4m": 4_194_304,
+    # The stress-ng `sparsematrix` judy gets (#1680): hit phase plus miss
+    # phase, two probes per draw. The arm-level entry is `sm_10k`.
+    "map_get_slot_ptr": 20_000,
+    "map_get_slot_ptr/sm_1m": 2_000_000,
+    # `map_get` over the same sparsematrix maps and probes, through `get`.
+    "map_get/sm_10k": 20_000,
+    "map_get/sm_1m": 2_000_000,
     # One op is one small tree's whole life: box, 20 inserts, mem_used, free.
     "map_small_tree": 500,
     # Drain/refill and oscillation (#1119): an oscillate cycle is one insert
@@ -412,6 +425,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
         "#### 🔍 Point Queries & Lookups",
         {
             "map_get",
+            "map_get_slot_ptr",
             "set_contains",
             "map_get_batch",
             "set_contains_batch",
@@ -445,6 +459,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map_range",
             "set_range",
             "map_iterate",
+            "set_iterate",
             "map_clone",
             "set_clone",
             "map_nav",

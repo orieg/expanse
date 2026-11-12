@@ -1298,8 +1298,9 @@ impl MapCore {
                         // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                         let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                         // SAFETY: keys_ptr holds cur_pop 1-byte keys.
-                        let slot =
-                            unsafe { crate::leaf::search_fixed::<1>(keys_ptr, cur_pop, d as u64) };
+                        let slot = unsafe {
+                            crate::leaf::search_fixed_with::<1, false>(keys_ptr, cur_pop, d as u64)
+                        };
                         if let Some(slot) = slot {
                             // SAFETY: slot < cur_pop values live behind keys.
                             return core::ptr::NonNull::new(unsafe {

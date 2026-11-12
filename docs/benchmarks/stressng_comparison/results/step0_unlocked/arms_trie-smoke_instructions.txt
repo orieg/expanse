@@ -1,0 +1,7 @@
+arms compared: 20 (base 20, head 20); above +0.1%: 2; below -0.1%: 3
+  +0.207%  smoke_instructions::smoke_cost::map_insert random:keys("random")  7,424,852 -> 7,440,255
+  +0.206%  smoke_instructions::smoke_cost::map_ins_slot random:keys("random")  7,473,972 -> 7,489,375
+improved:
+  -0.797%  smoke_instructions::smoke_cost::strmap_churn routes:built_strmap("routes")
+  -0.314%  smoke_instructions::smoke_cost::set_insert random:keys("random")
+  -0.198%  smoke_instructions::smoke_cost::map_insert clustered:keys("clustered")

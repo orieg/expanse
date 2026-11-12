@@ -2667,8 +2667,9 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                     crate::mutate::branch_u_note_null::<OCC>(b);
                     crate::mutate::branch_u_check_count::<OCC>(b);
                 }
-                // SAFETY: live BranchU per contract.
-                let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
+                // SAFETY: live BranchU per contract; this walk is its one
+                // writer and the slot is null.
+                let digits = unsafe { crate::mutate::branch_u_digits_after_null::<OCC>(b) };
                 cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
                     // SAFETY: empty node no longer referenced; marked
@@ -3356,8 +3357,9 @@ pub(crate) unsafe fn map_remove_occ<const OCC: bool, const NESTED: bool>(
                     crate::mutate::branch_u_note_null::<OCC>(b);
                     crate::mutate::branch_u_check_count::<OCC>(b);
                 }
-                // SAFETY: live BranchU per contract.
-                let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
+                // SAFETY: live BranchU per contract; this walk is its one
+                // writer and the slot is null.
+                let digits = unsafe { crate::mutate::branch_u_digits_after_null::<OCC>(b) };
                 cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
                     // SAFETY: empty node no longer referenced; marked

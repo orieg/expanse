@@ -321,3 +321,63 @@ fn medians_match_pins() {
     assert_eq!(median_upper(vec![3.0, 1.0, 2.0]), 2.0);
     assert_eq!(median_upper(vec![4.0, 1.0, 3.0, 2.0]), 3.0);
 }
+
+/// The trie-adversarial classes (#1693): each key is built from the bytes
+/// its class names, and `rand22_bswap` is `rand22` byte-reversed key by key.
+#[test]
+fn adversarial_classes_have_their_stated_bytes() {
+    let n = 10_000;
+    let low = keys("rand22", n);
+    let high = keys("rand22_bswap", n);
+    assert!(low.iter().all(|&k| k < 1 << 22));
+    assert!(low.iter().zip(&high).all(|(&l, &h)| h == l.swap_bytes()));
+    assert!(high.iter().all(|&k| k & ((1 << 40) - 1) == 0));
+    let distinct = |v: &[u64]| v.iter().collect::<HashSet<_>>().len();
+    assert_eq!(distinct(&low), 9_986);
+    assert_eq!(distinct(&keys("rand22", 1_000_000)), 890_427);
+
+    let bytes_in = |dist: &str, ok: fn(u8) -> bool| {
+        keys(dist, n)
+            .iter()
+            .all(|k| k.to_be_bytes().iter().all(|&b| ok(b)))
+    };
+    assert!(bytes_in("ascii_upper", |b| b.is_ascii_uppercase()));
+    assert!(bytes_in("ascii_alnum", |b| b.is_ascii_alphanumeric()));
+    // Every alphabet byte is reachable in the top digit, not only the low ones.
+    let tops: HashSet<u8> = keys("ascii_alnum", n)
+        .iter()
+        .map(|k| (k >> 56) as u8)
+        .collect();
+    assert_eq!(tops.len(), 62);
+
+    assert_eq!(keys("stride64", 4), [0, 64, 128, 192]);
+}
+
+/// Misses for the adversarial classes come from their own generator,
+/// rejected on membership (AGENTS.md §8.6): same shape, none present.
+#[test]
+fn adversarial_classes_draw_absent_misses_of_their_own_shape() {
+    for dist in [
+        "rand22",
+        "rand22_bswap",
+        "ascii_upper",
+        "ascii_alnum",
+        "stride64",
+    ] {
+        let ks = keys(dist, 10_000);
+        let present: HashSet<u64> = ks.iter().copied().collect();
+        let misses = miss_keys(dist, &present, 4096, 0x51ED_0FF5_C0FF_EE01);
+        assert_eq!(misses.len(), 4096, "{dist}");
+        assert!(misses.iter().all(|m| !present.contains(m)), "{dist}");
+        match dist {
+            "rand22" => assert!(misses.iter().all(|&k| k < 1 << 22)),
+            "rand22_bswap" => assert!(misses.iter().all(|&k| k & ((1 << 40) - 1) == 0)),
+            "stride64" => assert!(misses.iter().all(|&k| k % 64 == 0 && k >= 64 * 10_000)),
+            _ => assert!(
+                misses
+                    .iter()
+                    .all(|k| k.to_be_bytes().iter().all(|b| b.is_ascii_alphanumeric()))
+            ),
+        }
+    }
+}

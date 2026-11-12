@@ -1,0 +1,1424 @@
+ Percent |	Source code & Disassembly of libJudy.so.1.0.3 for cpu_core/mem_load_retired.l1_miss/upp (521 samples, percent: local period)
+--------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3    Disassembly of section .text:
+         :
+         : 5    0000000000008990 <j__udyLCreateBranchU@@Base>:
+    0.00 :   8990:   push   %r15
+    0.00 :   8992:   push   %r14
+    0.00 :   8994:   push   %r13
+    0.00 :   8996:   push   %r12
+    0.00 :   8998:   mov    %rdi,%r12
+    0.00 :   899b:   push   %rbp
+    0.00 :   899c:   push   %rbx
+    0.00 :   899d:   mov    %rsi,%rdi
+    0.00 :   89a0:   sub    $0x28,%rsp
+    0.00 :   89a4:   mov    %rsi,0x8(%rsp)
+    0.00 :   89a9:   call   16470 <j__udyLAllocJBU@@Base>
+    0.00 :   89ae:   test   %rax,%rax
+    0.00 :   89b1:   mov    %rax,0x10(%rsp)
+    0.00 :   89b6:   je     8b2d <j__udyLCreateBranchU@@Base+0x19d>
+    0.00 :   89bc:   movzbl 0xf(%r12),%ebx
+    0.00 :   89c2:   lea    0x200(%rax),%r15
+    0.00 :   89c9:   mov    %rax,%r14
+    0.00 :   89cc:   lea    -0xe(%rbx),%r13d
+    0.00 :   89d0:   mov    (%r12),%rbx
+    0.00 :   89d4:   mov    %rbx,0x18(%rsp)
+    0.00 :   89d9:   lea    0x8(%rbx),%rbp
+    0.00 :   89dd:   lea    0x1200(%rax),%rbx
+    0.00 :   89e4:   nopl   0x0(%rax)
+    0.38 :   89e8:   mov    -0x8(%rbp),%edx
+    0.00 :   89eb:   mov    %r14,%rax
+    0.38 :   89ee:   mov    0x0(%rbp),%rdi
+    0.00 :   89f2:   test   %edx,%edx
+    0.00 :   89f4:   jne    8a80 <j__udyLCreateBranchU@@Base+0xf0>
+    0.00 :   89fa:   mov    %r14,%rcx
+    0.00 :   89fd:   nopl   (%rax)
+    0.00 :   8a00:   movq   $0x0,(%rcx)
+    0.00 :   8a07:   movb   $0x0,0x8(%rcx)
+    0.00 :   8a0b:   add    $0x10,%rcx
+    0.00 :   8a0f:   movb   $0x0,-0x7(%rcx)
+    0.00 :   8a13:   movb   $0x0,-0x6(%rcx)
+    0.00 :   8a17:   movb   $0x0,-0x5(%rcx)
+    0.00 :   8a1b:   movb   $0x0,-0x4(%rcx)
+    0.00 :   8a1f:   movb   $0x0,-0x3(%rcx)
+    0.00 :   8a23:   movb   $0x0,-0x2(%rcx)
+    0.00 :   8a27:   mov    %r13b,-0x1(%rcx)
+    0.00 :   8a2b:   cmp    %r15,%rcx
+    0.00 :   8a2e:   jne    8a00 <j__udyLCreateBranchU@@Base+0x70>
+    0.00 :   8a30:   add    $0x200,%r15
+    0.00 :   8a37:   add    $0x10,%rbp
+    0.00 :   8a3b:   add    $0x200,%r14
+    0.00 :   8a42:   cmp    %rbx,%r15
+    0.00 :   8a45:   jne    89e8 <j__udyLCreateBranchU@@Base+0x58>
+    0.00 :   8a47:   mov    0x8(%rsp),%rsi
+    0.00 :   8a4c:   mov    0x18(%rsp),%rdi
+    0.00 :   8a51:   call   169b0 <j__udyLFreeJBB@@Base>
+    0.00 :   8a56:   mov    0x10(%rsp),%rax
+    0.00 :   8a5b:   addb   $0x7,0xf(%r12)
+    0.00 :   8a61:   mov    %rax,(%r12)
+    0.00 :   8a65:   mov    $0x1,%eax
+    0.00 :   8a6a:   add    $0x28,%rsp
+    0.00 :   8a6e:   pop    %rbx
+    0.00 :   8a6f:   pop    %rbp
+    0.00 :   8a70:   pop    %r12
+    0.00 :   8a72:   pop    %r13
+    0.00 :   8a74:   pop    %r14
+    0.00 :   8a76:   pop    %r15
+    0.00 :   8a78:   ret
+    0.00 :   8a79:   nopl   0x0(%rax)
+    0.00 :   8a80:   cmp    $0xffffffff,%edx
+    0.00 :   8a83:   mov    %rdi,%rsi
+    0.00 :   8a86:   jne    8aae <j__udyLCreateBranchU@@Base+0x11e>
+    0.00 :   8a88:   jmp    8aff <j__udyLCreateBranchU@@Base+0x16f>
+    0.00 :   8a8a:   nopw   0x0(%rax,%rax,1)
+    5.37 :   8a90:   mov    (%rsi),%rcx
+    0.00 :   8a93:   add    $0x10,%rax
+    0.00 :   8a97:   add    $0x10,%rsi
+    0.00 :   8a9b:   shr    %edx
+    0.00 :   8a9d:   mov    %rcx,-0x10(%rax)
+    3.26 :   8aa1:   mov    -0x8(%rsi),%rcx
+    0.00 :   8aa5:   mov    %rcx,-0x8(%rax)
+    0.00 :   8aa9:   cmp    %r15,%rax
+    0.00 :   8aac:   je     8ae5 <j__udyLCreateBranchU@@Base+0x155>
+    0.00 :   8aae:   test   $0x1,%dl
+    0.00 :   8ab1:   jne    8a90 <j__udyLCreateBranchU@@Base+0x100>
+    0.00 :   8ab3:   movq   $0x0,(%rax)
+    0.00 :   8aba:   movb   $0x0,0x8(%rax)
+    0.00 :   8abe:   add    $0x10,%rax
+    0.00 :   8ac2:   movb   $0x0,-0x7(%rax)
+    0.00 :   8ac6:   movb   $0x0,-0x6(%rax)
+    0.00 :   8aca:   shr    %edx
+    0.00 :   8acc:   movb   $0x0,-0x5(%rax)
+    0.00 :   8ad0:   movb   $0x0,-0x4(%rax)
+    0.00 :   8ad4:   movb   $0x0,-0x3(%rax)
+    0.00 :   8ad8:   movb   $0x0,-0x2(%rax)
+    0.00 :   8adc:   mov    %r13b,-0x1(%rax)
+    0.00 :   8ae0:   cmp    %r15,%rax
+    0.00 :   8ae3:   jne    8aae <j__udyLCreateBranchU@@Base+0x11e>
+    0.00 :   8ae5:   sub    %rdi,%rsi
+    0.00 :   8ae8:   sar    $0x4,%rsi
+    0.00 :   8aec:   mov    0x8(%rsp),%rdx
+    0.00 :   8af1:   mov    0x0(%rbp),%rdi
+    0.00 :   8af5:   call   169d0 <j__udyLFreeJBBJP@@Base>
+    0.00 :   8afa:   jmp    8a30 <j__udyLCreateBranchU@@Base+0xa0>
+    0.00 :   8aff:   xor    %eax,%eax
+    0.00 :   8b01:   nopl   0x0(%rax)
+   60.08 :   8b08:   mov    (%rdi,%rax,1),%rdx
+    0.00 :   8b0c:   mov    %rdx,(%r14,%rax,1)
+   30.52 :   8b10:   mov    0x8(%rdi,%rax,1),%rdx
+    0.00 :   8b15:   mov    %rdx,0x8(%r14,%rax,1)
+    0.00 :   8b1a:   add    $0x10,%rax
+    0.00 :   8b1e:   cmp    $0x200,%rax
+    0.00 :   8b24:   jne    8b08 <j__udyLCreateBranchU@@Base+0x178>
+    0.00 :   8b26:   mov    $0x20,%esi
+    0.00 :   8b2b:   jmp    8aec <j__udyLCreateBranchU@@Base+0x15c>
+    0.00 :   8b2d:   mov    $0xffffffff,%eax
+    0.00 :   8b32:   jmp    8a6a <j__udyLCreateBranchU@@Base+0xda>
+ Percent |	Source code & Disassembly of libc.so.6 for cpu_core/mem_load_retired.l1_miss/upp (296 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     00000000000a53a0 <__libc_free@@GLIBC_2.2.5>:
+    0.00 :   a53a0:  endbr64
+    0.00 :   a53a4:  test   %rdi,%rdi
+    0.00 :   a53a7:  je     a5468 <__libc_free@@GLIBC_2.2.5+0xc8>
+    0.00 :   a53ad:  push   %rbp
+    0.00 :   a53ae:  lea    -0x10(%rdi),%rsi
+    0.00 :   a53b2:  push   %rbx
+    0.00 :   a53b3:  sub    $0x18,%rsp
+    3.04 :   a53b7:  mov    0x174a52(%rip),%rbx        # 219e10 <h_errlist@@GLIBC_2.2.5+0xb50>
+   96.62 :   a53be:  mov    -0x8(%rdi),%rax
+    0.00 :   a53c2:  mov    %fs:(%rbx),%ebp
+    0.00 :   a53c5:  test   $0x2,%al
+    0.00 :   a53c7:  jne    a5420 <__libc_free@@GLIBC_2.2.5+0x80>
+    0.34 :   a53c9:  mov    0x1749d8(%rip),%rdx        # 219da8 <h_errlist@@GLIBC_2.2.5+0xae8>
+    0.00 :   a53d0:  cmpq   $0x0,%fs:(%rdx)
+    0.00 :   a53d5:  je     a5470 <__libc_free@@GLIBC_2.2.5+0xd0>
+    0.00 :   a53db:  lea    0x17589e(%rip),%rdi        # 21ac80 <_IO_2_1_stdin_@@GLIBC_2.2.5+0x1e0>
+    0.00 :   a53e2:  test   $0x4,%al
+    0.00 :   a53e4:  je     a540c <__libc_free@@GLIBC_2.2.5+0x6c>
+    0.00 :   a53e6:  mov    0x174fa3(%rip),%rdx        # 21a390 <__nptl_nthreads@@GLIBC_PRIVATE+0xe8>
+    0.00 :   a53ed:  lea    0x0(,%rdx,4),%rax
+    0.00 :   a53f5:  neg    %rax
+    0.00 :   a53f8:  test   %rdx,%rdx
+    0.00 :   a53fb:  mov    $0xfffffffffc000000,%rdx
+    0.00 :   a5402:  cmove  %rdx,%rax
+    0.00 :   a5406:  and    %rsi,%rax
+    0.00 :   a5409:  mov    (%rax),%rdi
+    0.00 :   a540c:  xor    %edx,%edx
+    0.00 :   a540e:  call   a2660 <__default_morecore@GLIBC_2.2.5+0xf0>
+    0.00 :   a5413:  mov    %ebp,%fs:(%rbx)
+    0.00 :   a5416:  add    $0x18,%rsp
+    0.00 :   a541a:  pop    %rbx
+    0.00 :   a541b:  pop    %rbp
+    0.00 :   a541c:  ret
+    0.00 :   a541d:  nopl   (%rax)
+    0.00 :   a5420:  mov    0x174f82(%rip),%edx        # 21a3a8 <__nptl_nthreads@@GLIBC_PRIVATE+0x100>
+    0.00 :   a5426:  test   %edx,%edx
+    0.00 :   a5428:  jne    a5452 <__libc_free@@GLIBC_2.2.5+0xb2>
+    0.00 :   a542a:  cmp    0x174f3f(%rip),%rax        # 21a370 <__nptl_nthreads@@GLIBC_PRIVATE+0xc8>
+    0.00 :   a5431:  jbe    a5452 <__libc_free@@GLIBC_2.2.5+0xb2>
+    0.00 :   a5433:  cmp    $0x2000000,%rax
+    0.00 :   a5439:  ja     a5452 <__libc_free@@GLIBC_2.2.5+0xb2>
+    0.00 :   a543b:  and    $0xfffffffffffffff8,%rax
+    0.00 :   a543f:  lea    (%rax,%rax,1),%rdx
+    0.00 :   a5443:  mov    %rax,0x174f26(%rip)        # 21a370 <__nptl_nthreads@@GLIBC_PRIVATE+0xc8>
+    0.00 :   a544a:  mov    %rdx,0x174f0f(%rip)        # 21a360 <__nptl_nthreads@@GLIBC_PRIVATE+0xb8>
+    0.00 :   a5451:  nop
+    0.00 :   a5452:  mov    %rsi,%rdi
+    0.00 :   a5455:  call   a0f20 <timer_settime@GLIBC_2.2.5+0x530>
+    0.00 :   a545a:  mov    %ebp,%fs:(%rbx)
+    0.00 :   a545d:  add    $0x18,%rsp
+    0.00 :   a5461:  pop    %rbx
+    0.00 :   a5462:  pop    %rbp
+    0.00 :   a5463:  ret
+    0.00 :   a5464:  nopl   0x0(%rax)
+    0.00 :   a5468:  ret
+    0.00 :   a5469:  nopl   0x0(%rax)
+    0.00 :   a5470:  mov    0x174939(%rip),%rdx        # 219db0 <h_errlist@@GLIBC_2.2.5+0xaf0>
+    0.00 :   a5477:  mov    %rdi,(%rsp)
+    0.00 :   a547b:  cmpb   $0x0,%fs:(%rdx)
+    0.00 :   a547f:  jne    a53db <__libc_free@@GLIBC_2.2.5+0x3b>
+    0.00 :   a5485:  mov    %rsi,0x8(%rsp)
+    0.00 :   a548a:  call   a4950 <__default_morecore@GLIBC_2.2.5+0x23e0>
+    0.00 :   a548f:  mov    (%rsp),%rdi
+    0.00 :   a5493:  mov    0x8(%rsp),%rsi
+    0.00 :   a5498:  mov    -0x8(%rdi),%rax
+    0.00 :   a549c:  jmp    a53db <__libc_free@@GLIBC_2.2.5+0x3b>
+ Percent |	Source code & Disassembly of libc.so.6 for cpu_core/mem_load_retired.l1_miss/upp (116 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     00000000000a5060 <__libc_malloc@@GLIBC_2.2.5>:
+    0.00 :   a5060:  endbr64
+    0.00 :   a5064:  push   %r12
+    0.00 :   a5066:  push   %rbp
+    0.00 :   a5067:  mov    %rdi,%rbp
+    0.00 :   a506a:  push   %rbx
+    0.00 :   a506b:  sub    $0x10,%rsp
+    8.62 :   a506f:  cmpb   $0x0,0x17c472(%rip)        # 2214e8 <__malloc_initialize_hook@GLIBC_2.2.5+0x28>
+    0.00 :   a5076:  je     a5290 <__libc_malloc@@GLIBC_2.2.5+0x230>
+    0.00 :   a507c:  test   %rbp,%rbp
+    0.00 :   a507f:  js     a529e <__libc_malloc@@GLIBC_2.2.5+0x23e>
+    0.00 :   a5085:  lea    0x17(%rbp),%rax
+    0.00 :   a5089:  xor    %r12d,%r12d
+    0.00 :   a508c:  cmp    $0x1f,%rax
+    0.00 :   a5090:  ja     a5170 <__libc_malloc@@GLIBC_2.2.5+0x110>
+    5.17 :   a5096:  mov    0x174d0b(%rip),%rbx        # 219da8 <h_errlist@@GLIBC_2.2.5+0xae8>
+   10.34 :   a509d:  mov    %fs:(%rbx),%rdx
+    0.00 :   a50a1:  test   %rdx,%rdx
+    0.00 :   a50a4:  je     a5188 <__libc_malloc@@GLIBC_2.2.5+0x128>
+    7.76 :   a50aa:  cmp    %r12,0x175317(%rip)        # 21a3c8 <__nptl_nthreads@@GLIBC_PRIVATE+0x120>
+    0.00 :   a50b1:  ja     a51c0 <__libc_malloc@@GLIBC_2.2.5+0x160>
+    8.62 :   a50b7:  mov    %fs:0x18,%eax
+    0.00 :   a50bf:  test   %eax,%eax
+    0.00 :   a50c1:  je     a5210 <__libc_malloc@@GLIBC_2.2.5+0x1b0>
+    0.00 :   a50c7:  mov    0x174cd2(%rip),%rax        # 219da0 <h_errlist@@GLIBC_2.2.5+0xae0>
+    0.00 :   a50ce:  mov    %fs:(%rax),%r12
+    0.00 :   a50d2:  test   %r12,%r12
+    0.00 :   a50d5:  je     a52d0 <__libc_malloc@@GLIBC_2.2.5+0x270>
+    0.00 :   a50db:  xor    %eax,%eax
+    0.00 :   a50dd:  mov    $0x1,%edx
+    0.00 :   a50e2:  lock cmpxchg %edx,(%r12)
+    0.00 :   a50e8:  jne    a5380 <__libc_malloc@@GLIBC_2.2.5+0x320>
+    0.00 :   a50ee:  mov    %rbp,%rsi
+    0.00 :   a50f1:  mov    %r12,%rdi
+    0.00 :   a50f4:  call   a3970 <__default_morecore@GLIBC_2.2.5+0x1400>
+    0.00 :   a50f9:  test   %rax,%rax
+    0.00 :   a50fc:  je     a5310 <__libc_malloc@@GLIBC_2.2.5+0x2b0>
+    0.00 :   a5102:  xor    %edx,%edx
+    0.00 :   a5104:  xchg   %edx,(%r12)
+    0.00 :   a5108:  cmp    $0x1,%edx
+    0.00 :   a510b:  jg     a5360 <__libc_malloc@@GLIBC_2.2.5+0x300>
+    0.00 :   a5111:  test   %rax,%rax
+    0.00 :   a5114:  je     a52c0 <__libc_malloc@@GLIBC_2.2.5+0x260>
+    0.00 :   a511a:  mov    -0x8(%rax),%rdx
+    0.00 :   a511e:  test   $0x2,%dl
+    0.00 :   a5121:  jne    a5162 <__libc_malloc@@GLIBC_2.2.5+0x102>
+    0.00 :   a5123:  and    $0x4,%edx
+    0.00 :   a5126:  lea    0x175b53(%rip),%rcx        # 21ac80 <_IO_2_1_stdin_@@GLIBC_2.2.5+0x1e0>
+    0.00 :   a512d:  je     a5159 <__libc_malloc@@GLIBC_2.2.5+0xf9>
+    0.00 :   a512f:  mov    0x17525a(%rip),%rcx        # 21a390 <__nptl_nthreads@@GLIBC_PRIVATE+0xe8>
+    0.00 :   a5136:  lea    0x0(,%rcx,4),%rdx
+    0.00 :   a513e:  neg    %rdx
+    0.00 :   a5141:  test   %rcx,%rcx
+    0.00 :   a5144:  mov    $0xfffffffffc000000,%rcx
+    0.00 :   a514b:  cmove  %rcx,%rdx
+    0.00 :   a514f:  lea    -0x10(%rax),%rcx
+    0.00 :   a5153:  and    %rcx,%rdx
+    0.00 :   a5156:  mov    (%rdx),%rcx
+    0.00 :   a5159:  cmp    %r12,%rcx
+    0.00 :   a515c:  jne    a5338 <__libc_malloc@@GLIBC_2.2.5+0x2d8>
+    0.00 :   a5162:  add    $0x10,%rsp
+    0.00 :   a5166:  pop    %rbx
+    0.00 :   a5167:  pop    %rbp
+    0.00 :   a5168:  pop    %r12
+    0.00 :   a516a:  ret
+    0.00 :   a516b:  nopl   0x0(%rax,%rax,1)
+    0.00 :   a5170:  and    $0xfffffffffffffff0,%rax
+    0.00 :   a5174:  lea    -0x11(%rax),%r12
+    0.00 :   a5178:  shr    $0x4,%r12
+    0.00 :   a517c:  jmp    a5096 <__libc_malloc@@GLIBC_2.2.5+0x36>
+    0.00 :   a5181:  nopl   0x0(%rax)
+    0.00 :   a5188:  mov    0x174c21(%rip),%rax        # 219db0 <h_errlist@@GLIBC_2.2.5+0xaf0>
+    0.00 :   a518f:  cmpb   $0x0,%fs:(%rax)
+    0.00 :   a5193:  jne    a50b7 <__libc_malloc@@GLIBC_2.2.5+0x57>
+    0.00 :   a5199:  call   a4950 <__default_morecore@GLIBC_2.2.5+0x23e0>
+    0.00 :   a519e:  cmp    %r12,0x175223(%rip)        # 21a3c8 <__nptl_nthreads@@GLIBC_PRIVATE+0x120>
+    0.00 :   a51a5:  jbe    a50b7 <__libc_malloc@@GLIBC_2.2.5+0x57>
+    0.00 :   a51ab:  mov    %fs:(%rbx),%rdx
+    0.00 :   a51af:  test   %rdx,%rdx
+    0.00 :   a51b2:  je     a50b7 <__libc_malloc@@GLIBC_2.2.5+0x57>
+    0.00 :   a51b8:  nopl   0x0(%rax,%rax,1)
+    5.17 :   a51c0:  movzwl (%rdx,%r12,2),%ecx
+    0.00 :   a51c5:  test   %cx,%cx
+    0.00 :   a51c8:  je     a50b7 <__libc_malloc@@GLIBC_2.2.5+0x57>
+    0.00 :   a51ce:  lea    0x10(%r12),%rdi
+    3.45 :   a51d3:  mov    (%rdx,%rdi,8),%rax
+    0.00 :   a51d7:  test   $0xf,%al
+    0.00 :   a51d9:  jne    a5390 <__libc_malloc@@GLIBC_2.2.5+0x330>
+    0.00 :   a51df:  mov    %rax,%rsi
+    0.00 :   a51e2:  sub    $0x1,%ecx
+    0.00 :   a51e5:  shr    $0xc,%rsi
+   42.24 :   a51e9:  xor    (%rax),%rsi
+    0.00 :   a51ec:  mov    %rsi,(%rdx,%rdi,8)
+    0.00 :   a51f0:  mov    %cx,(%rdx,%r12,2)
+    0.00 :   a51f5:  movq   $0x0,0x8(%rax)
+    0.00 :   a51fd:  add    $0x10,%rsp
+    0.00 :   a5201:  pop    %rbx
+    0.00 :   a5202:  pop    %rbp
+    0.00 :   a5203:  pop    %r12
+    0.00 :   a5205:  ret
+    0.00 :   a5206:  cs nopw 0x0(%rax,%rax,1)
+    0.00 :   a5210:  lea    0x175a69(%rip),%rbx        # 21ac80 <_IO_2_1_stdin_@@GLIBC_2.2.5+0x1e0>
+    0.00 :   a5217:  mov    %rbp,%rsi
+    0.00 :   a521a:  mov    %rbx,%rdi
+    0.00 :   a521d:  call   a3970 <__default_morecore@GLIBC_2.2.5+0x1400>
+    0.00 :   a5222:  test   %rax,%rax
+    0.00 :   a5225:  je     a52c0 <__libc_malloc@@GLIBC_2.2.5+0x260>
+    8.62 :   a522b:  mov    -0x8(%rax),%rdx
+    0.00 :   a522f:  test   $0x2,%dl
+    0.00 :   a5232:  jne    a5162 <__libc_malloc@@GLIBC_2.2.5+0x102>
+    0.00 :   a5238:  and    $0x4,%edx
+    0.00 :   a523b:  je     a5162 <__libc_malloc@@GLIBC_2.2.5+0x102>
+    0.00 :   a5241:  mov    0x175148(%rip),%rcx        # 21a390 <__nptl_nthreads@@GLIBC_PRIVATE+0xe8>
+    0.00 :   a5248:  lea    0x0(,%rcx,4),%rdx
+    0.00 :   a5250:  neg    %rdx
+    0.00 :   a5253:  test   %rcx,%rcx
+    0.00 :   a5256:  mov    $0xfffffffffc000000,%rcx
+    0.00 :   a525d:  cmove  %rcx,%rdx
+    0.00 :   a5261:  lea    -0x10(%rax),%rcx
+    0.00 :   a5265:  and    %rcx,%rdx
+    0.00 :   a5268:  cmp    %rbx,(%rdx)
+    0.00 :   a526b:  je     a5162 <__libc_malloc@@GLIBC_2.2.5+0x102>
+    0.00 :   a5271:  lea    0x139fe0(%rip),%rcx        # 1df258 <_itoa_lower_digits@@GLIBC_PRIVATE+0x26b8>
+    0.00 :   a5278:  mov    $0xcfa,%edx
+    0.00 :   a527d:  lea    0x134408(%rip),%rsi        # 1d968c <_libc_intl_domainname@@GLIBC_2.2.5+0x11a2>
+    0.00 :   a5284:  lea    0x139be5(%rip),%rdi        # 1dee70 <_itoa_lower_digits@@GLIBC_PRIVATE+0x22d0>
+    0.00 :   a528b:  call   a0e30 <timer_settime@GLIBC_2.2.5+0x440>
+    0.00 :   a5290:  call   a1970 <timer_settime@GLIBC_2.2.5+0xf80>
+    0.00 :   a5295:  test   %rbp,%rbp
+    0.00 :   a5298:  jns    a5085 <__libc_malloc@@GLIBC_2.2.5+0x25>
+    0.00 :   a529e:  mov    0x174b6b(%rip),%rax        # 219e10 <h_errlist@@GLIBC_2.2.5+0xb50>
+    0.00 :   a52a5:  movl   $0xc,%fs:(%rax)
+    0.00 :   a52ac:  add    $0x10,%rsp
+    0.00 :   a52b0:  xor    %eax,%eax
+    0.00 :   a52b2:  pop    %rbx
+    0.00 :   a52b3:  pop    %rbp
+    0.00 :   a52b4:  pop    %r12
+    0.00 :   a52b6:  ret
+    0.00 :   a52b7:  nopw   0x0(%rax,%rax,1)
+    0.00 :   a52c0:  add    $0x10,%rsp
+    0.00 :   a52c4:  xor    %eax,%eax
+    0.00 :   a52c6:  pop    %rbx
+    0.00 :   a52c7:  pop    %rbp
+    0.00 :   a52c8:  pop    %r12
+    0.00 :   a52ca:  ret
+    0.00 :   a52cb:  nopl   0x0(%rax,%rax,1)
+    0.00 :   a52d0:  call   a1050 <timer_settime@GLIBC_2.2.5+0x660>
+    0.00 :   a52d5:  mov    %rax,%r12
+    0.00 :   a52d8:  test   %rax,%rax
+    0.00 :   a52db:  jne    a50ee <__libc_malloc@@GLIBC_2.2.5+0x8e>
+    0.00 :   a52e1:  xor    %esi,%esi
+    0.00 :   a52e3:  mov    %rbp,%rdi
+    0.00 :   a52e6:  call   a1ea0 <timer_settime@GLIBC_2.2.5+0x14b0>
+    0.00 :   a52eb:  mov    %rbp,%rsi
+    0.00 :   a52ee:  mov    %rax,%rdi
+    0.00 :   a52f1:  mov    %rax,%r12
+    0.00 :   a52f4:  call   a3970 <__default_morecore@GLIBC_2.2.5+0x1400>
+    0.00 :   a52f9:  test   %rax,%rax
+    0.00 :   a52fc:  jne    a532a <__libc_malloc@@GLIBC_2.2.5+0x2ca>
+    0.00 :   a52fe:  test   %r12,%r12
+    0.00 :   a5301:  je     a5111 <__libc_malloc@@GLIBC_2.2.5+0xb1>
+    0.00 :   a5307:  nopw   0x0(%rax,%rax,1)
+    0.00 :   a5310:  nop
+    0.00 :   a5311:  mov    %r12,%rdi
+    0.00 :   a5314:  mov    %rbp,%rsi
+    0.00 :   a5317:  call   a2380 <timer_settime@GLIBC_2.2.5+0x1990>
+    0.00 :   a531c:  mov    %rbp,%rsi
+    0.00 :   a531f:  mov    %rax,%rdi
+    0.00 :   a5322:  mov    %rax,%r12
+    0.00 :   a5325:  call   a3970 <__default_morecore@GLIBC_2.2.5+0x1400>
+    0.00 :   a532a:  test   %r12,%r12
+    0.00 :   a532d:  je     a5111 <__libc_malloc@@GLIBC_2.2.5+0xb1>
+    0.00 :   a5333:  jmp    a5102 <__libc_malloc@@GLIBC_2.2.5+0xa2>
+    0.00 :   a5338:  lea    0x139f19(%rip),%rcx        # 1df258 <_itoa_lower_digits@@GLIBC_PRIVATE+0x26b8>
+    0.00 :   a533f:  mov    $0xd10,%edx
+    0.00 :   a5344:  lea    0x134341(%rip),%rsi        # 1d968c <_libc_intl_domainname@@GLIBC_2.2.5+0x11a2>
+    0.00 :   a534b:  lea    0x139b86(%rip),%rdi        # 1deed8 <_itoa_lower_digits@@GLIBC_PRIVATE+0x2338>
+    0.00 :   a5352:  call   a0e30 <timer_settime@GLIBC_2.2.5+0x440>
+    0.00 :   a5357:  nopw   0x0(%rax,%rax,1)
+    0.00 :   a5360:  mov    %r12,%rdi
+    0.00 :   a5363:  mov    %rax,0x8(%rsp)
+    0.00 :   a5368:  call   912c0 <__lll_lock_wake_private@@GLIBC_PRIVATE>
+    0.00 :   a536d:  mov    0x8(%rsp),%rax
+    0.00 :   a5372:  jmp    a5111 <__libc_malloc@@GLIBC_2.2.5+0xb1>
+    0.00 :   a5377:  nopw   0x0(%rax,%rax,1)
+    0.00 :   a5380:  mov    %r12,%rdi
+    0.00 :   a5383:  call   911f0 <__lll_lock_wait_private@@GLIBC_PRIVATE>
+    0.00 :   a5388:  jmp    a50ee <__libc_malloc@@GLIBC_2.2.5+0x8e>
+    0.00 :   a538d:  nopl   (%rax)
+    0.00 :   a5390:  lea    0x1399a9(%rip),%rdi        # 1ded40 <_itoa_lower_digits@@GLIBC_PRIVATE+0x21a0>
+    0.00 :   a5397:  call   a0ca0 <timer_settime@GLIBC_2.2.5+0x2b0>
+ Percent |	Source code & Disassembly of libJudy.so.1.0.3 for cpu_core/mem_load_retired.l1_miss/upp (25 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3    Disassembly of section .text:
+         :
+         : 5    00000000000038e0 <j__udyLCascade2@@Base>:
+    0.00 :   38e0:   push   %r15
+    0.00 :   38e2:   push   %r14
+    0.00 :   38e4:   mov    %rdi,%r15
+    0.00 :   38e7:   push   %r13
+    0.00 :   38e9:   push   %r12
+    0.00 :   38eb:   push   %rbp
+    0.00 :   38ec:   push   %rbx
+    0.00 :   38ed:   sub    $0x448,%rsp
+    0.00 :   38f4:   mov    (%rdi),%r8
+    0.00 :   38f7:   mov    %fs:0x28,%rax
+    0.00 :   3900:   mov    %rax,0x438(%rsp)
+    0.00 :   3908:   xor    %eax,%eax
+    0.00 :   390a:   mov    0x24c6b7(%rip),%rax        # 24ffc8 <j__L_Leaf2Offset@@Base+0x2062a8>
+    0.00 :   3911:   mov    %rsi,0x18(%rsp)
+   48.00 :   3916:   movzwl (%r8),%ebp
+    0.00 :   391a:   movzbl 0x33(%rax),%eax
+    0.00 :   391e:   lea    (%r8,%rax,8),%rax
+    0.00 :   3922:   mov    %rax,0x10(%rsp)
+    0.00 :   3927:   mov    %rbp,%rax
+   28.00 :   392a:   xor    0x64(%r8),%ax
+    0.00 :   392f:   movzbl %ah,%eax
+    0.00 :   3932:   test   %rax,%rax
+    0.00 :   3935:   je     3ece <j__udyLCascade2@@Base+0x5ee>
+    0.00 :   393b:   mov    0x24c73e(%rip),%rax        # 250080 <__bss_start@@Base+0x58>
+    0.00 :   3942:   mov    %rax,0x40(%rsp)
+    0.00 :   3947:   mov    0x24c73a(%rip),%rax        # 250088 <__bss_start@@Base+0x60>
+    0.00 :   394e:   mov    %rax,0x48(%rsp)
+    0.00 :   3953:   mov    0x24c736(%rip),%rax        # 250090 <__bss_start@@Base+0x68>
+    0.00 :   395a:   mov    %rax,0x50(%rsp)
+    0.00 :   395f:   mov    0x24c732(%rip),%rax        # 250098 <__bss_start@@Base+0x70>
+    0.00 :   3966:   mov    %rax,0x58(%rsp)
+    0.00 :   396b:   mov    0x24c72e(%rip),%rax        # 2500a0 <__bss_start@@Base+0x78>
+    0.00 :   3972:   mov    %rax,0x60(%rsp)
+    0.00 :   3977:   mov    0x24c72a(%rip),%rax        # 2500a8 <__bss_start@@Base+0x80>
+    0.00 :   397e:   mov    %rax,0x68(%rsp)
+    0.00 :   3983:   mov    0x24c726(%rip),%rax        # 2500b0 <__bss_start@@Base+0x88>
+    0.00 :   398a:   mov    %rax,0x70(%rsp)
+    0.00 :   398f:   mov    0x24c722(%rip),%rax        # 2500b8 <__bss_start@@Base+0x90>
+    0.00 :   3996:   mov    %rax,0x78(%rsp)
+    0.00 :   399b:   mov    0x24c71e(%rip),%rax        # 2500c0 <__bss_start@@Base+0x98>
+    0.00 :   39a2:   mov    %rax,0x80(%rsp)
+    0.00 :   39aa:   mov    0x24c717(%rip),%rax        # 2500c8 <__bss_start@@Base+0xa0>
+    0.00 :   39b1:   mov    %rax,0x88(%rsp)
+    4.00 :   39b9:   mov    0x24c710(%rip),%rax        # 2500d0 <__bss_start@@Base+0xa8>
+    0.00 :   39c0:   mov    %rax,0x90(%rsp)
+    0.00 :   39c8:   mov    0x24c709(%rip),%rax        # 2500d8 <__bss_start@@Base+0xb0>
+    0.00 :   39cf:   mov    %rax,0x98(%rsp)
+    0.00 :   39d7:   mov    0x24c702(%rip),%rax        # 2500e0 <__bss_start@@Base+0xb8>
+    0.00 :   39de:   mov    %rax,0xa0(%rsp)
+    0.00 :   39e6:   mov    0x24c6fb(%rip),%rax        # 2500e8 <__bss_start@@Base+0xc0>
+    0.00 :   39ed:   mov    %rax,0xa8(%rsp)
+    0.00 :   39f5:   mov    0x24c6f4(%rip),%rax        # 2500f0 <__bss_start@@Base+0xc8>
+    0.00 :   39fc:   mov    %rax,0xb0(%rsp)
+    0.00 :   3a04:   mov    0x24c6ed(%rip),%rax        # 2500f8 <__bss_start@@Base+0xd0>
+    0.00 :   3a0b:   mov    %rax,0xb8(%rsp)
+    0.00 :   3a13:   lea    0x3f0(%rsp),%rax
+    0.00 :   3a1b:   lea    0x8(%rax),%rdx
+    0.00 :   3a1f:   mov    %rax,0x38(%rsp)
+    0.00 :   3a24:   nopl   0x0(%rax)
+    0.00 :   3a28:   movb   $0x0,(%rax)
+    0.00 :   3a2b:   add    $0x1,%rax
+    0.00 :   3a2f:   cmp    %rdx,%rax
+    0.00 :   3a32:   jne    3a28 <j__udyLCascade2@@Base+0x148>
+    0.00 :   3a34:   lea    0xc0(%rsp),%rax
+    0.00 :   3a3c:   xor    %r14d,%r14d
+    0.00 :   3a3f:   mov    %r15,%r9
+    0.00 :   3a42:   xor    %edx,%edx
+    0.00 :   3a44:   mov    %r14,%r15
+    0.00 :   3a47:   mov    $0x1,%r12d
+    0.00 :   3a4d:   mov    %rax,0x8(%rsp)
+    0.00 :   3a52:   mov    %r8,%r14
+    0.00 :   3a55:   nopl   (%rax)
+    0.00 :   3a58:   cmp    $0x33,%r12
+    0.00 :   3a5c:   je     3a73 <j__udyLCascade2@@Base+0x193>
+    0.00 :   3a5e:   movzwl (%r14,%r12,2),%eax
+    0.00 :   3a63:   xor    %rbp,%rax
+    0.00 :   3a66:   shr    $0x8,%rax
+    0.00 :   3a6a:   test   %rax,%rax
+    0.00 :   3a6d:   je     3c38 <j__udyLCascade2@@Base+0x358>
+    0.00 :   3a73:   mov    0x8(%rsp),%rax
+    0.00 :   3a78:   mov    %r15,%r11
+    0.00 :   3a7b:   mov    %rbp,%rsi
+    0.00 :   3a7e:   shl    $0x4,%r11
+    0.00 :   3a82:   shr    $0x8,%rsi
+    0.00 :   3a86:   mov    %r12,%rbx
+    0.00 :   3a89:   mov    %esi,%ecx
+    0.00 :   3a8b:   sub    %rdx,%rbx
+    0.00 :   3a8e:   mov    $0x1,%r10d
+    0.00 :   3a94:   lea    (%rax,%r11,1),%r13
+    0.00 :   3a98:   mov    %rbp,%rax
+    0.00 :   3a9b:   and    $0x1f,%ecx
+    0.00 :   3a9e:   shr    $0xd,%rax
+    0.00 :   3aa2:   shl    %cl,%r10
+    0.00 :   3aa5:   mov    %sil,0x400(%rsp,%r15,1)
+    0.00 :   3aad:   mov    %rax,%rdi
+    0.00 :   3ab0:   addb   $0x1,0x3f0(%rsp,%rax,1)
+    0.00 :   3ab8:   shl    $0x4,%rdi
+    0.00 :   3abc:   or     %r10d,0x40(%rsp,%rdi,1)
+    0.00 :   3ac1:   cmp    $0x1,%rbx
+    0.00 :   3ac5:   je     3c48 <j__udyLCascade2@@Base+0x368>
+    0.00 :   3acb:   cmp    $0x7,%rbx
+    0.00 :   3acf:   jbe    3e50 <j__udyLCascade2@@Base+0x570>
+    0.00 :   3ad5:   cmp    $0xd,%rbx
+    0.00 :   3ad9:   ja     3d58 <j__udyLCascade2@@Base+0x478>
+    0.00 :   3adf:   mov    0x18(%rsp),%rsi
+    0.00 :   3ae4:   mov    %rbx,%rdi
+    0.00 :   3ae7:   mov    %r11,0x30(%rsp)
+    0.00 :   3aec:   mov    %r9,0x28(%rsp)
+    0.00 :   3af1:   mov    %rdx,0x20(%rsp)
+    0.00 :   3af6:   call   164d0 <j__udyLAllocJLL1@@Base>
+    0.00 :   3afb:   test   %rax,%rax
+    0.00 :   3afe:   mov    0x20(%rsp),%rdx
+    0.00 :   3b03:   mov    0x28(%rsp),%r9
+    0.00 :   3b08:   mov    0x30(%rsp),%r11
+    0.00 :   3b0d:   je     3fc1 <j__udyLCascade2@@Base+0x6e1>
+    0.00 :   3b13:   mov    0x24c42e(%rip),%rcx        # 24ff48 <j__L_Leaf1Offset@@Base+0x2061b4>
+    0.00 :   3b1a:   mov    0x10(%rsp),%rdi
+    0.00 :   3b1f:   movzbl (%rcx,%rbx,1),%esi
+    0.00 :   3b23:   lea    (%rdi,%rdx,8),%rdi
+    0.00 :   3b27:   xor    %ecx,%ecx
+    0.00 :   3b29:   lea    (%rax,%rsi,8),%rsi
+    0.00 :   3b2d:   nopl   (%rax)
+    0.00 :   3b30:   mov    (%rdi,%rcx,8),%r8
+    0.00 :   3b34:   mov    %r8,(%rsi,%rcx,8)
+    0.00 :   3b38:   add    $0x1,%rcx
+    0.00 :   3b3c:   cmp    %rbx,%rcx
+    0.00 :   3b3f:   jne    3b30 <j__udyLCascade2@@Base+0x250>
+    0.00 :   3b41:   lea    (%r14,%rdx,2),%rsi
+    0.00 :   3b45:   xor    %edx,%edx
+    0.00 :   3b47:   nopw   0x0(%rax,%rax,1)
+    0.00 :   3b50:   movzwl (%rsi,%rdx,2),%ecx
+    0.00 :   3b54:   mov    %cl,(%rax,%rdx,1)
+    0.00 :   3b57:   add    $0x1,%rdx
+    0.00 :   3b5b:   cmp    %rbx,%rdx
+    0.00 :   3b5e:   jne    3b50 <j__udyLCascade2@@Base+0x270>
+    0.00 :   3b60:   movzbl 0x8(%r9),%ecx
+    0.00 :   3b65:   movabs $0xffffffffffff00,%rdi
+    0.00 :   3b6f:   mov    %rax,0x0(%r13)
+    0.00 :   3b73:   and    %rdi,%rbp
+    0.00 :   3b76:   xor    %di,%di
+    0.00 :   3b79:   movb   $0x1d,0xf(%r13)
+    0.00 :   3b7e:   mov    %rcx,%rsi
+    0.00 :   3b81:   movzbl 0x9(%r9),%ecx
+    0.00 :   3b86:   shl    $0x30,%rsi
+    0.00 :   3b8a:   shl    $0x28,%rcx
+    0.00 :   3b8e:   or     %rsi,%rcx
+    0.00 :   3b91:   movzbl 0xe(%r9),%esi
+    0.00 :   3b96:   or     %rsi,%rcx
+    0.00 :   3b99:   movzbl 0xa(%r9),%esi
+    0.00 :   3b9e:   shl    $0x20,%rsi
+    0.00 :   3ba2:   or     %rsi,%rcx
+    0.00 :   3ba5:   movzbl 0xb(%r9),%esi
+    0.00 :   3baa:   shl    $0x18,%rsi
+    0.00 :   3bae:   or     %rsi,%rcx
+    0.00 :   3bb1:   movzbl 0xc(%r9),%esi
+    0.00 :   3bb6:   shl    $0x10,%rsi
+    0.00 :   3bba:   or     %rsi,%rcx
+    0.00 :   3bbd:   movzbl 0xd(%r9),%esi
+    0.00 :   3bc2:   shl    $0x8,%rsi
+    0.00 :   3bc6:   or     %rsi,%rcx
+    0.00 :   3bc9:   and    %rdi,%rcx
+    0.00 :   3bcc:   or     %rcx,%rbp
+    0.00 :   3bcf:   lea    -0x1(%rdx),%rcx
+    0.00 :   3bd3:   mov    %rbp,%rdx
+    0.00 :   3bd6:   or     %rcx,%rdx
+    0.00 :   3bd9:   mov    %rdx,%rax
+    0.00 :   3bdc:   mov    %dl,0xe(%r13)
+    0.00 :   3be0:   shr    $0x30,%rax
+    0.00 :   3be4:   mov    %al,0x8(%r13)
+    0.00 :   3be8:   mov    %rdx,%rax
+    0.00 :   3beb:   shr    $0x28,%rax
+    0.00 :   3bef:   mov    %al,0x9(%r13)
+    0.00 :   3bf3:   mov    %rdx,%rax
+    0.00 :   3bf6:   shr    $0x20,%rax
+    0.00 :   3bfa:   mov    %al,0xa(%r13)
+    0.00 :   3bfe:   mov    %rdx,%rax
+    0.00 :   3c01:   shr    $0x18,%rax
+    0.00 :   3c05:   mov    %al,0xb(%r13)
+    0.00 :   3c09:   mov    %rdx,%rax
+    0.00 :   3c0c:   shr    $0x10,%rax
+    0.00 :   3c10:   mov    %al,0xc(%r13)
+    0.00 :   3c14:   mov    %rdx,%rax
+    0.00 :   3c17:   shr    $0x8,%rax
+    0.00 :   3c1b:   mov    %al,0xd(%r13)
+    0.00 :   3c1f:   cmp    $0x33,%r12
+    0.00 :   3c23:   lea    0x1(%r15),%rbx
+    0.00 :   3c27:   je     3d0e <j__udyLCascade2@@Base+0x42e>
+    0.00 :   3c2d:   movzwl (%r14,%r12,2),%ebp
+    0.00 :   3c32:   mov    %rbx,%r15
+    0.00 :   3c35:   mov    %r12,%rdx
+    0.00 :   3c38:   add    $0x1,%r12
+    0.00 :   3c3c:   jmp    3a58 <j__udyLCascade2@@Base+0x178>
+    0.00 :   3c41:   nopl   0x0(%rax)
+    0.00 :   3c48:   movzbl 0x8(%r9),%eax
+    0.00 :   3c4d:   movabs $0xffffffffffff00,%rdi
+    0.00 :   3c57:   lea    0x1(%r15),%rbx
+    0.00 :   3c5b:   shl    $0x30,%rax
+    0.00 :   3c5f:   mov    %rax,%rcx
+    0.00 :   3c62:   movzbl 0x9(%r9),%eax
+    0.00 :   3c67:   shl    $0x28,%rax
+    0.00 :   3c6b:   or     %rcx,%rax
+    0.00 :   3c6e:   movzbl 0xe(%r9),%ecx
+    0.00 :   3c73:   or     %rcx,%rax
+    0.00 :   3c76:   movzbl 0xa(%r9),%ecx
+    0.00 :   3c7b:   shl    $0x20,%rcx
+    0.00 :   3c7f:   or     %rcx,%rax
+    0.00 :   3c82:   movzbl 0xb(%r9),%ecx
+    0.00 :   3c87:   shl    $0x18,%rcx
+    0.00 :   3c8b:   or     %rcx,%rax
+    0.00 :   3c8e:   movzbl 0xc(%r9),%ecx
+    0.00 :   3c93:   shl    $0x10,%rcx
+    0.00 :   3c97:   or     %rcx,%rax
+    0.00 :   3c9a:   movzbl 0xd(%r9),%ecx
+    0.00 :   3c9f:   shl    $0x8,%rcx
+    0.00 :   3ca3:   or     %rcx,%rax
+    0.00 :   3ca6:   and    %rdi,%rax
+    0.00 :   3ca9:   or     %rax,%rbp
+    0.00 :   3cac:   mov    0x10(%rsp),%rax
+   20.00 :   3cb1:   mov    (%rax,%rdx,8),%rax
+    0.00 :   3cb5:   mov    %bpl,0xe(%r13)
+    0.00 :   3cb9:   movb   $0x25,0xf(%r13)
+    0.00 :   3cbe:   mov    %rax,0x0(%r13)
+    0.00 :   3cc2:   mov    %rbp,%rax
+    0.00 :   3cc5:   shr    $0x30,%rax
+    0.00 :   3cc9:   mov    %al,0x8(%r13)
+    0.00 :   3ccd:   mov    %rbp,%rax
+    0.00 :   3cd0:   shr    $0x28,%rax
+    0.00 :   3cd4:   mov    %al,0x9(%r13)
+    0.00 :   3cd8:   mov    %rbp,%rax
+    0.00 :   3cdb:   shr    $0x20,%rax
+    0.00 :   3cdf:   mov    %al,0xa(%r13)
+    0.00 :   3ce3:   mov    %rbp,%rax
+    0.00 :   3ce6:   shr    $0x18,%rax
+    0.00 :   3cea:   mov    %al,0xb(%r13)
+    0.00 :   3cee:   mov    %rbp,%rax
+    0.00 :   3cf1:   shr    $0x10,%rax
+    0.00 :   3cf5:   mov    %al,0xc(%r13)
+    0.00 :   3cf9:   mov    %rbp,%rax
+    0.00 :   3cfc:   shr    $0x8,%rax
+    0.00 :   3d00:   cmp    $0x33,%r12
+    0.00 :   3d04:   mov    %al,0xd(%r13)
+    0.00 :   3d08:   jne    3c2d <j__udyLCascade2@@Base+0x34d>
+    0.00 :   3d0e:   cmp    $0x7,%rbx
+    0.00 :   3d12:   mov    %r15,%r14
+    0.00 :   3d15:   mov    %r9,%r15
+    0.00 :   3d18:   ja     3ffc <j__udyLCascade2@@Base+0x71c>
+    0.00 :   3d1e:   mov    0x18(%rsp),%r8
+    0.00 :   3d23:   mov    0x8(%rsp),%rsi
+    0.00 :   3d28:   lea    0x400(%rsp),%rdx
+    0.00 :   3d30:   mov    %rbx,%rcx
+    0.00 :   3d33:   mov    %r9,%rdi
+    0.00 :   3d36:   call   8720 <j__udyLCreateBranchL@@Base>
+    0.00 :   3d3b:   cmp    $0xffffffff,%eax
+    0.00 :   3d3e:   je     405a <j__udyLCascade2@@Base+0x77a>
+    0.00 :   3d44:   movb   $0x8,0xf(%r15)
+    0.00 :   3d49:   mov    $0x1,%eax
+    0.00 :   3d4e:   jmp    3f98 <j__udyLCascade2@@Base+0x6b8>
+    0.00 :   3d53:   nopl   0x0(%rax,%rax,1)
+    0.00 :   3d58:   mov    0x10(%rsp),%rax
+    0.00 :   3d5d:   mov    0x18(%rsp),%rcx
+    0.00 :   3d62:   lea    (%r14,%rdx,2),%rdi
+    0.00 :   3d66:   mov    %r11,0x28(%rsp)
+    0.00 :   3d6b:   mov    %r9,0x20(%rsp)
+    0.00 :   3d70:   lea    (%rax,%rdx,8),%rsi
+    0.00 :   3d74:   mov    %rbx,%rdx
+    0.00 :   3d77:   call   32d0 <JudyFreeVirtual@@Base+0x2d0>
+    0.00 :   3d7c:   test   %rax,%rax
+    0.00 :   3d7f:   mov    0x20(%rsp),%r9
+    0.00 :   3d84:   mov    0x28(%rsp),%r11
+    0.00 :   3d89:   je     4095 <j__udyLCascade2@@Base+0x7b5>
+    0.00 :   3d8f:   movzbl 0x8(%r9),%edx
+    0.00 :   3d94:   movabs $0xffffffffffff00,%rdi
+    0.00 :   3d9e:   sub    $0x1,%rbx
+    0.00 :   3da2:   and    %rdi,%rbp
+    0.00 :   3da5:   xor    %di,%di
+    0.00 :   3da8:   mov    %rax,0x0(%r13)
+    0.00 :   3dac:   movb   $0x24,0xf(%r13)
+    0.00 :   3db1:   shl    $0x30,%rdx
+    0.00 :   3db5:   mov    %rdx,%rcx
+    0.00 :   3db8:   movzbl 0x9(%r9),%edx
+    0.00 :   3dbd:   shl    $0x28,%rdx
+    0.00 :   3dc1:   or     %rcx,%rdx
+    0.00 :   3dc4:   movzbl 0xe(%r9),%ecx
+    0.00 :   3dc9:   or     %rcx,%rdx
+    0.00 :   3dcc:   movzbl 0xa(%r9),%ecx
+    0.00 :   3dd1:   shl    $0x20,%rcx
+    0.00 :   3dd5:   or     %rcx,%rdx
+    0.00 :   3dd8:   movzbl 0xb(%r9),%ecx
+    0.00 :   3ddd:   shl    $0x18,%rcx
+    0.00 :   3de1:   or     %rcx,%rdx
+    0.00 :   3de4:   movzbl 0xc(%r9),%ecx
+    0.00 :   3de9:   shl    $0x10,%rcx
+    0.00 :   3ded:   or     %rcx,%rdx
+    0.00 :   3df0:   movzbl 0xd(%r9),%ecx
+    0.00 :   3df5:   shl    $0x8,%rcx
+    0.00 :   3df9:   or     %rcx,%rdx
+    0.00 :   3dfc:   and    %rdi,%rdx
+    0.00 :   3dff:   or     %rdx,%rbp
+    0.00 :   3e02:   or     %rbp,%rbx
+    0.00 :   3e05:   mov    %rbx,%rax
+    0.00 :   3e08:   mov    %bl,0xe(%r13)
+    0.00 :   3e0c:   shr    $0x30,%rax
+    0.00 :   3e10:   mov    %al,0x8(%r13)
+    0.00 :   3e14:   mov    %rbx,%rax
+    0.00 :   3e17:   shr    $0x28,%rax
+    0.00 :   3e1b:   mov    %al,0x9(%r13)
+    0.00 :   3e1f:   mov    %rbx,%rax
+    0.00 :   3e22:   shr    $0x20,%rax
+    0.00 :   3e26:   mov    %al,0xa(%r13)
+    0.00 :   3e2a:   mov    %rbx,%rax
+    0.00 :   3e2d:   shr    $0x18,%rax
+    0.00 :   3e31:   mov    %al,0xb(%r13)
+    0.00 :   3e35:   mov    %rbx,%rax
+    0.00 :   3e38:   shr    $0x10,%rax
+    0.00 :   3e3c:   mov    %al,0xc(%r13)
+    0.00 :   3e40:   mov    %rbx,%rax
+    0.00 :   3e43:   shr    $0x8,%rax
+    0.00 :   3e47:   mov    %al,0xd(%r13)
+    0.00 :   3e4b:   jmp    3c1f <j__udyLCascade2@@Base+0x33f>
+    0.00 :   3e50:   mov    0x18(%rsp),%rsi
+    0.00 :   3e55:   mov    %rbx,%rdi
+    0.00 :   3e58:   mov    %r11,0x30(%rsp)
+    0.00 :   3e5d:   mov    %r9,0x28(%rsp)
+    0.00 :   3e62:   mov    %rdx,0x20(%rsp)
+    0.00 :   3e67:   call   168f0 <j__udyLAllocJV@@Base>
+    0.00 :   3e6c:   test   %rax,%rax
+    0.00 :   3e6f:   mov    0x20(%rsp),%rdx
+    0.00 :   3e74:   mov    0x28(%rsp),%r9
+    0.00 :   3e79:   mov    0x30(%rsp),%r11
+    0.00 :   3e7e:   je     40cf <j__udyLCascade2@@Base+0x7ef>
+    0.00 :   3e84:   mov    0x10(%rsp),%rdi
+    0.00 :   3e89:   xor    %ecx,%ecx
+    0.00 :   3e8b:   lea    (%rdi,%rdx,8),%rdi
+    0.00 :   3e8f:   nop
+    0.00 :   3e90:   mov    (%rdi,%rcx,8),%rsi
+    0.00 :   3e94:   mov    %rsi,(%rax,%rcx,8)
+    0.00 :   3e98:   add    $0x1,%rcx
+    0.00 :   3e9c:   cmp    %rcx,%rbx
+    0.00 :   3e9f:   ja     3e90 <j__udyLCascade2@@Base+0x5b0>
+    0.00 :   3ea1:   lea    (%r14,%rdx,2),%rcx
+    0.00 :   3ea5:   mov    %rax,0x0(%r13)
+    0.00 :   3ea9:   xor    %eax,%eax
+    0.00 :   3eab:   nopl   0x0(%rax,%rax,1)
+    0.00 :   3eb0:   movzwl (%rcx,%rax,2),%edx
+    0.00 :   3eb4:   mov    %dl,0x8(%r13,%rax,1)
+    0.00 :   3eb9:   add    $0x1,%rax
+    0.00 :   3ebd:   cmp    %rax,%rbx
+    0.00 :   3ec0:   ja     3eb0 <j__udyLCascade2@@Base+0x5d0>
+    0.00 :   3ec2:   add    $0x2a,%ebx
+    0.00 :   3ec5:   mov    %bl,0xf(%r13)
+    0.00 :   3ec9:   jmp    3c1f <j__udyLCascade2@@Base+0x33f>
+    0.00 :   3ece:   mov    %rsi,%rcx
+    0.00 :   3ed1:   mov    0x10(%rsp),%rsi
+    0.00 :   3ed6:   mov    $0x33,%edx
+    0.00 :   3edb:   mov    %r8,%rdi
+    0.00 :   3ede:   call   32d0 <JudyFreeVirtual@@Base+0x2d0>
+    0.00 :   3ee3:   test   %rax,%rax
+    0.00 :   3ee6:   je     3ff5 <j__udyLCascade2@@Base+0x715>
+    0.00 :   3eec:   movzbl 0x8(%r15),%edx
+    0.00 :   3ef1:   and    $0xff00,%ebp
+    0.00 :   3ef7:   mov    %rax,(%r15)
+    0.00 :   3efa:   movb   $0x24,0xf(%r15)
+    0.00 :   3eff:   shl    $0x30,%rdx
+    0.00 :   3f03:   mov    %rdx,%rcx
+    0.00 :   3f06:   movzbl 0x9(%r15),%edx
+    0.00 :   3f0b:   shl    $0x28,%rdx
+    0.00 :   3f0f:   or     %rcx,%rdx
+    0.00 :   3f12:   movzbl 0xe(%r15),%ecx
+    0.00 :   3f17:   or     %rdx,%rcx
+    0.00 :   3f1a:   movzbl 0xa(%r15),%edx
+    0.00 :   3f1f:   shl    $0x20,%rdx
+    0.00 :   3f23:   or     %rdx,%rcx
+    0.00 :   3f26:   movzbl 0xb(%r15),%edx
+    0.00 :   3f2b:   shl    $0x18,%rdx
+    0.00 :   3f2f:   or     %rdx,%rcx
+    0.00 :   3f32:   movzbl 0xc(%r15),%edx
+    0.00 :   3f37:   shl    $0x10,%rdx
+    0.00 :   3f3b:   or     %rdx,%rcx
+    0.00 :   3f3e:   movzbl 0xd(%r15),%edx
+    0.00 :   3f43:   shl    $0x8,%rdx
+    0.00 :   3f47:   or     %rcx,%rdx
+    0.00 :   3f4a:   or     %rdx,%rbp
+    0.00 :   3f4d:   mov    %rbp,%rax
+    0.00 :   3f50:   mov    %bpl,0xe(%r15)
+    0.00 :   3f54:   shr    $0x30,%rax
+    0.00 :   3f58:   mov    %al,0x8(%r15)
+    0.00 :   3f5c:   mov    %rbp,%rax
+    0.00 :   3f5f:   shr    $0x28,%rax
+    0.00 :   3f63:   mov    %al,0x9(%r15)
+    0.00 :   3f67:   mov    %rbp,%rax
+    0.00 :   3f6a:   shr    $0x20,%rax
+    0.00 :   3f6e:   mov    %al,0xa(%r15)
+    0.00 :   3f72:   mov    %rbp,%rax
+    0.00 :   3f75:   shr    $0x18,%rax
+    0.00 :   3f79:   mov    %al,0xb(%r15)
+    0.00 :   3f7d:   mov    %rbp,%rax
+    0.00 :   3f80:   shr    $0x10,%rax
+    0.00 :   3f84:   mov    %al,0xc(%r15)
+    0.00 :   3f88:   mov    %rbp,%rax
+    0.00 :   3f8b:   shr    $0x8,%rax
+    0.00 :   3f8f:   mov    %al,0xd(%r15)
+    0.00 :   3f93:   mov    $0x1,%eax
+    0.00 :   3f98:   mov    0x438(%rsp),%rdi
+    0.00 :   3fa0:   xor    %fs:0x28,%rdi
+    0.00 :   3fa9:   jne    410a <j__udyLCascade2@@Base+0x82a>
+    0.00 :   3faf:   add    $0x448,%rsp
+    0.00 :   3fb6:   pop    %rbx
+    0.00 :   3fb7:   pop    %rbp
+    0.00 :   3fb8:   pop    %r12
+    0.00 :   3fba:   pop    %r13
+    0.00 :   3fbc:   pop    %r14
+    0.00 :   3fbe:   pop    %r15
+    0.00 :   3fc0:   ret
+    0.00 :   3fc1:   test   %r15,%r15
+    0.00 :   3fc4:   je     3ff5 <j__udyLCascade2@@Base+0x715>
+    0.00 :   3fc6:   mov    0x8(%rsp),%rax
+    0.00 :   3fcb:   mov    0x18(%rsp),%r12
+    0.00 :   3fd0:   mov    %r15,%rbx
+    0.00 :   3fd3:   lea    -0x10(%rax,%r11,1),%rbp
+    0.00 :   3fd8:   nopl   0x0(%rax,%rax,1)
+    0.00 :   3fe0:   mov    %rbp,%rdi
+    0.00 :   3fe3:   mov    %r12,%rsi
+    0.00 :   3fe6:   sub    $0x10,%rbp
+    0.00 :   3fea:   call   ebc0 <j__udyLFreeSM@@Base>
+    0.00 :   3fef:   sub    $0x1,%rbx
+    0.00 :   3ff3:   jne    3fe0 <j__udyLCascade2@@Base+0x700>
+    0.00 :   3ff5:   mov    $0xffffffff,%eax
+    0.00 :   3ffa:   jmp    3f98 <j__udyLCascade2@@Base+0x6b8>
+    0.00 :   3ffc:   mov    0x8(%rsp),%rdx
+    0.00 :   4001:   mov    0x18(%rsp),%r8
+    0.00 :   4006:   lea    0x40(%rsp),%rsi
+    0.00 :   400b:   mov    0x38(%rsp),%rcx
+    0.00 :   4010:   mov    %r9,%rdi
+    0.00 :   4013:   call   3130 <JudyFreeVirtual@@Base+0x130>
+    0.00 :   4018:   mov    %eax,%edx
+    0.00 :   401a:   mov    $0x1,%eax
+    0.00 :   401f:   cmp    $0xffffffff,%edx
+    0.00 :   4022:   jne    3f98 <j__udyLCascade2@@Base+0x6b8>
+    0.00 :   4028:   mov    0x8(%rsp),%rbx
+    0.00 :   402d:   mov    %r14,%rax
+    0.00 :   4030:   mov    0x18(%rsp),%rbp
+    0.00 :   4035:   shl    $0x4,%rax
+    0.00 :   4039:   add    %rax,%rbx
+    0.00 :   403c:   nopl   0x0(%rax)
+    0.00 :   4040:   mov    %rbx,%rdi
+    0.00 :   4043:   mov    %rbp,%rsi
+    0.00 :   4046:   sub    $0x10,%rbx
+    0.00 :   404a:   call   ebc0 <j__udyLFreeSM@@Base>
+    0.00 :   404f:   test   %r14,%r14
+    0.00 :   4052:   lea    -0x1(%r14),%r14
+    0.00 :   4056:   jne    4040 <j__udyLCascade2@@Base+0x760>
+    0.00 :   4058:   jmp    3ff5 <j__udyLCascade2@@Base+0x715>
+    0.00 :   405a:   test   %rbx,%rbx
+    0.00 :   405d:   je     3ff5 <j__udyLCascade2@@Base+0x715>
+    0.00 :   405f:   mov    0x8(%rsp),%rbx
+    0.00 :   4064:   mov    %r14,%rax
+    0.00 :   4067:   mov    0x18(%rsp),%rbp
+    0.00 :   406c:   shl    $0x4,%rax
+    0.00 :   4070:   add    %rax,%rbx
+    0.00 :   4073:   nopl   0x0(%rax,%rax,1)
+    0.00 :   4078:   mov    %rbx,%rdi
+    0.00 :   407b:   mov    %rbp,%rsi
+    0.00 :   407e:   sub    $0x10,%rbx
+    0.00 :   4082:   call   ebc0 <j__udyLFreeSM@@Base>
+    0.00 :   4087:   test   %r14,%r14
+    0.00 :   408a:   lea    -0x1(%r14),%r14
+    0.00 :   408e:   jne    4078 <j__udyLCascade2@@Base+0x798>
+    0.00 :   4090:   jmp    3ff5 <j__udyLCascade2@@Base+0x715>
+    0.00 :   4095:   test   %r15,%r15
+    0.00 :   4098:   je     3ff5 <j__udyLCascade2@@Base+0x715>
+    0.00 :   409e:   mov    0x8(%rsp),%rax
+    0.00 :   40a3:   mov    0x18(%rsp),%r12
+    0.00 :   40a8:   mov    %r15,%rbx
+    0.00 :   40ab:   lea    -0x10(%rax,%r11,1),%rbp
+    0.00 :   40b0:   mov    %rbp,%rdi
+    0.00 :   40b3:   mov    %r12,%rsi
+    0.00 :   40b6:   sub    $0x10,%rbp
+    0.00 :   40ba:   call   ebc0 <j__udyLFreeSM@@Base>
+    0.00 :   40bf:   sub    $0x1,%rbx
+    0.00 :   40c3:   jne    40b0 <j__udyLCascade2@@Base+0x7d0>
+    0.00 :   40c5:   mov    $0xffffffff,%eax
+    0.00 :   40ca:   jmp    3f98 <j__udyLCascade2@@Base+0x6b8>
+    0.00 :   40cf:   test   %r15,%r15
+    0.00 :   40d2:   je     3ff5 <j__udyLCascade2@@Base+0x715>
+    0.00 :   40d8:   mov    0x8(%rsp),%rax
+    0.00 :   40dd:   mov    0x18(%rsp),%r12
+    0.00 :   40e2:   mov    %r15,%rbx
+    0.00 :   40e5:   lea    -0x10(%rax,%r11,1),%rbp
+    0.00 :   40ea:   nopw   0x0(%rax,%rax,1)
+    0.00 :   40f0:   mov    %rbp,%rdi
+    0.00 :   40f3:   mov    %r12,%rsi
+    0.00 :   40f6:   sub    $0x10,%rbp
+    0.00 :   40fa:   call   ebc0 <j__udyLFreeSM@@Base>
+    0.00 :   40ff:   sub    $0x1,%rbx
+    0.00 :   4103:   jne    40f0 <j__udyLCascade2@@Base+0x810>
+    0.00 :   4105:   jmp    3ff5 <j__udyLCascade2@@Base+0x715>
+    0.00 :   410a:   call   2da0 <__stack_chk_fail@plt>
+ Percent |	Source code & Disassembly of libJudy.so.1.0.3 for cpu_core/mem_load_retired.l1_miss/upp (24 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3    Disassembly of section .plt:
+         :
+         : 5    0000000000002df0 <malloc@plt>:
+  100.00 :   2df0:   jmp    *0x24d0f2(%rip)        # 24fee8 <malloc@GLIBC_2.2.5>
+    0.00 :   2df6:   push   $0x8
+    0.00 :   2dfb:   jmp    2d60 <_init@@Base+0x20>
+ Percent |	Source code & Disassembly of libJudy.so.1.0.3 for cpu_core/mem_load_retired.l1_miss/upp (21 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     00000000000163f0 <j__udyLAllocJBBJP@@Base>:
+    0.00 :   163f0:  mov    0x239bd9(%rip),%rax        # 24ffd0 <j__L_BranchBJPPopToWords@@Base+0x206210>
+    0.00 :   163f7:  movzbl (%rax,%rdi,1),%edi
+   28.57 :   163fb:  mov    0x239b3e(%rip),%rax        # 24ff40 <j__uLMaxWords@@Base-0xc8>
+   71.43 :   16402:  mov    (%rax),%rax
+    0.00 :   16405:  cmp    %rax,0x30(%rsi)
+    0.00 :   16409:  jbe    16420 <j__udyLAllocJBBJP@@Base+0x30>
+    0.00 :   1640b:  movl   $0x105,0x2c(%rsi)
+    0.00 :   16412:  movb   $0x2,0x28(%rsi)
+    0.00 :   16416:  xor    %eax,%eax
+    0.00 :   16418:  ret
+    0.00 :   16419:  nopl   0x0(%rax)
+    0.00 :   16420:  push   %rbx
+    0.00 :   16421:  movzbl %dil,%ebx
+    0.00 :   16425:  mov    %rbx,%rdi
+    0.00 :   16428:  sub    $0x10,%rsp
+    0.00 :   1642c:  mov    %rsi,0x8(%rsp)
+    0.00 :   16431:  call   2fd0 <JudyMalloc@@Base>
+    0.00 :   16436:  cmp    $0x8,%rax
+    0.00 :   1643a:  mov    0x8(%rsp),%rsi
+    0.00 :   1643f:  jbe    1644b <j__udyLAllocJBBJP@@Base+0x5b>
+    0.00 :   16441:  add    %rbx,0x30(%rsi)
+    0.00 :   16445:  add    $0x10,%rsp
+    0.00 :   16449:  pop    %rbx
+    0.00 :   1644a:  ret
+    0.00 :   1644b:  test   %rax,%rax
+    0.00 :   1644e:  movl   $0x105,0x2c(%rsi)
+    0.00 :   16455:  je     16463 <j__udyLAllocJBBJP@@Base+0x73>
+    0.00 :   16457:  movb   $0x8,0x28(%rsi)
+    0.00 :   1645b:  add    $0x10,%rsp
+    0.00 :   1645f:  xor    %eax,%eax
+    0.00 :   16461:  pop    %rbx
+    0.00 :   16462:  ret
+    0.00 :   16463:  movb   $0x2,0x28(%rsi)
+    0.00 :   16467:  xor    %eax,%eax
+    0.00 :   16469:  jmp    16445 <j__udyLAllocJBBJP@@Base+0x55>
+ Percent |	Source code & Disassembly of libJudy.so.1.0.3 for cpu_core/mem_load_retired.l1_miss/upp (15 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3    Disassembly of section .plt:
+         :
+         : 5    0000000000002d70 <free@plt>:
+  100.00 :   2d70:   jmp    *0x24d132(%rip)        # 24fea8 <free@GLIBC_2.2.5>
+    0.00 :   2d76:   push   $0x0
+    0.00 :   2d7b:   jmp    2d60 <_init@@Base+0x20>
+ Percent |	Source code & Disassembly of libJudy.so.1.0.3 for cpu_core/mem_load_retired.l1_miss/upp (13 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     0000000000016470 <j__udyLAllocJBU@@Base>:
+   61.54 :   16470:  mov    0x239ac9(%rip),%rax        # 24ff40 <j__uLMaxWords@@Base-0xc8>
+    0.00 :   16477:  push   %rbx
+    0.00 :   16478:  mov    %rdi,%rbx
+   30.77 :   1647b:  mov    (%rax),%rax
+    0.00 :   1647e:  cmp    %rax,0x30(%rdi)
+    0.00 :   16482:  jbe    16498 <j__udyLAllocJBU@@Base+0x28>
+    0.00 :   16484:  movl   $0x11b,0x2c(%rdi)
+    0.00 :   1648b:  movb   $0x2,0x28(%rbx)
+    0.00 :   1648f:  xor    %eax,%eax
+    0.00 :   16491:  pop    %rbx
+    0.00 :   16492:  ret
+    0.00 :   16493:  nopl   0x0(%rax,%rax,1)
+    0.00 :   16498:  mov    $0x200,%edi
+    0.00 :   1649d:  call   2ff0 <JudyMallocVirtual@@Base>
+    0.00 :   164a2:  cmp    $0x8,%rax
+    0.00 :   164a6:  jbe    164b2 <j__udyLAllocJBU@@Base+0x42>
+    7.69 :   164a8:  addq   $0x200,0x30(%rbx)
+    0.00 :   164b0:  pop    %rbx
+    0.00 :   164b1:  ret
+    0.00 :   164b2:  test   %rax,%rax
+    0.00 :   164b5:  movl   $0x11b,0x2c(%rbx)
+    0.00 :   164bc:  je     1648b <j__udyLAllocJBU@@Base+0x1b>
+    0.00 :   164be:  movb   $0x8,0x28(%rbx)
+    0.00 :   164c2:  xor    %eax,%eax
+    0.00 :   164c4:  pop    %rbx
+    0.00 :   164c5:  ret
+ Percent |	Source code & Disassembly of phase_probe for cpu_core/mem_load_retired.l1_miss/upp (5 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3    Disassembly of section .plt.sec:
+         :
+         : 5    0000000000001210 <JudyLIns@plt>:
+    0.00 :   1210:   endbr64
+  100.00 :   1214:   bnd jmp *0x3d75(%rip)        # 4f90 <JudyLIns@Base>
+    0.00 :   121b:   nopl   0x0(%rax,%rax,1)
+ Percent |	Source code & Disassembly of libJudy.so.1.0.3 for cpu_core/mem_load_retired.l1_miss/upp (4 samples, percent: local period)
+------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     0000000000016550 <j__udyLAllocJLL2@@Base>:
+    0.00 :   16550:  mov    0x2399b1(%rip),%rax        # 24ff08 <j__L_Leaf2PopToWords@@Base+0x2061a8>
+    0.00 :   16557:  movzbl (%rax,%rdi,1),%edi
+   50.00 :   1655b:  mov    0x2399de(%rip),%rax        # 24ff40 <j__uLMaxWords@@Base-0xc8>
+   50.00 :   16562:  mov    (%rax),%rax
+    0.00 :   16565:  cmp    %rax,0x30(%rsi)
+    0.00 :   16569:  jbe    16580 <j__udyLAllocJLL2@@Base+0x30>
+    0.00 :   1656b:  movl   $0x149,0x2c(%rsi)
+    0.00 :   16572:  movb   $0x2,0x28(%rsi)
+    0.00 :   16576:  xor    %eax,%eax
+    0.00 :   16578:  ret
+    0.00 :   16579:  nopl   0x0(%rax)
+    0.00 :   16580:  push   %rbx
+    0.00 :   16581:  movzbl %dil,%ebx
+    0.00 :   16585:  mov    %rbx,%rdi
+    0.00 :   16588:  sub    $0x10,%rsp
+    0.00 :   1658c:  mov    %rsi,0x8(%rsp)
+    0.00 :   16591:  call   2fd0 <JudyMalloc@@Base>
+    0.00 :   16596:  cmp    $0x8,%rax
+    0.00 :   1659a:  mov    0x8(%rsp),%rsi
+    0.00 :   1659f:  jbe    165ab <j__udyLAllocJLL2@@Base+0x5b>
+    0.00 :   165a1:  add    %rbx,0x30(%rsi)
+    0.00 :   165a5:  add    $0x10,%rsp
+    0.00 :   165a9:  pop    %rbx
+    0.00 :   165aa:  ret
+    0.00 :   165ab:  test   %rax,%rax
+    0.00 :   165ae:  movl   $0x149,0x2c(%rsi)
+    0.00 :   165b5:  je     165c3 <j__udyLAllocJLL2@@Base+0x73>
+    0.00 :   165b7:  movb   $0x8,0x28(%rsi)
+    0.00 :   165bb:  add    $0x10,%rsp
+    0.00 :   165bf:  xor    %eax,%eax
+    0.00 :   165c1:  pop    %rbx
+    0.00 :   165c2:  ret
+    0.00 :   165c3:  movb   $0x2,0x28(%rsi)
+    0.00 :   165c7:  xor    %eax,%eax
+    0.00 :   165c9:  jmp    165a5 <j__udyLAllocJLL2@@Base+0x55>
+ Percent |	Source code & Disassembly of libJudy.so.1.0.3 for cpu_core/mem_load_retired.l1_miss/upp (4 samples, percent: local period)
+------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     00000000000169d0 <j__udyLFreeJBBJP@@Base>:
+    0.00 :   169d0:  push   %rbp
+    0.00 :   169d1:  push   %rbx
+    0.00 :   169d2:  mov    %rdx,%rbx
+    0.00 :   169d5:  sub    $0x8,%rsp
+   25.00 :   169d9:  mov    0x2395f0(%rip),%rax        # 24ffd0 <j__L_BranchBJPPopToWords@@Base+0x206210>
+   75.00 :   169e0:  movzbl (%rax,%rsi,1),%ebp
+    0.00 :   169e4:  mov    %rbp,%rsi
+    0.00 :   169e7:  call   2fe0 <JudyFree@@Base>
+    0.00 :   169ec:  sub    %rbp,0x30(%rbx)
+    0.00 :   169f0:  add    $0x8,%rsp
+    0.00 :   169f4:  pop    %rbx
+    0.00 :   169f5:  pop    %rbp
+    0.00 :   169f6:  ret
+ Percent |	Source code & Disassembly of libc.so.6 for cpu_core/mem_load_retired.l1_miss/upp (4 samples, percent: local period)
+-----------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3      Disassembly of section .text:
+         :
+         : 5      000000000011a9b0 <__sbrk@@GLIBC_2.2.5>:
+    0.00 :   11a9b0: endbr64
+    0.00 :   11a9b4: push   %r12
+   25.00 :   11a9b6: cmpb   $0x0,0x10e491(%rip)        # 228e4e <__key_encryptsession_pk_LOCAL@GLIBC_2.2.5+0x3ee>
+    0.00 :   11a9bd: push   %rbp
+   50.00 :   11a9be: mov    0xff49b(%rip),%rbp        # 219e60 <__curbrk@@GLIBC_2.2.5-0x83b8>
+    0.00 :   11a9c5: push   %rbx
+    0.00 :   11a9c6: mov    %rdi,%rbx
+   25.00 :   11a9c9: mov    0x0(%rbp),%r12
+    0.00 :   11a9cd: jne    11a9f0 <__sbrk@@GLIBC_2.2.5+0x40>
+    0.00 :   11a9cf: test   %rdi,%rdi
+    0.00 :   11a9d2: jne    11aa13 <__sbrk@@GLIBC_2.2.5+0x63>
+    0.00 :   11a9d4: xor    %edi,%edi
+    0.00 :   11a9d6: call   11a970 <brk@@GLIBC_2.2.5>
+    0.00 :   11a9db: test   %eax,%eax
+    0.00 :   11a9dd: js     11aa48 <__sbrk@@GLIBC_2.2.5+0x98>
+    0.00 :   11a9df: mov    0x0(%rbp),%r12
+    0.00 :   11a9e3: mov    %r12,%rax
+    0.00 :   11a9e6: pop    %rbx
+    0.00 :   11a9e7: pop    %rbp
+    0.00 :   11a9e8: pop    %r12
+    0.00 :   11a9ea: ret
+    0.00 :   11a9eb: nopl   0x0(%rax,%rax,1)
+    0.00 :   11a9f0: test   %r12,%r12
+    0.00 :   11a9f3: jne    11aa04 <__sbrk@@GLIBC_2.2.5+0x54>
+    0.00 :   11a9f5: xor    %edi,%edi
+    0.00 :   11a9f7: call   11a970 <brk@@GLIBC_2.2.5>
+    0.00 :   11a9fc: test   %eax,%eax
+    0.00 :   11a9fe: js     11aa48 <__sbrk@@GLIBC_2.2.5+0x98>
+    0.00 :   11aa00: mov    0x0(%rbp),%r12
+    0.00 :   11aa04: test   %rbx,%rbx
+    0.00 :   11aa07: je     11a9df <__sbrk@@GLIBC_2.2.5+0x2f>
+    0.00 :   11aa09: jle    11aa30 <__sbrk@@GLIBC_2.2.5+0x80>
+    0.00 :   11aa0b: add    %r12,%rbx
+    0.00 :   11aa0e: mov    %rbx,%rdi
+    0.00 :   11aa11: jae    11aa3f <__sbrk@@GLIBC_2.2.5+0x8f>
+    0.00 :   11aa13: mov    0xff3f6(%rip),%rax        # 219e10 <h_errlist@@GLIBC_2.2.5+0xb50>
+    0.00 :   11aa1a: mov    $0xffffffffffffffff,%r12
+    0.00 :   11aa21: movl   $0xc,%fs:(%rax)
+    0.00 :   11aa28: mov    %r12,%rax
+    0.00 :   11aa2b: pop    %rbx
+    0.00 :   11aa2c: pop    %rbp
+    0.00 :   11aa2d: pop    %r12
+    0.00 :   11aa2f: ret
+    0.00 :   11aa30: mov    %rbx,%rax
+    0.00 :   11aa33: neg    %rax
+    0.00 :   11aa36: cmp    %r12,%rax
+    0.00 :   11aa39: ja     11aa13 <__sbrk@@GLIBC_2.2.5+0x63>
+    0.00 :   11aa3b: lea    (%r12,%rbx,1),%rdi
+    0.00 :   11aa3f: call   11a970 <brk@@GLIBC_2.2.5>
+    0.00 :   11aa44: test   %eax,%eax
+    0.00 :   11aa46: jns    11a9e3 <__sbrk@@GLIBC_2.2.5+0x33>
+    0.00 :   11aa48: mov    $0xffffffffffffffff,%r12
+    0.00 :   11aa4f: pop    %rbx
+    0.00 :   11aa50: pop    %rbp
+    0.00 :   11aa51: mov    %r12,%rax
+    0.00 :   11aa54: pop    %r12
+    0.00 :   11aa56: ret
+ Percent |	Source code & Disassembly of libJudy.so.1.0.3 for cpu_core/mem_load_retired.l1_miss/upp (3 samples, percent: local period)
+------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     0000000000014270 <JudyLIns@@Base>:
+    0.00 :   14270:  test   %rdi,%rdi
+    0.00 :   14273:  je     14358 <JudyLIns@@Base+0xe8>
+    0.00 :   14279:  push   %r15
+    0.00 :   1427b:  push   %r14
+    0.00 :   1427d:  mov    %rdx,%r14
+    0.00 :   14280:  push   %r13
+    0.00 :   14282:  push   %r12
+    0.00 :   14284:  mov    %rdi,%r13
+    0.00 :   14287:  push   %rbp
+    0.00 :   14288:  push   %rbx
+    0.00 :   14289:  mov    %rsi,%rbx
+    0.00 :   1428c:  sub    $0x18,%rsp
+    0.00 :   14290:  mov    (%rdi),%r12
+    0.00 :   14293:  test   %r12,%r12
+    0.00 :   14296:  je     14528 <JudyLIns@@Base+0x2b8>
+    0.00 :   1429c:  mov    (%r12),%rbp
+    0.00 :   142a0:  lea    0x8(%r12),%r15
+    0.00 :   142a5:  cmp    $0x1e,%rbp
+    0.00 :   142a9:  jbe    142e0 <JudyLIns@@Base+0x70>
+    0.00 :   142ab:  mov    %r12,%rdx
+    0.00 :   142ae:  mov    %rbx,%rsi
+    0.00 :   142b1:  mov    %r15,%rdi
+    0.00 :   142b4:  call   104b0 <JudyLGet@@Base+0x1390>
+    0.00 :   142b9:  cmp    $0xffffffff,%eax
+    0.00 :   142bc:  je     144b0 <JudyLIns@@Base+0x240>
+    0.00 :   142c2:  cmp    $0x1,%eax
+    0.00 :   142c5:  je     144e0 <JudyLIns@@Base+0x270>
+    0.00 :   142cb:  mov    0x20(%r12),%rax
+    0.00 :   142d0:  add    $0x18,%rsp
+   66.67 :   142d4:  pop    %rbx
+    0.00 :   142d5:  pop    %rbp
+    0.00 :   142d6:  pop    %r12
+   33.33 :   142d8:  pop    %r13
+    0.00 :   142da:  pop    %r14
+    0.00 :   142dc:  pop    %r15
+    0.00 :   142de:  ret
+    0.00 :   142df:  nop
+    0.00 :   142e0:  mov    0x23bcf9(%rip),%rax        # 24ffe0 <j__L_LeafWOffset@@Base+0x206580>
+    0.00 :   142e7:  lea    0x1(%rbp),%r15
+    0.00 :   142eb:  lea    0x8(%r12),%rdi
+    0.00 :   142f0:  mov    $0xffffffffffffffff,%rcx
+    0.00 :   142f7:  mov    %r15,%r8
+    0.00 :   142fa:  movzbl 0x1(%rax,%rbp,1),%eax
+    0.00 :   142ff:  lea    (%r12,%rax,8),%rsi
+    0.00 :   14303:  jmp    1431b <JudyLIns@@Base+0xab>
+    0.00 :   14305:  nopl   (%rax)
+    0.00 :   14308:  lea    (%r8,%rcx,1),%rax
+    0.00 :   1430c:  shr    %rax
+    0.00 :   1430f:  cmp    (%rdi,%rax,8),%rbx
+    0.00 :   14313:  cmovae %rax,%rcx
+    0.00 :   14317:  cmovb  %rax,%r8
+    0.00 :   1431b:  mov    %r8,%rax
+    0.00 :   1431e:  sub    %rcx,%rax
+    0.00 :   14321:  cmp    $0x1,%rax
+    0.00 :   14325:  ja     14308 <JudyLIns@@Base+0x98>
+    0.00 :   14327:  cmp    $0xffffffffffffffff,%rcx
+    0.00 :   1432b:  je     14335 <JudyLIns@@Base+0xc5>
+    0.00 :   1432d:  cmp    (%rdi,%rcx,8),%rbx
+    0.00 :   14331:  mov    %ecx,%eax
+    0.00 :   14333:  je     1433a <JudyLIns@@Base+0xca>
+    0.00 :   14335:  mov    %r8d,%eax
+    0.00 :   14338:  not    %eax
+    0.00 :   1433a:  test   %eax,%eax
+    0.00 :   1433c:  js     14380 <JudyLIns@@Base+0x110>
+    0.00 :   1433e:  add    $0x18,%rsp
+    0.00 :   14342:  cltq
+    0.00 :   14344:  pop    %rbx
+    0.00 :   14345:  lea    (%rsi,%rax,8),%rax
+    0.00 :   14349:  pop    %rbp
+    0.00 :   1434a:  pop    %r12
+    0.00 :   1434c:  pop    %r13
+    0.00 :   1434e:  pop    %r14
+    0.00 :   14350:  pop    %r15
+    0.00 :   14352:  ret
+    0.00 :   14353:  nopl   0x0(%rax,%rax,1)
+    0.00 :   14358:  test   %rdx,%rdx
+    0.00 :   1435b:  je     14671 <JudyLIns@@Base+0x401>
+    0.00 :   14361:  movl   $0x3,(%rdx)
+    0.00 :   14367:  movl   $0x6ac,0x4(%rdx)
+    0.00 :   1436e:  mov    $0xffffffffffffffff,%rax
+    0.00 :   14375:  ret
+    0.00 :   14376:  cs nopw 0x0(%rax,%rax,1)
+    0.00 :   14380:  cmp    $0x1f,%r15
+    0.00 :   14384:  je     144ea <JudyLIns@@Base+0x27a>
+    0.00 :   1438a:  not    %eax
+    0.00 :   1438c:  lea    0x2(%rbp),%rdi
+    0.00 :   14390:  mov    %eax,%ecx
+    0.00 :   14392:  mov    0x23bb9f(%rip),%rax        # 24ff38 <j__L_LeafWPopToWords@@Base+0x2064b8>
+    0.00 :   14399:  movzbl 0x2(%rax,%rbp,1),%edx
+    0.00 :   1439e:  cmp    %dl,0x1(%rax,%rbp,1)
+    0.00 :   143a2:  je     14608 <JudyLIns@@Base+0x398>
+    0.00 :   143a8:  mov    %ecx,0xc(%rsp)
+    0.00 :   143ac:  mov    %rsi,(%rsp)
+    0.00 :   143b0:  call   16850 <j__udyLAllocJLW@@Base>
+    0.00 :   143b5:  cmp    $0x7,%rax
+    0.00 :   143b9:  mov    (%rsp),%rsi
+    0.00 :   143bd:  mov    0xc(%rsp),%ecx
+    0.00 :   143c1:  jbe    14560 <JudyLIns@@Base+0x2f0>
+    0.00 :   143c7:  test   %ecx,%ecx
+    0.00 :   143c9:  mov    %r15,(%rax)
+    0.00 :   143cc:  movslq %ecx,%rdi
+    0.00 :   143cf:  je     1469b <JudyLIns@@Base+0x42b>
+    0.00 :   143d5:  xor    %ecx,%ecx
+    0.00 :   143d7:  nopw   0x0(%rax,%rax,1)
+    0.00 :   143e0:  add    $0x1,%rcx
+    0.00 :   143e4:  mov    (%r12,%rcx,8),%r8
+    0.00 :   143e8:  cmp    %rdi,%rcx
+    0.00 :   143eb:  mov    %r8,(%rax,%rcx,8)
+    0.00 :   143ef:  jne    143e0 <JudyLIns@@Base+0x170>
+    0.00 :   143f1:  lea    0x1(%rdi),%rcx
+    0.00 :   143f5:  cmp    %rdi,%r15
+    0.00 :   143f8:  lea    0x0(,%rcx,8),%r8
+    0.00 :   14400:  mov    %rbx,(%rax,%rcx,8)
+    0.00 :   14404:  jbe    146a8 <JudyLIns@@Base+0x438>
+    0.00 :   1440a:  lea    -0x8(%r8),%rbx
+    0.00 :   1440e:  mov    %rdi,%rcx
+    0.00 :   14411:  nopl   0x0(%rax)
+    0.00 :   14418:  add    $0x1,%rcx
+    0.00 :   1441c:  mov    (%r12,%rcx,8),%r8
+    0.00 :   14420:  cmp    %rcx,%r15
+    0.00 :   14423:  mov    %r8,0x8(%rax,%rcx,8)
+    0.00 :   14428:  ja     14418 <JudyLIns@@Base+0x1a8>
+    0.00 :   1442a:  mov    0x23bbaf(%rip),%rdx        # 24ffe0 <j__L_LeafWOffset@@Base+0x206580>
+    0.00 :   14431:  test   %rdi,%rdi
+    0.00 :   14434:  movzbl 0x2(%rdx,%rbp,1),%edx
+    0.00 :   14439:  lea    (%rax,%rdx,8),%rbp
+    0.00 :   1443d:  je     145f2 <JudyLIns@@Base+0x382>
+    0.00 :   14443:  xor    %edx,%edx
+    0.00 :   14445:  nopl   (%rax)
+    0.00 :   14448:  mov    (%rsi,%rdx,8),%rcx
+    0.00 :   1444c:  mov    %rcx,0x0(%rbp,%rdx,8)
+    0.00 :   14451:  add    $0x1,%rdx
+    0.00 :   14455:  cmp    %rdi,%rdx
+    0.00 :   14458:  jb     14448 <JudyLIns@@Base+0x1d8>
+    0.00 :   1445a:  cmp    %rdx,%r15
+    0.00 :   1445d:  movq   $0x0,0x0(%rbp,%rdx,8)
+    0.00 :   14466:  jbe    14483 <JudyLIns@@Base+0x213>
+    0.00 :   14468:  nopl   0x0(%rax,%rax,1)
+    0.00 :   14470:  add    $0x1,%rdx
+    0.00 :   14474:  mov    -0x8(%rsi,%rdx,8),%rcx
+    0.00 :   14479:  cmp    %rdx,%r15
+    0.00 :   1447c:  mov    %rcx,0x0(%rbp,%rdx,8)
+    0.00 :   14481:  jne    14470 <JudyLIns@@Base+0x200>
+    0.00 :   14483:  xor    %edx,%edx
+    0.00 :   14485:  mov    %r15,%rsi
+    0.00 :   14488:  mov    %r12,%rdi
+    0.00 :   1448b:  mov    %rax,(%rsp)
+    0.00 :   1448f:  call   16b70 <j__udyLFreeJLW@@Base>
+    0.00 :   14494:  mov    (%rsp),%rax
+    0.00 :   14498:  mov    %rax,0x0(%r13)
+    0.00 :   1449c:  lea    0x0(%rbp,%rbx,1),%rax
+    0.00 :   144a1:  jmp    142d0 <JudyLIns@@Base+0x60>
+    0.00 :   144a6:  cs nopw 0x0(%rax,%rax,1)
+    0.00 :   144b0:  test   %r14,%r14
+    0.00 :   144b3:  je     144c7 <JudyLIns@@Base+0x257>
+    0.00 :   144b5:  movzbl 0x28(%r12),%eax
+    0.00 :   144bb:  mov    %eax,(%r14)
+    0.00 :   144be:  mov    0x2c(%r12),%eax
+    0.00 :   144c3:  mov    %eax,0x4(%r14)
+    0.00 :   144c7:  add    $0x18,%rsp
+    0.00 :   144cb:  mov    $0xffffffffffffffff,%rax
+    0.00 :   144d2:  pop    %rbx
+    0.00 :   144d3:  pop    %rbp
+    0.00 :   144d4:  pop    %r12
+    0.00 :   144d6:  pop    %r13
+    0.00 :   144d8:  pop    %r14
+    0.00 :   144da:  pop    %r15
+    0.00 :   144dc:  ret
+    0.00 :   144dd:  nopl   (%rax)
+    0.00 :   144e0:  addq   $0x1,(%r12)
+    0.00 :   144e5:  jmp    142cb <JudyLIns@@Base+0x5b>
+    0.00 :   144ea:  call   162b0 <j__udyLAllocJLPM@@Base>
+    0.00 :   144ef:  cmp    $0x7,%rax
+    0.00 :   144f3:  mov    %rax,%rbp
+    0.00 :   144f6:  ja     145ac <JudyLIns@@Base+0x33c>
+    0.00 :   144fc:  test   %r14,%r14
+    0.00 :   144ff:  je     144c7 <JudyLIns@@Base+0x257>
+    0.00 :   14501:  cmp    $0x1,%rax
+    0.00 :   14505:  movl   $0x71c,0x4(%r14)
+    0.00 :   1450d:  sbb    %eax,%eax
+    0.00 :   1450f:  and    $0xfffffffa,%eax
+    0.00 :   14512:  add    $0x8,%eax
+    0.00 :   14515:  mov    %eax,(%r14)
+    0.00 :   14518:  mov    $0xffffffffffffffff,%rax
+    0.00 :   1451f:  jmp    142d0 <JudyLIns@@Base+0x60>
+    0.00 :   14524:  nopl   0x0(%rax)
+    0.00 :   14528:  mov    $0x1,%edi
+    0.00 :   1452d:  call   16850 <j__udyLAllocJLW@@Base>
+    0.00 :   14532:  cmp    $0x7,%rax
+    0.00 :   14536:  ja     1458c <JudyLIns@@Base+0x31c>
+    0.00 :   14538:  test   %r14,%r14
+    0.00 :   1453b:  je     144c7 <JudyLIns@@Base+0x257>
+    0.00 :   1453d:  cmp    $0x1,%rax
+    0.00 :   14541:  movl   $0x6c1,0x4(%r14)
+    0.00 :   14549:  sbb    %eax,%eax
+    0.00 :   1454b:  and    $0xfffffffa,%eax
+    0.00 :   1454e:  add    $0x8,%eax
+    0.00 :   14551:  mov    %eax,(%r14)
+    0.00 :   14554:  mov    $0xffffffffffffffff,%rax
+    0.00 :   1455b:  jmp    142d0 <JudyLIns@@Base+0x60>
+    0.00 :   14560:  test   %r14,%r14
+    0.00 :   14563:  je     144c7 <JudyLIns@@Base+0x257>
+    0.00 :   14569:  cmp    $0x1,%rax
+    0.00 :   1456d:  movl   $0x6ff,0x4(%r14)
+    0.00 :   14575:  sbb    %eax,%eax
+    0.00 :   14577:  and    $0xfffffffa,%eax
+    0.00 :   1457a:  add    $0x8,%eax
+    0.00 :   1457d:  mov    %eax,(%r14)
+    0.00 :   14580:  mov    $0xffffffffffffffff,%rax
+    0.00 :   14587:  jmp    142d0 <JudyLIns@@Base+0x60>
+    0.00 :   1458c:  movq   $0x0,(%rax)
+    0.00 :   14593:  mov    %rbx,0x8(%rax)
+    0.00 :   14597:  mov    %rax,0x0(%r13)
+    0.00 :   1459b:  movq   $0x0,0x10(%rax)
+    0.00 :   145a3:  add    $0x10,%rax
+    0.00 :   145a7:  jmp    142d0 <JudyLIns@@Base+0x60>
+    0.00 :   145ac:  lea    0x8(%rax),%r15
+    0.00 :   145b0:  movq   $0x1e,(%rax)
+    0.00 :   145b7:  mov    %r12,0x8(%rax)
+    0.00 :   145bb:  mov    %rax,%rsi
+    0.00 :   145be:  mov    %r15,%rdi
+    0.00 :   145c1:  call   65d0 <j__udyLCascadeL@@Base>
+    0.00 :   145c6:  cmp    $0xffffffff,%eax
+    0.00 :   145c9:  jne    14679 <JudyLIns@@Base+0x409>
+    0.00 :   145cf:  test   %r14,%r14
+    0.00 :   145d2:  je     144c7 <JudyLIns@@Base+0x257>
+    0.00 :   145d8:  movzbl 0x28(%rbp),%eax
+    0.00 :   145dc:  mov    %eax,(%r14)
+    0.00 :   145df:  mov    0x2c(%rbp),%eax
+    0.00 :   145e2:  mov    %eax,0x4(%r14)
+    0.00 :   145e6:  mov    $0xffffffffffffffff,%rax
+    0.00 :   145ed:  jmp    142d0 <JudyLIns@@Base+0x60>
+    0.00 :   145f2:  xor    %edx,%edx
+    0.00 :   145f4:  movq   $0x0,0x0(%rbp)
+    0.00 :   145fc:  jmp    14470 <JudyLIns@@Base+0x200>
+    0.00 :   14601:  nopl   0x0(%rax)
+    0.00 :   14608:  movslq %ecx,%rax
+    0.00 :   1460b:  mov    %r15,(%r12)
+    0.00 :   1460f:  cmp    %rax,%r15
+    0.00 :   14612:  jbe    14694 <JudyLIns@@Base+0x424>
+    0.00 :   14618:  lea    0x0(,%r15,8),%rdx
+    0.00 :   14620:  lea    0x0(,%rax,8),%r8
+    0.00 :   14628:  lea    (%r12,%rdx,1),%rcx
+    0.00 :   1462c:  lea    (%r12,%r8,1),%r9
+    0.00 :   14630:  mov    (%rcx),%rdi
+    0.00 :   14633:  sub    $0x8,%rcx
+    0.00 :   14637:  mov    %rdi,0x10(%rcx)
+    0.00 :   1463b:  cmp    %r9,%rcx
+    0.00 :   1463e:  jne    14630 <JudyLIns@@Base+0x3c0>
+    0.00 :   14640:  lea    (%rsi,%r8,1),%rdi
+    0.00 :   14644:  mov    %rbx,0x8(%r12,%r8,1)
+    0.00 :   14649:  add    %rsi,%rdx
+    0.00 :   1464c:  nopl   0x0(%rax)
+    0.00 :   14650:  mov    -0x8(%rdx),%rcx
+    0.00 :   14654:  sub    $0x8,%rdx
+    0.00 :   14658:  mov    %rcx,0x8(%rdx)
+    0.00 :   1465c:  cmp    %rdi,%rdx
+    0.00 :   1465f:  jne    14650 <JudyLIns@@Base+0x3e0>
+    0.00 :   14661:  lea    (%rsi,%rax,8),%rax
+    0.00 :   14665:  movq   $0x0,(%rax)
+    0.00 :   1466c:  jmp    142d0 <JudyLIns@@Base+0x60>
+    0.00 :   14671:  mov    $0xffffffffffffffff,%rax
+    0.00 :   14678:  ret
+    0.00 :   14679:  mov    %r12,%rdi
+    0.00 :   1467c:  xor    %edx,%edx
+    0.00 :   1467e:  mov    $0x1f,%esi
+    0.00 :   14683:  call   16b70 <j__udyLFreeJLW@@Base>
+    0.00 :   14688:  mov    %rbp,%r12
+    0.00 :   1468b:  mov    %rbp,0x0(%r13)
+    0.00 :   1468f:  jmp    142ab <JudyLIns@@Base+0x3b>
+    0.00 :   14694:  mov    %rbx,0x8(%r12,%rax,8)
+    0.00 :   14699:  jmp    14661 <JudyLIns@@Base+0x3f1>
+    0.00 :   1469b:  mov    %rbx,0x8(%rax)
+    0.00 :   1469f:  xor    %edi,%edi
+    0.00 :   146a1:  xor    %ebx,%ebx
+    0.00 :   146a3:  jmp    1440e <JudyLIns@@Base+0x19e>
+    0.00 :   146a8:  mov    0x23b931(%rip),%rdx        # 24ffe0 <j__L_LeafWOffset@@Base+0x206580>
+    0.00 :   146af:  lea    -0x8(%r8),%rbx
+    0.00 :   146b3:  movzbl 0x2(%rdx,%rbp,1),%edx
+    0.00 :   146b8:  lea    (%rax,%rdx,8),%rbp
+    0.00 :   146bc:  jmp    14443 <JudyLIns@@Base+0x1d3>

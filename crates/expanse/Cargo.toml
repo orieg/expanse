@@ -170,6 +170,17 @@ collector-census = ["std"]
 # arrays) and so changes memory and the reallocation schedule: never enable
 # it for a published benchmark outside the #1257 comparison.
 ablation-leaf-class-10 = []
+# Retired name (Refs #1679): a plain tree's accounting updates are unlocked by
+# default. Kept declared so Cargo does not reject an old
+# `--features ablation-unlocked-plain-acct` invocation; `lib.rs` turns it into a
+# compiler error naming the inverse, and it is never a no-op (AGENTS.md §2.7).
+ablation-unlocked-plain-acct = []
+# Diagnostic-only inverse of the unlocked plain-tree accounting (Refs #1679,
+# AGENTS.md §2.7): a plain tree's `bytes_in_use`, `live_allocs` and
+# `total_allocs` update by a locked read-modify-write again, as before the
+# promotion, so the default can itself be ablated. A deferred tree's sharded
+# accounting is the same in both builds.
+ablation-locked-plain-acct = []
 
 
 [dependencies]
@@ -301,6 +312,16 @@ test = false
 
 [[bench]]
 name = "hashbrown_container_dists"
+harness = false
+test = false
+
+[[bench]]
+name = "hashbrown_pop_sweep"
+harness = false
+test = false
+
+[[bench]]
+name = "hashbrown_fifo_churn"
 harness = false
 test = false
 

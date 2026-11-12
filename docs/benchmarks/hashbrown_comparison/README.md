@@ -11,7 +11,7 @@ This directory contains the reproducible benchmark suite, raw measurements, meth
 | **Underlying Data Structure** | Flat 1-Byte Control Array + Buckets | Cache-Oblivious B-Tree | Expanse-Partitioned Digital Trie |
 | **Point Query Complexity** | O(1) amortized expected | O(log N) | O(k) ≤ 8 digit steps |
 | **Ordered Traversal & Range Scans** | ❌ **Disqualified** (O(N log N)) | ✅ Supported | ✅ Supported |
-| **Sequential Key Memory Density** | 35.7 Bytes / Key | 34.3 Bytes / Key | **8.7 Bytes / Key** (3.9× to 4.1× smaller) |
+| **Sequential Key Memory Density** (16 to 4M keys) | 19.6 – 35.7 Bytes / Key | 31.5 – 42.0 Bytes / Key | **8.6 Bytes / Key** at 4M keys, below both from 5,623 keys up; 1,296 Bytes / Key at 16 keys |
 | **Key Hashing Required** | Required (SipHash / FoldHash) | Not needed — direct ordering | Not needed — direct radix prefix slicing |
 | **Dynamic Ingestion Growth Model** | Global Table Doubling (Rehash) | Node Splitting | Local Subexpanse Allocation |
 
@@ -19,9 +19,9 @@ This directory contains the reproducible benchmark suite, raw measurements, meth
 
 ## 2. Key Findings & Empirical Results
 
-The YCSB pillar carries its own provenance below. Pillars 2–5 were measured together:
+The YCSB pillar and Pillars 2, 4, 6 and 7 carry their own provenance below. Pillars 3 and 5 were measured together:
 
-*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `powersave` governor, CPUs `0-15`, commit 2f82cd07; `run.sh --skip-ycsb`, two runs of 9 rounds, one process per round with the arm order rotated; every round process in its own load window, foreign busy CPU at most 0.04 core-equivalents in any window; means with BCa 95% intervals, ratios paired per round, run 1 first and run 2 in parentheses; `results/baseline_{native,tail_latency,distributions,memory}.json`, run 2 at `results/baseline_*_run2.json`)*
+*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `powersave` governor, CPUs `0-15`, commit 2f82cd07; `run.sh --skip-ycsb`, two runs of 9 rounds, one process per round with the arm order rotated; every round process in its own load window, foreign busy CPU at most 0.04 core-equivalents in any window; means with BCa 95% intervals, ratios paired per round, run 1 first and run 2 in parentheses; `results/baseline_{native,tail_latency,memory}.json`, run 2 at `results/baseline_*_run2.json`)*
 
 ### Pillar 1: YCSB (Yahoo! Cloud Serving Benchmark) Workloads A–F
 Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 dense sequential keys (`1..=N`) with `u64` values (workload: `hashbrown_ycsb`).
@@ -43,16 +43,14 @@ Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 dense sequen
 ---
 
 ### Pillar 2: Memory Footprint (Live Heap Bytes / Key)
-Measured via custom `GlobalAlloc` hooks tracking heap allocations at steady state ($N = 500,000$; the full $10^3 \dots 5 \times 10^5$ sweep is in `results/baseline_memory.json`). The counts are exact and identical in both runs.
+Measured via custom `GlobalAlloc` hooks tracking requested heap bytes at steady state. A single population samples two sawtooths at an arbitrary phase — `hashbrown` doubles its table when full, Expanse's footprint follows leaf occupancy — so the headline is the range across Pillar 6's 26-population sweep (16 to 4,194,304 keys; workload: `hashbrown_pop_sweep`), not one N.
 
-![Memory Footprint Bytes Per Key](results/bench_memory_footprint.svg)
+| Key Pattern | `hashbrown` min – max | `BTreeMap` min – max | `ExpanseMap` min – max |
+| :--- | :--- | :--- | :--- |
+| **Dense Sequential (0 … N)** | 19.6 – 35.7 B/key | 31.5 – 42.0 B/key | 8.6 (at 4M) – 1,296.0 (at 16) B/key |
+| **Uniform Random 64-bit** | 19.6 – 35.7 B/key | 25.5 – 42.0 B/key | 24.6 (at 1M) – 1,296.0 (at 16) B/key |
 
-| Key Pattern (N = 500,000) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse vs. Hashbrown |
-| :--- | :--- | :--- | :--- | :--- |
-| **Dense Sequential (0 … N)** | 35.7 B/key | 34.3 B/key | **8.7 B/key** | **4.1× more compact** |
-| **Uniform Random 64-bit** | 35.7 B/key | 27.1 B/key | **24.7 B/key** | **1.4× more compact** |
-
-Expanse's uncompressed bitmap-backed leaf nodes pack sequential and clustered integer keys with near-zero pointer overhead, dropping memory consumption to under 9 bytes per key. (At smaller populations the picture shifts — e.g. at $N = 100,000$ random keys Expanse uses $30.6\text{ B/key}$ vs hashbrown's $22.3\text{ B/key}$, because a just-doubled SwissTable is at its slack minimum while sparse trie branches have low occupancy; the full population sweep is in `results/baseline_memory.json`.)
+From 1,000 keys up, Expanse requests 58.3–69.4 B/key at 1,000 keys and falls from there; on sequential keys it is below both competitors from 5,623 keys up, while on random keys it is below `hashbrown` only where `hashbrown` sits near the top of its sawtooth (31,623 and 316,228–1,000,000 and 4,194,304 keys) and above it everywhere else in the sweep. Below about 1,000 keys Expanse is the largest of the three by an order of magnitude. Per-population values, crossovers and the sweep's min / mean / max are in Pillar 6 *(measured: commit 0c2152c4, runs 43140570831 and 43141321251, `results/baseline_pop_sweep.json`)*. The earlier four-population census (1k, 10k, 100k, 500k; `results/baseline_memory.json`, commit 2f82cd07, reproduced byte-identical at 99d5b5ff) gives, at 500,000 keys, sequential 8.7 against 35.7 and random 24.7 against 35.7 B/key, and at 100,000 random keys 30.6 against 22.3 B/key (workload: `hashbrown_memory_alloc`): points on the same two curves.
 
 ---
 
@@ -76,17 +74,44 @@ Every figure below is the mean over 9 rounds of that round's percentile, with it
 
 ---
 
-### Pillar 4: Martin Ankerl & Tessil Key Distributions
-Point lookup throughput (Mops/sec) evaluated across standard key geometries ($N = 500,000$; means of 9 rounds, run 1). Ratios are Expanse over the competitor, paired per round, with run 2 in parentheses (workload: `hashbrown_container_dists`); insert throughput and its ratios are in `results/baseline_distributions.json`.
+### Pillar 4: Key Distributions (Ankerl & Tessil geometries, Barrett's trie-adversarial classes)
+Point lookup throughput (Mops/sec) across key geometries ($N = 500,000$ draws; means of 9 rounds, run 1), in two probe orders over the same build: **draw order**, the inserted key sequence as generated (`0, 1, 2, …` on dense sequential keys), and **shuffled**, a Fisher–Yates permutation of the same keys from the suite PRNG. The last five rows are the trie-adversarial classes of [Barrett's Judy versus hash-table comparison](https://www.nothings.org/computer/judy/), as 64-bit keys (`workload_common::KeyGen`): a dense random $2^{22}$ sub-range, the same keys byte-reversed into the top bytes (so neighbours differ at the top digit; the pair holds the key set fixed), one ASCII character per byte, and `i * 64`. The two 22-bit classes draw with repetition and hold 471,413 distinct keys. Ratios are Expanse over the competitor, paired per round, above 1 = Expanse faster, with run 2 in parentheses (workload: `hashbrown_container_dists`). `hashbrown` uses its default hasher (foldhash). Insert throughput and its ratios are in `results/baseline_distributions.json`.
+
+*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `performance` governor, CPUs `0-15`, commit 4659016f; bench_baremetal runs [43120638706](https://github.com/orieg/expanse/actions/runs/43120638706) and [43121004998](https://github.com/orieg/expanse/actions/runs/43121004998), `run_all.py --skip-ycsb`, 9 rounds each, one process per round with the arm order rotated; foreign busy CPU at most 0.03 core-equivalents in any round's window; BCa 95% intervals; `results/baseline_distributions.json` and run 2 at `results/baseline_distributions_run2.json`)*
 
 ![Key Distributions Throughput](results/bench_key_distributions.svg)
 
+**Hits:**
+
+| Key Geometry (N = 500,000) | `hashbrown` draw / shuffled | `BTreeMap` draw / shuffled | `ExpanseMap` draw / shuffled | Expanse / `hashbrown`, draw | Expanse / `hashbrown`, shuffled | Expanse / `BTreeMap`, draw | Expanse / `BTreeMap`, shuffled |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Sparse Clustered / Stride** | 90.2 / 95.3 | 21.4 / 9.6 | 172.9 / 60.8 | **1.919× [1.888, 1.957]** (1.869× [1.763, 1.938]) | 0.639× [0.623, 0.660] (0.641× [0.626, 0.659]) | **8.085× [8.018, 8.171]** (8.142× [8.084, 8.229]) | **6.342× [6.321, 6.364]** (6.319× [6.281, 6.351]) |
+| **Dense Sequential (0 … N)** | 97.4 / 110.7 | 24.8 / 9.8 | 134.6 / 65.1 | **1.384× [1.339, 1.421]** (1.347× [1.282, 1.413]) | 0.602× [0.550, 0.673] (0.607× [0.561, 0.667]) | **5.433× [5.365, 5.525]** (5.407× [5.353, 5.471]) | **6.672× [6.595, 6.769]** (6.683× [6.616, 6.773]) |
+| **Zipfian Skewed (s = 0.99)** | 178.0 / 253.8 | 19.7 / 19.7 | 118.0 / 118.5 | 0.666× [0.633, 0.691] (0.676× [0.651, 0.707]) | 0.467× [0.462, 0.475] (0.478× [0.468, 0.506]) | **5.978× [5.961, 5.994]** (5.983× [5.960, 6.007]) | **6.011× [5.990, 6.034]** (5.974× [5.881, 6.012]) |
+| **Uniform Random 64-bit** | 84.6 / 88.1 | 10.0 / 9.9 | 42.4 / 42.3 | 0.501× [0.495, 0.510] (0.498× [0.494, 0.501]) | 0.480× [0.475, 0.485] (0.479× [0.475, 0.485]) | **4.261× [4.241, 4.290]** (4.273× [4.245, 4.293]) | **4.261× [4.253, 4.275]** (4.255× [4.240, 4.284]) |
+| **Dense random 2^22 sub-range** (`rand22`) | 85.8 / 90.3 | 10.2 / 10.1 | 48.1 / 47.8 | 0.561× [0.558, 0.563] (0.562× [0.558, 0.567]) | 0.529× [0.524, 0.535] (0.524× [0.519, 0.530]) | **4.736× [4.687, 4.814]** (4.744× [4.704, 4.809]) | **4.728× [4.696, 4.752]** (4.736× [4.716, 4.773]) |
+| **Byte-swapped dense random** (`rand22_bswap`) | 85.0 / 88.3 | 10.1 / 10.1 | 42.4 / 42.0 | 0.498× [0.494, 0.503] (0.500× [0.496, 0.504]) | 0.476× [0.469, 0.483] (0.473× [0.468, 0.479]) | **4.187× [4.153, 4.210]** (4.203× [4.189, 4.218]) | **4.168× [4.090, 4.195]** (4.171× [4.138, 4.199]) |
+| **ASCII `A–Z` per byte** (`ascii_upper`) | 85.1 / 87.8 | 9.9 / 9.9 | 15.9 / 15.8 | 0.187× [0.186, 0.188] (0.186× [0.184, 0.188]) | 0.181× [0.178, 0.185] (0.180× [0.179, 0.182]) | **1.603× [1.597, 1.611]** (1.602× [1.592, 1.608]) | **1.605× [1.595, 1.622]** (1.612× [1.606, 1.624]) |
+| **ASCII `[0-9A-Za-z]` per byte** (`ascii_alnum`) | 84.6 / 87.2 | 9.9 / 9.9 | 20.5 / 20.2 | 0.242× [0.241, 0.245] (0.244× [0.242, 0.245]) | 0.232× [0.231, 0.233] (0.233× [0.232, 0.235]) | **2.065× [2.053, 2.080]** (2.074× [2.065, 2.086]) | **2.050× [2.043, 2.057]** (2.048× [2.042, 2.056]) |
+| **Stride 64** (`stride64`) | 100.1 / 110.2 | 24.7 / 9.8 | 94.3 / 38.4 | 0.944× [0.921, 0.974] (0.959× [0.935, 0.986]) | 0.355× [0.328, 0.394] (0.357× [0.331, 0.395]) | **3.815× [3.787, 3.860]** (3.831× [3.788, 3.873]) | **3.920× [3.895, 3.943]** (3.932× [3.917, 3.953]) |
+
+**Misses** (N distinct absent keys from each distribution's own generator, resumed at N and rejected on membership, cycled; `zipfian` has none, since N Zipf draws over `1..=N` leave too few absent values):
+
 | Key Geometry (N = 500,000) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse / `hashbrown` | Expanse / `BTreeMap` |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Sparse Clustered / Stride** | 85.6 Mops/s | 18.9 Mops/s | **170.0 Mops/s** | **1.990× [1.947, 2.049]** (1.997× [1.972, 2.046]) | **9.003× [8.950, 9.048]** (8.994× [8.923, 9.042]) |
-| **Dense Sequential (0 … N)** | 88.7 Mops/s | 21.2 Mops/s | **154.1 Mops/s** | **1.740× [1.694, 1.787]** (1.781× [1.758, 1.822]) | **7.260× [7.216, 7.311]** (7.278× [7.196, 7.347]) <!-- docs-lint: allow — 1.822 on this row is this suite's interval bound (baseline_distributions_run2.json), not the retired HOT figure registered under that number --> |
-| **Zipfian Skewed (s = 0.99)** | 207.4 Mops/s | 18.6 Mops/s | 114.0 Mops/s | 0.562× [0.518, 0.627] (0.559× [0.518, 0.616]) | **6.135× [6.110, 6.178]** (6.116× [6.084, 6.140]) |
-| **Uniform Random 64-bit** | 81.7 Mops/s | 9.8 Mops/s | 27.7 Mops/s | 0.340× [0.338, 0.342] (0.339× [0.336, 0.342]) | **2.837× [2.830, 2.843]** (2.838× [2.826, 2.846]) |
+| **Sparse Clustered / Stride** | 196.9 | 51.4 | 254.7 | **1.338× [1.163, 1.465]** (1.327× [1.138, 1.463]) | **4.953× [4.896, 5.001]** (4.995× [4.932, 5.049]) |
+| **Dense Sequential (0 … N)** | 192.9 | 31.1 | 215.9 | **1.167× [1.006, 1.299]** (1.086× [0.924, 1.207]) | **6.943× [6.880, 7.043]** (6.966× [6.848, 7.158]) |
+| **Uniform Random 64-bit** | 165.1 | 9.8 | 41.2 | 0.250× [0.244, 0.259] (0.250× [0.244, 0.256]) | **4.217× [4.153, 4.298]** (4.209× [4.150, 4.282]) |
+| **Dense random 2^22 sub-range** (`rand22`) | 186.1 | 10.0 | 60.0 | 0.324× [0.310, 0.343] (0.323× [0.314, 0.336]) | **6.013× [5.918, 6.098]** (6.011× [5.940, 6.083]) |
+| **Byte-swapped dense random** (`rand22_bswap`) | 176.9 | 9.9 | 41.7 | 0.237× [0.228, 0.249] (0.245× [0.232, 0.266]) | **4.219× [4.145, 4.309]** (4.223× [4.145, 4.315]) |
+| **ASCII `A–Z` per byte** (`ascii_upper`) | 164.9 | 9.7 | 17.2 | 0.104× [0.102, 0.106] (0.104× [0.102, 0.105]) | **1.764× [1.747, 1.771]** (1.767× [1.762, 1.773]) |
+| **ASCII `[0-9A-Za-z]` per byte** (`ascii_alnum`) | 161.5 | 9.7 | 24.1 | 0.149× [0.146, 0.155] (0.149× [0.146, 0.152]) | **2.475× [2.449, 2.516]** (2.492× [2.470, 2.524]) |
+| **Stride 64** (`stride64`) | 197.6 | 31.3 | 191.0 | 1.012× [0.868, 1.145] (1.002× [0.850, 1.118]) | **6.102× [5.991, 6.175]** (6.024× [5.943, 6.114]) |
+
+- **Probe order decides the sequential, clustered and stride-64 results.** With the build unchanged, shuffling the probes turns Expanse's lead over `hashbrown` on dense sequential keys (1.384×) into a loss (0.602×), on clustered keys from 1.919× into 0.639×, and on stride-64 keys from near parity (0.944×) into 0.355×; in both runs, with intervals that do not overlap 1. In draw order consecutive probes land in the same or the adjacent Expanse leaf; that the loss is that locality going away is a hypothesis, not measured here (no cache counter was taken). On the random classes, where draw order is already random, the two orders agree within a few percent.
+- **The adversarial classes all lose to `hashbrown`, and the worst is not the byte-swapped one.** One ASCII character per byte is the slowest shape measured: 0.187× on hits and 0.104× on misses (uppercase), 0.242× and 0.149× (alphanumeric). Byte-reversing the dense 22-bit keys costs Expanse about 11% against its un-swapped control (0.498× against 0.561× on hits, 0.237× against 0.324× on misses) — measurably worse, but the ASCII classes are worse by far. Every class still beats `BTreeMap`, from 1.60× (`ascii_upper`) upward.
+- **Misses.** Expanse leads `hashbrown` on clustered misses (1.338×), is level on stride-64 misses (intervals contain 1 in both runs), and on dense sequential misses leads in run 1 (1.167× [1.006, 1.299]) while run 2's interval contains 1 (1.086× [0.924, 1.207]), so that cell is not claimed. Every random and adversarial class loses its misses by more than its hits.
+- **Correction.** The first pair of runs of this pillar (commit 2f82cd07, `powersave` governor, draw order only) published dense sequential at 1.740× [1.694, 1.787] (run 2 1.781× [1.758, 1.822]) and uniform random at 0.340× [0.338, 0.342] over `hashbrown`; re-measured in the same draw order, dense sequential is 1.384× and uniform random 0.501× here. Both runs moved those cells, zipfian and every `BTreeMap` ratio the same way, with intervals disjoint from the earlier ones; the commit and the host's frequency governor both changed, so the shift is not attributed. A pair of runs between the two, at 99d5b5ff with the four original distributions only ([43118879867](https://github.com/orieg/expanse/actions/runs/43118879867), [43119259121](https://github.com/orieg/expanse/actions/runs/43119259121)), measured dense sequential draw order at 1.532× [1.516, 1.556] (1.519× [1.485, 1.576]) and shuffled at 0.607× (0.605×): the engine is the same, and the draw-order figure moved between the two harness versions while the shuffled one did not. Which change to the process (five more distributions, and the miss sets built before each round's maps) moves the draw-order figure is not measured. The figure that describes a lookup independent of probe order and of that sensitivity is the shuffled one: about 0.60× on dense sequential keys.
 
 ---
 
@@ -96,6 +121,145 @@ Point query hit/miss and dynamic growth throughput ported from `hashbrown/benche
 The growth arms time each build alone and drop the map after the clock stops. Per-arm intervals and paired ratios for every population and op are in `results/baseline_native.json` (workload: `hashbrown_native_suite`).
 
 ![Native Criterion Port Throughput](results/bench_native_throughput.svg)
+
+---
+
+### Pillar 6: Population Sweep — Crossovers and Both Memory Sawtooths
+Point lookup (hit and miss) and live heap bytes per key from 16 to 4,194,304 keys: 16, 24, 31, 32 (around `ROOT_LEAF_CAP` = 31, below which a map is one root leaf), 48, 64, then four populations per decade and $2^{22}$ (workload: `hashbrown_pop_sweep`). Each cell times 1,048,576 probes drawn uniformly with replacement from the keys (never in draw order) and as many from N distinct absent keys of the distribution's own generator (at most 65,536), against foldhash `hashbrown` and `BTreeMap`. Ratios are Expanse's throughput over the competitor's, above 1 = Expanse faster; each cell is the union of the two runs' BCa intervals of the paired per-round ratio, **bold** where both runs put Expanse ahead, ‡ where one run's interval contains 1 and the other's does not. Bytes per key are requested `Layout::size` bytes over the distinct key count.
+
+*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `performance` governor, CPUs `0-15`, commit 0c2152c4; bench_baremetal runs [43140570831](https://github.com/orieg/expanse/actions/runs/43140570831) and [43141321251](https://github.com/orieg/expanse/actions/runs/43141321251), `run_all.py --skip-ycsb`, 9 rounds each, one process per round with the arm order rotated; foreign busy CPU at most 0.02 core-equivalents in any round's window; BCa 95% intervals; `results/baseline_pop_sweep.json` and run 2 at `results/baseline_pop_sweep_run2.json`; the live-heap counts are exact and identical in every round of both runs)*
+
+- **No lookup crossover against `hashbrown` in the measured range.** On hits `hashbrown` is faster at every population from 16 to 4,194,304 keys on all three distributions, in both runs (a few sequential cells tie in one run). The cache-resident range is not an exception here: at 1,000 random keys Expanse runs at [0.103, 0.112]× `hashbrown`'s rate. Misses follow the same pattern on random and byte-swapped keys; on sequential keys Expanse's misses are faster at 1,778, 56,234 and 1,778,279 keys in both runs and slower or level elsewhere, so the sequential-miss winner changes six times across the sweep (`summary.sequential.crossovers` in the artifact) — those are the only crossovers against `hashbrown` the sweep found.
+- **Against `BTreeMap` the one loss is at 32 sequential keys**: Expanse is faster at every other population and distribution, and slower at exactly 32 sequential keys ([0.523, 0.529]× on hits), the population one past `ROOT_LEAF_CAP`, where the sequential map also requests 1,295 B/key.
+- **Memory is two sawtooths, and the small-N end is Expanse's worst.** An `ExpanseMap` requests 1,296 B/key at 16 keys (about 20 KiB), falling to 58.3 (random) and 69.4 (sequential) B/key at 1,000 keys; `hashbrown` stays between 19.6 and 35.7 B/key at every population and `BTreeMap` between 25.5 and 42.0. Above 1,000 keys Expanse is below `hashbrown` on sequential keys from 5,623 keys up (8.6 B/key at 4M), and on random keys only at 31,623 and at 316,228–1,000,000 and 4,194,304 keys, the populations where `hashbrown` is near the top of its resize sawtooth.
+
+Sweep summary per distribution, live heap bytes per key over all 26 populations (`summary` in the artifact; the mean is dominated by the small-N points and is not a typical value — read the per-population table):
+
+| distribution | `ExpanseMap` min / mean / max | `hashbrown` min / mean / max | `BTreeMap` min / mean / max |
+|---|---|---|---|
+| random | 24.6 (at 1,000,000) / 249.1 / 1,296.0 (at 16) | 19.6 (at 1,778) / 27.9 / 35.7 (at 1,000,000) | 25.5 (at 64) / 28.8 / 42.0 (at 16) |
+| sequential | 8.6 (at 4,194,304) / 289.8 / 1,296.0 (at 16) | 19.6 (at 1,778) / 27.9 / 35.7 (at 1,000,000) | 31.5 (at 64) / 34.4 / 42.0 (at 16) |
+| rand22_bswap | 25.0 (at 562,341) / 246.4 / 1,296.0 (at 16) | 19.6 (at 1,778) / 27.7 / 35.6 (at 31) | 25.9 (at 100) / 28.7 / 42.0 (at 16) |
+
+**`random`**
+
+| N | hit: Expanse / `hashbrown` | miss: Expanse / `hashbrown` | hit: Expanse / `BTreeMap` | B/key `ExpanseMap` | B/key `hashbrown` | B/key `BTreeMap` |
+|---:|---:|---:|---:|---:|---:|---:|
+| 16 | [0.466, 0.645] | [0.540, 0.924] | **[4.141, 4.343]** | 1296.0 | 35.0 | 42.0 |
+| 24 | [0.376, 0.528] | [0.481, 0.793] | **[3.814, 3.934]** | 869.3 | 23.3 | 36.0 |
+| 31 | [0.359, 0.432] | [0.441, 0.598] | **[3.905, 3.975]** | 677.2 | 35.6 | 34.1 |
+| 32 | [0.247, 0.305] | [0.402, 0.614] | **[2.689, 2.741]** | 1024.0 | 34.5 | 33.0 |
+| 48 | [0.239, 0.282] | [0.610, 0.939] | **[2.805, 2.857]** | 682.7 | 23.0 | 30.0 |
+| 64 | [0.192, 0.209] | [0.376, 0.482] | **[2.462, 2.508]** | 580.0 | 34.2 | 25.5 |
+| 100 | [0.156, 0.184] | [0.351, 0.595] | **[2.278, 2.315]** | 380.2 | 21.9 | 33.6 |
+| 178 | [0.102, 0.119] | [0.232, 0.339] | **[1.570, 1.592]** | 218.6 | 24.5 | 29.1 |
+| 316 | [0.084, 0.092] | [0.172, 0.219] | **[1.525, 1.540]** | 140.2 | 27.6 | 27.0 |
+| 562 | [0.101, 0.107] | [0.161, 0.186] | **[1.978, 1.995]** | 87.6 | 31.0 | 25.6 |
+| 1,000 | [0.103, 0.112] | [0.136, 0.146] | **[2.451, 2.478]** | 58.3 | 34.8 | 27.7 |
+| 1,778 | [0.174, 0.188] | [0.709, 0.795] | **[2.909, 2.930]** | 44.5 | 19.6 | 26.6 |
+| 3,162 | [0.139, 0.150] | [0.332, 0.380] | **[3.170, 3.193]** | 38.1 | 22.0 | 26.8 |
+| 5,623 | [0.073, 0.078] | [0.143, 0.153] | **[2.036, 2.047]** | 33.1 | 24.8 | 27.0 |
+| 10,000 | [0.134, 0.143] | [0.234, 0.251] | **[4.224, 4.250]** | 32.9 | 27.9 | 26.8 |
+| 17,783 | [0.138, 0.146] | [0.264, 0.271] | **[4.434, 4.453]** | 31.3 | 31.3 | 27.0 |
+| 31,623 | [0.114, 0.119] | [0.185, 0.190] | **[3.378, 3.401]** | 32.8 | 35.2 | 27.3 |
+| 56,234 | [0.115, 0.118] | [0.667, 0.690] | **[2.679, 2.711]** | 33.0 | 19.8 | 27.2 |
+| 100,000 | [0.109, 0.113] | [0.267, 0.278] | **[3.156, 3.191]** | 30.5 | 22.3 | 27.2 |
+| 177,828 | [0.138, 0.155] | [0.175, 0.180] | **[3.677, 3.732]** | 27.2 | 25.1 | 27.1 |
+| 316,228 | [0.210, 0.227] | [0.128, 0.132] | **[4.258, 4.321]** | 25.6 | 28.2 | 27.1 |
+| 562,341 | [0.282, 0.295] | [0.117, 0.121] | **[5.203, 5.361]** | 24.9 | 31.7 | 27.1 |
+| 1,000,000 | [0.335, 0.343] | [0.114, 0.120] | **[4.793, 4.940]** | 24.6 | 35.7 | 27.1 |
+| 1,778,279 | [0.166, 0.172] | [0.283, 0.289] | **[3.394, 3.492]** | 25.2 | 20.0 | 27.1 |
+| 3,162,278 | [0.243, 0.246] | [0.396, 0.404] | **[4.813, 4.862]** | 29.2 | 22.5 | 27.1 |
+| 4,194,304 | [0.259, 0.263] | [0.209, 0.218] | **[4.939, 4.976]** | 28.7 | 34.0 | 27.1 |
+
+**`sequential`**
+
+| N | hit: Expanse / `hashbrown` | miss: Expanse / `hashbrown` | hit: Expanse / `BTreeMap` | B/key `ExpanseMap` | B/key `hashbrown` | B/key `BTreeMap` |
+|---:|---:|---:|---:|---:|---:|---:|
+| 16 | [0.467, 0.481] | [0.452, 1.014] ‡ | **[4.456, 4.518]** | 1296.0 | 35.0 | 42.0 |
+| 24 | [0.370, 0.382] | [0.467, 1.237] | **[3.856, 3.934]** | 869.3 | 23.3 | 36.0 |
+| 31 | [0.360, 0.454] | [0.372, 0.988] | **[3.831, 3.913]** | 677.2 | 35.6 | 34.1 |
+| 32 | [0.049, 0.076] | [0.149, 0.553] | [0.523, 0.529] | 1295.0 | 34.5 | 33.0 |
+| 48 | [0.282, 0.745] | [0.365, 1.395] ‡ | **[3.191, 3.286]** | 1114.7 | 23.0 | 34.0 |
+| 64 | [0.273, 0.330] | [0.288, 0.748] | **[3.354, 3.397]** | 840.0 | 34.2 | 31.5 |
+| 100 | [0.297, 1.233] ‡ | [0.550, 1.453] | **[4.138, 4.265]** | 540.2 | 21.9 | 35.5 |
+| 178 | [0.279, 1.101] ‡ | [0.247, 0.754] | **[4.532, 4.644]** | 306.3 | 24.5 | 33.4 |
+| 316 | [0.185, 0.753] | [0.212, 0.691] | **[3.208, 3.281]** | 202.5 | 27.6 | 33.7 |
+| 562 | [0.129, 0.689] | [0.215, 0.731] | **[2.494, 2.526]** | 117.1 | 31.0 | 33.5 |
+| 1,000 | [0.200, 0.275] | [0.352, 0.728] | **[4.700, 4.851]** | 69.4 | 34.8 | 34.4 |
+| 1,778 | [0.262, 0.924] | **[1.326, 2.346]** | **[5.245, 5.356]** | 42.5 | 19.6 | 34.2 |
+| 3,162 | [0.252, 0.566] | [0.769, 1.643] | **[6.130, 6.251]** | 27.5 | 22.0 | 34.2 |
+| 5,623 | [0.243, 0.497] | [0.578, 1.443] ‡ | **[7.076, 7.286]** | 19.0 | 24.8 | 34.2 |
+| 10,000 | [0.249, 0.612] | [0.449, 1.510] ‡ | **[8.003, 8.481]** | 14.6 | 27.9 | 34.3 |
+| 17,783 | [0.255, 0.754] | [0.416, 1.222] ‡ | **[8.095, 8.288]** | 12.0 | 31.3 | 34.3 |
+| 31,623 | [0.305, 0.819] | [0.398, 0.939] | **[9.259, 9.471]** | 10.5 | 35.2 | 34.3 |
+| 56,234 | [0.348, 1.338] ‡ | **[1.309, 2.849]** | **[8.501, 8.621]** | 9.7 | 19.8 | 34.3 |
+| 100,000 | [0.239, 0.534] | [0.480, 1.078] ‡ | **[6.969, 7.067]** | 9.3 | 22.3 | 34.3 |
+| 177,828 | [0.224, 0.268] | [0.386, 0.667] | **[6.201, 6.276]** | 9.0 | 25.1 | 34.3 |
+| 316,228 | [0.369, 0.411] | [0.389, 0.590] | **[8.689, 9.423]** | 8.8 | 28.2 | 34.3 |
+| 562,341 | [0.418, 0.484] | [0.265, 0.356] | **[8.291, 9.595]** | 8.7 | 31.7 | 34.3 |
+| 1,000,000 | [0.514, 0.594] | [0.324, 0.367] | **[8.130, 9.493]** | 8.7 | 35.7 | 34.3 |
+| 1,778,279 | [0.439, 0.479] | **[1.313, 1.631]** | **[9.910, 10.711]** | 8.6 | 20.0 | 34.3 |
+| 3,162,278 | [0.404, 0.428] | [0.664, 0.804] | **[8.362, 8.827]** | 8.6 | 22.5 | 34.3 |
+| 4,194,304 | [0.393, 0.408] | [0.686, 0.723] | **[7.607, 7.907]** | 8.6 | 34.0 | 34.3 |
+
+**`rand22_bswap`**
+
+| N | hit: Expanse / `hashbrown` | miss: Expanse / `hashbrown` | hit: Expanse / `BTreeMap` | B/key `ExpanseMap` | B/key `hashbrown` | B/key `BTreeMap` |
+|---:|---:|---:|---:|---:|---:|---:|
+| 16 | [0.463, 0.629] | [0.595, 0.906] | **[4.351, 4.482]** | 1296.0 | 35.0 | 42.0 |
+| 24 | [0.374, 0.460] | [0.580, 0.925] | **[3.849, 3.902]** | 869.3 | 23.3 | 36.0 |
+| 31 | [0.359, 0.490] | [0.471, 0.673] | **[3.958, 4.021]** | 677.2 | 35.6 | 34.1 |
+| 32 | [0.179, 0.213] | [0.410, 0.558] | **[1.982, 2.008]** | 1024.0 | 34.5 | 33.0 |
+| 48 | [0.159, 0.221] | [0.417, 1.070] ‡ | **[1.843, 1.881]** | 682.7 | 23.0 | 30.0 |
+| 64 | [0.170, 0.220] | [0.348, 0.458] | **[2.115, 2.151]** | 512.0 | 34.2 | 28.5 |
+| 100 | [0.147, 0.171] | [0.521, 0.929] | **[1.805, 1.838]** | 376.3 | 21.9 | 25.9 |
+| 178 | [0.112, 0.124] | [0.258, 0.387] | **[1.749, 1.769]** | 221.5 | 24.5 | 27.5 |
+| 316 | [0.084, 0.091] | [0.164, 0.217] | **[1.511, 1.529]** | 140.2 | 27.6 | 27.6 |
+| 562 | [0.096, 0.100] | [0.154, 0.174] | **[1.889, 1.909]** | 87.6 | 31.0 | 27.3 |
+| 1,000 | [0.104, 0.113] | [0.136, 0.145] | **[2.427, 2.454]** | 58.3 | 34.8 | 27.2 |
+| 1,778 | [0.172, 0.189] | [0.683, 0.780] | **[2.865, 2.905]** | 46.9 | 19.6 | 26.8 |
+| 3,162 | [0.135, 0.147] | [0.340, 0.404] | **[3.170, 3.215]** | 38.2 | 22.0 | 27.6 |
+| 5,623 | [0.074, 0.079] | [0.144, 0.158] | **[2.051, 2.075]** | 33.3 | 24.8 | 27.3 |
+| 10,000 | [0.119, 0.122] | [0.203, 0.214] | **[3.793, 3.831]** | 32.3 | 27.9 | 27.5 |
+| 17,783 | [0.137, 0.142] | [0.264, 0.282] | **[4.430, 4.463]** | 31.0 | 31.4 | 27.0 |
+| 31,623 | [0.115, 0.118] | [0.185, 0.190] | **[3.400, 3.433]** | 32.7 | 35.4 | 26.9 |
+| 56,234 | [0.112, 0.115] | [0.642, 0.672] | **[2.672, 2.697]** | 33.1 | 19.9 | 27.0 |
+| 100,000 | [0.110, 0.115] | [0.254, 0.267] | **[3.179, 3.268]** | 30.6 | 22.5 | 27.2 |
+| 177,828 | [0.132, 0.146] | [0.159, 0.167] | **[3.702, 3.742]** | 27.2 | 25.6 | 27.0 |
+| 316,228 | [0.189, 0.208] | [0.114, 0.127] | **[4.199, 4.276]** | 25.8 | 29.2 | 27.1 |
+| 562,341 | [0.285, 0.293] | [0.105, 0.122] | **[5.184, 5.246]** | 25.0 | 33.8 | 27.1 |
+| 1,000,000 | [0.188, 0.205] | [0.408, 0.506] | **[5.142, 5.277]** | 25.3 | 20.0 | 27.1 |
+| 1,778,279 | [0.205, 0.209] | [0.111, 0.143] | **[3.983, 4.033]** | 26.0 | 24.6 | 27.1 |
+| 3,162,278 | [0.253, 0.262] | [0.104, 0.123] | **[4.419, 4.501]** | 27.2 | 32.1 | 27.1 |
+| 4,194,304 | [0.305, 0.308] | [0.296, 0.382] | **[5.741, 5.844]** | 27.6 | 26.9 | 27.1 |
+
+---
+
+### Pillar 7: Constant-Size FIFO Churn
+Build N keys, then repeatedly insert a batch of 128 fresh keys and remove the 128 oldest, holding the population at N — the churn workload of [Barrett's Judy versus hash-table comparison](https://www.nothings.org/computer/judy/), where the hash table won at every size (workload: `hashbrown_fifo_churn`). N/128 untimed batches replace every built key once; the timed region is 8,192 batches (1,048,576 insert+remove pairs). N = 100,000 sits below the 30 MiB LLC for every arm and N = 4,194,304 above it; on sequential keys FIFO eviction deletes a contiguous prefix. Times are ns per insert+remove pair, means of 9 rounds with BCa 95% intervals, run 2 in parentheses; the ratio is the competitor's time over Expanse's, paired per round, so above 1 = Expanse faster. `hashbrown` uses its default hasher (foldhash).
+
+*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `performance` governor, CPUs `0-15`, commit cc70a809; bench_baremetal runs [43143702033](https://github.com/orieg/expanse/actions/runs/43143702033) and [43144512438](https://github.com/orieg/expanse/actions/runs/43144512438), `run_all.py --skip-ycsb`, 9 rounds each, one process per round with the arm order rotated; foreign busy CPU at most 0.08 core-equivalents in any round's window; `results/baseline_fifo_churn.json` and run 2 at `results/baseline_fifo_churn_run2.json`; live-heap counts exact and identical in every round of both runs)*
+
+| Keys, N | `ExpanseMap` ns/pair | `hashbrown` ns/pair | `BTreeMap` ns/pair | `hashbrown` ÷ Expanse | `BTreeMap` ÷ Expanse |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| random, 100,000 | 81.6 [81.2, 82.6] (81.0 [80.8, 81.3]) | 9.1 [9.0, 9.2] (9.0 [9.0, 9.1]) | 167.5 [167.1, 168.1] (167.3 [167.1, 167.7]) | 0.111× [0.110, 0.112] (0.112× [0.111, 0.113]) | **2.053× [2.036, 2.061]** (2.064× [2.057, 2.073]) |
+| random, 4,194,304 | 215.1 [214.3, 216.8] (214.8 [214.3, 215.3]) | 31.9 [31.8, 32.0] (31.9 [31.8, 31.9]) | 530.4 [529.6, 531.6] (530.2 [529.4, 531.1]) | 0.148× [0.147, 0.149] (0.148× [0.148, 0.149]) | **2.466× [2.452, 2.474]** (2.469× [2.461, 2.476]) |
+| sequential, 100,000 | 32.8 [32.7, 32.8] (32.9 [32.8, 33.0]) | 8.8 [8.6, 9.0] (9.1 [8.8, 9.5]) | 57.7 [57.6, 57.8] (57.8 [57.7, 57.8]) | 0.267× [0.262, 0.274] (0.276× [0.268, 0.289]) | **1.761× [1.759, 1.764]** (1.758× [1.750, 1.763]) |
+| sequential, 4,194,304 | 36.3 [36.2, 36.4] (37.1 [36.2, 38.7]) | 31.9 [31.8, 32.2] (32.3 [31.9, 32.8]) | 69.2 [69.1, 69.3] (69.1 [69.0, 69.2]) | 0.880× [0.874, 0.885] (0.871× [0.850, 0.884]) | **1.905× [1.899, 1.913]** (1.866× [1.785, 1.904]) |
+
+Live heap bytes per key, after the build → after the churn (exact):
+
+| Keys, N | `ExpanseMap` | `hashbrown` | `BTreeMap` |
+| :--- | :--- | :--- | :--- |
+| random, 100,000 | 30.5 → 33.0 | 22.3 → 44.6 | 27.2 → 28.5 |
+| random, 4,194,304 | 28.7 → 30.2 | 34.0 → 34.0 | 27.1 → 28.4 |
+| sequential, 100,000 | 9.3 → 9.3 | 22.3 → 44.6 | 34.3 → 34.3 |
+| sequential, 4,194,304 | 8.6 → 8.6 | 34.0 → 34.0 | 34.3 → 34.3 |
+
+- **`hashbrown` wins every churn cell, as in Barrett's comparison**: an insert+remove pair costs Expanse 9.0× `hashbrown`'s time on random keys at 100,000 (0.111×) and 6.8× at 4,194,304 (0.148×); on sequential keys the gap narrows to 3.7× (0.267×) and 1.14× (0.880×). Both runs agree on every cell.
+- **Expanse is faster than `BTreeMap` in every cell**, 1.76× to 2.47×.
+- **Footprint after churn**: Expanse's random-key footprint grows by 8% at 100,000 keys (30.5 → 33.0 B/key) and 5% at 4,194,304 (28.7 → 30.2); sequential keys hold steady. `hashbrown` doubles its table during the churn at 100,000 keys (22.3 → 44.6 B/key, a table that was at the bottom of its resize sawtooth when built) and stays at 34.0 at 4,194,304. Why Expanse retains the extra bytes is not measured here (`docs/benchmarks/remove_retention/` covers the remove path's retention).
 
 ---
 
