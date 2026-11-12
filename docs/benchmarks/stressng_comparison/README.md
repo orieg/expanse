@@ -1233,7 +1233,8 @@ Every pre-registered target and bound holds in both runs, on the phase clock and
   - `br_misp_retired.all_branches`, which names the mispredicted branch;
   - `mem_load_retired.l1_miss`, which names the load that missed L1D.
 - **Runs.** Two runs on the reference host under the host bench lock and the comparison's pin. One process per cell and run: a census of where the samples land, with no interval.
-- **Source lines.** The release library has no line tables. N's sampled addresses are mapped to source through a twin built from `5f4892932` with line tables, accepted only if its `.text` section is byte-identical to N's.
+- **Source lines.** The release library has no line tables. N's sampled addresses are mapped to source through a twin built from `5f4892932` with line tables, at N's build paths, by function name and offset within the function. A sampled function is mapped only if the twin's body equals N's instruction for instruction once addresses, jump and call targets, RIP-relative displacements and crate hashes are normalised. Otherwise it is reported by its disassembly only.
+  - *Amended before the run.* The first form of this bullet required the twin's whole `.text` to be byte-identical to N's. No line-table build can meet that: line tables change Cargo's metadata hash, and with it symbol names and function order. Passed through the profile or through `RUSTFLAGS` with stripping off, both builds give the same `.text`, which differs from N's. A control twin at N's paths without line tables reproduces N's `.text` byte for byte. In the line-table twin all 1,280 functions are equal to N's once normalised.
 
 **Reading rule:**
 - Per shape and kind, the functions' shares of the samples, every instruction holding at least 1% of them, and the events per operation estimated as samples × 503 / operations.
