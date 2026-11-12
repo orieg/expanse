@@ -1183,6 +1183,26 @@ Every pre-registered target and bound holds in both runs, on the phase clock and
 
 **Zen 5 pending: host busy with ExpanseDB CI.** Two pre-checks, at 10:34 and 10:53 UTC, found that host's CI job containers running. By the design's terms nothing runs beside them, so nothing was staged or changed there. The criterion therefore stands as measured on the reference host only, and #1679's two-host condition is not yet tested on main.
 
+## The sparsematrix cells on main
+
+**A re-measure against stock, outside METHODOLOGY.md's pre-registration** (#1680). The `sng_sm_judy_*` rows above measure `6ec29a656`. #1705 changed the linear-leaf search these gets reach after it, and #1708, #1719 and #1720 landed too. This re-runs those cells against stock on main, with "The #1679 criterion on main"'s design.
+
+**Design, fixed before the run** (`scripts/diag_delete.py` with `SNG_DELETE_SET=sm_main`, `run.sh <run> <host> sm_main`):
+- **Arms.** The same stress-ng binary and sparsematrix stressor, differing only in `LD_LIBRARY_PATH`:
+  - N: libexpanse at `5f4892932` (sha256 `3734ffc9…`), the file "The #1679 criterion on main" measured. No library source (`crates/expanse/src`, `crates/expanse-capi`) changes between it and this design's commit.
+  - E: the library of the published comparison, `6ec29a656` (`da5814a7…`), the reference host's `expcompat/lib`, hash-checked before the run.
+  - S: stock (`76f121a8…`).
+- **Cells and rounds.** Every `sng_sm_judy_*` cell of METHODOLOGY.md §5 (`default` and `big`, W = 1 and 8), one process per arm per cell per round, 12 rounds per run cycling the six orders of the three arms. Two independent runs under the host bench lock and that host's pin.
+- **Second host.** The reference host's files, copied and hash-checked, on the delete-fix diagnostic's governor and runner terms.
+- **Analysis.** `scripts/diag_delete_analyze.py` writes `results/diagnostic_sm_main_<host>_run{1,2}.json`: two-sample BCa 95% intervals on N/S, N/E and E/S for gets, puts, bogo-ops/s and wall clock. Load windows, the discard rule and the void rule are the delete-fix diagnostic's.
+
+**Reading rule:**
+- **#1680's gets criterion, as the issue states it ("parity or better with stock"):** at every `sng_sm_judy_*` cell, the N/S gets verdict (METHODOLOGY.md §8) is EQUIVALENT or FASTER, on both hosts.
+- **Changed side:** every gets and puts cell whose N/S verdict differs from the published E/S verdict above.
+- **N/E** is what changed since the published table. It combines #1705, #1708, #1719, #1720 and any code placement between the two files, which this design cannot separate.
+
+**Expected** (projected): N/E on gets above 1, since the attribution diagnostic sampled fewer mispredicts per get on N than the phase counters counted on E. Whether the gets reach stock is not predicted.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
