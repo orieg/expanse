@@ -93,12 +93,6 @@ Point lookup throughput (Mops/sec) across standard key geometries ($N = 500,000$
 - **Probe order decides the sequential and clustered results.** With the build unchanged, shuffling the probes turns Expanse's lead over `hashbrown` on dense sequential keys (1.532×) into a loss (0.607×), and on clustered keys from 1.938× into 0.643×; in both runs, with intervals that do not overlap 1. Expanse's own throughput falls from 141.7 to 65.8 Mops/s on sequential keys while `hashbrown`'s rises. In draw order consecutive probes land in the same or the adjacent Expanse leaf; that the loss is that locality going away is a hypothesis, not measured here (no cache counter was taken). On uniform-random keys, where draw order is already random, the two orders agree.
 - **Correction.** The previous runs (commit 2f82cd07, `powersave` governor, draw order only) published dense sequential at 1.740× [1.694, 1.787] (run 2 1.781× [1.758, 1.822]) and uniform random at 0.340× [0.338, 0.342] over `hashbrown`. Re-measured here in the same draw order, dense sequential is 1.532× and uniform random 0.504×; both runs moved each cell the same way, with intervals disjoint from the earlier ones, as did zipfian (0.562× to 0.691×) and every `BTreeMap` ratio (for example sequential 7.260× to 5.749×). The commit and the host's frequency governor both changed between the two pairs of runs, so the shift is not attributed to either. The figure that describes a lookup independent of probe order is the shuffled one: 0.607× on dense sequential keys.
 
---- | :--- | :--- | :--- | :--- | :--- |
-| **Sparse Clustered / Stride** | 85.6 Mops/s | 18.9 Mops/s | **170.0 Mops/s** | **1.990× [1.947, 2.049]** (1.997× [1.972, 2.046]) | **9.003× [8.950, 9.048]** (8.994× [8.923, 9.042]) |
-| **Dense Sequential (0 … N)** | 88.7 Mops/s | 21.2 Mops/s | **154.1 Mops/s** | **1.740× [1.694, 1.787]** (1.781× [1.758, 1.822]) | **7.260× [7.216, 7.311]** (7.278× [7.196, 7.347]) <!-- docs-lint: allow — 1.822 on this row is this suite's interval bound (baseline_distributions_run2.json), not the retired HOT figure registered under that number --> |
-| **Zipfian Skewed (s = 0.99)** | 207.4 Mops/s | 18.6 Mops/s | 114.0 Mops/s | 0.562× [0.518, 0.627] (0.559× [0.518, 0.616]) | **6.135× [6.110, 6.178]** (6.116× [6.084, 6.140]) |
-| **Uniform Random 64-bit** | 81.7 Mops/s | 9.8 Mops/s | 27.7 Mops/s | 0.340× [0.338, 0.342] (0.339× [0.336, 0.342]) | **2.837× [2.830, 2.843]** (2.838× [2.826, 2.846]) |
-
 ---
 
 ### Pillar 5: Native Hashbrown Criterion Suite Port
