@@ -1183,6 +1183,45 @@ Every pre-registered target and bound holds in both runs, on the phase clock and
 
 **Zen 5 pending: host busy with ExpanseDB CI.** Two pre-checks, at 10:34 and 10:53 UTC, found that host's CI job containers running. By the design's terms nothing runs beside them, so nothing was staged or changed there. The criterion therefore stands as measured on the reference host only, and #1679's two-host condition is not yet tested on main.
 
+## Diagnostic: Callgrind ranking of the #1680 shapes
+
+**A diagnostic, not a pre-registered result** (#1680). It ranks where Expanse's instructions go on the sparsematrix gets and the 4 Mi `judy` inserts, the two shapes the phase counters above found slower than stock, and asks whether the gap is in the instruction count.
+
+**Instruments:**
+- **Bench arms.** `crates/expanse/benches/instructions.rs` (workload `core_instructions`) at `bf4cc6dd9`, run unfiltered with `--callgrind-args=--branch-sim=yes` and line tables (`CARGO_PROFILE_BENCH_DEBUG=1`), with CI's rustc 1.99.1 and iai-callgrind-runner 0.16.1 in an Ubuntu 24.04 image. The arms are `map_get_slot_ptr/sm_*` (#1702), `map_get/sm_*` and `map_ins_slot/gen_4m`, with `map_get/random` and `map_ins_slot/random` for context. A function's cost is its `callgrind_annotate --inclusive=no` rows summed over the source files its inlined code is attributed to.
+- **Through the C ABI.** `scripts/phase_probe.c` under `valgrind --tool=callgrind --branch-sim=yes`, collecting inside `JudyLGet` (`sm_default`, `sm_big`) or `JudyLIns` (`judy_4m`) only. It is linked in turn against the suite's own files: N, libexpanse at `5f4892932` (sha256 `3734ffc9…`), and S, stock (`76f121a8…`). The sm shapes collect every get the probe makes, the build's lookups and both get phases: 30,000 and 3,000,000 calls.
+- **The branch model is Callgrind's.** `Bcm` and `Bim` are mispredicts of its simple predictor, not of the hardware's.
+
+### Callgrind result
+
+(measured: Callgrind 3.22.0 in an Ubuntu 24.04 container, rustc 1.99.1, bench arms at `bf4cc6dd9`, probe linked against N `3734ffc9…` and S `76f121a8…`; artifacts `results/callgrind_1680/`, tables from `scripts/callgrind_1680_summary.py` in `results/callgrind_1680/summary.txt`) (workloads: core_instructions, phase_sm_default, phase_sm_big, phase_judy_4m)
+
+**Through the C ABI, per call, N against S.** `Bc` and `Bi` are conditional and indirect branches executed:
+
+| Shape | Ir N/S | `Bc` S → N | `Bi` S → N | `Bcm` S → N | `Bim` S → N |
+|---|---|---|---|---|---|
+| `sm_default` gets | 215.2 / 224.4 = 0.959 | 18.83 → 37.75 | 3.02 → 5.95 | 0.562 → 1.528 | 3.021 → 2.985 |
+| `sm_big` gets | 213.4 / 213.8 = 0.998 | 17.73 → 34.19 | 2.01 → 6.29 | 0.564 → 0.884 | 2.014 → 3.334 |
+| `judy_4m` inserts | 645.8 / 761.5 = 0.848 | 45.75 → 89.43 | 4.55 → 8.04 | 0.440 → 1.786 | 4.083 → 4.572 |
+
+- **The gap is not the instruction count.** N executes 0.96×, 1.00× and 0.85× stock's instructions per call. The phase counters above count 1.02×, 1.05× and 0.84× on the hardware, the probe's own loop included.
+- **N executes about twice stock's branches.** It executes 1.93–2.01× the conditional branches and 1.77–3.12× the indirect ones.
+- **The simulated mispredicts do not reproduce the hardware's ratio.** Callgrind gives N 1.57–4.06× stock's conditional mispredicts. The phase counters measured `br_misp_retired.all_branches` at 6.4× (`sm_default`), 4.4× (`sm_big`) and 1.15× (`judy_4m`). Which of N's branches mispredict on the hardware is therefore not read from this model; the next diagnostic samples them.
+
+**Inside Expanse, per operation, bench arms:**
+
+| Arm | Ir/op | Ranked functions (share of Ir, Ir/op) | `Bim`/op |
+|---|---|---|---|
+| `map_get_slot_ptr/sm_10k` | 229.9 | `get::locate_slot_popcnt` 64.6%, 148.5; `leaf::search` 26.3%, 60.4; the arm's loop 9.1%, 21.0 | 3.023 |
+| `map_get_slot_ptr/sm_1m` | 228.6 | `get::locate_slot_popcnt` 68.1%, 155.7; `leaf::search` 22.7%, 51.9; the arm's loop 9.2%, 21.0 | 3.343 |
+| `map_get/random` (context) | 125.3 | `get::get_map_popcnt` 70.3%, 88.1; the arm's loop 16.8%, 21.0; `leaf::search` 12.9%, 16.2 | 3.000 |
+| `map_ins_slot/gen_4m` | 634.3 | `map_insert_with_path_flat::<true>` 73.7%, 467.5, and its recursive instance 4.8%, 30.6; the arm's loop 6.9%, 44.0; glibc `memset`, `_int_malloc`, `memcpy` 8.7%, 55.9; `upgrade_b_to_u` 1.2%, 7.7 | 4.568 |
+| `map_ins_slot/random` (context) | 505.6 | `map_insert_with_path_flat::<true>` 57.0%, 288.3, and its recursive instance 8.5%, 42.9; glibc `memset`, `memcpy`, `_int_malloc` 13.2%, 66.6; `build_map_leaf` 5.6%, 28.3 | 2.938 |
+
+- **Gets.** The C-ABI walk `locate_slot_popcnt` holds 64.6–68.1% of the instructions, and every simulated indirect mispredict falls at its per-level tag dispatch (`match tag`). The leaf search holds 22.7–26.3%, 51.9–60.4 instructions per get against 16.2 on `random`.
+- **4 Mi inserts.** `map_insert_with_path_flat` holds 78.5% with its recursive instance, and its tag dispatch holds 4.56 of the 4.57 simulated indirect mispredicts per insert. Allocation, zeroing and copying in glibc hold 8.7%.
+- **Not measured here.** Which of these branches mispredict on the hardware, and which loads miss.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
