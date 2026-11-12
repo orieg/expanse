@@ -81,14 +81,17 @@ pub const fn map_keys_offset(pop: usize) -> usize {
     8 * cap_class(pop)
 }
 
-/// `cap_class(pop)` for every linear-leaf population, `0..=LEAF_CAP`, built
-/// from `cap_class` itself so the ladder keeps one definition.
-const CAP_CLASS_TABLE: [u8; crate::types::LEAF_CAP + 1] = {
-    let mut t = [0u8; crate::types::LEAF_CAP + 1];
+/// [`map_keys_offset`] for every index `0..64`, built from `cap_class`
+/// itself so the ladder keeps one definition. 64 covers every linear-leaf
+/// population (`pop <= LEAF_CAP`, pinned below) and is a power of two, so
+/// an index masked with `& 63` stays in bounds for any `pop`.
+const KEYS_OFFSET_TABLE: [u16; 64] = {
+    assert!(crate::types::LEAF_CAP < 64);
+    let mut t = [0u16; 64];
     let mut pop = 0;
-    while pop <= crate::types::LEAF_CAP {
-        assert!(cap_class(pop) <= u8::MAX as usize);
-        t[pop] = cap_class(pop) as u8;
+    while pop < 64 {
+        assert!(map_keys_offset(pop) <= u16::MAX as usize);
+        t[pop] = map_keys_offset(pop) as u16;
         pop += 1;
     }
     t
@@ -99,16 +102,14 @@ const CAP_CLASS_TABLE: [u8; crate::types::LEAF_CAP + 1] = {
 /// `cap_class` is a compare chain on `pop`. A lookup reaches leaves whose
 /// populations differ from probe to probe, and on the stress-ng sparsematrix
 /// gets that chain's `pop <= 16` and `pop <= 24` tests drew about a quarter
-/// of the sampled mispredicts (#1680). A load from a table indexed by `pop`
-/// has no data-dependent branch. Populations above `LEAF_CAP` keep the ladder.
+/// of the sampled mispredicts (#1680). A masked load from a table has no
+/// data-dependent branch. A linear leaf holds at most `LEAF_CAP` keys, so the
+/// mask never changes the index.
 #[inline(always)]
 #[must_use]
 pub(crate) fn map_keys_offset_lookup(pop: usize) -> usize {
-    if pop <= crate::types::LEAF_CAP {
-        8 * CAP_CLASS_TABLE[pop] as usize
-    } else {
-        map_keys_offset(pop)
-    }
+    debug_assert!(pop <= crate::types::LEAF_CAP);
+    KEYS_OFFSET_TABLE[pop & 63] as usize
 }
 
 /// Binary search over packed little-endian keys: first slot whose key is
@@ -1731,11 +1732,10 @@ mod tests {
 
     #[test]
     fn map_keys_offset_lookup_matches_the_ladder() {
-        // The lookup walks read the keys offset from `CAP_CLASS_TABLE`, the
+        // The lookup walks read the keys offset from `KEYS_OFFSET_TABLE`, the
         // mutation paths from `cap_class`; a leaf written by one is read by
-        // the other, so the two must agree at every population, including
-        // past `LEAF_CAP`, where the lookup falls back to the ladder.
-        for pop in 0..=crate::types::LEAF_CAP + 40 {
+        // the other, so the two must agree at every linear-leaf population.
+        for pop in 0..=crate::types::LEAF_CAP {
             assert_eq!(
                 map_keys_offset_lookup(pop),
                 map_keys_offset(pop),
