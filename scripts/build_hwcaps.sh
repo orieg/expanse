@@ -20,6 +20,11 @@ set -euo pipefail
 # Each variant builds into its own `--target-dir`, so no `cargo clean` is
 # needed between the differing RUSTFLAGS and nothing the caller built is
 # disturbed.
+#
+# EXPANSE_HWCAPS_EXTRA_RUSTFLAGS, when set, is appended to each variant's
+# RUSTFLAGS. The release job passes the function alignment the baseline gets
+# from its target rustflags (#1684), which a set RUSTFLAGS would otherwise
+# override.
 
 TARGET="${1:-$(rustc -vV | awk '/^host:/{print $2}')}"
 DIST_DIR="${2:-dist}"
@@ -40,7 +45,7 @@ build_variant() {
 
     echo "building ${level} for ${TARGET} ..."
     mkdir -p "$dest"
-    RUSTFLAGS="-C target-cpu=${level}" cargo build --release --locked \
+    RUSTFLAGS="-C target-cpu=${level} ${EXPANSE_HWCAPS_EXTRA_RUSTFLAGS:-}" cargo build --release --locked \
         --manifest-path crates/expanse-capi/Cargo.toml \
         --target "$TARGET" --target-dir "$tdir"
 

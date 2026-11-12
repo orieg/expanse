@@ -50,8 +50,10 @@
 //! own tests, which opt back into pooling. Nothing here exists outside
 //! `cfg(miri)`.
 //!
-//! The tree itself is single-writer; Phase 7's concurrent wrappers add
-//! shared readers, so the counters are (relaxed) atomics.
+//! A [`NodeAlloc`] has one owner: it is `Send` and not `Sync`. A
+//! concurrent wrapper shares its tree by deferring the allocator to its
+//! collector, and reads the counters beside its writers, so the counters
+//! are (relaxed) atomics.
 
 #[cfg(feature = "std")]
 use crate::occ::Collector;
@@ -106,10 +108,29 @@ macro_rules! alloc_raw_body {
                 return Self::$system($bytes, $align);
             }
 
+            // A plain tree's accounting (Refs #1679): a relaxed load and store
+            // per counter, which x86 emits without a `lock` prefix. Sound
+            // because a `NodeAlloc` is `Send` and not `Sync`, so only its owner
+            // reaches this path; a shared tree's allocator left above, through
+            // its deferred cell. `ablation-locked-plain-acct` restores the
+            // locked read-modify-write.
+            #[cfg(feature = "ablation-locked-plain-acct")]
             $s.bytes_in_use
                 .fetch_add(accounted_size, Ordering::Relaxed);
+            #[cfg(feature = "ablation-locked-plain-acct")]
             $s.live_allocs.fetch_add(1, Ordering::Relaxed);
+            #[cfg(feature = "ablation-locked-plain-acct")]
             $s.total_allocs.fetch_add(1, Ordering::Relaxed);
+            #[cfg(not(feature = "ablation-locked-plain-acct"))]
+            {
+                let b = $s.bytes_in_use.load(Ordering::Relaxed);
+                $s.bytes_in_use
+                    .store(b.wrapping_add(accounted_size), Ordering::Relaxed);
+                let l = $s.live_allocs.load(Ordering::Relaxed);
+                $s.live_allocs.store(l.wrapping_add(1), Ordering::Relaxed);
+                let t = $s.total_allocs.load(Ordering::Relaxed);
+                $s.total_allocs.store(t.wrapping_add(1), Ordering::Relaxed);
+            }
 
             // Miri: one system allocation of exactly `(bytes, align)` per block,
             // accounted above as in every build (module docs).
@@ -755,9 +776,37 @@ const ROOT_COVER_HELD: u8 = 2;
 /// `align_of::<T>()` via [`Self::alloc_node`], at [`RAW_ALIGN`] via
 /// [`Self::alloc_bytes`] — and keeps byte-exact accounting.
 ///
-/// Counters are relaxed atomics (Phase 7): accounting must stay exact
-/// when a concurrent wrapper shares the tree across threads, and the
-/// counters order nothing — the OCC read protocol carries the fences.
+/// **One owner: `Send`, not `Sync`.** Allocation and free update this
+/// handle's per-tree freelists and slab list by plain load/store pairs (see
+/// `freelists`), so two threads inside one `NodeAlloc` at once could be
+/// handed the same block, and one could read a free block's link while the
+/// other fills it. The type rules that out for safe code: a `NodeAlloc`
+/// moves between threads, and cannot be shared between them by reference.
+/// To share a tree, use a `Sync*` wrapper. It defers the allocator to its
+/// collector ([`Self::defer_to`]), after which allocation goes to the
+/// collector's locked freelists and per-writer accounting shards, and the
+/// wrapper's own `Sync` implementation covers its threads' use of the
+/// handle.
+///
+/// The handle moves between threads:
+///
+/// ```no_run
+/// fn assert_send<T: Send>() {}
+/// assert_send::<expanse_trie::alloc::NodeAlloc>();
+/// ```
+///
+/// and is not shareable between them. This is the same program with the
+/// bound swapped, so what fails below is the missing `Sync` and nothing else:
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::alloc::NodeAlloc>();
+/// ```
+///
+/// Counters are relaxed atomics, and they order nothing: the OCC read
+/// protocol carries the fences. A concurrent wrapper reads them while its
+/// writers run. Their owner updates them on the plain path with a relaxed
+/// load and store, not a locked read-modify-write (Refs #1679).
 #[derive(Debug)]
 pub struct NodeAlloc {
     bytes_in_use: AtomicUsize,
@@ -819,7 +868,28 @@ pub struct NodeAlloc {
     /// The field does not exist in any other build.
     #[cfg(miri)]
     exact_size: bool,
+    /// Withdraws `Sync` and keeps `Send`: `Cell<()>` is `Send` and not `Sync`,
+    /// and a `PhantomData` of it is zero-sized. See the type's documentation.
+    _not_sync: core::marker::PhantomData<core::cell::Cell<()>>,
 }
+
+// See `NodeAlloc`'s doc comment. A future `!Send` field must fail the build,
+// since a tree and its allocator move between threads; and a change that makes
+// the type `Sync` again must fail it too, because that makes two threads in one
+// allocator's freelists expressible in safe code again.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<NodeAlloc>();
+};
+crate::common::assert_not_sync!(NodeAlloc);
+
+// The marker is a `Cell`, which is not `RefUnwindSafe`, and the auto trait
+// would follow it, and from it every container that owns a `NodeAlloc`.
+// Nothing about the allocator changed across an unwind: its state is atomics
+// and a `OnceLock`, as before, and the `Cell` is phantom. The bound is
+// restored so that withdrawing `Sync` is the only change to the type's public
+// surface.
+impl core::panic::RefUnwindSafe for NodeAlloc {}
 
 impl Default for NodeAlloc {
     fn default() -> Self {
@@ -839,6 +909,7 @@ impl Default for NodeAlloc {
             bookkeeping_busy: core::sync::atomic::AtomicBool::new(false),
             #[cfg(miri)]
             exact_size: true,
+            _not_sync: core::marker::PhantomData,
         }
     }
 }
@@ -977,8 +1048,12 @@ impl NodeAlloc {
         let mut page = self.slab_pages.load(Ordering::Relaxed);
         while !page.is_null() {
             // SAFETY: every entry of the slab list is a live page this handle
-            // carved, and its header was written before it was linked. The
-            // list is single-writer and `&self` excludes a plain tree's writer.
+            // carved, and its header was written before it was linked. Nothing
+            // links or unlinks a page meanwhile: `NodeAlloc` is not `Sync`, so
+            // no other thread is inside this handle through safe code, and
+            // this call allocates nothing. A deferred tree carves no pages
+            // (`defer_to` asserts it), so its wrapper's threads never reach
+            // this list.
             unsafe {
                 pages[(*page).class] += 1;
                 page = (*page).next;
@@ -1029,7 +1104,11 @@ impl NodeAlloc {
             return 0;
         }
         // Nothing live: every page and every free block goes, so the
-        // per-block page census below has nothing to decide.
+        // per-block page census below has nothing to decide. This trusts the
+        // counter to be exact: a missed decrement would leave live blocks on
+        // pages released here. A plain tree's counter is exact because only
+        // its owner updates it (`NodeAlloc` is not `Sync`), even though its
+        // updates are unlocked (Refs #1679); the deferred case returned above.
         if *self.bytes_in_use.get_mut() == 0 {
             return self.release_all_unused();
         }
@@ -1436,9 +1515,20 @@ impl NodeAlloc {
             return;
         }
 
+        // `alloc_raw_body!`'s accounting, inverted (Refs #1679).
+        #[cfg(feature = "ablation-locked-plain-acct")]
         self.bytes_in_use
             .fetch_sub(accounted_size, Ordering::Relaxed);
+        #[cfg(feature = "ablation-locked-plain-acct")]
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+        #[cfg(not(feature = "ablation-locked-plain-acct"))]
+        {
+            let b = self.bytes_in_use.load(Ordering::Relaxed);
+            self.bytes_in_use
+                .store(b.wrapping_sub(accounted_size), Ordering::Relaxed);
+            let l = self.live_allocs.load(Ordering::Relaxed);
+            self.live_allocs.store(l.wrapping_sub(1), Ordering::Relaxed);
+        }
 
         // Miri: the block goes back to the system allocator, so a later use
         // of it is a use after free and not a read of a pooled block.

@@ -3047,29 +3047,10 @@ pub struct Reader {
     _not_sync: core::marker::PhantomData<core::cell::Cell<()>>,
 }
 
-/// Fails the build if any listed type implements `Sync`.
-///
-/// Stable Rust has no negative bound, so this is the ambiguity construction:
-/// every type gets the `()` impl, a `Sync` type gets a second one, and the
-/// inferred `_` then has two candidates, which is an error (E0283). The
-/// `compile_fail` doctests on the public types guard the same property from
-/// outside the crate; this guards it at the definition, in every build.
+// `assert_not_sync!` lives in `common` so that `no_std` builds have it too
+// (`alloc::NodeAlloc`); re-exported here for its existing callers.
 #[cfg(feature = "std")]
-macro_rules! assert_not_sync {
-    ($($t:ty),+ $(,)?) => {
-        const _: fn() = || {
-            trait AmbiguousIfSync<A> {
-                fn probe() {}
-            }
-            impl<T: ?Sized> AmbiguousIfSync<()> for T {}
-            struct IsSync;
-            impl<T: ?Sized + Sync> AmbiguousIfSync<IsSync> for T {}
-            $(let _ = <$t as AmbiguousIfSync<_>>::probe;)+
-        };
-    };
-}
-#[cfg(feature = "std")]
-pub(crate) use assert_not_sync;
+pub(crate) use crate::common::assert_not_sync;
 
 // See `Reader`'s doc comment. A future `!Send` field must fail the build, not
 // silently withdraw a bound the C ABI documents; and a change that makes the

@@ -266,6 +266,15 @@ jobs:
       # for the cargo build below and for scripts/build_hwcaps.sh's variants alike.
       # package_deb.sh and package_rpm.sh refuse a library without it.
       EXPANSE_LINK_SONAME: ${{ contains(matrix.os, 'ubuntu') && '1' || '0' }}
+      # Every function of the x86_64 Linux library, baseline and glibc-hwcaps
+      # variants, starts on a 64-byte boundary (#1684). Two library builds with
+      # identical instructions ran the stress-ng suite's 1 Ki find at 0.96x and
+      # 1.08x of stock on the reference host, by where the hot code fell in its
+      # 64-byte lines; aligned, it measured 1.08-1.10x there and 1.18-1.21x on a
+      # second host (docs/benchmarks/stressng_comparison/README.md, "Diagnostic:
+      # layout-only builds"). Release builds only: CI, benchmark and other
+      # targets' builds are unchanged.
+      X86_64_LINUX_ALIGN_RUSTFLAGS: "-C llvm-args=-align-all-functions=6"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -284,6 +293,8 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
+          # Applies to the x86_64-unknown-linux-gnu target only.
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: ${{ env.X86_64_LINUX_ALIGN_RUSTFLAGS }}
         run: cargo build -p expanse-capi --release --locked --target ${{ matrix.target }}
 
       - name: Prepare dist, archive, and Linux packages (Unix)
@@ -330,8 +341,13 @@ jobs:
           # non-x86_64 targets itself, and the validator fails if a variant is
           # byte-identical to the baseline — i.e. if -C target-cpu did not take.
           if [ "$T" = "x86_64-unknown-linux-gnu" ]; then
-            bash scripts/build_hwcaps.sh "$T" dist
+            # build_hwcaps.sh sets RUSTFLAGS, which overrides the target's own
+            # rustflags, so the alignment is passed to it explicitly.
+            EXPANSE_HWCAPS_EXTRA_RUSTFLAGS="$X86_64_LINUX_ALIGN_RUSTFLAGS" \
+              bash scripts/build_hwcaps.sh "$T" dist
             bash scripts/test_hwcaps.sh dist
+            python3 scripts/check_function_alignment.py dist/lib/libexpanse.so.1.0.0 \
+              dist/lib/glibc-hwcaps/*/libexpanse.so.1.0.0
           fi
 
           tar -czvf "expanse-${VERSION}-${T}.tar.gz" -C dist .

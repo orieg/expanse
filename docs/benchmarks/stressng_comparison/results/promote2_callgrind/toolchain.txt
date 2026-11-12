@@ -1,0 +1,1 @@
+vs_stock: rustc 1.99.1, valgrind 3.22.0, iai-callgrind-runner 0.16.1, Ubuntu 24.04 glibc 2.39, stock libjudy from libjudy-dev; base c83d32bed, head 48a2fd692
