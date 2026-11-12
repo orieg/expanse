@@ -1,0 +1,3999 @@
+{
+ "provenance": {
+  "suite": "stressng_comparison",
+  "issue": 1680,
+  "commit": "a75168caf",
+  "host": {
+   "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+   "cpus_online": 24,
+   "cpu_core_cpus": "0-15",
+   "cpu_atom_cpus": "16-23",
+   "cpu0_thread_siblings": "0-1",
+   "scaling_driver": "intel_pstate",
+   "scaling_governor": "powersave",
+   "scaling_governor_by_cpu": {
+    "0": "powersave",
+    "2": "powersave",
+    "4": "powersave",
+    "6": "powersave",
+    "8": "powersave",
+    "10": "powersave",
+    "12": "powersave",
+    "14": "powersave"
+   },
+   "scaling_governor_pin_set": "0,2,4,6,8,10,12,14",
+   "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+   "transparent_hugepage": "always [madvise] never",
+   "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+   "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+  },
+  "estimators": {
+   "ratio": "share of the run's samples per function and per instruction, one process per (shape, arm); a census, no interval",
+   "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+   "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+  },
+  "core_pin": "0,2,4,6,8,10,12,14",
+  "loads": [
+   {
+    "label": "start",
+    "since": null,
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:34Z",
+    "stat_busy_jiffies": 61724031,
+    "stat_total_jiffies": 5734835360,
+    "child_cpu_s": 0.069,
+    "monotonic_s": 2390400.138,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "record:sm_default:N:br_misp_retired.all_branches",
+    "since": "start",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:34Z",
+    "stat_busy_jiffies": 61724031,
+    "stat_total_jiffies": 5734835360,
+    "child_cpu_s": 0.069,
+    "monotonic_s": 2390400.138,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "record:sm_default:N:mem_load_retired.l1_miss",
+    "since": "record:sm_default:N:br_misp_retired.all_branches",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:34Z",
+    "stat_busy_jiffies": 61724047,
+    "stat_total_jiffies": 5734835797,
+    "child_cpu_s": 0.238,
+    "monotonic_s": 2390400.321,
+    "busy_cpus_since_prev": 0.88,
+    "own_busy_cpus_since_prev": 0.92,
+    "foreign_busy_cpus_since_prev": -0.04
+   },
+   {
+    "label": "record:sm_default:S:br_misp_retired.all_branches",
+    "since": "record:sm_default:N:mem_load_retired.l1_miss",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:34Z",
+    "stat_busy_jiffies": 61724066,
+    "stat_total_jiffies": 5734836235,
+    "child_cpu_s": 0.412,
+    "monotonic_s": 2390400.503,
+    "busy_cpus_since_prev": 1.04,
+    "own_busy_cpus_since_prev": 0.95,
+    "foreign_busy_cpus_since_prev": 0.09
+   },
+   {
+    "label": "record:sm_default:S:mem_load_retired.l1_miss",
+    "since": "record:sm_default:S:br_misp_retired.all_branches",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:34Z",
+    "stat_busy_jiffies": 61724083,
+    "stat_total_jiffies": 5734836630,
+    "child_cpu_s": 0.569,
+    "monotonic_s": 2390400.668,
+    "busy_cpus_since_prev": 1.03,
+    "own_busy_cpus_since_prev": 0.95,
+    "foreign_busy_cpus_since_prev": 0.08
+   },
+   {
+    "label": "record:sm_big:N:br_misp_retired.all_branches",
+    "since": "record:sm_default:S:mem_load_retired.l1_miss",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:34Z",
+    "stat_busy_jiffies": 61724099,
+    "stat_total_jiffies": 5734837041,
+    "child_cpu_s": 0.734,
+    "monotonic_s": 2390400.84,
+    "busy_cpus_since_prev": 0.93,
+    "own_busy_cpus_since_prev": 0.96,
+    "foreign_busy_cpus_since_prev": -0.03
+   },
+   {
+    "label": "record:sm_big:N:mem_load_retired.l1_miss",
+    "since": "record:sm_big:N:br_misp_retired.all_branches",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:35Z",
+    "stat_busy_jiffies": 61724122,
+    "stat_total_jiffies": 5734837590,
+    "child_cpu_s": 0.955,
+    "monotonic_s": 2390401.069,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 0.96,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "record:sm_big:S:br_misp_retired.all_branches",
+    "since": "record:sm_big:N:mem_load_retired.l1_miss",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:35Z",
+    "stat_busy_jiffies": 61724149,
+    "stat_total_jiffies": 5734838200,
+    "child_cpu_s": 1.197,
+    "monotonic_s": 2390401.323,
+    "busy_cpus_since_prev": 1.06,
+    "own_busy_cpus_since_prev": 0.96,
+    "foreign_busy_cpus_since_prev": 0.1
+   },
+   {
+    "label": "record:sm_big:S:mem_load_retired.l1_miss",
+    "since": "record:sm_big:S:br_misp_retired.all_branches",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:35Z",
+    "stat_busy_jiffies": 61724174,
+    "stat_total_jiffies": 5734838798,
+    "child_cpu_s": 1.44,
+    "monotonic_s": 2390401.573,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 0.97,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "record:judy_4m:N:br_misp_retired.all_branches",
+    "since": "record:sm_big:S:mem_load_retired.l1_miss",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:35Z",
+    "stat_busy_jiffies": 61724199,
+    "stat_total_jiffies": 5734839396,
+    "child_cpu_s": 1.685,
+    "monotonic_s": 2390401.822,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 0.98,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "record:judy_4m:N:mem_load_retired.l1_miss",
+    "since": "record:judy_4m:N:br_misp_retired.all_branches",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:36Z",
+    "stat_busy_jiffies": 61724231,
+    "stat_total_jiffies": 5734840143,
+    "child_cpu_s": 1.977,
+    "monotonic_s": 2390402.134,
+    "busy_cpus_since_prev": 1.03,
+    "own_busy_cpus_since_prev": 0.94,
+    "foreign_busy_cpus_since_prev": 0.09
+   },
+   {
+    "label": "record:judy_4m:S:br_misp_retired.all_branches",
+    "since": "record:judy_4m:N:mem_load_retired.l1_miss",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:36Z",
+    "stat_busy_jiffies": 61724268,
+    "stat_total_jiffies": 5734841043,
+    "child_cpu_s": 2.341,
+    "monotonic_s": 2390402.51,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 0.97,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "record:judy_4m:S:mem_load_retired.l1_miss",
+    "since": "record:judy_4m:S:br_misp_retired.all_branches",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:36Z",
+    "stat_busy_jiffies": 61724293,
+    "stat_total_jiffies": 5734841638,
+    "child_cpu_s": 2.583,
+    "monotonic_s": 2390402.759,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 0.97,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "end",
+    "since": "record:judy_4m:S:mem_load_retired.l1_miss",
+    "load1": 0.0,
+    "load5": 0.0,
+    "load15": 0.0,
+    "at": "2026-11-12T18:19:37Z",
+    "stat_busy_jiffies": 61724322,
+    "stat_total_jiffies": 5734842319,
+    "child_cpu_s": 2.861,
+    "monotonic_s": 2390403.043,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 0.98,
+    "foreign_busy_cpus_since_prev": 0.04
+   }
+  ],
+  "host_label": "ref",
+  "run": 1,
+  "diagnostic": "mispredicted-branch and L1D-miss attribution on the #1680 shapes, outside METHODOLOGY.md's pre-registration",
+  "attribution": "misp",
+  "kinds": {
+   "misp": [
+    [
+     "br_misp_retired.all_branches",
+     "upp"
+    ]
+   ],
+   "l1miss": [
+    [
+     "mem_load_retired.l1_miss",
+     "upp"
+    ]
+   ]
+  },
+  "probe": "scripts/phase_probe.c",
+  "shapes": [
+   [
+    "sm_default",
+    200,
+    4000000
+   ],
+   [
+    "sm_big",
+    1,
+    2000000
+   ],
+   [
+    "judy_4m",
+    1,
+    4194304
+   ]
+  ],
+  "arms": {
+   "N": "/var/tmp/stressng-eval/expcompat-5f4892932/lib",
+   "S": "/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu"
+  },
+  "pmu": "cpu_core",
+  "period": 503,
+  "perf_version": "perf version 6.8.12",
+  "sha256": {
+   "probe": "d08917e4db9f3d25b5664a7a9e89dfdf6fcacea1e32ad9cff224b8adeb970e9e",
+   "arm_N": "3734ffc98be62de0b2539cf89c59941170d64380890e7893e190431f478730aa",
+   "arm_S": "76f121a81b7d8b019e7c5f3bc43e8ead5f7f6a99b377ea7afb9f1d6ff483d731"
+  },
+  "run2_provenance": {
+   "suite": "stressng_comparison",
+   "issue": 1680,
+   "commit": "a75168caf",
+   "host": {
+    "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+    "cpus_online": 24,
+    "cpu_core_cpus": "0-15",
+    "cpu_atom_cpus": "16-23",
+    "cpu0_thread_siblings": "0-1",
+    "scaling_driver": "intel_pstate",
+    "scaling_governor": "powersave",
+    "scaling_governor_by_cpu": {
+     "0": "powersave",
+     "2": "powersave",
+     "4": "powersave",
+     "6": "powersave",
+     "8": "powersave",
+     "10": "powersave",
+     "12": "powersave",
+     "14": "powersave"
+    },
+    "scaling_governor_pin_set": "0,2,4,6,8,10,12,14",
+    "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+    "transparent_hugepage": "always [madvise] never",
+    "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+    "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+   },
+   "estimators": {
+    "ratio": "share of the run's samples per function and per instruction, one process per (shape, arm); a census, no interval",
+    "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+    "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+   },
+   "core_pin": "0,2,4,6,8,10,12,14",
+   "loads": [
+    {
+     "label": "start",
+     "since": null,
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:37Z",
+     "stat_busy_jiffies": 61724352,
+     "stat_total_jiffies": 5734842952,
+     "child_cpu_s": 0.071,
+     "monotonic_s": 2390403.308,
+     "busy_cpus_since_prev": null,
+     "own_busy_cpus_since_prev": null,
+     "foreign_busy_cpus_since_prev": null
+    },
+    {
+     "label": "record:sm_default:N:br_misp_retired.all_branches",
+     "since": "start",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:37Z",
+     "stat_busy_jiffies": 61724352,
+     "stat_total_jiffies": 5734842953,
+     "child_cpu_s": 0.071,
+     "monotonic_s": 2390403.308,
+     "busy_cpus_since_prev": null,
+     "own_busy_cpus_since_prev": null,
+     "foreign_busy_cpus_since_prev": null
+    },
+    {
+     "label": "record:sm_default:N:mem_load_retired.l1_miss",
+     "since": "record:sm_default:N:br_misp_retired.all_branches",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:37Z",
+     "stat_busy_jiffies": 61724370,
+     "stat_total_jiffies": 5734843377,
+     "child_cpu_s": 0.241,
+     "monotonic_s": 2390403.485,
+     "busy_cpus_since_prev": 1.02,
+     "own_busy_cpus_since_prev": 0.96,
+     "foreign_busy_cpus_since_prev": 0.06
+    },
+    {
+     "label": "record:sm_default:S:br_misp_retired.all_branches",
+     "since": "record:sm_default:N:mem_load_retired.l1_miss",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:37Z",
+     "stat_busy_jiffies": 61724391,
+     "stat_total_jiffies": 5734843862,
+     "child_cpu_s": 0.437,
+     "monotonic_s": 2390403.687,
+     "busy_cpus_since_prev": 1.04,
+     "own_busy_cpus_since_prev": 0.97,
+     "foreign_busy_cpus_since_prev": 0.07
+    },
+    {
+     "label": "record:sm_default:S:mem_load_retired.l1_miss",
+     "since": "record:sm_default:S:br_misp_retired.all_branches",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:37Z",
+     "stat_busy_jiffies": 61724407,
+     "stat_total_jiffies": 5734844263,
+     "child_cpu_s": 0.597,
+     "monotonic_s": 2390403.855,
+     "busy_cpus_since_prev": 0.96,
+     "own_busy_cpus_since_prev": 0.96,
+     "foreign_busy_cpus_since_prev": 0.0
+    },
+    {
+     "label": "record:sm_big:N:br_misp_retired.all_branches",
+     "since": "record:sm_default:S:mem_load_retired.l1_miss",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:38Z",
+     "stat_busy_jiffies": 61724426,
+     "stat_total_jiffies": 5734844708,
+     "child_cpu_s": 0.778,
+     "monotonic_s": 2390404.041,
+     "busy_cpus_since_prev": 1.02,
+     "own_busy_cpus_since_prev": 0.97,
+     "foreign_busy_cpus_since_prev": 0.05
+    },
+    {
+     "label": "record:sm_big:N:mem_load_retired.l1_miss",
+     "since": "record:sm_big:N:br_misp_retired.all_branches",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:38Z",
+     "stat_busy_jiffies": 61724449,
+     "stat_total_jiffies": 5734845264,
+     "child_cpu_s": 1.001,
+     "monotonic_s": 2390404.272,
+     "busy_cpus_since_prev": 0.99,
+     "own_busy_cpus_since_prev": 0.97,
+     "foreign_busy_cpus_since_prev": 0.02
+    },
+    {
+     "label": "record:sm_big:S:br_misp_retired.all_branches",
+     "since": "record:sm_big:N:mem_load_retired.l1_miss",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:38Z",
+     "stat_busy_jiffies": 61724475,
+     "stat_total_jiffies": 5734845885,
+     "child_cpu_s": 1.252,
+     "monotonic_s": 2390404.532,
+     "busy_cpus_since_prev": 1.0,
+     "own_busy_cpus_since_prev": 0.97,
+     "foreign_busy_cpus_since_prev": 0.03
+    },
+    {
+     "label": "record:sm_big:S:mem_load_retired.l1_miss",
+     "since": "record:sm_big:S:br_misp_retired.all_branches",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:38Z",
+     "stat_busy_jiffies": 61724501,
+     "stat_total_jiffies": 5734846523,
+     "child_cpu_s": 1.505,
+     "monotonic_s": 2390404.798,
+     "busy_cpus_since_prev": 0.98,
+     "own_busy_cpus_since_prev": 0.95,
+     "foreign_busy_cpus_since_prev": 0.03
+    },
+    {
+     "label": "record:judy_4m:N:br_misp_retired.all_branches",
+     "since": "record:sm_big:S:mem_load_retired.l1_miss",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:39Z",
+     "stat_busy_jiffies": 61724525,
+     "stat_total_jiffies": 5734847120,
+     "child_cpu_s": 1.748,
+     "monotonic_s": 2390405.047,
+     "busy_cpus_since_prev": 0.96,
+     "own_busy_cpus_since_prev": 0.97,
+     "foreign_busy_cpus_since_prev": -0.01
+    },
+    {
+     "label": "record:judy_4m:N:mem_load_retired.l1_miss",
+     "since": "record:judy_4m:N:br_misp_retired.all_branches",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:39Z",
+     "stat_busy_jiffies": 61724553,
+     "stat_total_jiffies": 5734847779,
+     "child_cpu_s": 2.007,
+     "monotonic_s": 2390405.322,
+     "busy_cpus_since_prev": 1.02,
+     "own_busy_cpus_since_prev": 0.95,
+     "foreign_busy_cpus_since_prev": 0.07
+    },
+    {
+     "label": "record:judy_4m:S:br_misp_retired.all_branches",
+     "since": "record:judy_4m:N:mem_load_retired.l1_miss",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:39Z",
+     "stat_busy_jiffies": 61724586,
+     "stat_total_jiffies": 5734848559,
+     "child_cpu_s": 2.32,
+     "monotonic_s": 2390405.648,
+     "busy_cpus_since_prev": 1.02,
+     "own_busy_cpus_since_prev": 0.96,
+     "foreign_busy_cpus_since_prev": 0.06
+    },
+    {
+     "label": "record:judy_4m:S:mem_load_retired.l1_miss",
+     "since": "record:judy_4m:S:br_misp_retired.all_branches",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:39Z",
+     "stat_busy_jiffies": 61724615,
+     "stat_total_jiffies": 5734849262,
+     "child_cpu_s": 2.596,
+     "monotonic_s": 2390405.941,
+     "busy_cpus_since_prev": 0.99,
+     "own_busy_cpus_since_prev": 0.94,
+     "foreign_busy_cpus_since_prev": 0.05
+    },
+    {
+     "label": "end",
+     "since": "record:judy_4m:S:mem_load_retired.l1_miss",
+     "load1": 0.16,
+     "load5": 0.03,
+     "load15": 0.01,
+     "at": "2026-11-12T18:19:40Z",
+     "stat_busy_jiffies": 61724654,
+     "stat_total_jiffies": 5734850165,
+     "child_cpu_s": 2.969,
+     "monotonic_s": 2390406.318,
+     "busy_cpus_since_prev": 1.04,
+     "own_busy_cpus_since_prev": 0.99,
+     "foreign_busy_cpus_since_prev": 0.05
+    }
+   ],
+   "host_label": "ref",
+   "run": 2,
+   "diagnostic": "mispredicted-branch and L1D-miss attribution on the #1680 shapes, outside METHODOLOGY.md's pre-registration",
+   "attribution": "misp",
+   "kinds": {
+    "misp": [
+     [
+      "br_misp_retired.all_branches",
+      "upp"
+     ]
+    ],
+    "l1miss": [
+     [
+      "mem_load_retired.l1_miss",
+      "upp"
+     ]
+    ]
+   },
+   "probe": "scripts/phase_probe.c",
+   "shapes": [
+    [
+     "sm_default",
+     200,
+     4000000
+    ],
+    [
+     "sm_big",
+     1,
+     2000000
+    ],
+    [
+     "judy_4m",
+     1,
+     4194304
+    ]
+   ],
+   "arms": {
+    "N": "/var/tmp/stressng-eval/expcompat-5f4892932/lib",
+    "S": "/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu"
+   },
+   "pmu": "cpu_core",
+   "period": 503,
+   "perf_version": "perf version 6.8.12",
+   "sha256": {
+    "probe": "d08917e4db9f3d25b5664a7a9e89dfdf6fcacea1e32ad9cff224b8adeb970e9e",
+    "arm_N": "3734ffc98be62de0b2539cf89c59941170d64380890e7893e190431f478730aa",
+    "arm_S": "76f121a81b7d8b019e7c5f3bc43e8ead5f7f6a99b377ea7afb9f1d6ff483d731"
+   }
+  }
+ },
+ "cells": [
+  {
+   "run": 1,
+   "workload_id": "phase_sm_default",
+   "kind": "misp",
+   "arm": "N",
+   "event": "br_misp_retired.all_branches",
+   "samples": 9788,
+   "annotated_samples": 9787.687,
+   "annotated_fraction": 0.9999680220678382,
+   "ops": 4000000,
+   "events_per_op": 1.230841,
+   "functions": [
+    {
+     "pct": 68.02,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 31.98,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228c75",
+     "insn": "cmp    %bl,0x8(%r11)",
+     "share": 0.2177456022040754,
+     "share_of_all": 0.2177386391499796,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149",
+      "find @ crates/expanse/src/node.rs:496",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1284",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if len >= 1 && hay[0] == needle {",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228c79",
+     "insn": "je     228db1 <expanse_trie::get::locate_slot_popcnt+0x1e1>",
+     "share": 0.15999301980130748,
+     "share_of_all": 0.1599879035553739,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149",
+      "find @ crates/expanse/src/node.rs:496",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1284",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if len >= 1 && hay[0] == needle {",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228fe5",
+     "insn": "cmp    $0x11,%rsi",
+     "share": 0.1595848743426307,
+     "share_of_all": 0.1595797711483449,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:19",
+      "cap_class @ crates/expanse/src/leaf.rs:36",
+      "map_keys_offset @ crates/expanse/src/leaf.rs:81",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1367",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "} else if pop <= 16 {",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a8b7",
+     "insn": "ja     22a8d0 <expanse_trie::leaf::search+0x990>",
+     "share": 0.14435300188900607,
+     "share_of_all": 0.14434838577850428,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:316",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228ffd",
+     "insn": "cmp    $0x19,%rsi",
+     "share": 0.100403782834494,
+     "share_of_all": 0.10040057212913772,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:21",
+      "cap_class @ crates/expanse/src/leaf.rs:36",
+      "map_keys_offset @ crates/expanse/src/leaf.rs:81",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1367",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "} else if pop <= 24 {",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a8b4",
+     "insn": "cmp    %r10,%r8",
+     "share": 0.09891090714282139,
+     "share_of_all": 0.0989077441765427,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:316",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a5a0",
+     "insn": "jne    22a590 <expanse_trie::leaf::search+0x650>",
+     "share": 0.05055872751141307,
+     "share_of_all": 0.050557110747854524,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:297",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "while step > 0 {",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "229027",
+     "insn": "test   $0x1,%cl",
+     "share": 0.0252369941948491,
+     "share_of_all": 0.025236187167960767,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ library/core/src/option.rs:2872",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1368",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": ""
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a5a5",
+     "insn": "jae    22ab03 <expanse_trie::leaf::search+0xbc3>",
+     "share": 0.01675697230612299,
+     "share_of_all": 0.016756436452799346,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:814",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "if pos < pop && crate::mutate::read_packed_fixed::<KB>(keys, pos) == needle {"
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_sm_default",
+   "kind": "l1miss",
+   "arm": "N",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 9580,
+   "annotated_samples": 9580.0,
+   "annotated_fraction": 1.0,
+   "ops": 4000000,
+   "events_per_op": 1.204685,
+   "functions": [
+    {
+     "pct": 58.63,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    },
+    {
+     "pct": 35.21,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    },
+    {
+     "pct": 6.16,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.3373704175365344,
+     "share_of_all": 0.3373704175365344,
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a57b",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.3234758768267223,
+     "share_of_all": 0.3234758768267223,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:294",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a594",
+     "insn": "cmp    -0x4(%rdi,%rax,4),%r8d",
+     "share": 0.17443188935281836,
+     "share_of_all": 0.17443188935281836,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:305",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a8b0",
+     "insn": "mov    (%rdi,%r9,4),%r10d",
+     "share": 0.08841791231732776,
+     "share_of_all": 0.08841791231732776,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ library/core/src/ptr/mod.rs:1731",
+      "read_unaligned<u32> @ library/core/src/ptr/mod.rs:1826",
+      "read_unaligned<u32> @ library/core/src/ptr/const_ptr.rs:1194",
+      "read_packed_fixed<4> @ crates/expanse/src/mutate.rs:86",
+      "lower_bound_lookup<4> @ crates/expanse/src/leaf.rs:316",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228cb3",
+     "insn": "cmpb   $0x4,0x4f(%rbx,%rcx,1)",
+     "share": 0.06095845511482254,
+     "share_of_all": 0.06095845511482254,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/get.rs:1333",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if next_tag == 0x04 {",
+     "construct": "other"
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "addr": "21cd",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.014717265135699374,
+     "share_of_all": 0.014717265135699374
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_sm_default",
+   "kind": "misp",
+   "arm": "S",
+   "event": "br_misp_retired.all_branches",
+   "samples": 3876,
+   "annotated_samples": 3876.0,
+   "annotated_fraction": 1.0,
+   "ops": 4000000,
+   "events_per_op": 0.487407,
+   "functions": [
+    {
+     "pct": 99.97,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f64d",
+     "insn": "ja     f630 <JudyLGet@@Base+0x510>",
+     "share": 0.5750515995872033,
+     "share_of_all": 0.5750515995872033
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f649",
+     "insn": "cmp    $0x1,%rax",
+     "share": 0.3362132352941177,
+     "share_of_all": 0.3362132352941177
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f65a",
+     "insn": "je     f660 <JudyLGet@@Base+0x540>",
+     "share": 0.04028960268317854,
+     "share_of_all": 0.04028960268317854
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f653",
+     "insn": "je     f65c <JudyLGet@@Base+0x53c>",
+     "share": 0.03789022187822498,
+     "share_of_all": 0.03789022187822498
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_sm_default",
+   "kind": "l1miss",
+   "arm": "S",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 9738,
+   "annotated_samples": 9738.0,
+   "annotated_fraction": 1.0,
+   "ops": 4000000,
+   "events_per_op": 1.2245535,
+   "functions": [
+    {
+     "pct": 81.51,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    },
+    {
+     "pct": 18.49,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f637",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.6766581844321216,
+     "share_of_all": 0.6766581844321216
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.17673399055247482,
+     "share_of_all": 0.17673399055247482
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f1cf",
+     "insn": "cmpb   $0x34,0xf(%rdi)",
+     "share": 0.04898477100020538,
+     "share_of_all": 0.04898477100020538
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f1d9",
+     "insn": "movzbl 0xf(%rdi),%ecx",
+     "share": 0.04499100431300061,
+     "share_of_all": 0.04499100431300061
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f376",
+     "insn": "cmpb   $0x18,0xf(%rax)",
+     "share": 0.04360541178886835,
+     "share_of_all": 0.04360541178886835
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_sm_big",
+   "kind": "misp",
+   "arm": "N",
+   "event": "br_misp_retired.all_branches",
+   "samples": 2648,
+   "annotated_samples": 2647.7353,
+   "annotated_fraction": 0.9999000377643504,
+   "ops": 2000000,
+   "events_per_op": 0.665972,
+   "functions": [
+    {
+     "pct": 62.61,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 37.35,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228c75",
+     "insn": "cmp    %bl,0x8(%r11)",
+     "share": 0.4883698910536865,
+     "share_of_all": 0.4883210725075528,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149",
+      "find @ crates/expanse/src/node.rs:496",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1284",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if len >= 1 && hay[0] == needle {",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a5a0",
+     "insn": "jne    22a590 <expanse_trie::leaf::search+0x650>",
+     "share": 0.2855238588238031,
+     "share_of_all": 0.2854953172205438,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:297",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "while step > 0 {",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228c79",
+     "insn": "je     228db1 <expanse_trie::get::locate_slot_popcnt+0x1e1>",
+     "share": 0.06493647608958494,
+     "share_of_all": 0.06492998489425982,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149",
+      "find @ crates/expanse/src/node.rs:496",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1284",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if len >= 1 && hay[0] == needle {",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228fe9",
+     "insn": "jae    228ff8 <expanse_trie::get::locate_slot_popcnt+0x428>",
+     "share": 0.0641850414578829,
+     "share_of_all": 0.0641786253776435,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:19",
+      "cap_class @ crates/expanse/src/leaf.rs:36",
+      "map_keys_offset @ crates/expanse/src/leaf.rs:81",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1367",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "} else if pop <= 16 {",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a5a5",
+     "insn": "jae    22ab03 <expanse_trie::leaf::search+0xbc3>",
+     "share": 0.0600631037400151,
+     "share_of_all": 0.06005709969788519,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:814",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "if pos < pop && crate::mutate::read_packed_fixed::<KB>(keys, pos) == needle {",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a0d5",
+     "insn": "cmp    $0x4,%rsi",
+     "share": 0.016995467787131138,
+     "share_of_all": 0.016993768882175225,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:742",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "} else if KB == 4 && pop == 4 {"
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_sm_big",
+   "kind": "l1miss",
+   "arm": "N",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 9876,
+   "annotated_samples": 9875.0794,
+   "annotated_fraction": 0.9999067841231268,
+   "ops": 2000000,
+   "events_per_op": 2.483814,
+   "functions": [
+    {
+     "pct": 48.52,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 44.69,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    },
+    {
+     "pct": 6.78,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228cb3",
+     "insn": "cmpb   $0x4,0x4f(%rbx,%rcx,1)",
+     "share": 0.4207706117279421,
+     "share_of_all": 0.4207313892264074,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/get.rs:1333",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if next_tag == 0x04 {",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a57b",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.3876243060891237,
+     "share_of_all": 0.3875881733495342,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:294",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.06784755573712146,
+     "share_of_all": 0.06784123126771972,
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a594",
+     "insn": "cmp    -0x4(%rdi,%rax,4),%r8d",
+     "share": 0.0506432586253433,
+     "share_of_all": 0.05063853786958283,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:305",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228bea",
+     "insn": "movzbl 0xf(%rdi),%r11d",
+     "share": 0.02620414373579619,
+     "share_of_all": 0.02620170109356015,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/node.rs:152",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1269",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "self.tag"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228ca1",
+     "insn": "mov    (%rdi),%rbx",
+     "share": 0.02368078174642322,
+     "share_of_all": 0.023678574321587684,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/node.rs:186",
+      "locate_slot_impl @ crates/expanse/src/get.rs:?",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "unsafe { self.w0.ptr }"
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_sm_big",
+   "kind": "misp",
+   "arm": "S",
+   "event": "br_misp_retired.all_branches",
+   "samples": 2076,
+   "annotated_samples": 2075.9999999999995,
+   "annotated_fraction": 0.9999999999999998,
+   "ops": 2000000,
+   "events_per_op": 0.522114,
+   "functions": [
+    {
+     "pct": 99.95,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f649",
+     "insn": "cmp    $0x1,%rax",
+     "share": 0.6227998554913295,
+     "share_of_all": 0.6227998554913294
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f64d",
+     "insn": "ja     f630 <JudyLGet@@Base+0x510>",
+     "share": 0.2865618978805396,
+     "share_of_all": 0.28656189788053954
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f653",
+     "insn": "je     f65c <JudyLGet@@Base+0x53c>",
+     "share": 0.07806237957610791,
+     "share_of_all": 0.0780623795761079
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f64f",
+     "insn": "cmp    $0xffffffffffffffff,%rdx",
+     "share": 0.010594894026974954,
+     "share_of_all": 0.010594894026974952
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_sm_big",
+   "kind": "l1miss",
+   "arm": "S",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 7890,
+   "annotated_samples": 7890.0,
+   "annotated_fraction": 1.0,
+   "ops": 2000000,
+   "events_per_op": 1.984335,
+   "functions": [
+    {
+     "pct": 91.43,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    },
+    {
+     "pct": 8.57,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f637",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.5140317870722434,
+     "share_of_all": 0.5140317870722434
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.08567807351077313,
+     "share_of_all": 0.08567807351077313
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f1cf",
+     "insn": "cmpb   $0x34,0xf(%rdi)",
+     "share": 0.05604793409378961,
+     "share_of_all": 0.05604793409378961
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f1d9",
+     "insn": "movzbl 0xf(%rdi),%ecx",
+     "share": 0.04845906210392902,
+     "share_of_all": 0.04845906210392902
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f376",
+     "insn": "cmpb   $0x18,0xf(%rax)",
+     "share": 0.048184765525982255,
+     "share_of_all": 0.048184765525982255
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f5f9",
+     "insn": "movzbl 0xd(%rdi),%eax",
+     "share": 0.04425318124207858,
+     "share_of_all": 0.04425318124207858
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f616",
+     "insn": "mov    (%rdi),%rdi",
+     "share": 0.041693079847908744,
+     "share_of_all": 0.041693079847908744
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f31a",
+     "insn": "movzbl 0x9(%rdi),%eax",
+     "share": 0.02651533586818758,
+     "share_of_all": 0.02651533586818758
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f302",
+     "insn": "cmpb   $0x19,0xf(%rax)",
+     "share": 0.02468669201520913,
+     "share_of_all": 0.02468669201520913
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f5d8",
+     "insn": "movzbl 0xa(%rdi),%eax",
+     "share": 0.024595259822560202,
+     "share_of_all": 0.024595259822560202
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f30f",
+     "insn": "movzbl 0x8(%rdi),%eax",
+     "share": 0.02422953105196451,
+     "share_of_all": 0.02422953105196451
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f5ee",
+     "insn": "movzbl 0xc(%rdi),%eax",
+     "share": 0.021395133079847906,
+     "share_of_all": 0.021395133079847906
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f5e3",
+     "insn": "movzbl 0xb(%rdi),%eax",
+     "share": 0.02102940430925222,
+     "share_of_all": 0.02102940430925222
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_judy_4m",
+   "kind": "misp",
+   "arm": "N",
+   "event": "br_misp_retired.all_branches",
+   "samples": 1447,
+   "annotated_samples": 198.0,
+   "annotated_fraction": 0.13683483068417415,
+   "ops": 4194304,
+   "events_per_op": 0.17353081703186035,
+   "functions": [
+    {
+     "pct": 11.13,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4264"
+    },
+    {
+     "pct": 7.67,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4266"
+    },
+    {
+     "pct": 5.46,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2854"
+    },
+    {
+     "pct": 5.39,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f3d"
+    },
+    {
+     "pct": 4.63,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 4.01,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a288a"
+    },
+    {
+     "pct": 3.59,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a426c"
+    },
+    {
+     "pct": 3.39,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a171f"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::read_map_leaf",
+     "addr": "226c69",
+     "insn": "je     226cdf <expanse_trie::mutate_map::read_map_leaf+0x1ff>",
+     "share": 0.16666666666666666,
+     "share_of_all": 0.022805805114029024,
+     "function": "expanse_trie::mutate_map::read_map_leaf",
+     "inline_chain": [
+      "expanse_trie::mutate_map::read_map_leaf @ library/core/src/iter/range.rs:900",
+      "next<usize> @ library/core/src/iter/range.rs:985",
+      "fold<core::ops::range::Range<usize>, (), core::iter::adapters::map::map_fold::{closure_env#0}<usize, (u64, u64), (), expanse_trie::mutate_map::read_map_leaf::{closure_env#0}, core::iter::traits::iterator::Iterator::for_each::call::{closure_env#0}<(u64, u64), alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<(u64, u64), alloc::alloc::Global, core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>>>>> @ library/core/src/iter/traits/iterator.rs:2670",
+      "fold<(u64, u64), core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}, (), core::iter::traits::iterator::Iterator::for_each::call::{closure_env#0}<(u64, u64), alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<(u64, u64), alloc::alloc::Global, core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>>>> @ library/core/src/iter/adapters/map.rs:128",
+      "for_each<core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>, alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<(u64, u64), alloc::alloc::Global, core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>>> @ library/core/src/iter/traits/iterator.rs:887",
+      "extend_trusted<(u64, u64), alloc::alloc::Global, core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>> @ library/alloc/src/vec/mod.rs:4077",
+      "spec_extend<(u64, u64), core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>, alloc::alloc::Global> @ library/alloc/src/vec/spec_extend.rs:27",
+      "extend<(u64, u64), alloc::alloc::Global, core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>> @ library/alloc/src/vec/mod.rs:4009",
+      "read_map_leaf @ crates/expanse/src/mutate_map.rs:157"
+     ],
+     "source": "",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "__rustc::__rdl_alloc_zeroed",
+     "addr": "25411b",
+     "insn": "ret",
+     "share": 0.12121212121212122,
+     "share_of_all": 0.0165860400829302,
+     "function": "__rustc::__rdl_alloc_zeroed",
+     "inline_chain": [
+      "__rustc::__rdl_alloc_zeroed @ library/std/src/alloc.rs:489"
+     ],
+     "source": "",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7f261",
+     "insn": "ret",
+     "share": 0.11616717171717172,
+     "share_of_all": 0.01589571527297858,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/leaf.rs:632",
+      "map_realloc_insert @ crates/expanse/src/leaf.rs:602",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:769"
+     ],
+     "source": "core::ptr::copy_nonoverlapping(ok, nk, pos * KB);",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "addr": "9b0da",
+     "insn": "ret",
+     "share": 0.0909141414141414,
+     "share_of_all": 0.012440221147201103,
+     "function": "expanse_trie::sync::olc_cas_remove_bucket_cas_map::<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>",
+     "inline_chain": [
+      "expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2503"
+     ],
+     "source": "}",
+     "construct": "insert bookkeeping"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "JudyLIns",
+     "addr": "442a1",
+     "insn": "ret",
+     "share": 0.08585858585858586,
+     "share_of_all": 0.011748445058742226,
+     "function": "JudyLIns",
+     "inline_chain": [
+      "JudyLIns @ crates/expanse-capi/src/compat.rs:449"
+     ],
+     "source": "}",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "addr": "9ae69",
+     "insn": "jne    9ae50 <expanse_trie::mutate::upgrade_b_to_u::<false>+0xa0>",
+     "share": 0.055545454545454544,
+     "share_of_all": 0.007600552868002764,
+     "function": "expanse_trie::sync::olc_cas_remove_bucket_cas_map::<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>",
+     "inline_chain": [
+      "expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2465"
+     ],
+     "source": "while bits != 0 {",
+     "construct": "insert bookkeeping"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "addr": "9b00a",
+     "insn": "je     9aff7 <expanse_trie::mutate::upgrade_b_to_u::<false>+0x247>",
+     "share": 0.055545454545454544,
+     "share_of_all": 0.007600552868002764,
+     "function": "expanse_trie::sync::olc_cas_remove_bucket_cas_map::<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>",
+     "inline_chain": [
+      "expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2476"
+     ],
+     "source": "if n > 0 {",
+     "construct": "insert bookkeeping"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "addr": "9b007",
+     "insn": "test   %rax,%rax",
+     "share": 0.030312626262626263,
+     "share_of_all": 0.004147823082239116,
+     "function": "expanse_trie::sync::olc_cas_remove_bucket_cas_map::<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>",
+     "inline_chain": [
+      "expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2475"
+     ],
+     "source": "let n = old.pop_counts[sub] as usize;"
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__default_morecore@GLIBC_2.2.5",
+     "addr": "a2590",
+     "insn": "ret",
+     "share": 0.030303030303030304,
+     "share_of_all": 0.00414651002073255
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7a495",
+     "insn": "jmp    *%rax",
+     "share": 0.02020151515151515,
+     "share_of_all": 0.0027642709053213544,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ crates/expanse/src/mutate.rs:565",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<false> @ crates/expanse/src/mutate_map.rs:750"
+     ],
+     "source": "(*edge).set_pop0(level, (pop0 + delta) as u64);"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7cb7d",
+     "insn": "cmp    $0x7,%rdx",
+     "share": 0.02020151515151515,
+     "share_of_all": 0.0027642709053213544,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate_map.rs:551"
+     ],
+     "source": "if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7bd8a",
+     "insn": "cmp    $0x10,%bx",
+     "share": 0.015159595959595961,
+     "share_of_all": 0.002074360746371804,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:314",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:565",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:534"
+     ],
+     "source": "self.set_aux_word((w & !mask) | (pop0 & mask));"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7bda2",
+     "insn": "cmp    $0x4,%ecx",
+     "share": 0.015159595959595961,
+     "share_of_all": 0.002074360746371804,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/core/src/cmp.rs:1916",
+      "spec_next<usize> @ library/core/src/iter/range.rs:900",
+      "next<usize> @ library/core/src/iter/range.rs:985",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:738",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:534"
+     ],
+     "source": ""
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7cb6d",
+     "insn": "cmp    %rax,%rcx",
+     "share": 0.015159595959595961,
+     "share_of_all": 0.002074360746371804,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/common.rs:21",
+      "cap_class @ crates/expanse/src/leaf.rs:36",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:551"
+     ],
+     "source": "} else if pop <= 24 {"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7cb81",
+     "insn": "ja     7cba1 <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x27d1>",
+     "share": 0.015159595959595961,
+     "share_of_all": 0.002074360746371804,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate_map.rs:551"
+     ],
+     "source": "if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7bd76",
+     "insn": "je     7c335 <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x1f65>",
+     "share": 0.010117676767676768,
+     "share_of_all": 0.0013844505874222532,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/core/src/ptr/mod.rs:1731",
+      "read<u64> @ library/core/src/ptr/const_ptr.rs:1153",
+      "aux_word @ crates/expanse/src/node.rs:271",
+      "pop0 @ crates/expanse/src/node.rs:248",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:564",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:534"
+     ],
+     "source": ""
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7bd84",
+     "insn": "je     7c33a <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x1f6a>",
+     "share": 0.010117676767676768,
+     "share_of_all": 0.0013844505874222532,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:248",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:564",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:534"
+     ],
+     "source": "self.aux_word() & POP0_MASKS[level as usize]"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7bd98",
+     "insn": "jb     7bdab <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x19db>",
+     "share": 0.010117676767676768,
+     "share_of_all": 0.0013844505874222532,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/core/src/ptr/mod.rs:1939",
+      "write<u64> @ library/core/src/ptr/mut_ptr.rs:1400",
+      "set_aux_word @ crates/expanse/src/node.rs:300",
+      "set_pop0 @ crates/expanse/src/node.rs:314",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:565",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:534"
+     ],
+     "source": ""
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7bda5",
+     "insn": "jb     7c693 <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x22c3>",
+     "share": 0.010117676767676768,
+     "share_of_all": 0.0013844505874222532,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/core/src/cmp.rs:1916",
+      "spec_next<usize> @ library/core/src/iter/range.rs:900",
+      "next<usize> @ library/core/src/iter/range.rs:985",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:738",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:534"
+     ],
+     "source": ""
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7f81c",
+     "insn": "call   *0x201116(%rip)        # 280938 <memcpy@GLIBC_2.14>",
+     "share": 0.010117676767676768,
+     "share_of_all": 0.0013844505874222532,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate_map.rs:859"
+     ],
+     "source": "*edge = Edge::new_node("
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "posix_memalign@@GLIBC_2.2.5",
+     "addr": "a725e",
+     "insn": "ret",
+     "share": 0.010101010101010102,
+     "share_of_all": 0.00138217000691085
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_judy_4m",
+   "kind": "l1miss",
+   "arm": "N",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 30250,
+   "annotated_samples": 27550.205099999985,
+   "annotated_fraction": 0.9107505818181814,
+   "ops": 4194304,
+   "events_per_op": 3.6277174949645996,
+   "functions": [
+    {
+     "pct": 87.11,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 3.36,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate14upgrade_b_to_uKb0_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 1.06,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2884"
+    },
+    {
+     "pct": 1.02,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a088d"
+    },
+    {
+     "pct": 0.55,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a0956"
+    },
+    {
+     "pct": 0.53,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1709"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7aa3a",
+     "insn": "movzbl 0x74(%r15),%esi",
+     "share": 0.31142728588978835,
+     "share_of_all": 0.2836325818181818,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:248",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:564",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:392"
+     ],
+     "source": "self.aux_word() & POP0_MASKS[level as usize]",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7a475",
+     "insn": "movzbl 0xf(%rbp),%ebx",
+     "share": 0.24093529888095114,
+     "share_of_all": 0.21943196363636366,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ library/core/src/iter/range.rs:900",
+      "next<usize> @ library/core/src/iter/range.rs:985",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:738",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<false> @ crates/expanse/src/mutate_map.rs:750"
+     ],
+     "source": "",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7aa36",
+     "insn": "mov    0x0(%rbp),%r15",
+     "share": 0.10693357052358211,
+     "share_of_all": 0.09738981157024794,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:248",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:564",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:392"
+     ],
+     "source": "self.aux_word() & POP0_MASKS[level as usize]",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7b708",
+     "insn": "movdqa 0x10(%r15),%xmm1",
+     "share": 0.08263918151375219,
+     "share_of_all": 0.0752636826446281,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate.rs:764",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:474"
+     ],
+     "source": "self.leaf = core::ptr::null_mut();",
+     "construct": "insert bookkeeping"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7b338",
+     "insn": "add    0x20(%r15,%r13,8),%rax",
+     "share": 0.06312715254522737,
+     "share_of_all": 0.05749309090909092,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/core/src/ptr/mod.rs:1939",
+      "write<u64> @ library/core/src/ptr/mut_ptr.rs:1400",
+      "set_aux_word @ crates/expanse/src/node.rs:300",
+      "set_pop0 @ crates/expanse/src/node.rs:314",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:565",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:423"
+     ],
+     "source": "",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7b2cf",
+     "insn": "mov    (%r15,%r13,4),%eax",
+     "share": 0.06207503333614025,
+     "share_of_all": 0.05653487272727273,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:423"
+     ],
+     "source": "bump_pop0(self.edges[i], self.levels[i], delta);",
+     "construct": "insert bookkeeping"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7a731",
+     "insn": "mov    (%rdx),%rax",
+     "share": 0.021903208989177376,
+     "share_of_all": 0.019948360330578514,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ crates/expanse/src/node.rs:248",
+      "map_insert_with_path_flat<false> @ crates/expanse/src/mutate_map.rs:?"
+     ],
+     "source": "self.aux_word() & POP0_MASKS[level as usize]"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7cdf1",
+     "insn": "movzwl (%r15,%rax,2),%eax",
+     "share": 0.016738260144567862,
+     "share_of_all": 0.015244380165289258,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:900"
+     ],
+     "source": "bump_pop0(self.edges[i], self.levels[i], delta);"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7c391",
+     "insn": "mov    (%rdi),%rax",
+     "share": 0.010999428095001738,
+     "share_of_all": 0.010017735537190082,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:248",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:564",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:446"
+     ],
+     "source": "self.aux_word() & POP0_MASKS[level as usize]"
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_judy_4m",
+   "kind": "misp",
+   "arm": "S",
+   "event": "br_misp_retired.all_branches",
+   "samples": 1263,
+   "annotated_samples": 204.99489999999997,
+   "annotated_fraction": 0.1623079176563737,
+   "ops": 4194304,
+   "events_per_op": 0.15146470069885254,
+   "functions": [
+    {
+     "pct": 29.69,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000001057c"
+    },
+    {
+     "pct": 11.16,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000010646"
+    },
+    {
+     "pct": 7.68,
+     "dso": "libc.so.6",
+     "symbol": "malloc"
+    },
+    {
+     "pct": 4.04,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU"
+    },
+    {
+     "pct": 3.48,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4264"
+    },
+    {
+     "pct": 2.93,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLIns"
+    },
+    {
+     "pct": 2.77,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000013aca"
+    },
+    {
+     "pct": 1.9,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1806"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a51c8",
+     "insn": "je     a50b7 <__libc_malloc@@GLIBC_2.2.5+0x57>",
+     "share": 0.390233610689827,
+     "share_of_all": 0.06333800475059383
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLIns@@Base",
+     "addr": "142de",
+     "insn": "ret",
+     "share": 0.18049229517417265,
+     "share_of_all": 0.02929532858273951
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a51c5",
+     "insn": "test   %cx,%cx",
+     "share": 0.08294889287489593,
+     "share_of_all": 0.01346326207442597
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8aae",
+     "insn": "test   $0x1,%dl",
+     "share": 0.06829194287272512,
+     "share_of_all": 0.011084323040380045
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCascade2@@Base",
+     "addr": "3a5c",
+     "insn": "je     3a73 <j__udyLCascade2@@Base+0x193>",
+     "share": 0.06341816308600849,
+     "share_of_all": 0.010293269992082342
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8a78",
+     "insn": "ret",
+     "share": 0.06341572400093856,
+     "share_of_all": 0.010292874109263656
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8a86",
+     "insn": "jne    8aae <j__udyLCreateBranchU@@Base+0x11e>",
+     "share": 0.06341572400093856,
+     "share_of_all": 0.010292874109263656
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8a42",
+     "insn": "cmp    %rbx,%r15",
+     "share": 0.019504875487146266,
+     "share_of_all": 0.003165795724465558
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8a45",
+     "insn": "jne    89e8 <j__udyLCreateBranchU@@Base+0x58>",
+     "share": 0.0146286566153597,
+     "share_of_all": 0.0023743467933491683
+    }
+   ]
+  },
+  {
+   "run": 1,
+   "workload_id": "phase_judy_4m",
+   "kind": "l1miss",
+   "arm": "S",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 16911,
+   "annotated_samples": 1050.9362999999998,
+   "annotated_fraction": 0.06214513038850451,
+   "ops": 4194304,
+   "events_per_op": 2.0280439853668213,
+   "functions": [
+    {
+     "pct": 12.3,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000001055b"
+    },
+    {
+     "pct": 11.6,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000012eed"
+    },
+    {
+     "pct": 10.71,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000012ef0"
+    },
+    {
+     "pct": 9.06,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x00000000000110ff"
+    },
+    {
+     "pct": 8.55,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000001301a"
+    },
+    {
+     "pct": 5.63,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000013023"
+    },
+    {
+     "pct": 4.83,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1709"
+    },
+    {
+     "pct": 3.41,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a16df"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8b08",
+     "insn": "mov    (%rdi,%rax,1),%rdx",
+     "share": 0.297845644878762,
+     "share_of_all": 0.018509656436638874
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_free@@GLIBC_2.2.5",
+     "addr": "a53be",
+     "insn": "mov    -0x8(%rdi),%rax",
+     "share": 0.2721337154307069,
+     "share_of_all": 0.016911785228549466
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8b10",
+     "insn": "mov    0x8(%rdi,%rax,1),%rdx",
+     "share": 0.15130241480858547,
+     "share_of_all": 0.00940270829637514
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a51e9",
+     "insn": "xor    (%rax),%rsi",
+     "share": 0.04662356795554593,
+     "share_of_all": 0.0028974277097747027
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8a90",
+     "insn": "mov    (%rsi),%rcx",
+     "share": 0.026621689630475228,
+     "share_of_all": 0.0016544083732481815
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "malloc@plt",
+     "addr": "2df0",
+     "insn": "jmp    *0x24d0f2(%rip)        # 24fee8 <malloc@GLIBC_2.2.5>",
+     "share": 0.022836778975091072,
+     "share_of_all": 0.0014191946070604932
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8aa1",
+     "insn": "mov    -0x8(%rsi),%rcx",
+     "share": 0.01616139817418049,
+     "share_of_all": 0.0010043521967949853
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLAllocJBBJP@@Base",
+     "addr": "16402",
+     "insn": "mov    (%rax),%rax",
+     "share": 0.01427327231916911,
+     "share_of_all": 0.0008870143693453966
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "free@plt",
+     "addr": "2d70",
+     "insn": "jmp    *0x24d132(%rip)        # 24fea8 <free@GLIBC_2.2.5>",
+     "share": 0.01427298685943192,
+     "share_of_all": 0.0008869966294128083
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCascade2@@Base",
+     "addr": "3916",
+     "insn": "movzwl (%r8),%ebp",
+     "share": 0.011418389487545536,
+     "share_of_all": 0.0007095973035302466
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a509d",
+     "insn": "mov    %fs:(%rbx),%rdx",
+     "share": 0.01141306090578468,
+     "share_of_all": 0.0007092661581219324
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_sm_default",
+   "kind": "misp",
+   "arm": "N",
+   "event": "br_misp_retired.all_branches",
+   "samples": 9854,
+   "annotated_samples": 9854.0,
+   "annotated_fraction": 1.0,
+   "ops": 4000000,
+   "events_per_op": 1.2391405,
+   "functions": [
+    {
+     "pct": 67.72,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 32.26,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228c75",
+     "insn": "cmp    %bl,0x8(%r11)",
+     "share": 0.21283985183681756,
+     "share_of_all": 0.21283985183681756,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149",
+      "find @ crates/expanse/src/node.rs:496",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1284",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if len >= 1 && hay[0] == needle {",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228c79",
+     "insn": "je     228db1 <expanse_trie::get::locate_slot_popcnt+0x1e1>",
+     "share": 0.17038023137812056,
+     "share_of_all": 0.17038023137812056,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149",
+      "find @ crates/expanse/src/node.rs:496",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1284",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if len >= 1 && hay[0] == needle {",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a8b7",
+     "insn": "ja     22a8d0 <expanse_trie::leaf::search+0x990>",
+     "share": 0.15394954333265679,
+     "share_of_all": 0.15394954333265679,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:316",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228fe5",
+     "insn": "cmp    $0x11,%rsi",
+     "share": 0.1512158412827278,
+     "share_of_all": 0.1512158412827278,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:19",
+      "cap_class @ crates/expanse/src/leaf.rs:36",
+      "map_keys_offset @ crates/expanse/src/leaf.rs:81",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1367",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "} else if pop <= 16 {",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a8b4",
+     "insn": "cmp    %r10,%r8",
+     "share": 0.10097696366957581,
+     "share_of_all": 0.10097696366957581,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:316",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228ffd",
+     "insn": "cmp    $0x19,%rsi",
+     "share": 0.09690544956362898,
+     "share_of_all": 0.09690544956362898,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:21",
+      "cap_class @ crates/expanse/src/leaf.rs:36",
+      "map_keys_offset @ crates/expanse/src/leaf.rs:81",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1367",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "} else if pop <= 24 {",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a5a0",
+     "insn": "jne    22a590 <expanse_trie::leaf::search+0x650>",
+     "share": 0.04313297138217982,
+     "share_of_all": 0.04313297138217982,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:297",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "while step > 0 {"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "229027",
+     "insn": "test   $0x1,%cl",
+     "share": 0.025394509843718285,
+     "share_of_all": 0.025394509843718285,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ library/core/src/option.rs:2872",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1368",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": ""
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a5a5",
+     "insn": "jae    22ab03 <expanse_trie::leaf::search+0xbc3>",
+     "share": 0.015614329206413638,
+     "share_of_all": 0.015614329206413638,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:814",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "if pos < pop && crate::mutate::read_packed_fixed::<KB>(keys, pos) == needle {"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_sm_default",
+   "kind": "l1miss",
+   "arm": "N",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 9696,
+   "annotated_samples": 9696.569000000001,
+   "annotated_fraction": 1.0000586839933994,
+   "ops": 4000000,
+   "events_per_op": 1.219272,
+   "functions": [
+    {
+     "pct": 58.68,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    },
+    {
+     "pct": 34.68,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    },
+    {
+     "pct": 6.63,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.3330201228908905,
+     "share_of_all": 0.3330396658415841,
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a57b",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.32702670398158357,
+     "share_of_all": 0.3270458952145215,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:294",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a594",
+     "insn": "cmp    -0x4(%rdi,%rax,4),%r8d",
+     "share": 0.17234477473423845,
+     "share_of_all": 0.1723548886138614,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:305",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a8b0",
+     "insn": "mov    (%rdi,%r9,4),%r10d",
+     "share": 0.08737533863782126,
+     "share_of_all": 0.08738046617161715,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ library/core/src/ptr/mod.rs:1731",
+      "read_unaligned<u32> @ library/core/src/ptr/mod.rs:1826",
+      "read_unaligned<u32> @ library/core/src/ptr/const_ptr.rs:1194",
+      "read_packed_fixed<4> @ crates/expanse/src/mutate.rs:86",
+      "lower_bound_lookup<4> @ crates/expanse/src/leaf.rs:316",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228cb3",
+     "insn": "cmpb   $0x4,0x4f(%rbx,%rcx,1)",
+     "share": 0.06579488064283355,
+     "share_of_all": 0.06579874174917492,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/get.rs:1333",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if next_tag == 0x04 {",
+     "construct": "other"
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "addr": "21cd",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.013803583514952554,
+     "share_of_all": 0.013804393564356435
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_sm_default",
+   "kind": "misp",
+   "arm": "S",
+   "event": "br_misp_retired.all_branches",
+   "samples": 3856,
+   "annotated_samples": 3856.3855,
+   "annotated_fraction": 1.00009997406639,
+   "ops": 4000000,
+   "events_per_op": 0.484892,
+   "functions": [
+    {
+     "pct": 99.97,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f64d",
+     "insn": "ja     f630 <JudyLGet@@Base+0x510>",
+     "share": 0.543304734446284,
+     "share_of_all": 0.5433590508298756
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f649",
+     "insn": "cmp    $0x1,%rax",
+     "share": 0.3653686852624044,
+     "share_of_all": 0.36540521265560166
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f653",
+     "insn": "je     f65c <JudyLGet@@Base+0x53c>",
+     "share": 0.04358433564279297,
+     "share_of_all": 0.04358869294605809
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f65a",
+     "insn": "je     f660 <JudyLGet@@Base+0x540>",
+     "share": 0.03938584459463402,
+     "share_of_all": 0.03938978215767635
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_sm_default",
+   "kind": "l1miss",
+   "arm": "S",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 9741,
+   "annotated_samples": 9741.0,
+   "annotated_fraction": 1.0,
+   "ops": 4000000,
+   "events_per_op": 1.22493075,
+   "functions": [
+    {
+     "pct": 81.5,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    },
+    {
+     "pct": 18.5,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f637",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.6742567190226877,
+     "share_of_all": 0.6742567190226877
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.17894205933682375,
+     "share_of_all": 0.17894205933682375
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f1cf",
+     "insn": "cmpb   $0x34,0xf(%rdi)",
+     "share": 0.048656020942408375,
+     "share_of_all": 0.048656020942408375
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f1d9",
+     "insn": "movzbl 0xf(%rdi),%ecx",
+     "share": 0.04702600349040139,
+     "share_of_all": 0.04702600349040139
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f376",
+     "insn": "cmpb   $0x18,0xf(%rax)",
+     "share": 0.044580977312390926,
+     "share_of_all": 0.044580977312390926
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_sm_big",
+   "kind": "misp",
+   "arm": "N",
+   "event": "br_misp_retired.all_branches",
+   "samples": 2658,
+   "annotated_samples": 2657.9008,
+   "annotated_fraction": 0.9999626787057938,
+   "ops": 2000000,
+   "events_per_op": 0.668487,
+   "functions": [
+    {
+     "pct": 62.6,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 37.32,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228c75",
+     "insn": "cmp    %bl,0x8(%r11)",
+     "share": 0.4676653094050764,
+     "share_of_all": 0.46764785553047405,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149",
+      "find @ crates/expanse/src/node.rs:496",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1284",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if len >= 1 && hay[0] == needle {",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a5a0",
+     "insn": "jne    22a590 <expanse_trie::leaf::search+0x650>",
+     "share": 0.2678649255833777,
+     "share_of_all": 0.26785492851768244,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:297",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "while step > 0 {",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228c79",
+     "insn": "je     228db1 <expanse_trie::get::locate_slot_popcnt+0x1e1>",
+     "share": 0.08238922987644987,
+     "share_of_all": 0.08238615500376222,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149",
+      "find @ crates/expanse/src/node.rs:496",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1284",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if len >= 1 && hay[0] == needle {",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a5a5",
+     "insn": "jae    22ab03 <expanse_trie::leaf::search+0xbc3>",
+     "share": 0.07486931039713748,
+     "share_of_all": 0.07486651617757713,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:814",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "if pos < pop && crate::mutate::read_packed_fixed::<KB>(keys, pos) == needle {",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228fe9",
+     "insn": "jae    228ff8 <expanse_trie::get::locate_slot_popcnt+0x428>",
+     "share": 0.06398312532958342,
+     "share_of_all": 0.06398073739653876,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:19",
+      "cap_class @ crates/expanse/src/leaf.rs:36",
+      "map_keys_offset @ crates/expanse/src/leaf.rs:81",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1367",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "} else if pop <= 16 {",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a0d5",
+     "insn": "cmp    $0x4,%rsi",
+     "share": 0.01993031493124198,
+     "share_of_all": 0.019929571106094807,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:742",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "} else if KB == 4 && pop == 4 {"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_sm_big",
+   "kind": "l1miss",
+   "arm": "N",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 9864,
+   "annotated_samples": 9863.962599999999,
+   "annotated_fraction": 0.9999962084347119,
+   "ops": 2000000,
+   "events_per_op": 2.480796,
+   "functions": [
+    {
+     "pct": 48.51,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 44.72,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    },
+    {
+     "pct": 6.77,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228cb3",
+     "insn": "cmpb   $0x4,0x4f(%rbx,%rcx,1)",
+     "share": 0.42193925187834763,
+     "share_of_all": 0.42193765206812656,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/get.rs:1333",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "if next_tag == 0x04 {",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a57b",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.38757382352605435,
+     "share_of_all": 0.38757235401459855,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:294",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.06761968055312781,
+     "share_of_all": 0.06761942416869424,
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "addr": "22a594",
+     "insn": "cmp    -0x4(%rdi,%rax,4),%r8d",
+     "share": 0.049592635316764076,
+     "share_of_all": 0.04959244728304947,
+     "function": "expanse_trie::leaf::search",
+     "inline_chain": [
+      "expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:305",
+      "search_fixed_with<4, true> @ crates/expanse/src/leaf.rs:810",
+      "search_fixed<4> @ crates/expanse/src/leaf.rs:719",
+      "search @ crates/expanse/src/leaf.rs:839"
+     ],
+     "source": "unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228bea",
+     "insn": "movzbl 0xf(%rdi),%r11d",
+     "share": 0.026874493623891074,
+     "share_of_all": 0.026874391727493917,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/node.rs:152",
+      "locate_slot_impl @ crates/expanse/src/get.rs:1269",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "self.tag"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "addr": "228ca1",
+     "insn": "mov    (%rdi),%rbx",
+     "share": 0.024109428395440186,
+     "share_of_all": 0.02410933698296837,
+     "function": "expanse_trie::get::locate_slot_popcnt",
+     "inline_chain": [
+      "expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/node.rs:186",
+      "locate_slot_impl @ crates/expanse/src/get.rs:?",
+      "locate_slot_popcnt @ crates/expanse/src/get.rs:1251"
+     ],
+     "source": "unsafe { self.w0.ptr }"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_sm_big",
+   "kind": "misp",
+   "arm": "S",
+   "event": "br_misp_retired.all_branches",
+   "samples": 2079,
+   "annotated_samples": 2079.0,
+   "annotated_fraction": 1.0,
+   "ops": 2000000,
+   "events_per_op": 0.5228685,
+   "functions": [
+    {
+     "pct": 100.0,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f649",
+     "insn": "cmp    $0x1,%rax",
+     "share": 0.6093999999999999,
+     "share_of_all": 0.6093999999999999
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f64d",
+     "insn": "ja     f630 <JudyLGet@@Base+0x510>",
+     "share": 0.2872,
+     "share_of_all": 0.2872
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f653",
+     "insn": "je     f65c <JudyLGet@@Base+0x53c>",
+     "share": 0.0909,
+     "share_of_all": 0.0909
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f64f",
+     "insn": "cmp    $0xffffffffffffffff,%rdx",
+     "share": 0.0111,
+     "share_of_all": 0.0111
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_sm_big",
+   "kind": "l1miss",
+   "arm": "S",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 7880,
+   "annotated_samples": 7879.2847,
+   "annotated_fraction": 0.9999092258883249,
+   "ops": 2000000,
+   "events_per_op": 1.98182,
+   "functions": [
+    {
+     "pct": 90.77,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    },
+    {
+     "pct": 9.23,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f637",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.5207275731514055,
+     "share_of_all": 0.5206803045685279
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.09226725872717863,
+     "share_of_all": 0.09225888324873097
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f1d9",
+     "insn": "movzbl 0xf(%rdi),%ecx",
+     "share": 0.052381417313173105,
+     "share_of_all": 0.05237666243654822
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f1cf",
+     "insn": "cmpb   $0x34,0xf(%rdi)",
+     "share": 0.050656552618285264,
+     "share_of_all": 0.05065195431472081
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f5f9",
+     "insn": "movzbl 0xd(%rdi),%eax",
+     "share": 0.0453911761812592,
+     "share_of_all": 0.04538705583756346
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f376",
+     "insn": "cmpb   $0x18,0xf(%rax)",
+     "share": 0.04112440562022083,
+     "share_of_all": 0.04112067258883249
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f616",
+     "insn": "mov    (%rdi),%rdi",
+     "share": 0.038491717401707794,
+     "share_of_all": 0.03848822335025381
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f30f",
+     "insn": "movzbl 0x8(%rdi),%eax",
+     "share": 0.027960964527655664,
+     "share_of_all": 0.027958426395939085
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f31a",
+     "insn": "movzbl 0x9(%rdi),%eax",
+     "share": 0.02641766453749285,
+     "share_of_all": 0.02641526649746193
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f302",
+     "insn": "cmpb   $0x19,0xf(%rax)",
+     "share": 0.02478358219496752,
+     "share_of_all": 0.024781332487309647
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f5d8",
+     "insn": "movzbl 0xa(%rdi),%eax",
+     "share": 0.019881335167391528,
+     "share_of_all": 0.01987953045685279
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f5ee",
+     "insn": "movzbl 0xc(%rdi),%eax",
+     "share": 0.019245858700853897,
+     "share_of_all": 0.019244111675126904
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "addr": "f5e3",
+     "insn": "movzbl 0xb(%rdi),%eax",
+     "share": 0.017793341063053605,
+     "share_of_all": 0.017791725888324873
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_judy_4m",
+   "kind": "misp",
+   "arm": "N",
+   "event": "br_misp_retired.all_branches",
+   "samples": 1450,
+   "annotated_samples": 251.02880000000002,
+   "annotated_fraction": 0.17312331034482759,
+   "ops": 4194304,
+   "events_per_op": 0.1738905906677246,
+   "functions": [
+    {
+     "pct": 11.72,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4264"
+    },
+    {
+     "pct": 6.14,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4266"
+    },
+    {
+     "pct": 4.97,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 4.83,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate14upgrade_b_to_uKb0_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 4.62,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2854"
+    },
+    {
+     "pct": 3.93,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a288a"
+    },
+    {
+     "pct": 3.86,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a426f"
+    },
+    {
+     "pct": 3.59,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f3d"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::read_map_leaf",
+     "addr": "226c69",
+     "insn": "je     226cdf <expanse_trie::mutate_map::read_map_leaf+0x1ff>",
+     "share": 0.17129508646019898,
+     "share_of_all": 0.029655172413793104,
+     "function": "expanse_trie::mutate_map::read_map_leaf",
+     "inline_chain": [
+      "expanse_trie::mutate_map::read_map_leaf @ library/core/src/iter/range.rs:900",
+      "next<usize> @ library/core/src/iter/range.rs:985",
+      "fold<core::ops::range::Range<usize>, (), core::iter::adapters::map::map_fold::{closure_env#0}<usize, (u64, u64), (), expanse_trie::mutate_map::read_map_leaf::{closure_env#0}, core::iter::traits::iterator::Iterator::for_each::call::{closure_env#0}<(u64, u64), alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<(u64, u64), alloc::alloc::Global, core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>>>>> @ library/core/src/iter/traits/iterator.rs:2670",
+      "fold<(u64, u64), core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}, (), core::iter::traits::iterator::Iterator::for_each::call::{closure_env#0}<(u64, u64), alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<(u64, u64), alloc::alloc::Global, core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>>>> @ library/core/src/iter/adapters/map.rs:128",
+      "for_each<core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>, alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<(u64, u64), alloc::alloc::Global, core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>>> @ library/core/src/iter/traits/iterator.rs:887",
+      "extend_trusted<(u64, u64), alloc::alloc::Global, core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>> @ library/alloc/src/vec/mod.rs:4077",
+      "spec_extend<(u64, u64), core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>, alloc::alloc::Global> @ library/alloc/src/vec/spec_extend.rs:27",
+      "extend<(u64, u64), alloc::alloc::Global, core::iter::adapters::map::Map<core::ops::range::Range<usize>, expanse_trie::mutate_map::read_map_leaf::{closure_env#0}>> @ library/alloc/src/vec/mod.rs:4009",
+      "read_map_leaf @ crates/expanse/src/mutate_map.rs:157"
+     ],
+     "source": "",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "JudyLIns",
+     "addr": "442a1",
+     "insn": "ret",
+     "share": 0.1553606598127386,
+     "share_of_all": 0.02689655172413793,
+     "function": "JudyLIns",
+     "inline_chain": [
+      "JudyLIns @ crates/expanse-capi/src/compat.rs:449"
+     ],
+     "source": "}",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "addr": "9b0da",
+     "insn": "ret",
+     "share": 0.10755339626369563,
+     "share_of_all": 0.018619999999999998,
+     "function": "expanse_trie::sync::olc_cas_remove_bucket_cas_map::<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>",
+     "inline_chain": [
+      "expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2503"
+     ],
+     "source": "}",
+     "construct": "insert bookkeeping"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "addr": "9b00a",
+     "insn": "je     9aff7 <expanse_trie::mutate::upgrade_b_to_u::<false>+0x247>",
+     "share": 0.10356580599516868,
+     "share_of_all": 0.017929655172413794,
+     "function": "expanse_trie::sync::olc_cas_remove_bucket_cas_map::<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>",
+     "inline_chain": [
+      "expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2476"
+     ],
+     "source": "if n > 0 {",
+     "construct": "insert bookkeeping"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "__rustc::__rdl_alloc_zeroed",
+     "addr": "25411b",
+     "insn": "ret",
+     "share": 0.09560655988476222,
+     "share_of_all": 0.016551724137931035,
+     "function": "__rustc::__rdl_alloc_zeroed",
+     "inline_chain": [
+      "__rustc::__rdl_alloc_zeroed @ library/std/src/alloc.rs:489"
+     ],
+     "source": "",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7f261",
+     "insn": "ret",
+     "share": 0.08765209410235,
+     "share_of_all": 0.015174620689655173,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/leaf.rs:632",
+      "map_realloc_insert @ crates/expanse/src/leaf.rs:602",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:769"
+     ],
+     "source": "core::ptr::copy_nonoverlapping(ok, nk, pos * KB);",
+     "construct": "leaf search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "addr": "9b007",
+     "insn": "test   %rax,%rax",
+     "share": 0.0318728369015826,
+     "share_of_all": 0.005517931034482758,
+     "function": "expanse_trie::sync::olc_cas_remove_bucket_cas_map::<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>",
+     "inline_chain": [
+      "expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2475"
+     ],
+     "source": "let n = old.pop_counts[sub] as usize;"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7a495",
+     "insn": "jmp    *%rax",
+     "share": 0.027878872862396663,
+     "share_of_all": 0.00482648275862069,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ crates/expanse/src/mutate.rs:565",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<false> @ crates/expanse/src/mutate_map.rs:750"
+     ],
+     "source": "(*edge).set_pop0(level, (pop0 + delta) as u64);"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7cb81",
+     "insn": "ja     7cba1 <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x27d1>",
+     "share": 0.02389207931520208,
+     "share_of_all": 0.004136275862068966,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate_map.rs:551"
+     ],
+     "source": "if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "addr": "9ae69",
+     "insn": "jne    9ae50 <expanse_trie::mutate::upgrade_b_to_u::<false>+0xa0>",
+     "share": 0.019910066096001728,
+     "share_of_all": 0.0034468965517241374,
+     "function": "expanse_trie::sync::olc_cas_remove_bucket_cas_map::<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>",
+     "inline_chain": [
+      "expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2465"
+     ],
+     "source": "while bits != 0 {"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7bd76",
+     "insn": "je     7c335 <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x1f65>",
+     "share": 0.015947174188778338,
+     "share_of_all": 0.0027608275862068964,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/core/src/ptr/mod.rs:1731",
+      "read<u64> @ library/core/src/ptr/const_ptr.rs:1153",
+      "aux_word @ crates/expanse/src/node.rs:271",
+      "pop0 @ crates/expanse/src/node.rs:248",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:564",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:534"
+     ],
+     "source": ""
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7bda5",
+     "insn": "jb     7c693 <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x22c3>",
+     "share": 0.015947174188778338,
+     "share_of_all": 0.0027608275862068964,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/core/src/cmp.rs:1916",
+      "spec_next<usize> @ library/core/src/iter/range.rs:900",
+      "next<usize> @ library/core/src/iter/range.rs:985",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:738",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:534"
+     ],
+     "source": ""
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7dda1",
+     "insn": "je     7ddf5 <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x3a25>",
+     "share": 0.015947174188778338,
+     "share_of_all": 0.0027608275862068964,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/alloc/src/vec/mod.rs:2355",
+      "insert<(u64, u64), alloc::alloc::Global> @ library/alloc/src/vec/mod.rs:2310",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:807"
+     ],
+     "source": ""
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7cb6d",
+     "insn": "cmp    %rax,%rcx",
+     "share": 0.011960380641583754,
+     "share_of_all": 0.0020706206896551724,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/common.rs:21",
+      "cap_class @ crates/expanse/src/leaf.rs:36",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:551"
+     ],
+     "source": "} else if pop <= 24 {"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7cb7d",
+     "insn": "cmp    $0x7,%rdx",
+     "share": 0.011960380641583754,
+     "share_of_all": 0.0020706206896551724,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate_map.rs:551"
+     ],
+     "source": "if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_judy_4m",
+   "kind": "l1miss",
+   "arm": "N",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 19799,
+   "annotated_samples": 17842.82799999997,
+   "annotated_fraction": 0.9011984443658755,
+   "ops": 4194304,
+   "events_per_op": 2.3743860721588135,
+   "functions": [
+    {
+     "pct": 85.84,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 3.61,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate14upgrade_b_to_uKb0_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 1.24,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2884"
+    },
+    {
+     "pct": 1.03,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1709"
+    },
+    {
+     "pct": 0.71,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a0a24"
+    },
+    {
+     "pct": 0.62,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a088d"
+    },
+    {
+     "pct": 0.52,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a0a29"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7a475",
+     "insn": "movzbl 0xf(%rbp),%ebx",
+     "share": 0.3456562771327511,
+     "share_of_all": 0.3115048992373352,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ library/core/src/iter/range.rs:900",
+      "next<usize> @ library/core/src/iter/range.rs:985",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:738",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<false> @ crates/expanse/src/mutate_map.rs:750"
+     ],
+     "source": "",
+     "construct": "other"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7aa3a",
+     "insn": "movzbl 0x74(%r15),%esi",
+     "share": 0.32632086124464177,
+     "share_of_all": 0.2940798525178039,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:248",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:564",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:392"
+     ],
+     "source": "self.aux_word() & POP0_MASKS[level as usize]",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7aa36",
+     "insn": "mov    0x0(%rbp),%r15",
+     "share": 0.1580170194993756,
+     "share_of_all": 0.1424046921561695,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:248",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:564",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:392"
+     ],
+     "source": "self.aux_word() & POP0_MASKS[level as usize]",
+     "construct": "branch digit search"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7a731",
+     "insn": "mov    (%rdx),%rax",
+     "share": 0.03857558342208989,
+     "share_of_all": 0.03476425577049346,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ crates/expanse/src/node.rs:248",
+      "map_insert_with_path_flat<false> @ crates/expanse/src/mutate_map.rs:?"
+     ],
+     "source": "self.aux_word() & POP0_MASKS[level as usize]"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7b338",
+     "insn": "add    0x20(%r15,%r13,8),%rax",
+     "share": 0.015620730077093185,
+     "share_of_all": 0.01407737764533562,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/core/src/ptr/mod.rs:1939",
+      "write<u64> @ library/core/src/ptr/mut_ptr.rs:1400",
+      "set_aux_word @ crates/expanse/src/node.rs:300",
+      "set_pop0 @ crates/expanse/src/node.rs:314",
+      "bump_pop0 @ crates/expanse/src/mutate.rs:565",
+      "flush<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:423"
+     ],
+     "source": ""
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7b2cf",
+     "insn": "mov    (%r15,%r13,4),%eax",
+     "share": 0.015334985014707338,
+     "share_of_all": 0.013819864639628265,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate.rs:747",
+      "clear<expanse_trie::node::LeafBitmapL> @ crates/expanse/src/mutate.rs:759",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:423"
+     ],
+     "source": "bump_pop0(self.edges[i], self.levels[i], delta);"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "addr": "7b708",
+     "insn": "movdqa 0x10(%r15),%xmm1",
+     "share": 0.013811011348649463,
+     "share_of_all": 0.012446461942522349,
+     "function": "<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseBytesMap>::compare_exchange_observed::{closure#0}>",
+     "inline_chain": [
+      "expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate.rs:764",
+      "map_insert_with_path_flat<true> @ crates/expanse/src/mutate_map.rs:474"
+     ],
+     "source": "self.leaf = core::ptr::null_mut();"
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "addr": "9ae27",
+     "insn": "movups (%rdx),%xmm0",
+     "share": 0.011432576719340698,
+     "share_of_all": 0.01030302035456336,
+     "function": "expanse_trie::sync::olc_cas_remove_bucket_cas_map::<expanse_trie::sync::Shared<expanse_trie::bytesmap::ExpanseBytesMap>>",
+     "inline_chain": [
+      "expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2467"
+     ],
+     "source": "u.edges[dig] = *src;"
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_judy_4m",
+   "kind": "misp",
+   "arm": "S",
+   "event": "br_misp_retired.all_branches",
+   "samples": 1240,
+   "annotated_samples": 194.99509999999998,
+   "annotated_fraction": 0.1572541129032258,
+   "ops": 4194304,
+   "events_per_op": 0.14870643615722656,
+   "functions": [
+    {
+     "pct": 32.66,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000001057c"
+    },
+    {
+     "pct": 11.85,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000010646"
+    },
+    {
+     "pct": 6.85,
+     "dso": "libc.so.6",
+     "symbol": "malloc"
+    },
+    {
+     "pct": 3.95,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU"
+    },
+    {
+     "pct": 3.06,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLIns"
+    },
+    {
+     "pct": 2.9,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4264"
+    },
+    {
+     "pct": 2.26,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000013aca"
+    },
+    {
+     "pct": 2.1,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000013031"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a51c8",
+     "insn": "je     a50b7 <__libc_malloc@@GLIBC_2.2.5+0x57>",
+     "share": 0.3333391454451933,
+     "share_of_all": 0.052418951612903227
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLIns@@Base",
+     "addr": "142de",
+     "insn": "ret",
+     "share": 0.19487669177328049,
+     "share_of_all": 0.03064516129032258
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a51c5",
+     "insn": "test   %cx,%cx",
+     "share": 0.10256924404767097,
+     "share_of_all": 0.01612943548387097
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCascade2@@Base",
+     "addr": "3a5c",
+     "insn": "je     3a73 <j__udyLCascade2@@Base+0x193>",
+     "share": 0.07692500991050545,
+     "share_of_all": 0.012096774193548387
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8a78",
+     "insn": "ret",
+     "share": 0.076919368743112,
+     "share_of_all": 0.012095887096774192
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8aae",
+     "insn": "test   $0x1,%dl",
+     "share": 0.076919368743112,
+     "share_of_all": 0.012095887096774192
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8a86",
+     "insn": "jne    8aae <j__udyLCreateBranchU@@Base+0x11e>",
+     "share": 0.05128795544093159,
+     "share_of_all": 0.00806524193548387
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8a45",
+     "insn": "jne    89e8 <j__udyLCreateBranchU@@Base+0x58>",
+     "share": 0.020505130641744335,
+     "share_of_all": 0.003224516129032258
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLAllocJBBJP@@Base",
+     "addr": "1644a",
+     "insn": "ret",
+     "share": 0.01538500198210109,
+     "share_of_all": 0.0024193548387096775
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLAllocJBU@@Base",
+     "addr": "164b1",
+     "insn": "ret",
+     "share": 0.010256667988067394,
+     "share_of_all": 0.0016129032258064516
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8a42",
+     "insn": "cmp    %rbx,%r15",
+     "share": 0.010252565320872167,
+     "share_of_all": 0.001612258064516129
+    }
+   ]
+  },
+  {
+   "run": 2,
+   "workload_id": "phase_judy_4m",
+   "kind": "l1miss",
+   "arm": "S",
+   "event": "mem_load_retired.l1_miss",
+   "samples": 16949,
+   "annotated_samples": 1061.9999999999998,
+   "annotated_fraction": 0.06265856392707533,
+   "ops": 4194304,
+   "events_per_op": 2.0326011180877686,
+   "functions": [
+    {
+     "pct": 12.85,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000001055b"
+    },
+    {
+     "pct": 11.21,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000012eed"
+    },
+    {
+     "pct": 10.91,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000012ef0"
+    },
+    {
+     "pct": 9.07,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x00000000000110ff"
+    },
+    {
+     "pct": 8.37,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000001301a"
+    },
+    {
+     "pct": 5.7,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000013023"
+    },
+    {
+     "pct": 4.9,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1709"
+    },
+    {
+     "pct": 3.4,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a16df"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_free@@GLIBC_2.2.5",
+     "addr": "a53be",
+     "insn": "mov    -0x8(%rdi),%rax",
+     "share": 0.27401177024482115,
+     "share_of_all": 0.017169184022656204
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8b08",
+     "insn": "mov    (%rdi,%rax,1),%rdx",
+     "share": 0.25611713747645953,
+     "share_of_all": 0.01604793203138828
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8b10",
+     "insn": "mov    0x8(%rdi,%rax,1),%rdx",
+     "share": 0.1582009416195857,
+     "share_of_all": 0.009912643813794322
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a51e9",
+     "insn": "xor    (%rax),%rsi",
+     "share": 0.04990470809792845,
+     "share_of_all": 0.0031269573426160836
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8a90",
+     "insn": "mov    (%rsi),%rcx",
+     "share": 0.025444256120527312,
+     "share_of_all": 0.0015943005487049384
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "free@plt",
+     "addr": "2d70",
+     "insn": "jmp    *0x24d132(%rip)        # 24fea8 <free@GLIBC_2.2.5>",
+     "share": 0.020715630885122415,
+     "share_of_all": 0.001298011682105139
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "addr": "8aa1",
+     "insn": "mov    -0x8(%rsi),%rcx",
+     "share": 0.01507118644067797,
+     "share_of_all": 0.0009443388990500915
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a506f",
+     "insn": "cmpb   $0x0,0x17c472(%rip)        # 2214e8 <__malloc_initialize_hook@GLIBC_2.2.5+0x28>",
+     "share": 0.015064783427495296,
+     "share_of_all": 0.000943937695439259
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLAllocJBBJP@@Base",
+     "addr": "16402",
+     "insn": "mov    (%rax),%rax",
+     "share": 0.01412476459510358,
+     "share_of_all": 0.0008850374653371879
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a509d",
+     "insn": "mov    %fs:(%rbx),%rdx",
+     "share": 0.012235781544256122,
+     "share_of_all": 0.0007666765000885008
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a5096",
+     "insn": "mov    0x174d0b(%rip),%rbx        # 219da8 <h_errlist@@GLIBC_2.2.5+0xae8>",
+     "share": 0.011302071563088514,
+     "share_of_all": 0.0007081715735441619
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a50aa",
+     "insn": "cmp    %r12,0x175317(%rip)        # 21a3c8 <__nptl_nthreads@@GLIBC_PRIVATE+0x120>",
+     "share": 0.011302071563088514,
+     "share_of_all": 0.0007081715735441619
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_free@@GLIBC_2.2.5",
+     "addr": "a53b7",
+     "insn": "mov    0x174a52(%rip),%rbx        # 219e10 <h_errlist@@GLIBC_2.2.5+0xb50>",
+     "share": 0.011286723163841812,
+     "share_of_all": 0.0007072098648887841
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCascade2@@Base",
+     "addr": "3916",
+     "insn": "movzwl (%r8),%ebp",
+     "share": 0.010357815442561208,
+     "share_of_all": 0.0006490058410525695
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a50b7",
+     "insn": "mov    %fs:0x18,%eax",
+     "share": 0.010354425612052732,
+     "share_of_all": 0.0006487934391409523
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "addr": "a51c0",
+     "insn": "movzwl (%rdx,%r12,2),%ecx",
+     "share": 0.010354425612052732,
+     "share_of_all": 0.0006487934391409523
+    }
+   ]
+  }
+ ],
+ "stability": {
+  "rule": "same constructs hold N's 3 largest instruction shares (>= 5%) in both runs",
+  "per_shape_kind": {
+   "phase_sm_default misp": false,
+   "phase_sm_default l1miss": true,
+   "phase_sm_big misp": true,
+   "phase_sm_big l1miss": true,
+   "phase_judy_4m misp": false,
+   "phase_judy_4m l1miss": false
+  },
+  "tops": {
+   "phase_sm_default misp": {
+    "1": [
+     "branch digit search",
+     "branch digit search",
+     "other"
+    ],
+    "2": [
+     "branch digit search",
+     "branch digit search",
+     "leaf search"
+    ]
+   },
+   "phase_sm_default l1miss": {
+    "1": [
+     "other",
+     "leaf search",
+     "leaf search"
+    ],
+    "2": [
+     "other",
+     "leaf search",
+     "leaf search"
+    ]
+   },
+   "phase_sm_big misp": {
+    "1": [
+     "branch digit search",
+     "leaf search",
+     "branch digit search"
+    ],
+    "2": [
+     "branch digit search",
+     "leaf search",
+     "branch digit search"
+    ]
+   },
+   "phase_sm_big l1miss": {
+    "1": [
+     "other",
+     "leaf search",
+     "other"
+    ],
+    "2": [
+     "other",
+     "leaf search",
+     "other"
+    ]
+   },
+   "phase_judy_4m misp": {
+    "1": [
+     "other",
+     "other",
+     "leaf search"
+    ],
+    "2": [
+     "other",
+     "other",
+     "insert bookkeeping"
+    ]
+   },
+   "phase_judy_4m l1miss": {
+    "1": [
+     "branch digit search",
+     "other",
+     "branch digit search"
+    ],
+    "2": [
+     "other",
+     "branch digit search",
+     "branch digit search"
+    ]
+   }
+  }
+ }
+}

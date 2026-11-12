@@ -1,0 +1,490 @@
+# callgrind format
+version: 1
+creator: callgrind-3.22.0
+pid: 2169
+cmd:  /t/release/deps/instructions-3b2618e4bcd701fb --iai-run cost 4 5 instructions::cost::map_get
+part: 1
+thread: 1
+
+
+desc: I1 cache: 32768 B, 64 B, 8-way associative
+desc: D1 cache: 32768 B, 64 B, 8-way associative
+desc: LL cache: 8388608 B, 64 B, 16-way associative
+
+desc: Timerange: Basic block 0 - 3352920
+desc: Trigger: Program termination
+
+positions: line
+events: Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw Bc Bcm Bi Bim
+summary: 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+
+
+ob=/usr/lib/x86_64-linux-gnu/libc.so.6
+fl=./malloc/./malloc/malloc.c
+fn=free
+3359 1
+3363 2 0 0 0 0 0 0 0 0 1
+3359 3 0 2
+3373 1
+3359 3 0 2
+3371 1 1 0 0 1
+3375 1 1 0 0 1
+3371 1 1 0 0 1
+3375 2 0 0 0 0 0 0 0 0 1 1
+3379 3 1 0 1 1 0 1 0 0 1
+3381 4 1 0 0 1 0 0 0 0 2
+3383 1
+3384 1
+3383 1 0 1
+3384 1 0 1
+3385 1
+3388 2 0 1 0 0 1
+cfn=munmap_chunk
+calls=1 3024 
+3388 36 8 3 4 2 0 4 0 0 5 1
+3401 1 0 1
+3402 6 5 0 1 0 0 1
+
+fn=munmap_chunk
+3024 1 0 1 1 0 0 1
+3026 1 1
+3025 1 1 0 0 1
+3026 2
+3028 1
+3025 1 1 0 0 1
+3024 1
+3028 1 0 0 0 0 0 0 0 0 1 1
+3031 2 1 0 1 0 0 1
+3038 1
+3030 1
+3039 1
+3031 1
+3032 1
+3038 3
+3039 4 0 0 0 0 0 0 0 0 1
+3042 1 1 1 0 0 0 0 0 0 1
+3043 3 1 1 1 0 0 1 0 0 1
+3049 1 1
+3048 2
+cfi=./misc/../sysdeps/unix/syscall-template.S
+cfn=munmap
+calls=1 117 
+3048 6 1 0 1 0 0 1 0 0 1
+
+fl=./csu/../sysdeps/nptl/libc_start_call_main.h
+fn=(below main)
+cob=/t/release/deps/instructions-3b2618e4bcd701fb
+cfi=???
+cfn=main
+calls=1 0 
+58 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+
+fl=./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S
+fn=__memcpy_avx_unaligned_erms
+255 1
+256 1
+262 1
+263 1 0 0 0 0 0 0 0 0 1
+265 1 1
+266 1
+267 1 0 0 0 0 0 0 0 0 1
+386 1 1
+387 1 0 0 0 0 0 0 0 0 1
+392 1
+393 1 0 0 0 0 0 0 0 0 1 1
+417 1
+418 1
+422 1
+424 1 0 0 0 0 0 0 0 0 1
+428 1 1
+429 1 0 0 0 0 0 0 0 0 1
+440 1
+443 1
+445 1
+447 1
+451 1
+452 1 0 0 0 0 0 0 0 0 1
+461 1 1
+462 1 1
+464 1
+466 1
+467 1 1
+468 1 1
+471 1
+473 1
+475 1
+477 2
+483 1 1
+484 1 1
+485 1 1
+486 1 1
+487 1
+488 1 0 1
+489 1 0 1
+490 1 0 1
+491 1 0 1
+492 1
+493 1
+494 1 0 0 0 0 0 0 0 0 1
+483 4 4
+484 4 4
+485 4 4
+486 4 4
+487 4
+488 4 0 4
+489 4 0 4
+490 4 0 4 0 0 1
+491 4 0 4
+492 4
+493 4
+494 4 0 0 0 0 0 0 0 0 4 3
+496 1 0 1
+497 1 0 1
+498 1 0 1
+499 1 0 1
+501 1 0 1
+505 2 1
+
+fl=./csu/../csu/libc-start.c
+fn=__libc_start_main@@GLIBC_2.34
+cfi=./csu/../sysdeps/nptl/libc_start_call_main.h
+cfn=(below main)
+calls=1 29 
+360 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+
+fl=./misc/../sysdeps/unix/syscall-template.S
+fn=munmap
+117 5 0 0 1 0 0 1 0 0 1
+122 1 1
+
+ob=/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+fl=???
+fn=0x000000000001f540
+cob=/t/release/deps/instructions-3b2618e4bcd701fb
+cfi=???
+cfn=(below main)
+calls=1 0 
+0 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+
+ob=/t/release/deps/instructions-3b2618e4bcd701fb
+fl=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/backtrace.rs
+fn=std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs
+cfi=/opt/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iai-callgrind-0.16.1/src/macros.rs
+cfn=instructions::main
+calls=1 444 
+250 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+fe=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/backtrace.rs
+
+fl=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/rt.rs
+fn=std::rt::lang_start_internal
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs
+cfn=std::rt::lang_start::<()>::{closure#0}
+calls=1 206 
+287 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+fe=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/rt.rs
+
+fn=std::rt::lang_start::<()>::{closure#0}
+cfi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/backtrace.rs
+cfn=std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+calls=1 162 
+206 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+
+fl=/opt/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/iai-callgrind-0.16.1/src/macros.rs
+fn=instructions::cost::__run
+cfi=/w/crates/expanse/benches/instructions.rs
+cfn=instructions::map_get::sm_10k
+calls=1 291 
+1237 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+
+fn=instructions::main
+cfn=instructions::cost::__run
+calls=1 1236 
+486 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+
+fl=/w/crates/expanse/src/leaf.rs
+fn=expanse_trie::leaf::search
+835 80000 0 0 0 0 0 0 0 0 20000
+0 20000
+835 60000 20000 0 0 0 0 0 0 0 0 0 20000 310
+736 620 0 0 0 0 0 0 0 0 310
+742 39690 0 0 0 0 0 0 0 0 19845 1
+744 20155 0 0 0 0 0 0 0 0 20000
+fi=/w/crates/expanse/src/mutate.rs
+216 19845
+fe=/w/crates/expanse/src/leaf.rs
+282 39690 0 0 0 0 0 0 0 0 19845 3458
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/num/uint_macros.rs
+154 16632
+fe=/w/crates/expanse/src/leaf.rs
+296 16632
+0 33264
+296 33264
+0 16632
+292 33264
+294 33264
+295 33264
+294 16632 16632 0 0 10630
+295 16632
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/hint.rs
+879 16632
+0 16632
+fe=/w/crates/expanse/src/leaf.rs
+305 33264 16632 0 0 3695
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/hint.rs
+879 16632
+fe=/w/crates/expanse/src/leaf.rs
+307 16632
+297 16632 0 0 0 0 0 0 0 0 16632
+305 93880 46940 0 0 1481
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/hint.rs
+879 46940
+fe=/w/crates/expanse/src/leaf.rs
+307 46940
+297 46940 0 0 0 0 0 0 0 0 46940 1708
+814 78340 19325 0 0 0 0 0 0 0 19845 548
+0 38954
+845 19477 19477
+fi=/w/crates/expanse/src/mutate.rs
+216 155
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/cmp.rs
+2146 155
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/range.rs
+885 155 0 0 0 0 0 0 0 0 155
+fe=/w/crates/expanse/src/leaf.rs
+0 9639
+313 31310 0 0 0 0 0 0 0 0 15655 3708
+314 31310
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mod.rs
+1755 15655 15655 0 0 3478
+fe=/w/crates/expanse/src/leaf.rs
+316 31310 0 0 0 0 0 0 0 0 15655 7584
+0 8431
+316 52982 0 0 0 0 0 0 0 0 15655
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/cmp.rs
+2146 155
+fe=/w/crates/expanse/src/leaf.rs
+180 155 0 0 0 0 0 0 0 0 155
+182 78 39 0 0 34
+fi=/w/crates/expanse/src/bits.rs
+320 39
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/../../stdarch/crates/core_arch/src/simd.rs
+59 195
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/../../stdarch/crates/core_arch/src/x86/sse2.rs
+992 39 39 0 0 27
+1569 78
+fe=/w/crates/expanse/src/leaf.rs
+0 780
+180 39
+282 232 0 0 0 0 0 0 0 0 116
+0 116
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/num/uint_macros.rs
+154 116
+fe=/w/crates/expanse/src/leaf.rs
+296 116
+0 116
+296 116
+0 116
+292 116
+294 232
+fi=/w/crates/expanse/src/mutate.rs
+75 116 116 0 0 82
+fe=/w/crates/expanse/src/leaf.rs
+295 232
+294 116
+295 116
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/hint.rs
+879 116
+0 116
+fe=/w/crates/expanse/src/leaf.rs
+305 116
+fi=/w/crates/expanse/src/mutate.rs
+75 116 116
+fe=/w/crates/expanse/src/leaf.rs
+305 116
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/hint.rs
+879 116
+fe=/w/crates/expanse/src/leaf.rs
+307 116
+297 116 0 0 0 0 0 0 0 0 116
+305 348
+fi=/w/crates/expanse/src/mutate.rs
+75 348 348 0 0 12
+fe=/w/crates/expanse/src/leaf.rs
+305 348
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/hint.rs
+879 348
+fe=/w/crates/expanse/src/leaf.rs
+307 348
+297 348 0 0 0 0 0 0 0 0 348
+814 614 152 0 0 0 0 0 0 0 155 3
+0 1046
+845 523 523
+
+fl=???
+fn=(below main)
+cob=/usr/lib/x86_64-linux-gnu/libc.so.6
+cfi=./csu/../csu/libc-start.c
+cfn=__libc_start_main@@GLIBC_2.34
+calls=1 242 
+0 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+
+fn=main
+cfi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/rt.rs
+cfn=std::rt::lang_start_internal
+calls=1 152 
+0 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+
+fl=/w/crates/expanse/src/get.rs
+fn=expanse_trie::get::get_map_popcnt
+553 140000 0 60000 1 0 0 1
+fi=/w/crates/expanse/src/node.rs
+152 20000 20000
+fe=/w/crates/expanse/src/get.rs
+269 40000 0 0 1 0 0 1 0 0 20000
+fi=/w/crates/expanse/src/node.rs
+152 60155 60155
+fe=/w/crates/expanse/src/get.rs
+269 360775 80155 0 0 1 0 0 1 0 60155 0 80155 60155
+fi=/w/crates/expanse/src/node.rs
+186 40155 40155
+fe=/w/crates/expanse/src/get.rs
+275 40155 40155 0 0 95
+276 80310 0 0 0 0 0 0 0 0 40155 116
+61 40310
+65 120930 40310 0 0 0 0 0 0 0 20155
+66 40310
+276 20155 0 0 0 0 0 0 0 0 20155
+fi=/w/crates/expanse/src/types.rs
+327 200775 0 0 1 0 0 1
+fe=/w/crates/expanse/src/get.rs
+281 80310 40155 0 0 0 0 0 0 0 40155 10020
+0 30237
+281 30237
+328 40000
+0 20000
+fi=/w/crates/expanse/src/types.rs
+327 80000 0 0 1 0 0 1
+fi=/w/crates/expanse/src/node.rs
+186 20000 20000
+fi=/w/crates/expanse/src/types.rs
+327 20000
+fe=/w/crates/expanse/src/get.rs
+331 20000
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/const_ptr.rs
+871 60000
+fe=/w/crates/expanse/src/get.rs
+334 80000 20000 0 0 3398 0 0 0 0 20000
+fi=/w/crates/expanse/src/bits.rs
+0 9918 9918 0 1 0 0 1
+fe=/w/crates/expanse/src/get.rs
+283 19836 0 0 0 0 0 0 0 0 9918 1
+0 9918
+283 19836 9918 0 0 0 0 0 0 0 9918
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/const_ptr.rs
+871 120465 0 0 1 0 0 1
+fe=/w/crates/expanse/src/get.rs
+293 40155
+0 10000 0 0 1 0 0 1
+fi=/w/crates/expanse/src/types.rs
+235 10000
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mod.rs
+0 20000
+fe=/w/crates/expanse/src/get.rs
+556 100000 80000
+357 60000 0 0 1 0 0 1 0 0 20000
+358 40000
+359 40000 0 0 0 0 0 0 0 0 20000 2
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mod.rs
+1755 20000 20000 0 1 0 0 1
+0 20000
+fi=/w/crates/expanse/src/node.rs
+248 20000 20000
+fe=/w/crates/expanse/src/get.rs
+362 20000 0 0 1 0 0 1
+fi=/w/crates/expanse/src/node.rs
+186 40000 20000
+fi=/w/crates/expanse/src/common.rs
+17 40000 0 0 0 0 0 0 0 0 20000
+19 40000 0 0 0 0 0 0 0 0 20000 5171
+0 17440
+fi=/w/crates/expanse/src/types.rs
+0 15640
+fi=/w/crates/expanse/src/common.rs
+21 31280 0 0 0 0 0 0 0 0 15640 3781
+0 3213
+23 6426 0 0 0 0 0 0 0 0 3213
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/mut_ptr.rs
+970 20000
+fe=/w/crates/expanse/src/get.rs
+367 40000 0 20000 1 0 0 1
+cfi=/w/crates/expanse/src/leaf.rs
+cfn=expanse_trie::leaf::search
+calls=20000 835 
+367 1207090 155994 0 0 19439 0 0 0 0 211427 17010 20000 310
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/option.rs
+2869 40000 0 0 0 0 0 0 0 0 20000 21
+fe=/w/crates/expanse/src/get.rs
+369 20000 10000 0 0 8722
+
+fl=/w/crates/expanse/benches/instructions.rs
+fn=instructions::map_get::sm_10k
+cfn=instructions::map_get::__iai_callgrind_wrapper_mod::map_get
+calls=1 291 
+291 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468
+
+fn=instructions::map_get::__iai_callgrind_wrapper_mod::map_get
+291 9 0 6 1 0 0 1
+300 3 1 1 1 0 0 1 0 0 0 0 1 1
+cob=/usr/lib/x86_64-linux-gnu/libc.so.6
+cfi=./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S
+cfn=__memcpy_avx_unaligned_erms
+calls=1 255 
+300 101 28 25 0 0 1 0 0 0 12 4
+300 4 3 1
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/non_null.rs
+1663 2 0 1
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/slice/iter/macros.rs
+180 1 0 0 0 0 0 0 0 0 1
+0 7 1 0 1 0 0 1
+fi=/w/crates/expanse/src/get.rs
+521 60000 20000 20000 0 1 0 0 0 0 0 0 20000 1
+cfn=expanse_trie::get::get_map_popcnt
+calls=20000 553 
+521 3786031 686915 80000 11 31655 0 11 1 0 570891 36122 100155 60465
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/option.rs
+1040 80000
+fe=/w/crates/expanse/benches/instructions.rs
+0 20000
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ptr/non_null.rs
+1663 20000
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/slice/iter/macros.rs
+180 20000 0 0 0 0 0 0 0 0 20000 6
+fe=/w/crates/expanse/benches/instructions.rs
+302 20000 20000 0 0 2501
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/hint.rs
+491 20000 0 20000 1 0 0 1
+fi=/w/crates/expanse/src/map.rs
+904 60000 20000 0 0 0 0 0 0 0 20000 5
+4717 20000 20000
+904 40000 0 0 0 0 0 0 0 0 20000 21
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/sync/atomic.rs
+3994 20000 20000 0 1 0 0 1
+fi=/w/crates/expanse/src/bits.rs
+527 40000 0 0 0 0 0 0 0 0 20000 15
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/hint.rs
+491 2 0 1 1 0 0 1
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/alloc/src/raw_vec/mod.rs
+631 2 1 0 0 0 0 0 0 0 1
+0 1 1
+fi=/rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/sys/alloc/unix.rs
+65 1 1 1 0 1 0 0 0 0 0 0 1 1
+cob=/usr/lib/x86_64-linux-gnu/libc.so.6
+cfi=./malloc/./malloc/malloc.c
+cfn=free
+calls=1 3359 
+65 72 18 11 6 7 1 6 0 0 10 2
+fe=/w/crates/expanse/benches/instructions.rs
+291 9 8 0 1 2 0 1
+
+totals: 4206245 786977 120047 24 34167 2 24 1 0 650915 36175 120157 60468

@@ -1,0 +1,126 @@
+# callgrind format
+version: 1
+creator: callgrind-3.22.0
+pid: 23
+cmd:  /o2/phase_probe sm_default 1 - -
+part: 1
+
+
+desc: I1 cache: 
+desc: D1 cache: 
+desc: LL cache: 
+
+desc: Timerange: Basic block 0 - 3082657
+desc: Trigger: Program termination
+
+positions: line
+events: Ir Bc Bcm Bi Bim
+summary: 6457493 1132549 45841 178511 89546
+
+
+ob=(1) /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+fl=(1) ???
+fn=(0) 0x000000000001f540
+cob=(7) /o2/phase_probe
+cfi=(163) ???
+cfn=(546) (below main)
+calls=1 0 
+0 6457493 1132549 45841 178511 89546
+
+ob=(7)
+fl=(163)
+fn=(546)
+cob=(2) /usr/lib/x86_64-linux-gnu/libc.so.6
+cfi=(164) ./csu/../csu/libc-start.c
+cfn=(548) __libc_start_main@@GLIBC_2.34
+calls=1 242 
+0 6457493 1132549 45841 178511 89546
+
+fn=(576) main
+cfn=(588) sparsematrix
+calls=1 0 
+0 6457493 1132549 45841 178511 89546
+
+fn=(588)
+cob=(3) ???
+cfi=(153) ???
+cfn=(590) 0x0000000000109180
+calls=9999 0 
+0 2027114 346361 12206 58511 29546
+cob=(3)
+cfi=(153)
+cfn=(590)
+calls=1 0 
+0 4 1 1
+cob=(3)
+cfi=(153)
+cfn=(590)
+calls=9999 0 
+0 2227994 396750 17281 59994 29997
+cob=(3)
+cfi=(153)
+cfn=(590)
+calls=1 0 
+0 221 39 3 6 3
+cob=(3)
+cfi=(153)
+cfn=(590)
+calls=9999 0 
+0 2201944 389361 16347 59994 29997
+cob=(3)
+cfi=(153)
+cfn=(590)
+calls=1 0 
+0 216 37 3 6 3
+
+ob=(2)
+fl=(166) ./csu/../sysdeps/nptl/libc_start_call_main.h
+fn=(568) (below main)
+cob=(7)
+cfi=(163)
+cfn=(576)
+calls=1 0 
+58 6457493 1132549 45841 178511 89546
+
+fl=(164)
+fn=(548)
+cfi=(166)
+cfn=(568)
+calls=1 29 
+360 6457493 1132549 45841 178511 89546
+
+ob=(6) /o2/N/libJudy.so.1
+fl=(162) ???
+fn=(670) expanse_trie::get::locate_slot
+0 179808 29968
+cfn=(674) expanse_trie::get::locate_slot_popcnt
+calls=29972 0 
+0 5976320 1012337 45791 148543 89545
+
+fn=(592) JudyLGet
+0 300039 90037 23 29968 1
+cfn=(670)
+calls=29968 0 
+0 6156128 1042305 45791 148543 89545
+0 1326 207 27
+
+fn=(674)
+0 4179957 675199 25402 119511 89544
+cfn=(676) expanse_trie::leaf::search
+calls=29035 0 
+0 1569115 279072 19688 29032 1
+0 227248 58066 701
+
+fn=(676)
+0 1569115 279072 19688 29032 1
+
+ob=(3)
+fl=(153)
+fn=(590)
+cob=(6)
+cfi=(162)
+cfn=(592)
+calls=30000 0 
+0 6457493 1132549 45841 178511 89546
+
+totals: 6457493 1132549 45841 178511 89546
