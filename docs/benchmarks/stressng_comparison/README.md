@@ -1105,6 +1105,31 @@ The arms below rose above +0.1% in Step 0 (`results/step0_unlocked/`, measured o
 
 Every pre-registered target and bound holds in both runs, on the phase clock and on `cycles`, and every Callgrind arm is within its bound. Merging is the owner's decision.
 
+## The #1679 criterion on main
+
+**A re-measure against stock, outside METHODOLOGY.md's pre-registration** (#1679). #1708, #1719 and #1720 have landed since the last vs-stock reading. This section re-runs the delete-fix diagnostic's cells against stock on main.
+
+**Design, fixed before the builds** (`scripts/diag_delete.py` with `SNG_DELETE_SET=main`, `run.sh <run> <host> delete_main`):
+- **Arms.** The same stress-ng binary and judy stressor, differing only in `LD_LIBRARY_PATH`:
+  - N: libexpanse at `5f4892932`, #1720's merge commit, built by `scripts/build_layout_lib.sh` with no flag. No library source (`crates/expanse/src`, `crates/expanse-capi`) changes between it and this design's commit.
+  - D: #1708's head library (`45f83ac5e`, sha256 `f6bb333e…`), the file the delete-fix diagnostic published.
+  - S: stock.
+- **Toolchain control.** Before N is built, D is rebuilt from its export with the same toolchain. It must reproduce `f6bb333e…` byte for byte, or the build stops.
+- **Second host.** The second host runs the reference host's files, copied and hash-checked.
+- **Cells and rounds.** Every `sng_judy_*` cell (1 Ki, 256 Ki and 4 Mi keys at W = 1, 2, 4, 8) and one process per arm per cell per round.
+  - 12 rounds per run, cycling through the six orders of the three arms.
+  - Two independent runs per host, under the host bench lock and that host's pin (METHODOLOGY.md §3).
+  - The second host's governor change and stopped CI runner are the delete-fix diagnostic's.
+  - Load windows, the discard rule and the void rule are the delete-fix diagnostic's.
+- **Analysis.** `scripts/diag_delete_analyze.py` writes `results/diagnostic_delete_main_<host>_run{1,2}.json`: two-sample BCa 95% intervals on N/S, N/D and D/S for delete, insert, find, bogo-ops/s and wall clock.
+
+**Reading rule:**
+- **#1679's criterion, as the issue states it:** on the delete rate, N/S lower bound at or above 1.0 in both runs, at every cell and W, on both hosts.
+- **Changed side:** every insert, find and delete cell whose N/S verdict (METHODOLOGY.md §8's rule) differs from the E/S verdict in the host's published table above, and every delete cell whose side of stock differs from the published D/S.
+- **N/D** shows what changed since the delete-fix diagnostic. It is the combined effect of #1719 and #1720 and of any code placement between the two files, which this design cannot separate.
+
+**Expected** (projected): N/D on delete at or above 1 at every size, since #1720's timed promotion measured P/M 0.85–0.96 on the delete phase's time per operation. Whether the 1 Ki and 4 Mi delete cells reach stock is not predicted.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -1283,4 +1308,26 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref phase_promote2
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py ref /var/tmp/stressng-eval/results/diag_promote2_ref_run1 /var/tmp/stressng-eval/results/diag_promote2_ref_run2
+```
+
+The #1679 criterion on main rebuilds D as a toolchain control and builds N, each from a `git archive` export, then runs with the mode `delete_main` on each host:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 45f83ac5e> /var/tmp/stressng-eval/expcompat-45f83ac5e-ctl/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of 5f4892932> /var/tmp/stressng-eval/expcompat-5f4892932/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 1 ref delete_main
+```
+
+```bash
+docs/benchmarks/stressng_comparison/run.sh 2 ref delete_main
+```
+
+```bash
+python3 docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_main_ref_run1 /var/tmp/stressng-eval/results/diag_delete_main_ref_run2
 ```

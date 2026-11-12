@@ -9,13 +9,22 @@ the same stress-ng binary and judy stressor and differ only in
   bound on a `BranchU`'s live slots;
 - S: stock libJudy.
 
+With `SNG_DELETE_SET=main` the same driver re-measures the `judy` cells against
+stock on main after #1708, #1719 and #1720 (README.md, "The #1679 criterion on
+main"), with the arms:
+- D: the same #1708-head library, the one the delete-fix diagnostic published;
+- N: libexpanse built at `5f4892932` (#1720's merge commit; the library source
+  is unchanged from there to the design commit);
+- S: stock libJudy.
+
 Every `sng_judy_*` cell of METHODOLOGY.md §5 (1 Ki, 256 Ki and 4 Mi keys, W =
 1, 2, 4, 8), one process per arm per cell per round. The rounds cycle through
 the six orders of the three arms. Load windows and the provenance are
 `diag_lib_ab.py`'s.
 
 Usage: diag_delete.py <run_number> <host_label> <out_prefix>
-Environment: SNG_D, REPO_ROOT, SNG_DELETE_ROUNDS (default 12, a multiple of 6).
+Environment: SNG_D, REPO_ROOT, SNG_DELETE_ROUNDS (default 12, a multiple of 6),
+SNG_DELETE_SET (`fix`, the default, or `main`).
 """
 import itertools
 import json
@@ -28,17 +37,26 @@ from pathlib import Path
 import driver
 
 bp = driver.bp
-ARMS = {"B": f"{driver.D}/expcompat-99ef70855/lib",
-        "D": f"{driver.D}/expcompat-45f83ac5e/lib",
-        "S": driver.ARMS["S"]}
+SETS = {
+    "fix": {"B": f"{driver.D}/expcompat-99ef70855/lib",
+            "D": f"{driver.D}/expcompat-45f83ac5e/lib",
+            "S": driver.ARMS["S"]},
+    "main": {"D": f"{driver.D}/expcompat-45f83ac5e/lib",
+             "N": f"{driver.D}/expcompat-5f4892932/lib",
+             "S": driver.ARMS["S"]},
+}
+SET = os.environ.get("SNG_DELETE_SET", "fix")
+if SET not in SETS:
+    sys.exit(f"STOP: unknown SNG_DELETE_SET={SET}")
+ARMS = SETS[SET]
 ORDERS = list(itertools.permutations(ARMS))
 ROUNDS = int(os.environ.get("SNG_DELETE_ROUNDS", "12"))
 
 
 def library_proof():
-    """B and D each map their own libexpanse file, and S maps no Expanse object."""
+    """Each Expanse arm maps its own libexpanse file, and S maps no Expanse object."""
     proof = {arm: driver.mapped_objects(arm, libdir) for arm, libdir in ARMS.items()}
-    for arm in ("B", "D"):
+    for arm in (a for a in ARMS if a != "S"):
         if not any(x.startswith(ARMS[arm]) and "expanse" in x for x in proof[arm]):
             sys.exit(f"STOP: arm {arm} did not map libexpanse from {ARMS[arm]}: {proof}")
     if any("expanse" in x for x in proof["S"]):
@@ -51,14 +69,18 @@ def main():
     if ROUNDS % len(ORDERS):
         sys.exit(f"STOP: SNG_DELETE_ROUNDS={ROUNDS} is not a multiple of {len(ORDERS)}")
     driver.ARMS = ARMS
-    driver.D = f"{driver.D}/diag_delete"
+    driver.D = f"{driver.D}/diag_delete" + ("" if SET == "fix" else f"_{SET}")
     os.makedirs(f"{driver.D}/out", exist_ok=True)
     prov = bp.new_provenance(
         "stressng_comparison", 1679,
-        "D/B, D/S and B/S: the ratio of two arms' means of stress-ng's own per-phase rate "
+        ("D/B, D/S and B/S" if SET == "fix" else "N/S, N/D and D/S")
+        + ": the ratio of two arms' means of stress-ng's own per-phase rate "
         "(or wall clock), with a two-sample BCa 95% interval over the run's rounds",
         repo_root=driver.REPO_ROOT, host_label=host, run=run, rounds=ROUNDS,
-        diagnostic="the #1679 delete fix, outside METHODOLOGY.md's pre-registration",
+        diagnostic=("the #1679 delete fix, outside METHODOLOGY.md's pre-registration"
+                    if SET == "fix" else
+                    "the #1679 criterion re-measured on main, outside METHODOLOGY.md's pre-registration"),
+        arm_set=SET,
         binary=driver.BIN, arms=ARMS, arm_orders=["".join(o) for o in ORDERS],
         cell_isolation="process",
         sha256={"binary": driver.sha256(driver.BIN),
