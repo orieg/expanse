@@ -1160,6 +1160,8 @@ impl NodeAlloc {
             i
         };
         // Count each page's free blocks.
+        // Index form kept so codegen is unchanged; reviewed in #1724.
+        #[allow(clippy::needless_range_loop)]
         for class in 0..NUM_CLASSES {
             if !is_slab_class(class) {
                 continue;
@@ -1178,6 +1180,8 @@ impl NodeAlloc {
             return released;
         }
         // Drop the blocks of free pages from their freelists, keeping order.
+        // Index form kept so codegen is unchanged; reviewed in #1724.
+        #[allow(clippy::needless_range_loop)]
         for class in 0..NUM_CLASSES {
             if !is_slab_class(class) {
                 continue;
