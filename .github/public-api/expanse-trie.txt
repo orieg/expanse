@@ -28,12 +28,12 @@ impl core::fmt::Debug for expanse_trie::alloc::NodeAlloc
 pub fn expanse_trie::alloc::NodeAlloc::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::ops::drop::Drop for expanse_trie::alloc::NodeAlloc
 pub fn expanse_trie::alloc::NodeAlloc::drop(&mut self)
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::alloc::NodeAlloc
 impl !core::marker::Freeze for expanse_trie::alloc::NodeAlloc
 impl core::marker::Send for expanse_trie::alloc::NodeAlloc
-impl core::marker::Sync for expanse_trie::alloc::NodeAlloc
+impl !core::marker::Sync for expanse_trie::alloc::NodeAlloc
 impl core::marker::Unpin for expanse_trie::alloc::NodeAlloc
 impl core::marker::UnsafeUnpin for expanse_trie::alloc::NodeAlloc
-impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::alloc::NodeAlloc
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::alloc::NodeAlloc
 pub mod expanse_trie::bits
 pub mod expanse_trie::bits::portable

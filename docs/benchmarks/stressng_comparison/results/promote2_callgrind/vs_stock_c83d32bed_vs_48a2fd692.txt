@@ -1,0 +1,16 @@
+arms compared: 51 (base 51, head 51); above +0.1%: 10; below -0.1%: 4
+  +2.126%  vs_stock::vs_stock::judy1_set_expanse clustered:feed_expanse("clustered")  6,893,544 -> 7,040,127
+  +0.887%  vs_stock::vs_stock::judy1_set_expanse random:feed_expanse("random")  14,306,488 -> 14,433,349
+  +0.442%  vs_stock::vs_stock::judyl_insert_expanse_dl clustered:feed_expanse_dl("clustered")  10,866,235 -> 10,914,213
+  +0.412%  vs_stock::vs_stock::judyl_churn_expanse_dl random:build_expanse_dl("random")  37,538,753 -> 37,693,546
+  +0.323%  vs_stock::vs_stock::judysl_insert_expanse_dl random:str_feed_expanse_dl("random")  39,661,131 -> 39,789,229
+  +0.296%  vs_stock::vs_stock::judyl_insert_expanse random:feed_expanse("random")  16,634,974 -> 16,684,211
+  +0.189%  vs_stock::vs_stock::judyl_churn_expanse random:build_expanse("random")  36,541,166 -> 36,610,204
+  +0.182%  vs_stock::vs_stock::judyl_insert_expanse_dl random:feed_expanse_dl("random")  16,794,666 -> 16,825,214
+  +0.137%  vs_stock::vs_stock::judysl_insert_expanse_dl clustered:str_feed_expanse_dl("clustered")  29,483,279 -> 29,523,636
+  +0.101%  vs_stock::vs_stock::judyl_insert_expanse clustered:feed_expanse("clustered")  10,674,809 -> 10,685,539
+improved:
+  -0.980%  vs_stock::vs_stock::judy1_set_expanse_dl clustered:feed_expanse_dl("clustered")
+  -0.506%  vs_stock::vs_stock::judy1_set_expanse_dl random:feed_expanse_dl("random")
+  -0.356%  vs_stock::vs_stock::judysl_insert_expanse clustered:str_feed_expanse("clustered")
+  -0.345%  vs_stock::vs_stock::judysl_insert_expanse sequential:str_feed_expanse("sequential")

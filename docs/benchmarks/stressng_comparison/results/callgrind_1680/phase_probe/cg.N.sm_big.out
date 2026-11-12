@@ -1,0 +1,131 @@
+# callgrind format
+version: 1
+creator: callgrind-3.22.0
+pid: 25
+cmd:  /o2/phase_probe sm_big 1 - -
+part: 1
+
+
+desc: I1 cache: 
+desc: D1 cache: 
+desc: LL cache: 
+
+desc: Timerange: Basic block 0 - 297700500
+desc: Trigger: Program termination
+
+positions: line
+events: Ir Bc Bcm Bi Bim
+summary: 640204223 102568029 2652940 18861259 10001103
+
+
+ob=(1) /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+fl=(1) ???
+fn=(0) 0x000000000001f540
+cob=(7) /o2/phase_probe
+cfi=(163) ???
+cfn=(546) (below main)
+calls=1 0 
+0 640204223 102568029 2652940 18861259 10001103
+
+ob=(2) /usr/lib/x86_64-linux-gnu/libc.so.6
+fl=(166) ./csu/../sysdeps/nptl/libc_start_call_main.h
+fn=(568) (below main)
+cob=(7)
+cfi=(163)
+cfn=(576) main
+calls=1 0 
+58 640204223 102568029 2652940 18861259 10001103
+
+fl=(164) ./csu/../csu/libc-start.c
+fn=(548) __libc_start_main@@GLIBC_2.34
+cfi=(166)
+cfn=(568)
+calls=1 29 
+360 640204223 102568029 2652940 18861259 10001103
+
+ob=(6) /o2/N/libJudy.so.1
+fl=(162) ???
+fn=(674) expanse_trie::get::locate_slot_popcnt
+0 439848097 63505329 1482685 13049625 10000941
+cfn=(676) expanse_trie::leaf::search
+calls=2811714 0 
+0 130484436 21439154 1169934 2811666 161
+0 21870517 5623334 261
+
+fn=(676)
+0 130484436 21439154 1169934 2811666 161
+
+fn=(670) expanse_trie::get::locate_slot
+0 11999872 2999968
+
+ob=(7)
+fl=(163)
+fn=(588) sparsematrix
+cob=(3) ???
+cfi=(153) ???
+cfn=(590) 0x0000000000109180
+calls=999999 0 
+0 198878477 32067267 1182377 6171307 3313831
+cob=(3)
+cfi=(153)
+cfn=(590)
+calls=1 0 
+0 4 1 1
+cob=(3)
+cfi=(153)
+cfn=(590)
+calls=999999 0 
+0 221730780 35342962 646388 6344379 3342809
+cob=(3)
+cfi=(153)
+cfn=(590)
+calls=1 0 
+0 215 34 4 6 3
+cob=(3)
+cfi=(153)
+cfn=(590)
+calls=999999 0 
+0 219594533 35157731 824166 6345561 3344457
+cob=(3)
+cfi=(153)
+cfn=(590)
+calls=1 0 
+0 214 34 4 6 3
+
+fn=(546)
+cob=(2)
+cfi=(164)
+cfn=(548)
+calls=1 242 
+0 640204223 102568029 2652940 18861259 10001103
+
+fn=(576)
+cfn=(588)
+calls=1 0 
+0 640204223 102568029 2652940 18861259 10001103
+
+ob=(6)
+fl=(162)
+fn=(670)
+0 5999936
+cfn=(674)
+calls=3000363 0 
+0 592203050 90567817 2652880 15861291 10001102
+
+fn=(592) JudyLGet
+0 30000039 9000037 33 2999968 1
+cfn=(670)
+calls=2999968 0 
+0 610202858 93567785 2652880 15861291 10001102
+0 1326 207 27
+
+ob=(3)
+fl=(153)
+fn=(590)
+cob=(6)
+cfi=(162)
+cfn=(592)
+calls=3000000 0 
+0 640204223 102568029 2652940 18861259 10001103
+
+totals: 640204223 102568029 2652940 18861259 10001103

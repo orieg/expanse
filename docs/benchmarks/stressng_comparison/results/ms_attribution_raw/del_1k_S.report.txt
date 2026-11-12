@@ -1,0 +1,13 @@
+    57.45%  libc.so.6         [.] read
+    14.89%  libc.so.6         [.] write
+     8.51%  libc.so.6         [.] 0x00000000000a17d7
+     4.26%  phase_probe       [.] perf_ctl
+     2.13%  libJudy.so.1.0.3  [.] JudyLGet
+     2.13%  libJudy.so.1.0.3  [.] 0x000000000000ad50
+     2.13%  libJudy.so.1.0.3  [.] 0x000000000000b856
+     2.13%  libJudy.so.1.0.3  [.] 0x000000000000d6c3
+     2.13%  libc.so.6         [.] 0x00000000000a4275
+     2.13%  libc.so.6         [.] 0x00000000000a437e
+     2.13%  phase_probe       [.] judy_delete
+
+
