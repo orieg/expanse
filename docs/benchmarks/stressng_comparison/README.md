@@ -1179,6 +1179,10 @@ Every pre-registered target and bound holds in both runs, on the phase clock and
 - **Insert:** 1.30–1.32× at 1 Ki, 1.09–1.10× at 256 Ki and 1.08–1.10× at 4 Mi.
 - **Find:** within 1% at 1 Ki. At 256 Ki it is 0.96–0.98, slower than D but still 1.13–1.17× stock. At 4 Mi it is 0.997–1.10. Why find at 256 Ki moved is not measured.
 
+### Main result (second host)
+
+**Zen 5 pending: host busy with ExpanseDB CI.** Two pre-checks, at 10:34 and 10:53 UTC, found that host's CI job containers running. By the design's terms nothing runs beside them, so nothing was staged or changed there. The criterion therefore stands as measured on the reference host only, and #1679's two-host condition is not yet tested on main.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
