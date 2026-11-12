@@ -2492,6 +2492,81 @@ The `compare` cells this change does not reach (`set_insert_build`, `map_iter`) 
 - **Counters.** `results/counters_point_lookup_c3e1ed3a3_probes4096_run{1,2}.json` and `results/counters_point_lookup_b6640076b_probes4096_run{1,2}.json`: `map_get` at 10k is 1.068 and `set_contains` at 10k is 1.049, in both replicates; at 1M both are 0.595–0.621.
 - **Disclosure, `compare` run 1.** From 18:20 to 18:27 UTC, another session's ssh connection to the reference host hung and stayed open. That session started no work after 17:43. In run 1's load record, foreign load is at most 0.05 core-equivalents in each of the 106 arm windows and 0.02 from start to end, and the host guard reported quiet. Under §8.17 the run is kept.
 
+**Trie-adversarial key classes (workload: `core_compare`)** *(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0, `performance` governor, pinned to CPUs 0-15; commit `4659016f`; runs [43126394060](https://github.com/orieg/expanse/actions/runs/43126394060) and [43133695465](https://github.com/orieg/expanse/actions/runs/43133695465), host guard quiet; artifacts [`results/baseline_compare_adversarial.json`](../results/baseline_compare_adversarial.json) and [`results/baseline_compare_adversarial_run2.json`](../results/baseline_compare_adversarial_run2.json))*. The `set_lookup` and `map_get` groups also run the five classes of [Barrett's Judy versus hash-table comparison](https://www.nothings.org/computer/judy/) (`workload_common::KeyGen`): `rand22`, 22 random bits in the low bytes (a dense random $2^{22}$ sub-range; 890,427 distinct keys of 1M draws, 9,986 of 10k); `rand22_bswap`, the same keys byte-reversed into the top bytes; `ascii_upper` and `ascii_alnum`, one character per byte; and `stride64`, `i * 64`. `map_get` gained a `miss` arm on every distribution, listed below for the four TESTING.md classes too. Misses come from the population's own generator resumed at N and rejected on membership (AGENTS.md §8.6). Cells and ratios are built as in the tables above: unions of the two runs' BCa intervals, † where a cell's two run intervals do not overlap; every ratio interval is a plain BCa interval (`bca`) in both runs. Worst foreign load in any arm's window: 0.02 core-equivalents in run 1 and 0.03 in run 2. Only the new arms are published from this pair; the other arms it re-measured are in the artifacts, and the tables above stay on the 82eb56af pair. `HashSet`/`HashMap` here are `std::collections`'s, with SipHash-1-3.
+
+**`ExpanseSet`, 10,000 keys** (ns per lookup; ratios are Expanse's time over the competitor's):
+
+| dist | case | Expanse | BTree | Hash (SipHash) | Expanse ÷ BTree | Expanse ÷ Hash (SipHash) |
+|---|---|---:|---:|---:|---:|---:|
+| rand22 | hit | [18.02, 18.21] † | [44.59, 45.18] † | [9.00, 9.17] | [0.401, 0.405] | [1.968, 2.016] |
+| rand22 | miss | [12.63, 12.75] | [43.81, 44.22] | [9.14, 9.28] | [0.286, 0.290] | [1.368, 1.389] |
+| rand22_bswap | hit | [9.74, 9.95] † | [44.81, 45.39] | [8.96, 9.08] | [0.216, 0.220] | [1.074, 1.109] |
+| rand22_bswap | miss | [7.84, 7.91] † | [43.24, 43.50] | [9.13, 9.26] | [0.181, 0.183] | [0.848, 0.865] |
+| ascii_upper | hit | [18.83, 19.03] † | [44.91, 45.20] | [9.01, 9.11] | [0.417, 0.423] | [2.070, 2.108] |
+| ascii_upper | miss | [18.37, 18.52] † | [43.41, 43.99] | [9.07, 9.23] | [0.418, 0.426] | [2.001, 2.030] |
+| ascii_alnum | hit | [17.86, 18.02] † | [45.28, 45.65] | [8.98, 9.11] | [0.392, 0.397] | [1.970, 1.997] |
+| ascii_alnum | miss | [16.28, 16.49] † | [44.16, 44.49] | [9.10, 9.26] | [0.366, 0.373] | [1.760, 1.808] |
+| stride64 | hit | [15.19, 15.35] | [44.64, 45.23] † | [8.97, 9.13] | [0.338, 0.342] | [1.674, 1.700] |
+| stride64 | miss | [4.32, 4.46] † | [18.83, 18.88] | [9.16, 9.33] | [0.229, 0.237] | [0.464, 0.486] |
+
+**`ExpanseSet`, 1,000,000 keys** (ns per lookup; ratios are Expanse's time over the competitor's):
+
+| dist | case | Expanse | BTree | Hash (SipHash) | Expanse ÷ BTree | Expanse ÷ Hash (SipHash) |
+|---|---|---:|---:|---:|---:|---:|
+| rand22 | hit | [6.74, 6.77] | [97.90, 99.30] † | [11.70, 11.91] † | [0.068, 0.069] | [0.567, 0.577] |
+| rand22 | miss | [6.73, 6.76] | [100.7, 101.3] | [13.16, 13.49] † | [0.067, 0.067] | [0.500, 0.513] |
+| rand22_bswap | hit | [20.08, 20.22] | [100.3, 101.2] | [11.76, 11.91] | [0.199, 0.201] | [1.689, 1.715] |
+| rand22_bswap | miss | [19.86, 20.11] † | [101.8, 102.9] † | [13.49, 13.62] | [0.195, 0.196] | [1.464, 1.485] |
+| ascii_upper | hit | [44.79, 44.97] | [103.4, 104.2] | [11.79, 11.94] | [0.430, 0.434] | [3.758, 3.806] |
+| ascii_upper | miss | [41.28, 42.12] † | [105.7, 106.5] | [9.69, 9.85] | [0.388, 0.398] | [4.222, 4.311] |
+| ascii_alnum | hit | [37.97, 38.19] | [103.4, 104.0] | [11.98, 12.25] † | [0.365, 0.368] | [3.103, 3.178] |
+| ascii_alnum | miss | [36.36, 37.17] † | [104.9, 105.6] | [9.70, 9.82] | [0.345, 0.354] | [3.708, 3.821] |
+| stride64 | hit | [20.25, 20.34] | [99.53, 100.1] | [11.80, 12.11] † | [0.203, 0.204] | [1.674, 1.721] |
+| stride64 | miss | [6.16, 6.19] | [31.26, 31.34] | [9.70, 9.90] † | [0.197, 0.198] | [0.623, 0.637] |
+
+**`ExpanseMap`, 10,000 keys** (ns per lookup; ratios are Expanse's time over the competitor's):
+
+| dist | case | Expanse | BTree | Hash (SipHash) | Expanse ÷ BTree | Expanse ÷ Hash (SipHash) |
+|---|---|---:|---:|---:|---:|---:|
+| rand22 | hit | [18.96, 19.11] | [46.65, 46.90] | [9.05, 9.22] | [0.406, 0.408] | [2.066, 2.101] |
+| rand22 | miss | [13.03, 13.15] | [45.65, 45.89] | [9.06, 9.38] † | [0.285, 0.287] | [1.396, 1.442] |
+| rand22_bswap | hit | [10.85, 10.92] | [46.64, 46.82] | [9.04, 9.26] | [0.232, 0.234] | [1.174, 1.205] |
+| rand22_bswap | miss | [8.51, 8.57] | [45.32, 45.57] | [9.20, 9.31] | [0.187, 0.189] | [0.917, 0.930] |
+| ascii_upper | hit | [20.96, 21.25] † | [47.05, 47.35] | [9.08, 9.28] | [0.443, 0.451] | [2.263, 2.337] |
+| ascii_upper | miss | [19.64, 19.84] † | [45.76, 45.98] | [9.15, 9.32] | [0.428, 0.433] | [2.109, 2.163] |
+| ascii_alnum | hit | [19.92, 20.34] † | [46.86, 47.06] | [9.12, 9.27] | [0.424, 0.434] | [2.153, 2.226] |
+| ascii_alnum | miss | [19.81, 20.04] † | [45.68, 45.94] | [9.13, 9.37] † | [0.433, 0.437] | [2.132, 2.179] |
+| stride64 | hit | [16.85, 17.64] † | [46.60, 46.80] | [9.08, 9.19] | [0.361, 0.378] | [1.837, 1.936] |
+| stride64 | miss | [6.37, 6.39] | [18.84, 18.89] | [9.17, 9.31] | [0.337, 0.339] | [0.684, 0.695] |
+| sequential | miss | [6.39, 6.41] | [18.84, 18.92] | [9.10, 9.33] | [0.338, 0.340] | [0.686, 0.703] |
+| random | miss | [7.55, 7.61] | [45.11, 45.29] | [9.17, 9.31] | [0.167, 0.168] | [0.812, 0.828] |
+| clustered | miss | [5.77, 5.79] | [12.54, 12.59] | [9.16, 9.30] | [0.459, 0.461] | [0.621, 0.630] |
+| sparse | miss | [6.42, 6.44] | [18.83, 18.90] | [9.11, 9.31] | [0.340, 0.341] | [0.691, 0.705] |
+
+**`ExpanseMap`, 1,000,000 keys** (ns per lookup; ratios are Expanse's time over the competitor's):
+
+| dist | case | Expanse | BTree | Hash (SipHash) | Expanse ÷ BTree | Expanse ÷ Hash (SipHash) |
+|---|---|---:|---:|---:|---:|---:|
+| rand22 | hit | [13.91, 14.32] † | [107.1, 107.6] | [12.26, 12.48] † | [0.130, 0.133] | [1.115, 1.165] |
+| rand22 | miss | [7.80, 7.85] | [109.1, 109.9] | [15.08, 15.22] | [0.071, 0.072] | [0.513, 0.519] |
+| rand22_bswap | hit | [22.93, 23.26] † | [107.9, 108.6] | [12.40, 12.51] | [0.212, 0.215] | [1.836, 1.872] |
+| rand22_bswap | miss | [21.70, 21.95] † | [110.2, 110.9] | [14.83, 15.03] † | [0.196, 0.199] | [1.456, 1.467] |
+| ascii_upper | hit | [54.83, 55.15] | [110.4, 111.1] | [12.34, 12.60] † | [0.495, 0.499] | [4.368, 4.459] |
+| ascii_upper | miss | [50.55, 50.82] | [112.4, 113.4] | [9.86, 9.96] | [0.447, 0.451] | [5.085, 5.137] |
+| ascii_alnum | hit | [41.99, 42.37] † | [110.3, 111.0] | [12.19, 12.55] † | [0.379, 0.383] | [3.350, 3.467] |
+| ascii_alnum | miss | [41.51, 41.99] † | [111.9, 112.6] | [9.78, 9.99] † | [0.370, 0.375] | [4.163, 4.284] |
+| stride64 | hit | [24.88, 25.07] | [109.1, 110.0] | [12.20, 12.62] † | [0.227, 0.229] | [1.980, 2.045] |
+| stride64 | miss | [7.72, 7.74] | [32.71, 33.22] | [9.80, 9.94] | [0.233, 0.236] | [0.777, 0.789] |
+| sequential | miss | [7.13, 7.16] | [31.86, 32.99] † | [9.84, 9.98] | [0.216, 0.224] | [0.715, 0.725] |
+| random | miss | [23.11, 23.33] | [111.7, 113.2] | [9.80, 9.91] | [0.206, 0.208] | [2.335, 2.374] |
+| clustered | miss | [6.31, 6.45] † | [16.77, 16.83] | [9.79, 9.99] † | [0.375, 0.384] | [0.632, 0.658] |
+| sparse | miss | [6.35, 6.37] | [31.83, 32.64] † | [9.85, 10.10] † | [0.195, 0.200] | [0.630, 0.645] |
+
+- **Every head-to-head direction held in both runs** (both runs' ratio intervals on the same side of 1, every pair). Against `BTreeSet`/`BTreeMap` Expanse is faster in every new cell.
+- **Against SipHash `HashMap`, the ASCII-per-byte keys are the worst shape:** at 1M keys a `map_get` hit takes [4.368, 4.459]× (`ascii_upper`) and [3.350, 3.467]× (`ascii_alnum`) the time, and a miss [5.085, 5.137]× and [4.163, 4.284]×. Byte-reversing the dense 22-bit keys costs [1.836, 1.872]× on hits against the un-swapped control's [1.115, 1.165]×.
+- **The dense 22-bit range is a win for the set**: `ExpanseSet` on `rand22` at 1M is [0.567, 0.577]× `HashSet`'s time on hits and [0.500, 0.513]× on misses, and `map_get` misses on `rand22` are [0.513, 0.519]×. Every `map_get` miss on the sequential, clustered, sparse and stride-64 classes is faster than `HashMap`'s at both sizes; the uniform-random miss at 1M is [2.335, 2.374]× slower.
+- These probe sets are 4,096 keys drawn uniformly from the population (§ "Point lookup" above), so the probe array is cache-resident and consecutive probes are not in key order. The hashbrown comparison suite measures the same classes against foldhash `hashbrown` at 500k with 500k-key probe streams, in both probe orders (`docs/benchmarks/hashbrown_comparison/README.md` Pillar 4).
+
 **`benches/comparative.rs`** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; criterion medians)*:
 
 **`ExpanseSet` vs `RoaringBitmap` (`comparative.rs`, 100k)**:
