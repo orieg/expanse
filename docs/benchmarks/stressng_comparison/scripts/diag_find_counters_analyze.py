@@ -16,7 +16,7 @@ import math
 import sys
 from collections import defaultdict
 
-from analyze import RESULTS, run_void, valid
+from analyze import RESULTS, run_void, shown, valid
 from bca_bootstrap import CI_METHOD_BCA, bca_bootstrap_ratio_ci_with_method
 
 MIN_VALID = 8
@@ -92,7 +92,7 @@ def main():
         v = art["provenance"]["void"]
         print(f"run {n}: {len(recs)} processes, {sum(not valid(r) for r in recs)} discarded; "
               f"max load1 {v['max_load1']} (void above {v['limit']}): "
-              f"{'VOID' if v['void'] else 'valid'} -> {dest}")
+              f"{'VOID' if v['void'] else 'valid'} -> {shown(dest)}")
         arts.append(art)
         keyed.append({(c["metric"], c["pair"]): c for c in art["cells"]})
     if any(a["provenance"]["void"]["void"] for a in arts):

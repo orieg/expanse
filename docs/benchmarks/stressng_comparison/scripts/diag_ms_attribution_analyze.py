@@ -18,7 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from analyze import RESULTS
+from analyze import RESULTS, shown
 from ms_annotate import parse
 
 CONFIRMED, REFUTED = 0.5, 0.1
@@ -42,7 +42,7 @@ def main():
                                "parser_commit": head})
     dest = RESULTS / f"diagnostic_ms_attribution_{host}.json"
     dest.write_text(json.dumps(art, indent=1) + "\n")
-    print(f"-> {dest}")
+    print(f"-> {shown(dest)}")
     for c in art["cells"]:
         print(f"\n{c['workload_id']} arm {c['arm']}: {c['event']}/{c['modifiers']}, "
               f"{c['samples']:.0f} samples, rep-string share {c['rep_string_share']:.3f}")
