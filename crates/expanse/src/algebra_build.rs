@@ -584,6 +584,8 @@ unsafe fn collect_subtree_keys(edge: &Edge, level: u8, base: u64, out: &mut Vec<
             Some(EdgeTag::Structural(t)) if t.is_branch() => {
                 let acc = branch_accessor(edge, level);
                 let bm = acc.populated_bitmap();
+                // Index form kept so codegen is unchanged; reviewed in #1724.
+                #[allow(clippy::needless_range_loop)]
                 for w in 0..4 {
                     let mut word = bm.words[w];
                     while word != 0 {
@@ -617,6 +619,8 @@ unsafe fn clone_branch(a: &NodeAlloc, edge: &Edge, t: EdgeType, bl: u8) -> Edge 
             // SAFETY: fresh node; clone each populated child.
             unsafe {
                 (*node.as_ptr()).hdr = src.hdr;
+                // Index form kept so codegen is unchanged; reviewed in #1724.
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..src.hdr.num as usize {
                     (*node.as_ptr()).edges[i] = clone_subtree(a, &src.edges[i], bl - 1);
                 }
@@ -630,6 +634,8 @@ unsafe fn clone_branch(a: &NodeAlloc, edge: &Edge, t: EdgeType, bl: u8) -> Edge 
             // SAFETY: fresh node; clone each populated child.
             unsafe {
                 (*node.as_ptr()).hdr = src.hdr;
+                // Index form kept so codegen is unchanged; reviewed in #1724.
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..src.hdr.num as usize {
                     (*node.as_ptr()).edges[i] = clone_subtree(a, &src.edges[i], bl - 1);
                 }
@@ -703,6 +709,8 @@ pub(crate) unsafe fn tree_pop(top: &Edge) -> u64 {
             // SAFETY: live BranchL3 pointer.
             let b = unsafe { &*top.node_ptr().cast::<BranchL3>() };
             let mut pop = 0u64;
+            // Index form kept so codegen is unchanged; reviewed in #1724.
+            #[allow(clippy::needless_range_loop)]
             for i in 0..b.hdr.num as usize {
                 // SAFETY: child is a live subtree at level 7.
                 pop += unsafe { subtree_count(&b.edges[i], 7) };
@@ -713,6 +721,8 @@ pub(crate) unsafe fn tree_pop(top: &Edge) -> u64 {
             // SAFETY: live BranchL7 pointer.
             let b = unsafe { &*top.node_ptr().cast::<BranchL7>() };
             let mut pop = 0u64;
+            // Index form kept so codegen is unchanged; reviewed in #1724.
+            #[allow(clippy::needless_range_loop)]
             for i in 0..b.hdr.num as usize {
                 // SAFETY: child is a live subtree at level 7.
                 pop += unsafe { subtree_count(&b.edges[i], 7) };
@@ -736,6 +746,8 @@ pub(crate) unsafe fn tree_pop(top: &Edge) -> u64 {
             // SAFETY: live BranchU pointer.
             let b = unsafe { &*top.node_ptr().cast::<BranchU>() };
             let mut pop = 0u64;
+            // Index form kept so codegen is unchanged; reviewed in #1724.
+            #[allow(clippy::needless_range_loop)]
             for d in 0..256 {
                 if !b.edges[d].is_null() {
                     // SAFETY: child is a live subtree at level 7.
