@@ -106,32 +106,42 @@ macro_rules! alloc_raw_body {
                 return Self::$system($bytes, $align);
             }
 
-            // A plain tree's accounting (Refs #1679), inside the class test the
-            // freelist path already makes: a block with a slab class comes from
-            // this allocator's single-writer freelists and its counters update
-            // without a `lock` prefix (`charge_classed`); a block with no class
-            // comes from the system allocator and takes the locked update out of
-            // line (`charge_locked`), so concurrent callers of the `pub` entry
-            // points that use only such sizes stay exactly counted (`NodeAlloc`
-            // docs). Keeping the locked form out of this inlined body keeps the
-            // body as small as before the split (README, stressng_comparison,
-            // "Promotion: unlocked plain-tree accounting").
+            // A plain tree's accounting (Refs #1679). A block with a slab
+            // class comes from this allocator's single-writer freelists, so
+            // its counters update by a relaxed load and store, which x86
+            // emits without a `lock` prefix. A block with no class comes from
+            // the system allocator and keeps the locked update: concurrent
+            // callers of the `pub` entry points that use only such sizes stay
+            // exactly counted, as before (`NodeAlloc` docs).
+            // `ablation-locked-plain-acct` locks every update again.
             let class = class_for($bytes, $align);
+            #[cfg(not(feature = "ablation-locked-plain-acct"))]
+            let locked = class.is_none();
+            #[cfg(feature = "ablation-locked-plain-acct")]
+            let locked = true;
+            if locked {
+                $s.bytes_in_use
+                    .fetch_add(accounted_size, Ordering::Relaxed);
+                $s.live_allocs.fetch_add(1, Ordering::Relaxed);
+                $s.total_allocs.fetch_add(1, Ordering::Relaxed);
+            } else {
+                let b = $s.bytes_in_use.load(Ordering::Relaxed);
+                $s.bytes_in_use
+                    .store(b.wrapping_add(accounted_size), Ordering::Relaxed);
+                let l = $s.live_allocs.load(Ordering::Relaxed);
+                $s.live_allocs.store(l.wrapping_add(1), Ordering::Relaxed);
+                let t = $s.total_allocs.load(Ordering::Relaxed);
+                $s.total_allocs.store(t.wrapping_add(1), Ordering::Relaxed);
+            }
 
             // Miri: one system allocation of exactly `(bytes, align)` per block,
-            // accounted as in every build (module docs).
+            // accounted above as in every build (module docs).
             #[cfg(miri)]
             if $s.exact_size {
-                if class.is_some() {
-                    $s.charge_classed(accounted_size);
-                } else {
-                    $s.charge_locked(accounted_size);
-                }
                 return Self::$system($bytes, $align);
             }
 
             if let Some(class) = class {
-                $s.charge_classed(accounted_size);
                 let head = $s.freelists[class].load(Ordering::Relaxed);
                 if !head.is_null() {
                     #[cfg(debug_assertions)]
@@ -208,8 +218,6 @@ macro_rules! alloc_raw_body {
                     $fill!(raw, $bytes);
                     return NonNull::new(raw).expect("non-null free block");
                 }
-            } else {
-                $s.charge_locked(accounted_size);
             }
 
             Self::$system($bytes, $align)
@@ -1462,18 +1470,29 @@ impl NodeAlloc {
             return;
         }
 
-        // `alloc_raw_body!`'s accounting, inverted (Refs #1679).
+        // `alloc_raw_body!`'s split, inverted: unlocked for a block with a
+        // slab class, locked for a system-allocator block (Refs #1679).
         let class = class_for(bytes, align);
+        #[cfg(not(feature = "ablation-locked-plain-acct"))]
+        let locked = class.is_none();
+        #[cfg(feature = "ablation-locked-plain-acct")]
+        let locked = true;
+        if locked {
+            self.bytes_in_use
+                .fetch_sub(accounted_size, Ordering::Relaxed);
+            self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+        } else {
+            let b = self.bytes_in_use.load(Ordering::Relaxed);
+            self.bytes_in_use
+                .store(b.wrapping_sub(accounted_size), Ordering::Relaxed);
+            let l = self.live_allocs.load(Ordering::Relaxed);
+            self.live_allocs.store(l.wrapping_sub(1), Ordering::Relaxed);
+        }
 
         // Miri: the block goes back to the system allocator, so a later use
         // of it is a use after free and not a read of a pooled block.
         #[cfg(miri)]
         if self.exact_size {
-            if class.is_some() {
-                self.discharge_classed(accounted_size);
-            } else {
-                self.discharge_locked(accounted_size);
-            }
             // SAFETY: per this function's contract `ptr` is an unfreed
             // `alloc_raw(bytes, align)` block of this handle. `exact_size` is
             // fixed at construction, so that call took the matching branch
@@ -1484,7 +1503,6 @@ impl NodeAlloc {
         }
 
         if let Some(class) = class {
-            self.discharge_classed(accounted_size);
             #[cfg(debug_assertions)]
             let _bookkeeping = self.enter_bookkeeping();
             let block = ptr.as_ptr().cast::<FreeBlock>();
@@ -1495,75 +1513,10 @@ impl NodeAlloc {
             return;
         }
 
-        self.discharge_locked(accounted_size);
         let layout = Self::layout_for(bytes, align);
         // SAFETY: per this function's contract, `ptr`/`layout` match
         // the original allocation.
         unsafe { dealloc(ptr.as_ptr(), layout) };
-    }
-
-    /// A plain tree's accounting for a block with a slab size class: a
-    /// relaxed load and store, which x86 emits without a `lock` prefix, since
-    /// the freelist path is single-writer (Refs #1679). Under
-    /// `ablation-locked-plain-acct`, the locked read-modify-write it replaced.
-    #[inline(always)]
-    fn charge_classed(&self, size: usize) {
-        #[cfg(not(feature = "ablation-locked-plain-acct"))]
-        {
-            let b = self.bytes_in_use.load(Ordering::Relaxed);
-            self.bytes_in_use
-                .store(b.wrapping_add(size), Ordering::Relaxed);
-            let l = self.live_allocs.load(Ordering::Relaxed);
-            self.live_allocs.store(l.wrapping_add(1), Ordering::Relaxed);
-            let t = self.total_allocs.load(Ordering::Relaxed);
-            self.total_allocs
-                .store(t.wrapping_add(1), Ordering::Relaxed);
-        }
-        #[cfg(feature = "ablation-locked-plain-acct")]
-        {
-            self.bytes_in_use.fetch_add(size, Ordering::Relaxed);
-            self.live_allocs.fetch_add(1, Ordering::Relaxed);
-            self.total_allocs.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    /// Inverse of [`Self::charge_classed`].
-    #[inline(always)]
-    fn discharge_classed(&self, size: usize) {
-        #[cfg(not(feature = "ablation-locked-plain-acct"))]
-        {
-            let b = self.bytes_in_use.load(Ordering::Relaxed);
-            self.bytes_in_use
-                .store(b.wrapping_sub(size), Ordering::Relaxed);
-            let l = self.live_allocs.load(Ordering::Relaxed);
-            self.live_allocs.store(l.wrapping_sub(1), Ordering::Relaxed);
-        }
-        #[cfg(feature = "ablation-locked-plain-acct")]
-        {
-            self.bytes_in_use.fetch_sub(size, Ordering::Relaxed);
-            self.live_allocs.fetch_sub(1, Ordering::Relaxed);
-        }
-    }
-
-    /// A plain tree's accounting for a system-allocator block (no slab
-    /// class): a locked read-modify-write, so concurrent callers of the `pub`
-    /// entry points that use only such sizes stay exactly counted. Out of
-    /// line, beside the system allocator call it accompanies, so that the
-    /// inlined allocation path does not carry it (AGENTS.md §2.1.5).
-    #[cold]
-    #[inline(never)]
-    fn charge_locked(&self, size: usize) {
-        self.bytes_in_use.fetch_add(size, Ordering::Relaxed);
-        self.live_allocs.fetch_add(1, Ordering::Relaxed);
-        self.total_allocs.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Inverse of [`Self::charge_locked`].
-    #[cold]
-    #[inline(never)]
-    fn discharge_locked(&self, size: usize) {
-        self.bytes_in_use.fetch_sub(size, Ordering::Relaxed);
-        self.live_allocs.fetch_sub(1, Ordering::Relaxed);
     }
 
     /// Allocates `bytes` of zeroed memory for **raw byte storage** —
