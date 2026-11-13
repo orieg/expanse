@@ -56,10 +56,10 @@
 //! |---|---|
 //! | `workload_id` | `capi_vs_stock` |
 //! | `group` | 1 |
-//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000`; the `judysl_*` and `judyhs_*` arms use `POP` |
-//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
-//! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0 |
-//! | `hit_rate` | 100% / mixed; `judyhs_get_*` 50% (every present key and `POP` absent ones, shuffled together) |
+//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000`; the `judysl_*` and `judyhs_*` arms use `POP`; the `judy1_colour_*` arms (#1682) replay one breadth-first search over 10k (`n10k`) or 100k (`n100k`) vertices |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build; `judy1_colour_*` set vertex ids in breadth-first visit order |
+//! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0; `judy1_colour_*`: the search's 12n + 2 Judy1 calls, once |
+//! | `hit_rate` | 100% / mixed; `judyhs_get_*` 50% (every present key and `POP` absent ones, shuffled together); `judy1_colour_*` as the search produces it |
 //! | `miss_gen_method` | Interleaved keys; `judyhs_get_*` continues `fixed8_stream` past the population, rejected on membership |
 //! | `value_dereference` | `*slot` dereferenced |
 //! | `key_shape` | `Word` for the `judyl_*`/`judy1_*` arms; NUL-terminated fixed-width strings for `judysl_*`, derived from the same `keys(dist)` so the three distributions carry over; 8-byte zmap response-dedup keys for `judyhs_*` (`fixed8_stream`: a 198.18.0.0/15 address and one of four ports, big-endian, status and padding zero, in a scan's pseudo-random order). Absolute counts for the string arms include `strlen` on both sides and are **not** comparable to the `Word`-keyed arms; their ratio is. |
@@ -77,6 +77,9 @@
 //! Linux/CI only (valgrind, plus `libjudy-dev` for the stock library).
 
 #![allow(missing_docs)]
+
+#[path = "colour_map_common/mod.rs"]
+mod colour_map_common;
 
 use core::ffi::{c_int, c_void};
 #[cfg(target_os = "linux")]
@@ -103,6 +106,7 @@ type FpGet = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> *mut c_vo
 type F1Set = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
 type F1Test = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> c_int;
 type FpDel = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
+type FFree1 = unsafe extern "C" fn(*mut *mut c_void, *mut c_void) -> Word;
 /// JudySL takes a NUL-terminated `char*` rather than a `Word`, which is the
 /// only shape difference from the families above.
 type FslIns = unsafe extern "C" fn(*mut *mut c_void, *const u8, *mut c_void) -> *mut c_void;
@@ -195,6 +199,8 @@ impl Lib {
             hs_ins: self.sym(c"JudyHSIns"),
             hs_get: self.sym(c"JudyHSGet"),
             hs_del: self.sym(c"JudyHSDel"),
+            unset1: self.sym(c"Judy1Unset"),
+            free1: self.sym(c"Judy1FreeArray"),
         }
     }
 }
@@ -212,6 +218,8 @@ struct Api {
     hs_ins: FhsIns,
     hs_get: FhsGet,
     hs_del: FhsDel,
+    unset1: F1Set,
+    free1: FFree1,
 }
 
 struct XorShift(u64);
@@ -1210,6 +1218,107 @@ fn judyhs_del_stock(built: HsBuilt) -> Word {
     hs_del(built, del)
 }
 
+// ---- Judy1 as OQGraph's two-bit colour map (#1682) ---------------------
+//
+// One breadth-first search's Judy1 calls, recorded once in setup as a tape
+// (`colour_map_common/mod.rs`) and replayed against two fresh arrays: tests,
+// sets and unsets over vertex ids `0..n` in visit order, ending with both
+// arrays freed. The tape is identical for every arm; `examples/colour_map.rs`
+// times the same tape and is the `perf stat` workload.
+
+/// A recorded colour-map tape plus the entry points to replay it through.
+struct ColourTape {
+    tape: Vec<u64>,
+    j: colour_map_common::Judy1,
+}
+
+// SAFETY: fn pointers into a library that is never `dlclose`d; used only on
+// the harness thread that built the struct.
+unsafe impl Send for ColourTape {}
+
+fn colour_pop(dist: &str) -> u64 {
+    match dist {
+        "n10k" => 10_000,
+        "n100k" => 100_000,
+        other => panic!("unknown colour-map population {other}"),
+    }
+}
+
+fn colour_api(api: Api) -> colour_map_common::Judy1 {
+    colour_map_common::Judy1 {
+        test: api.test1,
+        set: api.set1,
+        unset: api.unset1,
+        free: api.free1,
+    }
+}
+
+unsafe extern "C" fn rlib_j1_test(p: *const c_void, k: Word, pj: *mut c_void) -> c_int {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::Judy1Test(p, k, pj.cast()) }
+}
+unsafe extern "C" fn rlib_j1_set(p: *mut *mut c_void, k: Word, pj: *mut c_void) -> c_int {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::Judy1Set(p, k, pj.cast()) }
+}
+unsafe extern "C" fn rlib_j1_unset(p: *mut *mut c_void, k: Word, pj: *mut c_void) -> c_int {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::Judy1Unset(p, k, pj.cast()) }
+}
+unsafe extern "C" fn rlib_j1_free(p: *mut *mut c_void, pj: *mut c_void) -> Word {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::Judy1FreeArray(p, pj.cast()) }
+}
+
+fn colour_expanse(dist: &str) -> ColourTape {
+    ColourTape {
+        tape: colour_map_common::tape(colour_pop(dist)),
+        j: colour_map_common::Judy1 {
+            test: rlib_j1_test,
+            set: rlib_j1_set,
+            unset: rlib_j1_unset,
+            free: rlib_j1_free,
+        },
+    }
+}
+fn colour_expanse_dl(dist: &str) -> ColourTape {
+    ColourTape {
+        tape: colour_map_common::tape(colour_pop(dist)),
+        j: colour_api(Lib::ours().api()),
+    }
+}
+fn colour_stock(dist: &str) -> ColourTape {
+    ColourTape {
+        tape: colour_map_common::tape(colour_pop(dist)),
+        j: colour_api(Lib::stock().api()),
+    }
+}
+
+#[library_benchmark]
+#[bench::n10k(args = ("n10k",), setup = colour_expanse)]
+#[bench::n100k(args = ("n100k",), setup = colour_expanse)]
+fn judy1_colour_expanse(c: ColourTape) -> Word {
+    // SAFETY: `c.j` is one library's Judy1 entry points.
+    black_box(unsafe { colour_map_common::replay(&c.tape, c.j) })
+}
+
+// Our own `libexpanse.so` — the arm to compare against `judy1_colour_stock`.
+#[library_benchmark]
+#[bench::n10k(args = ("n10k",), setup = colour_expanse_dl)]
+#[bench::n100k(args = ("n100k",), setup = colour_expanse_dl)]
+fn judy1_colour_expanse_dl(c: ColourTape) -> Word {
+    // SAFETY: as above.
+    black_box(unsafe { colour_map_common::replay(&c.tape, c.j) })
+}
+
+#[library_benchmark]
+#[bench::n10k(args = ("n10k",), setup = colour_stock)]
+#[bench::n100k(args = ("n100k",), setup = colour_stock)]
+fn judy1_colour_stock(c: ColourTape) -> Word {
+    // SAFETY: as above.
+    black_box(unsafe { colour_map_common::replay(&c.tape, c.j) })
+}
+
 library_benchmark_group!(
     name = vs_stock;
     benchmarks =
@@ -1242,7 +1351,10 @@ library_benchmark_group!(
         judyhs_get_stock,
         judyhs_del_expanse,
         judyhs_del_expanse_dl,
-        judyhs_del_stock
+        judyhs_del_stock,
+        judy1_colour_expanse,
+        judy1_colour_expanse_dl,
+        judy1_colour_stock
 );
 
 #[cfg(target_os = "linux")]

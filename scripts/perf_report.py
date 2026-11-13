@@ -383,6 +383,12 @@ HARNESS_BENCH_N_MAP: Dict[str, Dict[str, int]] = {
         "judyhs_insert": 30_000,
         "judyhs_get": 60_000,
         "judyhs_del": 30_000,
+        # OQGraph's two-bit colour map (#1682): every Judy1 call of one
+        # breadth-first search's tape, 12n + 2 for n vertices (8n tests, 3n
+        # sets, n unsets, 2 frees; `colour_map_common::census`). The bare name
+        # is the `n10k` count.
+        "judy1_colour": 120_002,
+        "judy1_colour/n100k": 1_200_002,
     },
     # `crates/expanse/benches/smoke_instructions.rs`: `POP = 10_000`, one pass
     # over `keys(dist)`, `str_keys` or the shuffled probe stream per arm.
@@ -448,6 +454,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_set_contains",
             "judyl_get",
             "judy1_test",
+            "judy1_colour",
             "judysl_get",
             "judyhs_get",
             "bytesmap_fixed8_get",
