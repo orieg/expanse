@@ -47,11 +47,11 @@ ATTR = os.environ.get("SNG_ATTR", "ms")
 if ATTR == "ms":
     # kind -> events tried in order; the first `perf record` accepts is used.
     KINDS = {"ms": [("frontend_retired.ms_flows", "upp"), ("idq.ms_uops", "u")]}
-    NEEDS_SET = "delete_ms"
+    NEEDS_SET = ("delete_ms",)
 elif ATTR == "misp":
     KINDS = {"misp": [("br_misp_retired.all_branches", "upp")],
              "l1miss": [("mem_load_retired.l1_miss", "upp")]}
-    NEEDS_SET = "gets_main"
+    NEEDS_SET = ("gets_main", "gets_inc")
 else:
     sys.exit(f"STOP: unknown SNG_ATTR {ATTR}")
 PERIOD = 503
@@ -86,11 +86,11 @@ def annotate(data, outbase):
 
 def main():
     run, host, prefix = int(sys.argv[1]), sys.argv[2], sys.argv[3]
-    if dpc.SET != NEEDS_SET:
-        sys.exit(f"STOP: SNG_ATTR={ATTR} runs with SNG_PHASE_SET={NEEDS_SET}")
+    if dpc.SET not in NEEDS_SET:
+        sys.exit(f"STOP: SNG_ATTR={ATTR} runs with SNG_PHASE_SET in {NEEDS_SET}")
     if not shutil.which("objdump"):
         sys.exit("STOP: perf annotate needs objdump on this host")
-    outdir = f"{driver.D}/diag_{ATTR}_attribution/run{run}"
+    outdir = f"{driver.D}/diag_{ATTR}_attribution" + ("" if dpc.SET == NEEDS_SET[0] else f"_{dpc.SET}") + f"/run{run}"
     os.makedirs(outdir, exist_ok=True)
     dpc.PROBE = dpc.build_probe()
     driver.ARMS = dpc.ARMS

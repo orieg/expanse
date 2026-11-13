@@ -1,0 +1,1490 @@
+ Percent |	Source code & Disassembly of libexpanse.so.1.0.0 for cpu_core/mem_load_retired.l1_miss/upp (6061 samples, percent: local period)
+------------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3      Disassembly of section .text:
+         :
+         : 5      0000000000229fa0 <expanse_trie::leaf::search>:
+    0.00 :   229fa0: movzbl %dl,%eax
+    0.00 :   229fa3: dec    %eax
+    0.00 :   229fa5: cmp    $0x5,%eax
+    0.00 :   229fa8: ja     22a1de <expanse_trie::leaf::search+0x23e>
+    0.00 :   229fae: lea    -0x2082a5(%rip),%rdx        # 21d10 <std::thread::current::id::ID+0x21c30>
+    0.00 :   229fb5: movslq (%rdx,%rax,4),%rax
+    0.00 :   229fb9: add    %rdx,%rax
+    0.00 :   229fbc: jmp    *%rax
+    0.00 :   229fbe: cmp    $0x8,%rsi
+    0.00 :   229fc2: je     22a4a8 <expanse_trie::leaf::search+0x508>
+    0.00 :   229fc8: cmp    $0x10,%rsi
+    0.00 :   229fcc: jne    22a4d4 <expanse_trie::leaf::search+0x534>
+    0.00 :   229fd2: movdqu (%rdi),%xmm0
+    0.00 :   229fd6: movd   %ecx,%xmm1
+    0.00 :   229fda: punpcklbw %xmm1,%xmm1
+    0.00 :   229fde: pshuflw $0x0,%xmm1,%xmm1
+    0.00 :   229fe3: pshufd $0x44,%xmm1,%xmm1
+    0.00 :   229fe8: pcmpeqb %xmm0,%xmm1
+    0.00 :   229fec: pmovmskb %xmm1,%ecx
+    0.00 :   229ff0: jmp    22a4c4 <expanse_trie::leaf::search+0x524>
+    0.00 :   229ff5: movabs $0xffffffffff,%rax
+    0.00 :   229fff: and    %rax,%rcx
+    0.00 :   22a002: cmp    $0x4,%rsi
+    0.00 :   22a006: ja     22a228 <expanse_trie::leaf::search+0x288>
+    0.00 :   22a00c: test   %rsi,%rsi
+    0.00 :   22a00f: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a015: mov    (%rdi),%eax
+    0.00 :   22a017: movzbl 0x4(%rdi),%edx
+    0.00 :   22a01b: shl    $0x20,%rdx
+    0.00 :   22a01f: or     %rax,%rdx
+    0.00 :   22a022: mov    $0x1,%al
+    0.00 :   22a024: cmp    %rcx,%rdx
+    0.00 :   22a027: je     22a1d8 <expanse_trie::leaf::search+0x238>
+    0.00 :   22a02d: cmp    $0x1,%rsi
+    0.00 :   22a031: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a037: mov    0x5(%rdi),%edx
+    0.00 :   22a03a: movzbl 0x9(%rdi),%r8d
+    0.00 :   22a03f: shl    $0x20,%r8
+    0.00 :   22a043: or     %rdx,%r8
+    0.00 :   22a046: mov    $0x1,%edx
+    0.00 :   22a04b: cmp    %rcx,%r8
+    0.00 :   22a04e: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22a054: cmp    $0x2,%rsi
+    0.00 :   22a058: jbe    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a05e: mov    0xa(%rdi),%edx
+    0.00 :   22a061: movzbl 0xe(%rdi),%r8d
+    0.00 :   22a066: shl    $0x20,%r8
+    0.00 :   22a06a: or     %rdx,%r8
+    0.00 :   22a06d: mov    $0x2,%edx
+    0.00 :   22a072: cmp    %rcx,%r8
+    0.00 :   22a075: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22a07b: cmp    $0x4,%rsi
+    0.00 :   22a07f: jne    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a085: mov    0xf(%rdi),%eax
+    0.00 :   22a088: movzbl 0x13(%rdi),%edx
+    0.00 :   22a08c: jmp    22a83d <expanse_trie::leaf::search+0x89d>
+    0.00 :   22a091: and    $0xffffff,%ecx
+    0.00 :   22a097: cmp    $0x4,%rsi
+    0.00 :   22a09b: ja     22a2ab <expanse_trie::leaf::search+0x30b>
+    0.00 :   22a0a1: test   %rsi,%rsi
+    0.00 :   22a0a4: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a0aa: movzwl (%rdi),%eax
+    0.00 :   22a0ad: movzbl 0x2(%rdi),%edx
+    0.00 :   22a0b1: shl    $0x10,%edx
+    0.00 :   22a0b4: or     %eax,%edx
+    0.00 :   22a0b6: mov    $0x1,%al
+    0.00 :   22a0b8: cmp    %ecx,%edx
+    0.00 :   22a0ba: je     22a1d8 <expanse_trie::leaf::search+0x238>
+    0.00 :   22a0c0: cmp    $0x1,%rsi
+    0.00 :   22a0c4: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a0ca: movzwl 0x3(%rdi),%edx
+    0.00 :   22a0ce: movzbl 0x5(%rdi),%r8d
+    0.00 :   22a0d3: shl    $0x10,%r8d
+    0.00 :   22a0d7: or     %edx,%r8d
+    0.00 :   22a0da: mov    $0x1,%edx
+    0.00 :   22a0df: cmp    %ecx,%r8d
+    0.00 :   22a0e2: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22a0e8: cmp    $0x2,%rsi
+    0.00 :   22a0ec: jbe    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a0f2: movzwl 0x6(%rdi),%edx
+    0.00 :   22a0f6: movzbl 0x8(%rdi),%r8d
+    0.00 :   22a0fb: shl    $0x10,%r8d
+    0.00 :   22a0ff: or     %edx,%r8d
+    0.00 :   22a102: mov    $0x2,%edx
+    0.00 :   22a107: cmp    %ecx,%r8d
+    0.00 :   22a10a: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22a110: cmp    $0x4,%rsi
+    0.00 :   22a114: jne    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a11a: movzwl 0x9(%rdi),%eax
+    0.00 :   22a11e: movzbl 0xb(%rdi),%edx
+    0.00 :   22a122: shl    $0x10,%edx
+    0.00 :   22a125: or     %eax,%edx
+    0.00 :   22a127: cmp    %ecx,%edx
+    0.00 :   22a129: sete   %al
+    0.00 :   22a12c: mov    $0x3,%edx
+    0.00 :   22a131: movzbl %al,%eax
+    0.00 :   22a134: ret
+    0.00 :   22a135: cmp    $0x4,%rsi
+    0.00 :   22a139: jne    22a349 <expanse_trie::leaf::search+0x3a9>
+    0.00 :   22a13f: movdqu (%rdi),%xmm0
+    0.00 :   22a143: movd   %ecx,%xmm1
+    0.00 :   22a147: pshufd $0x0,%xmm1,%xmm1
+    0.00 :   22a14c: pcmpeqd %xmm0,%xmm1
+    0.00 :   22a150: pmovmskb %xmm1,%ecx
+    0.00 :   22a154: movmskps %xmm1,%eax
+    0.00 :   22a157: test   %eax,%eax
+    0.00 :   22a159: setne  %al
+    0.00 :   22a15c: tzcnt  %ecx,%ecx
+    0.00 :   22a160: shr    $0x2,%ecx
+    0.00 :   22a163: movzwl %cx,%edx
+    0.00 :   22a166: movzbl %al,%eax
+    0.00 :   22a169: ret
+    0.00 :   22a16a: cmp    $0x8,%rsi
+    0.00 :   22a16e: jne    22a368 <expanse_trie::leaf::search+0x3c8>
+    0.00 :   22a174: movdqu (%rdi),%xmm0
+    0.00 :   22a178: movd   %ecx,%xmm1
+    0.00 :   22a17c: pshuflw $0x0,%xmm1,%xmm1
+    0.00 :   22a181: pshufd $0x44,%xmm1,%xmm1
+    0.00 :   22a186: pcmpeqw %xmm0,%xmm1
+    0.00 :   22a18a: pmovmskb %xmm1,%ecx
+    0.00 :   22a18e: test   %ecx,%ecx
+    0.00 :   22a190: setne  %al
+    0.00 :   22a193: tzcnt  %ecx,%ecx
+    0.00 :   22a197: shr    %ecx
+    0.00 :   22a199: movzwl %cx,%edx
+    0.00 :   22a19c: movzbl %al,%eax
+    0.00 :   22a19f: ret
+    0.00 :   22a1a0: movabs $0xffffffffffff,%rax
+    0.00 :   22a1aa: and    %rax,%rcx
+    0.00 :   22a1ad: cmp    $0x4,%rsi
+    0.00 :   22a1b1: ja     22a38c <expanse_trie::leaf::search+0x3ec>
+    0.00 :   22a1b7: test   %rsi,%rsi
+    0.00 :   22a1ba: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a1c0: mov    (%rdi),%eax
+    0.00 :   22a1c2: movzwl 0x4(%rdi),%edx
+    0.00 :   22a1c6: shl    $0x20,%rdx
+    0.00 :   22a1ca: or     %rax,%rdx
+    0.00 :   22a1cd: mov    $0x1,%al
+    0.00 :   22a1cf: cmp    %rcx,%rdx
+    0.00 :   22a1d2: jne    22a7de <expanse_trie::leaf::search+0x83e>
+    0.00 :   22a1d8: xor    %edx,%edx
+    0.00 :   22a1da: movzbl %al,%eax
+    0.00 :   22a1dd: ret
+    0.00 :   22a1de: movabs $0xffffffffffffff,%rax
+    0.00 :   22a1e8: and    %rax,%rcx
+    0.00 :   22a1eb: cmp    $0x4,%rsi
+    0.00 :   22a1ef: ja     22a40b <expanse_trie::leaf::search+0x46b>
+    0.00 :   22a1f5: test   %rsi,%rsi
+    0.00 :   22a1f8: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a1fe: mov    (%rdi),%eax
+    0.00 :   22a200: movzwl 0x4(%rdi),%edx
+    0.00 :   22a204: movzbl 0x6(%rdi),%r8d
+    0.00 :   22a209: shl    $0x20,%rdx
+    0.00 :   22a20d: or     %rax,%rdx
+    0.00 :   22a210: shl    $0x30,%r8
+    0.00 :   22a214: or     %rdx,%r8
+    0.00 :   22a217: mov    $0x1,%al
+    0.00 :   22a219: cmp    %rcx,%r8
+    0.00 :   22a21c: jne    22a853 <expanse_trie::leaf::search+0x8b3>
+    0.00 :   22a222: xor    %edx,%edx
+    0.00 :   22a224: movzbl %al,%eax
+    0.00 :   22a227: ret
+    0.00 :   22a228: cmp    $0x19,%rsi
+    0.00 :   22a22c: jae    22a4f7 <expanse_trie::leaf::search+0x557>
+    0.00 :   22a232: bsr    %rsi,%rax
+    0.00 :   22a236: mov    $0x1,%r8d
+    0.00 :   22a23c: mov    %rcx,%rdx
+    0.00 :   22a23f: mov    %eax,%ecx
+    0.00 :   22a241: shl    %cl,%r8
+    0.00 :   22a244: mov    %rdx,%rcx
+    0.00 :   22a247: mov    %rsi,%rax
+    0.00 :   22a24a: sub    %r8,%rax
+    0.00 :   22a24d: shr    %r8
+    0.00 :   22a250: lea    (%rax,%rax,4),%rdx
+    0.00 :   22a254: movzbl 0x4(%rdi,%rdx,1),%r9d
+    0.00 :   22a25a: shl    $0x20,%r9
+    0.00 :   22a25e: mov    (%rdi,%rdx,1),%r10d
+    0.00 :   22a262: or     %r9,%r10
+    0.00 :   22a265: inc    %rax
+    0.00 :   22a268: xor    %edx,%edx
+    0.00 :   22a26a: cmp    %rcx,%r10
+    0.00 :   22a26d: cmovb  %rax,%rdx
+    0.00 :   22a271: data16 data16 data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22a280: lea    (%rdx,%r8,1),%rax
+    0.00 :   22a284: lea    (%rax,%rax,4),%r9
+    0.00 :   22a288: mov    -0x5(%rdi,%r9,1),%r10d
+    0.00 :   22a28d: movzbl -0x1(%rdi,%r9,1),%r9d
+    0.00 :   22a293: shl    $0x20,%r9
+    0.00 :   22a297: or     %r10,%r9
+    0.00 :   22a29a: cmp    %rcx,%r9
+    0.00 :   22a29d: cmovb  %rax,%rdx
+    0.00 :   22a2a1: shr    %r8
+    0.00 :   22a2a4: jne    22a280 <expanse_trie::leaf::search+0x2e0>
+    0.00 :   22a2a6: jmp    22a534 <expanse_trie::leaf::search+0x594>
+    0.00 :   22a2ab: cmp    $0x19,%rsi
+    0.00 :   22a2af: jae    22a54e <expanse_trie::leaf::search+0x5ae>
+    0.00 :   22a2b5: bsr    %rsi,%rax
+    0.00 :   22a2b9: mov    $0x1,%r8d
+    0.00 :   22a2bf: mov    %rcx,%rdx
+    0.00 :   22a2c2: mov    %eax,%ecx
+    0.00 :   22a2c4: shl    %cl,%r8
+    0.00 :   22a2c7: mov    %rdx,%rcx
+    0.00 :   22a2ca: mov    %rsi,%rax
+    0.00 :   22a2cd: sub    %r8,%rax
+    0.00 :   22a2d0: shr    %r8
+    0.00 :   22a2d3: lea    (%rax,%rax,2),%rdx
+    0.00 :   22a2d7: movzbl 0x2(%rdi,%rdx,1),%r9d
+    0.00 :   22a2dd: shl    $0x10,%r9d
+    0.00 :   22a2e1: movzwl (%rdi,%rdx,1),%r10d
+    0.00 :   22a2e6: or     %r9d,%r10d
+    0.00 :   22a2e9: inc    %rax
+    0.00 :   22a2ec: xor    %edx,%edx
+    0.00 :   22a2ee: cmp    %ecx,%r10d
+    0.00 :   22a2f1: cmovb  %rax,%rdx
+    0.00 :   22a2f5: data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22a300: lea    (%rdx,%r8,1),%rax
+    0.00 :   22a304: lea    (%rax,%rax,2),%r9
+    0.00 :   22a308: movzwl -0x3(%rdi,%r9,1),%r10d
+    0.00 :   22a30e: movzbl -0x1(%rdi,%r9,1),%r9d
+    0.00 :   22a314: shl    $0x10,%r9d
+    0.00 :   22a318: or     %r10d,%r9d
+    0.00 :   22a31b: cmp    %ecx,%r9d
+    0.00 :   22a31e: cmovb  %rax,%rdx
+    0.00 :   22a322: shr    %r8
+    0.00 :   22a325: jne    22a300 <expanse_trie::leaf::search+0x360>
+    0.00 :   22a327: cmp    %rsi,%rdx
+    0.00 :   22a32a: jae    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a330: lea    (%rdx,%rdx,2),%rax
+    0.00 :   22a334: movzwl (%rdi,%rax,1),%esi
+    0.00 :   22a338: movzbl 0x2(%rdi,%rax,1),%eax
+    0.00 :   22a33d: shl    $0x10,%eax
+    0.00 :   22a340: or     %esi,%eax
+    0.00 :   22a342: cmp    %ecx,%eax
+    0.00 :   22a344: jmp    22a77c <expanse_trie::leaf::search+0x7dc>
+    0.00 :   22a349: ja     22a5ae <expanse_trie::leaf::search+0x60e>
+    0.00 :   22a34f: test   %rsi,%rsi
+    0.00 :   22a352: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a358: mov    $0x1,%al
+    0.00 :   22a35a: cmp    %ecx,(%rdi)
+    0.00 :   22a35c: jne    22aa34 <expanse_trie::leaf::search+0xa94>
+    0.00 :   22a362: xor    %edx,%edx
+    0.00 :   22a364: movzbl %al,%eax
+    0.00 :   22a367: ret
+    0.00 :   22a368: cmp    $0x4,%rsi
+    0.00 :   22a36c: ja     22a613 <expanse_trie::leaf::search+0x673>
+    0.00 :   22a372: test   %rsi,%rsi
+    0.00 :   22a375: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a37b: mov    $0x1,%al
+    0.00 :   22a37d: cmp    %cx,(%rdi)
+    0.00 :   22a380: jne    22aa69 <expanse_trie::leaf::search+0xac9>
+    0.00 :   22a386: xor    %edx,%edx
+    0.00 :   22a388: movzbl %al,%eax
+    0.00 :   22a38b: ret
+    0.00 :   22a38c: cmp    $0x19,%rsi
+    0.00 :   22a390: jae    22a69c <expanse_trie::leaf::search+0x6fc>
+    0.00 :   22a396: bsr    %rsi,%rax
+    0.00 :   22a39a: mov    $0x1,%r8d
+    0.00 :   22a3a0: mov    %rcx,%rdx
+    0.00 :   22a3a3: mov    %eax,%ecx
+    0.00 :   22a3a5: shl    %cl,%r8
+    0.00 :   22a3a8: mov    %rdx,%rcx
+    0.00 :   22a3ab: mov    %rsi,%rax
+    0.00 :   22a3ae: sub    %r8,%rax
+    0.00 :   22a3b1: shr    %r8
+    0.00 :   22a3b4: lea    (%rax,%rax,2),%rdx
+    0.00 :   22a3b8: movzwl 0x4(%rdi,%rdx,2),%r9d
+    0.00 :   22a3be: shl    $0x20,%r9
+    0.00 :   22a3c2: mov    (%rdi,%rdx,2),%r10d
+    0.00 :   22a3c6: or     %r9,%r10
+    0.00 :   22a3c9: inc    %rax
+    0.00 :   22a3cc: xor    %edx,%edx
+    0.00 :   22a3ce: cmp    %rcx,%r10
+    0.00 :   22a3d1: cmovb  %rax,%rdx
+    0.00 :   22a3d5: data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22a3e0: lea    (%rdx,%r8,1),%rax
+    0.00 :   22a3e4: lea    (%rax,%rax,2),%r9
+    0.00 :   22a3e8: mov    -0x6(%rdi,%r9,2),%r10d
+    0.00 :   22a3ed: movzwl -0x2(%rdi,%r9,2),%r9d
+    0.00 :   22a3f3: shl    $0x20,%r9
+    0.00 :   22a3f7: or     %r10,%r9
+    0.00 :   22a3fa: cmp    %rcx,%r9
+    0.00 :   22a3fd: cmovb  %rax,%rdx
+    0.00 :   22a401: shr    %r8
+    0.00 :   22a404: jne    22a3e0 <expanse_trie::leaf::search+0x440>
+    0.00 :   22a406: jmp    22a6e4 <expanse_trie::leaf::search+0x744>
+    0.00 :   22a40b: cmp    $0x19,%rsi
+    0.00 :   22a40f: jae    22a702 <expanse_trie::leaf::search+0x762>
+    0.00 :   22a415: bsr    %rsi,%rax
+    0.00 :   22a419: mov    $0x1,%r8d
+    0.00 :   22a41f: mov    %rcx,%rdx
+    0.00 :   22a422: mov    %eax,%ecx
+    0.00 :   22a424: shl    %cl,%r8
+    0.00 :   22a427: mov    %rdx,%rcx
+    0.00 :   22a42a: mov    %rsi,%rax
+    0.00 :   22a42d: sub    %r8,%rax
+    0.00 :   22a430: shr    %r8
+    0.00 :   22a433: lea    (%rdi,%rax,8),%rdx
+    0.00 :   22a437: sub    %rax,%rdx
+    0.00 :   22a43a: movzwl 0x4(%rdx),%r9d
+    0.00 :   22a43f: shl    $0x20,%r9
+    0.00 :   22a443: mov    (%rdx),%r10d
+    0.00 :   22a446: or     %r9,%r10
+    0.00 :   22a449: movzbl 0x6(%rdx),%r9d
+    0.00 :   22a44e: shl    $0x30,%r9
+    0.00 :   22a452: or     %r10,%r9
+    0.00 :   22a455: inc    %rax
+    0.00 :   22a458: xor    %edx,%edx
+    0.00 :   22a45a: cmp    %rcx,%r9
+    0.00 :   22a45d: cmovb  %rax,%rdx
+    0.00 :   22a461: data16 data16 data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22a470: lea    (%rdx,%r8,1),%rax
+    0.00 :   22a474: lea    (%rdi,%rax,8),%r9
+    0.00 :   22a478: sub    %rax,%r9
+    0.00 :   22a47b: mov    -0x7(%r9),%r10d
+    0.00 :   22a47f: movzwl -0x3(%r9),%r11d
+    0.00 :   22a484: movzbl -0x1(%r9),%r9d
+    0.00 :   22a489: shl    $0x20,%r11
+    0.00 :   22a48d: or     %r10,%r11
+    0.00 :   22a490: shl    $0x30,%r9
+    0.00 :   22a494: or     %r11,%r9
+    0.00 :   22a497: cmp    %rcx,%r9
+    0.00 :   22a49a: cmovb  %rax,%rdx
+    0.00 :   22a49e: shr    %r8
+    0.00 :   22a4a1: jne    22a470 <expanse_trie::leaf::search+0x4d0>
+    0.00 :   22a4a3: jmp    22a751 <expanse_trie::leaf::search+0x7b1>
+    0.00 :   22a4a8: movd   %ecx,%xmm0
+    0.00 :   22a4ac: punpcklbw %xmm0,%xmm0
+    0.00 :   22a4b0: pshuflw $0x0,%xmm0,%xmm0
+    0.00 :   22a4b5: movq   (%rdi),%xmm1
+    0.00 :   22a4b9: pcmpeqb %xmm0,%xmm1
+    0.00 :   22a4bd: pmovmskb %xmm1,%eax
+    0.00 :   22a4c1: movzbl %al,%ecx
+    0.00 :   22a4c4: test   %ecx,%ecx
+    0.00 :   22a4c6: setne  %al
+    0.00 :   22a4c9: tzcnt  %ecx,%ecx
+    0.00 :   22a4cd: movzwl %cx,%edx
+    0.00 :   22a4d0: movzbl %al,%eax
+    0.00 :   22a4d3: ret
+    0.00 :   22a4d4: cmp    $0x4,%rsi
+    0.00 :   22a4d8: ja     22a783 <expanse_trie::leaf::search+0x7e3>
+    0.00 :   22a4de: test   %rsi,%rsi
+    0.00 :   22a4e1: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a4e7: mov    $0x1,%al
+    0.00 :   22a4e9: cmp    %cl,(%rdi)
+    0.00 :   22a4eb: jne    22aafd <expanse_trie::leaf::search+0xb5d>
+    0.00 :   22a4f1: xor    %edx,%edx
+    0.00 :   22a4f3: movzbl %al,%eax
+    0.00 :   22a4f6: ret
+    0.00 :   22a4f7: xor    %edx,%edx
+    0.00 :   22a4f9: mov    %rsi,%rax
+    0.00 :   22a4fc: jmp    22a508 <expanse_trie::leaf::search+0x568>
+    0.00 :   22a4fe: xchg   %ax,%ax
+    0.00 :   22a500: mov    %r8,%rax
+    0.00 :   22a503: cmp    %rax,%rdx
+    0.00 :   22a506: jae    22a534 <expanse_trie::leaf::search+0x594>
+    0.00 :   22a508: lea    (%rax,%rdx,1),%r8
+    0.00 :   22a50c: shr    %r8
+    0.00 :   22a50f: lea    (%r8,%r8,4),%r9
+    0.00 :   22a513: mov    (%rdi,%r9,1),%r10d
+    0.00 :   22a517: movzbl 0x4(%rdi,%r9,1),%r9d
+    0.00 :   22a51d: shl    $0x20,%r9
+    0.00 :   22a521: or     %r10,%r9
+    0.00 :   22a524: cmp    %rcx,%r9
+    0.00 :   22a527: jae    22a500 <expanse_trie::leaf::search+0x560>
+    0.00 :   22a529: inc    %r8
+    0.00 :   22a52c: mov    %r8,%rdx
+    0.00 :   22a52f: cmp    %rax,%rdx
+    0.00 :   22a532: jb     22a508 <expanse_trie::leaf::search+0x568>
+    0.00 :   22a534: cmp    %rsi,%rdx
+    0.00 :   22a537: jae    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a53d: lea    (%rdx,%rdx,4),%rax
+    0.00 :   22a541: mov    (%rdi,%rax,1),%esi
+    0.00 :   22a544: movzbl 0x4(%rdi,%rax,1),%eax
+    0.00 :   22a549: jmp    22a6f9 <expanse_trie::leaf::search+0x759>
+    0.00 :   22a54e: xor    %edx,%edx
+    0.00 :   22a550: mov    %rsi,%rax
+    0.00 :   22a553: jmp    22a569 <expanse_trie::leaf::search+0x5c9>
+    0.00 :   22a555: data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22a560: cmp    %rax,%rdx
+    0.00 :   22a563: jae    22a327 <expanse_trie::leaf::search+0x387>
+    0.00 :   22a569: lea    (%rax,%rdx,1),%r8
+    0.00 :   22a56d: shr    %r8
+    0.00 :   22a570: lea    (%r8,%r8,2),%r9
+    0.00 :   22a574: movzwl (%rdi,%r9,1),%r10d
+    0.00 :   22a579: movzbl 0x2(%rdi,%r9,1),%r9d
+    0.00 :   22a57f: shl    $0x10,%r9d
+    0.00 :   22a583: or     %r10,%r9
+    0.00 :   22a586: cmp    %rcx,%r9
+    0.00 :   22a589: jb     22a5a0 <expanse_trie::leaf::search+0x600>
+    0.00 :   22a58b: cmp    %ecx,%r9d
+    0.00 :   22a58e: jb     22a560 <expanse_trie::leaf::search+0x5c0>
+    0.00 :   22a590: jmp    22a5a9 <expanse_trie::leaf::search+0x609>
+    0.00 :   22a592: data16 data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22a5a0: lea    0x1(%r8),%rdx
+    0.00 :   22a5a4: cmp    %ecx,%r9d
+    0.00 :   22a5a7: jb     22a560 <expanse_trie::leaf::search+0x5c0>
+    0.00 :   22a5a9: mov    %r8,%rax
+    0.00 :   22a5ac: jmp    22a560 <expanse_trie::leaf::search+0x5c0>
+    0.00 :   22a5ae: mov    %ecx,%r8d
+    0.00 :   22a5b1: cmp    $0x19,%rsi
+    0.00 :   22a5b5: jae    22a8eb <expanse_trie::leaf::search+0x94b>
+    0.00 :   22a5bb: bsr    %rsi,%rax
+    0.00 :   22a5bf: mov    $0x1,%r9d
+    0.00 :   22a5c5: mov    %rcx,%rdx
+    0.00 :   22a5c8: mov    %eax,%ecx
+    0.00 :   22a5ca: shl    %cl,%r9
+    0.00 :   22a5cd: mov    %rdx,%rcx
+    0.00 :   22a5d0: mov    %rsi,%rax
+    0.00 :   22a5d3: sub    %r9,%rax
+    0.00 :   22a5d6: shr    %r9
+    0.00 :   22a5d9: xor    %edx,%edx
+   57.19 :   22a5db: cmp    (%rdi,%rax,4),%r8d
+    0.00 :   22a5df: lea    0x1(%rax),%rax
+    0.00 :   22a5e3: cmova  %rax,%rdx
+    0.00 :   22a5e7: nopw   0x0(%rax,%rax,1)
+    0.00 :   22a5f0: lea    (%rdx,%r9,1),%rax
+   28.82 :   22a5f4: cmp    -0x4(%rdi,%rax,4),%r8d
+    0.00 :   22a5f9: cmova  %rax,%rdx
+    0.00 :   22a5fd: shr    %r9
+    0.00 :   22a600: jne    22a5f0 <expanse_trie::leaf::search+0x650>
+    0.00 :   22a602: cmp    %rsi,%rdx
+    0.00 :   22a605: jae    22ab63 <expanse_trie::leaf::search+0xbc3>
+    0.00 :   22a60b: cmp    %ecx,(%rdi,%rdx,4)
+    0.00 :   22a60e: jmp    22a77c <expanse_trie::leaf::search+0x7dc>
+    0.00 :   22a613: cmp    $0x8,%rsi
+    0.00 :   22a617: ja     22a93d <expanse_trie::leaf::search+0x99d>
+    0.00 :   22a61d: movdqu (%rdi),%xmm0
+    0.00 :   22a621: mov    %rcx,%rax
+    0.00 :   22a624: xor    $0x8000,%ecx
+    0.00 :   22a62a: movd   %ecx,%xmm1
+    0.00 :   22a62e: pshuflw $0x0,%xmm1,%xmm1
+    0.00 :   22a633: pshufd $0x44,%xmm1,%xmm1
+    0.00 :   22a638: pxor   -0x21b790(%rip),%xmm0        # eeb0 <std::thread::current::id::ID+0xedd0>
+    0.00 :   22a640: pcmpgtw %xmm0,%xmm1
+    0.00 :   22a644: pmovmskb %xmm1,%edx
+    0.00 :   22a648: lea    (%rsi,%rsi,1),%ecx
+    0.00 :   22a64b: mov    $0xffffffff,%r8d
+    0.00 :   22a651: shl    %cl,%r8d
+    0.00 :   22a654: not    %r8d
+    0.00 :   22a657: and    %edx,%r8d
+    0.00 :   22a65a: mov    %r8d,%ecx
+    0.00 :   22a65d: shr    %ecx
+    0.00 :   22a65f: and    $0x5555,%ecx
+    0.00 :   22a665: sub    %ecx,%r8d
+    0.00 :   22a668: mov    %r8d,%ecx
+    0.00 :   22a66b: and    $0x33333333,%ecx
+    0.00 :   22a671: shr    $0x2,%r8d
+    0.00 :   22a675: and    $0x33333333,%r8d
+    0.00 :   22a67c: add    %ecx,%r8d
+    0.00 :   22a67f: mov    %r8d,%ecx
+    0.00 :   22a682: shr    $0x4,%ecx
+    0.00 :   22a685: add    %r8d,%ecx
+    0.00 :   22a688: and    $0xf0f0f0f,%ecx
+    0.00 :   22a68e: imul   $0x1010101,%ecx,%edx
+    0.00 :   22a694: shr    $0x19,%edx
+    0.00 :   22a697: jmp    22a996 <expanse_trie::leaf::search+0x9f6>
+    0.00 :   22a69c: xor    %edx,%edx
+    0.00 :   22a69e: mov    %rsi,%rax
+    0.00 :   22a6a1: jmp    22a6b8 <expanse_trie::leaf::search+0x718>
+    0.00 :   22a6a3: data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22a6b0: mov    %r8,%rax
+    0.00 :   22a6b3: cmp    %rax,%rdx
+    0.00 :   22a6b6: jae    22a6e4 <expanse_trie::leaf::search+0x744>
+    0.00 :   22a6b8: lea    (%rax,%rdx,1),%r8
+    0.00 :   22a6bc: shr    %r8
+    0.00 :   22a6bf: lea    (%r8,%r8,2),%r9
+    0.00 :   22a6c3: mov    (%rdi,%r9,2),%r10d
+    0.00 :   22a6c7: movzwl 0x4(%rdi,%r9,2),%r9d
+    0.00 :   22a6cd: shl    $0x20,%r9
+    0.00 :   22a6d1: or     %r10,%r9
+    0.00 :   22a6d4: cmp    %rcx,%r9
+    0.00 :   22a6d7: jae    22a6b0 <expanse_trie::leaf::search+0x710>
+    0.00 :   22a6d9: inc    %r8
+    0.00 :   22a6dc: mov    %r8,%rdx
+    0.00 :   22a6df: cmp    %rax,%rdx
+    0.00 :   22a6e2: jb     22a6b8 <expanse_trie::leaf::search+0x718>
+    0.00 :   22a6e4: cmp    %rsi,%rdx
+    0.00 :   22a6e7: jae    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a6ed: lea    (%rdx,%rdx,2),%rax
+    0.00 :   22a6f1: mov    (%rdi,%rax,2),%esi
+    0.00 :   22a6f4: movzwl 0x4(%rdi,%rax,2),%eax
+    0.00 :   22a6f9: shl    $0x20,%rax
+    0.00 :   22a6fd: or     %rsi,%rax
+    0.00 :   22a700: jmp    22a779 <expanse_trie::leaf::search+0x7d9>
+    0.00 :   22a702: xor    %edx,%edx
+    0.00 :   22a704: mov    %rsi,%rax
+    0.00 :   22a707: jmp    22a718 <expanse_trie::leaf::search+0x778>
+    0.00 :   22a709: nopl   0x0(%rax)
+    0.00 :   22a710: mov    %r8,%rax
+    0.00 :   22a713: cmp    %rax,%rdx
+    0.00 :   22a716: jae    22a751 <expanse_trie::leaf::search+0x7b1>
+    0.00 :   22a718: lea    (%rax,%rdx,1),%r8
+    0.00 :   22a71c: shr    %r8
+    0.00 :   22a71f: lea    (%rdi,%r8,8),%r9
+    0.00 :   22a723: sub    %r8,%r9
+    0.00 :   22a726: mov    (%r9),%r10d
+    0.00 :   22a729: movzwl 0x4(%r9),%r11d
+    0.00 :   22a72e: movzbl 0x6(%r9),%r9d
+    0.00 :   22a733: shl    $0x20,%r11
+    0.00 :   22a737: or     %r10,%r11
+    0.00 :   22a73a: shl    $0x30,%r9
+    0.00 :   22a73e: or     %r11,%r9
+    0.00 :   22a741: cmp    %rcx,%r9
+    0.00 :   22a744: jae    22a710 <expanse_trie::leaf::search+0x770>
+    0.00 :   22a746: inc    %r8
+    0.00 :   22a749: mov    %r8,%rdx
+    0.00 :   22a74c: cmp    %rax,%rdx
+    0.00 :   22a74f: jb     22a718 <expanse_trie::leaf::search+0x778>
+    0.00 :   22a751: cmp    %rsi,%rdx
+    0.00 :   22a754: jae    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a75a: lea    (%rdi,%rdx,8),%rax
+    0.00 :   22a75e: sub    %rdx,%rax
+    0.00 :   22a761: mov    (%rax),%esi
+    0.00 :   22a763: movzwl 0x4(%rax),%edi
+    0.00 :   22a767: movzbl 0x6(%rax),%eax
+    0.00 :   22a76b: shl    $0x20,%rdi
+    0.00 :   22a76f: or     %rsi,%rdi
+    0.00 :   22a772: shl    $0x30,%rax
+    0.00 :   22a776: or     %rdi,%rax
+    0.00 :   22a779: cmp    %rcx,%rax
+    0.00 :   22a77c: sete   %al
+    0.00 :   22a77f: movzbl %al,%eax
+    0.00 :   22a782: ret
+    0.00 :   22a783: movzbl %cl,%r8d
+    0.00 :   22a787: cmp    $0xd,%rsi
+    0.00 :   22a78b: jae    22a9a8 <expanse_trie::leaf::search+0xa08>
+    0.00 :   22a791: cmp    $0x8,%rsi
+    0.00 :   22a795: ja     22ab13 <expanse_trie::leaf::search+0xb73>
+    0.00 :   22a79b: mov    %rcx,%rax
+    0.00 :   22a79e: add    $0xffffff80,%ecx
+    0.00 :   22a7a1: movzbl %cl,%ecx
+    0.00 :   22a7a4: movd   %ecx,%xmm0
+    0.00 :   22a7a8: punpcklbw %xmm0,%xmm0
+    0.00 :   22a7ac: pshuflw $0x0,%xmm0,%xmm0
+    0.00 :   22a7b1: movabs $0x8080808080808080,%rcx
+    0.00 :   22a7bb: xor    (%rdi),%rcx
+    0.00 :   22a7be: pshufd $0x44,%xmm0,%xmm0
+    0.00 :   22a7c3: movq   %rcx,%xmm1
+    0.00 :   22a7c8: shufpd $0x2,-0x21b971(%rip),%xmm1        # ee60 <std::thread::current::id::ID+0xed80>
+    0.00 :   22a7d1: pcmpgtb %xmm1,%xmm0
+    0.00 :   22a7d5: pmovmskb %xmm0,%edx
+    0.00 :   22a7d9: jmp    22a9e1 <expanse_trie::leaf::search+0xa41>
+    0.00 :   22a7de: cmp    $0x1,%rsi
+    0.00 :   22a7e2: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a7e8: mov    0x6(%rdi),%edx
+    0.00 :   22a7eb: movzwl 0xa(%rdi),%r8d
+    0.00 :   22a7f0: shl    $0x20,%r8
+    0.00 :   22a7f4: or     %rdx,%r8
+    0.00 :   22a7f7: mov    $0x1,%edx
+    0.00 :   22a7fc: cmp    %rcx,%r8
+    0.00 :   22a7ff: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22a805: cmp    $0x2,%rsi
+    0.00 :   22a809: jbe    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a80f: mov    0xc(%rdi),%edx
+    0.00 :   22a812: movzwl 0x10(%rdi),%r8d
+    0.00 :   22a817: shl    $0x20,%r8
+    0.00 :   22a81b: or     %rdx,%r8
+    0.00 :   22a81e: mov    $0x2,%edx
+    0.00 :   22a823: cmp    %rcx,%r8
+    0.00 :   22a826: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22a82c: cmp    $0x4,%rsi
+    0.00 :   22a830: jne    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a836: mov    0x12(%rdi),%eax
+    0.00 :   22a839: movzwl 0x16(%rdi),%edx
+    0.00 :   22a83d: shl    $0x20,%rdx
+    0.00 :   22a841: or     %rax,%rdx
+    0.00 :   22a844: cmp    %rcx,%rdx
+    0.00 :   22a847: sete   %al
+    0.00 :   22a84a: mov    $0x3,%edx
+    0.00 :   22a84f: movzbl %al,%eax
+    0.00 :   22a852: ret
+    0.00 :   22a853: cmp    $0x1,%rsi
+    0.00 :   22a857: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a85d: mov    0x7(%rdi),%edx
+    0.00 :   22a860: movzwl 0xb(%rdi),%r8d
+    0.00 :   22a865: movzbl 0xd(%rdi),%r9d
+    0.00 :   22a86a: shl    $0x20,%r8
+    0.00 :   22a86e: or     %rdx,%r8
+    0.00 :   22a871: shl    $0x30,%r9
+    0.00 :   22a875: or     %r8,%r9
+    0.00 :   22a878: mov    $0x1,%edx
+    0.00 :   22a87d: cmp    %rcx,%r9
+    0.00 :   22a880: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22a886: cmp    $0x2,%rsi
+    0.00 :   22a88a: jbe    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a890: mov    0xe(%rdi),%edx
+    0.00 :   22a893: movzwl 0x12(%rdi),%r8d
+    0.00 :   22a898: movzbl 0x14(%rdi),%r9d
+    0.00 :   22a89d: shl    $0x20,%r8
+    0.00 :   22a8a1: or     %rdx,%r8
+    0.00 :   22a8a4: shl    $0x30,%r9
+    0.00 :   22a8a8: or     %r8,%r9
+    0.00 :   22a8ab: mov    $0x2,%edx
+    0.00 :   22a8b0: cmp    %rcx,%r9
+    0.00 :   22a8b3: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22a8b9: cmp    $0x4,%rsi
+    0.00 :   22a8bd: jne    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22a8c3: mov    0x15(%rdi),%eax
+    0.00 :   22a8c6: movzwl 0x19(%rdi),%edx
+    0.00 :   22a8ca: movzbl 0x1b(%rdi),%esi
+    0.00 :   22a8ce: shl    $0x20,%rdx
+    0.00 :   22a8d2: or     %rax,%rdx
+    0.00 :   22a8d5: shl    $0x30,%rsi
+    0.00 :   22a8d9: or     %rdx,%rsi
+    0.00 :   22a8dc: cmp    %rcx,%rsi
+    0.00 :   22a8df: sete   %al
+    0.00 :   22a8e2: mov    $0x3,%edx
+    0.00 :   22a8e7: movzbl %al,%eax
+    0.00 :   22a8ea: ret
+    0.00 :   22a8eb: xor    %edx,%edx
+    0.00 :   22a8ed: mov    %rsi,%rax
+    0.00 :   22a8f0: jmp    22a909 <expanse_trie::leaf::search+0x969>
+    0.00 :   22a8f2: data16 data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22a900: cmp    %rax,%rdx
+    0.00 :   22a903: jae    22a602 <expanse_trie::leaf::search+0x662>
+    0.00 :   22a909: lea    (%rdx,%rax,1),%r9
+    0.00 :   22a90d: shr    %r9
+   13.99 :   22a910: mov    (%rdi,%r9,4),%r10d
+    0.00 :   22a914: cmp    %r10,%r8
+    0.00 :   22a917: ja     22a930 <expanse_trie::leaf::search+0x990>
+    0.00 :   22a919: mov    %r9,%rax
+    0.00 :   22a91c: cmp    %r10d,%r8d
+    0.00 :   22a91f: jbe    22a900 <expanse_trie::leaf::search+0x960>
+    0.00 :   22a921: jmp    22a935 <expanse_trie::leaf::search+0x995>
+    0.00 :   22a923: data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22a930: cmp    %r10d,%r8d
+    0.00 :   22a933: jbe    22a900 <expanse_trie::leaf::search+0x960>
+    0.00 :   22a935: inc    %r9
+    0.00 :   22a938: mov    %r9,%rdx
+    0.00 :   22a93b: jmp    22a900 <expanse_trie::leaf::search+0x960>
+    0.00 :   22a93d: mov    %rcx,%rax
+    0.00 :   22a940: movzwl %cx,%r8d
+    0.00 :   22a944: cmp    $0x19,%rsi
+    0.00 :   22a948: jae    22aaad <expanse_trie::leaf::search+0xb0d>
+    0.00 :   22a94e: bsr    %rsi,%rcx
+    0.00 :   22a952: mov    $0x1,%r9d
+    0.00 :   22a958: shl    %cl,%r9
+    0.00 :   22a95b: mov    %rsi,%rcx
+    0.00 :   22a95e: sub    %r9,%rcx
+    0.00 :   22a961: shr    %r9
+    0.00 :   22a964: movzwl (%rdi,%rcx,2),%r10d
+    0.00 :   22a969: inc    %rcx
+    0.00 :   22a96c: xor    %edx,%edx
+    0.00 :   22a96e: cmp    %r10d,%r8d
+    0.00 :   22a971: cmova  %rcx,%rdx
+    0.00 :   22a975: data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22a980: lea    (%rdx,%r9,1),%rcx
+    0.00 :   22a984: movzwl -0x2(%rdi,%rcx,2),%r10d
+    0.00 :   22a98a: cmp    %r10d,%r8d
+    0.00 :   22a98d: cmova  %rcx,%rdx
+    0.00 :   22a991: shr    %r9
+    0.00 :   22a994: jne    22a980 <expanse_trie::leaf::search+0x9e0>
+    0.00 :   22a996: cmp    %rsi,%rdx
+    0.00 :   22a999: jae    22ab63 <expanse_trie::leaf::search+0xbc3>
+    0.00 :   22a99f: cmp    %ax,(%rdi,%rdx,2)
+    0.00 :   22a9a3: jmp    22a77c <expanse_trie::leaf::search+0x7dc>
+    0.00 :   22a9a8: cmp    $0x10,%rsi
+    0.00 :   22a9ac: ja     22ab09 <expanse_trie::leaf::search+0xb69>
+    0.00 :   22a9b2: movdqu (%rdi),%xmm0
+    0.00 :   22a9b6: mov    %rcx,%rax
+    0.00 :   22a9b9: add    $0xffffff80,%ecx
+    0.00 :   22a9bc: movzbl %cl,%ecx
+    0.00 :   22a9bf: movd   %ecx,%xmm1
+    0.00 :   22a9c3: punpcklbw %xmm1,%xmm1
+    0.00 :   22a9c7: pshuflw $0x0,%xmm1,%xmm1
+    0.00 :   22a9cc: pshufd $0x44,%xmm1,%xmm1
+    0.00 :   22a9d1: pxor   -0x21bae9(%rip),%xmm0        # eef0 <std::thread::current::id::ID+0xee10>
+    0.00 :   22a9d9: pcmpgtb %xmm0,%xmm1
+    0.00 :   22a9dd: pmovmskb %xmm1,%edx
+    0.00 :   22a9e1: mov    $0xffffffff,%r8d
+    0.00 :   22a9e7: mov    %esi,%ecx
+    0.00 :   22a9e9: shl    %cl,%r8d
+    0.00 :   22a9ec: not    %r8d
+    0.00 :   22a9ef: and    %edx,%r8d
+    0.00 :   22a9f2: mov    %r8d,%ecx
+    0.00 :   22a9f5: shr    %ecx
+    0.00 :   22a9f7: and    $0x5555,%ecx
+    0.00 :   22a9fd: sub    %ecx,%r8d
+    0.00 :   22aa00: mov    %r8d,%ecx
+    0.00 :   22aa03: and    $0x33333333,%ecx
+    0.00 :   22aa09: shr    $0x2,%r8d
+    0.00 :   22aa0d: and    $0x33333333,%r8d
+    0.00 :   22aa14: add    %ecx,%r8d
+    0.00 :   22aa17: mov    %r8d,%ecx
+    0.00 :   22aa1a: shr    $0x4,%ecx
+    0.00 :   22aa1d: add    %r8d,%ecx
+    0.00 :   22aa20: and    $0xf0f0f0f,%ecx
+    0.00 :   22aa26: imul   $0x1010101,%ecx,%edx
+    0.00 :   22aa2c: shr    $0x18,%edx
+    0.00 :   22aa2f: jmp    22ab56 <expanse_trie::leaf::search+0xbb6>
+    0.00 :   22aa34: cmp    $0x1,%rsi
+    0.00 :   22aa38: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22aa3e: mov    $0x1,%edx
+    0.00 :   22aa43: cmp    %ecx,0x4(%rdi)
+    0.00 :   22aa46: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22aa4c: cmp    $0x2,%rsi
+    0.00 :   22aa50: jbe    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22aa56: mov    $0x2,%edx
+    0.00 :   22aa5b: cmp    %ecx,0x8(%rdi)
+    0.00 :   22aa5e: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22aa64: jmp    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22aa69: cmp    $0x1,%rsi
+    0.00 :   22aa6d: je     22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22aa73: mov    $0x1,%edx
+    0.00 :   22aa78: cmp    %cx,0x2(%rdi)
+    0.00 :   22aa7c: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22aa82: cmp    $0x2,%rsi
+    0.00 :   22aa86: jbe    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22aa88: mov    $0x2,%edx
+    0.00 :   22aa8d: cmp    %cx,0x4(%rdi)
+    0.00 :   22aa91: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22aa97: cmp    $0x4,%rsi
+    0.00 :   22aa9b: jne    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22aa9d: cmp    %cx,0x6(%rdi)
+    0.00 :   22aaa1: sete   %al
+    0.00 :   22aaa4: mov    $0x3,%edx
+    0.00 :   22aaa9: movzbl %al,%eax
+    0.00 :   22aaac: ret
+    0.00 :   22aaad: xor    %edx,%edx
+    0.00 :   22aaaf: mov    %rsi,%rcx
+    0.00 :   22aab2: jmp    22aac9 <expanse_trie::leaf::search+0xb29>
+    0.00 :   22aab4: data16 data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   22aac0: cmp    %rcx,%rdx
+    0.00 :   22aac3: jae    22a996 <expanse_trie::leaf::search+0x9f6>
+    0.00 :   22aac9: lea    (%rdx,%rcx,1),%r10
+    0.00 :   22aacd: mov    %r10,%r9
+    0.00 :   22aad0: shr    %r9
+    0.00 :   22aad3: and    $0xfffffffffffffffe,%r10
+    0.00 :   22aad7: movzwl (%rdi,%r10,1),%r10d
+    0.00 :   22aadc: cmp    %r10,%r8
+    0.00 :   22aadf: ja     22aaf0 <expanse_trie::leaf::search+0xb50>
+    0.00 :   22aae1: mov    %r9,%rcx
+    0.00 :   22aae4: cmp    %r10d,%r8d
+    0.00 :   22aae7: jbe    22aac0 <expanse_trie::leaf::search+0xb20>
+    0.00 :   22aae9: jmp    22aaf5 <expanse_trie::leaf::search+0xb55>
+    0.00 :   22aaeb: nopl   0x0(%rax,%rax,1)
+    0.00 :   22aaf0: cmp    %r10d,%r8d
+    0.00 :   22aaf3: jbe    22aac0 <expanse_trie::leaf::search+0xb20>
+    0.00 :   22aaf5: inc    %r9
+    0.00 :   22aaf8: mov    %r9,%rdx
+    0.00 :   22aafb: jmp    22aac0 <expanse_trie::leaf::search+0xb20>
+    0.00 :   22aafd: cmp    $0x1,%rsi
+    0.00 :   22ab01: jne    22ab69 <expanse_trie::leaf::search+0xbc9>
+    0.00 :   22ab03: xor    %eax,%eax
+    0.00 :   22ab05: movzbl %al,%eax
+    0.00 :   22ab08: ret
+    0.00 :   22ab09: cmp    $0x19,%rsi
+    0.00 :   22ab0d: jae    22aba4 <expanse_trie::leaf::search+0xc04>
+    0.00 :   22ab13: mov    %rcx,%rax
+    0.00 :   22ab16: bsr    %rsi,%rcx
+    0.00 :   22ab1a: mov    $0x1,%r9d
+    0.00 :   22ab20: shl    %cl,%r9
+    0.00 :   22ab23: mov    %rsi,%rcx
+    0.00 :   22ab26: sub    %r9,%rcx
+    0.00 :   22ab29: shr    %r9
+    0.00 :   22ab2c: movzbl (%rdi,%rcx,1),%r10d
+    0.00 :   22ab31: inc    %rcx
+    0.00 :   22ab34: xor    %edx,%edx
+    0.00 :   22ab36: cmp    %r10d,%r8d
+    0.00 :   22ab39: cmova  %rcx,%rdx
+    0.00 :   22ab3d: nopl   (%rax)
+    0.00 :   22ab40: lea    (%rdx,%r9,1),%rcx
+    0.00 :   22ab44: movzbl -0x1(%rdi,%rcx,1),%r10d
+    0.00 :   22ab4a: cmp    %r10d,%r8d
+    0.00 :   22ab4d: cmova  %rcx,%rdx
+    0.00 :   22ab51: shr    %r9
+    0.00 :   22ab54: jne    22ab40 <expanse_trie::leaf::search+0xba0>
+    0.00 :   22ab56: cmp    %rsi,%rdx
+    0.00 :   22ab59: jae    22ab63 <expanse_trie::leaf::search+0xbc3>
+    0.00 :   22ab5b: cmp    %al,(%rdi,%rdx,1)
+    0.00 :   22ab5e: jmp    22a77c <expanse_trie::leaf::search+0x7dc>
+    0.00 :   22ab63: xor    %eax,%eax
+    0.00 :   22ab65: movzbl %al,%eax
+    0.00 :   22ab68: ret
+    0.00 :   22ab69: mov    $0x1,%edx
+    0.00 :   22ab6e: cmp    %cl,0x1(%rdi)
+    0.00 :   22ab71: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22ab77: cmp    $0x2,%rsi
+    0.00 :   22ab7b: jbe    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22ab7d: mov    $0x2,%edx
+    0.00 :   22ab82: cmp    %cl,0x2(%rdi)
+    0.00 :   22ab85: je     22a77f <expanse_trie::leaf::search+0x7df>
+    0.00 :   22ab8b: cmp    $0x4,%rsi
+    0.00 :   22ab8f: jne    22ab03 <expanse_trie::leaf::search+0xb63>
+    0.00 :   22ab95: cmp    %cl,0x3(%rdi)
+    0.00 :   22ab98: sete   %al
+    0.00 :   22ab9b: mov    $0x3,%edx
+    0.00 :   22aba0: movzbl %al,%eax
+    0.00 :   22aba3: ret
+    0.00 :   22aba4: mov    %rcx,%rax
+    0.00 :   22aba7: xor    %edx,%edx
+    0.00 :   22aba9: mov    %rsi,%rcx
+    0.00 :   22abac: jmp    22abb3 <expanse_trie::leaf::search+0xc13>
+    0.00 :   22abae: cmp    %rcx,%rdx
+    0.00 :   22abb1: jae    22ab56 <expanse_trie::leaf::search+0xbb6>
+    0.00 :   22abb3: lea    (%rdx,%rcx,1),%r9
+    0.00 :   22abb7: shr    %r9
+    0.00 :   22abba: movzbl (%rdi,%r9,1),%r10d
+    0.00 :   22abbf: cmp    %r10,%r8
+    0.00 :   22abc2: ja     22abce <expanse_trie::leaf::search+0xc2e>
+    0.00 :   22abc4: mov    %r9,%rcx
+    0.00 :   22abc7: cmp    %r10d,%r8d
+    0.00 :   22abca: jbe    22abae <expanse_trie::leaf::search+0xc0e>
+    0.00 :   22abcc: jmp    22abd3 <expanse_trie::leaf::search+0xc33>
+    0.00 :   22abce: cmp    %r10d,%r8d
+    0.00 :   22abd1: jbe    22abae <expanse_trie::leaf::search+0xc0e>
+    0.00 :   22abd3: inc    %r9
+    0.00 :   22abd6: mov    %r9,%rdx
+    0.00 :   22abd9: jmp    22abae <expanse_trie::leaf::search+0xc0e>
+ Percent |	Source code & Disassembly of phase_probe for cpu_core/mem_load_retired.l1_miss/upp (2987 samples, percent: local period)
+----------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3    Disassembly of section .text:
+         :
+         : 5    0000000000001eb0 <sparsematrix>:
+    0.00 :   1eb0:   movabs $0x2545f4914f6cdd1d,%rcx
+    0.00 :   1eba:   push   %r15
+    0.00 :   1ebc:   movabs $0x9e3779b97f4a7c15,%r15
+    0.00 :   1ec6:   push   %r14
+    0.00 :   1ec8:   movabs $0x3c6ef372fe94f82a,%r14
+    0.00 :   1ed2:   push   %r13
+    0.00 :   1ed4:   xor    %r13d,%r13d
+    0.00 :   1ed7:   push   %r12
+    0.00 :   1ed9:   movabs $0xbf58476d1ce4e5b9,%r12
+    0.00 :   1ee3:   push   %rbp
+    0.00 :   1ee4:   movabs $0x94d049bb133111eb,%rbp
+    0.00 :   1eee:   push   %rbx
+    0.00 :   1eef:   sub    $0x48,%rsp
+    0.00 :   1ef3:   mov    %rdi,0x8(%rsp)
+    0.00 :   1ef8:   xor    %edi,%edi
+    0.00 :   1efa:   mov    %rdx,0x18(%rsp)
+    0.00 :   1eff:   mov    %fs:0x28,%rax
+    0.00 :   1f08:   mov    %rax,0x38(%rsp)
+    0.00 :   1f0d:   xor    %eax,%eax
+    0.00 :   1f0f:   lea    0x30(%rsp),%rax
+    0.00 :   1f14:   mov    %rsi,0x10(%rsp)
+    0.00 :   1f19:   movq   $0x0,0x30(%rsp)
+    0.00 :   1f22:   mov    %rax,0x20(%rsp)
+    0.00 :   1f27:   jmp    1f4e <sparsematrix+0x9e>
+    0.00 :   1f29:   nopl   0x0(%rax)
+    0.00 :   1f30:   lea    0x1(%r13),%rax
+    0.00 :   1f34:   cmp    %rax,0x8(%rsp)
+    0.00 :   1f39:   je     2010 <sparsematrix+0x160>
+    0.00 :   1f3f:   mov    0x30(%rsp),%rdi
+    0.00 :   1f44:   mov    0xc65fd(%rip),%rcx        # c8548 <sm_state>
+    0.00 :   1f4b:   mov    %rax,%r13
+    0.00 :   1f4e:   lea    (%rcx,%r15,1),%rdx
+    0.00 :   1f52:   add    %r14,%rcx
+    0.00 :   1f55:   mov    0x10(%rsp),%rbx
+    0.00 :   1f5a:   mov    %rdx,%rax
+    0.00 :   1f5d:   mov    %rcx,0xc65e4(%rip)        # c8548 <sm_state>
+    0.00 :   1f64:   shr    $0x1e,%rax
+    0.00 :   1f68:   xor    %rdx,%rax
+    0.00 :   1f6b:   imul   %r12,%rax
+    0.00 :   1f6f:   mov    %rax,%rdx
+    0.00 :   1f72:   shr    $0x1b,%rdx
+    0.00 :   1f76:   xor    %rax,%rdx
+    0.00 :   1f79:   mov    %rcx,%rax
+    0.00 :   1f7c:   shr    $0x1e,%rax
+    0.00 :   1f80:   imul   %rbp,%rdx
+    0.00 :   1f84:   xor    %rcx,%rax
+    0.00 :   1f87:   imul   %r12,%rax
+    0.00 :   1f8b:   mov    %rax,%rcx
+    0.00 :   1f8e:   shr    $0x1b,%rcx
+    0.00 :   1f92:   xor    %rax,%rcx
+    0.00 :   1f95:   mov    %rdx,%rax
+    0.00 :   1f98:   shr    $0x1f,%rax
+    0.00 :   1f9c:   imul   %rbp,%rcx
+    0.00 :   1fa0:   xor    %rdx,%rax
+    0.00 :   1fa3:   xor    %edx,%edx
+    0.00 :   1fa5:   div    %rbx
+    0.00 :   1fa8:   mov    %rcx,%rax
+    0.00 :   1fab:   shr    $0x1f,%rax
+    0.00 :   1faf:   xor    %rcx,%rax
+    0.00 :   1fb2:   mov    %rdx,%rsi
+    0.00 :   1fb5:   xor    %edx,%edx
+    0.00 :   1fb7:   div    %rbx
+    0.00 :   1fba:   shl    $0x20,%rsi
+    0.00 :   1fbe:   mov    %rsi,%rbx
+    0.00 :   1fc1:   or     %rdx,%rbx
+    0.00 :   1fc4:   xor    %edx,%edx
+    0.00 :   1fc6:   mov    %rbx,%rsi
+    0.00 :   1fc9:   call   1170 <JudyLGet@plt>
+    0.00 :   1fce:   test   %rax,%rax
+    0.00 :   1fd1:   jne    1f30 <sparsematrix+0x80>
+    0.00 :   1fd7:   mov    0x20(%rsp),%rdi
+    0.00 :   1fdc:   xor    %edx,%edx
+    0.00 :   1fde:   mov    %rbx,%rsi
+    0.00 :   1fe1:   call   1210 <JudyLIns@plt>
+    0.00 :   1fe6:   lea    -0x1(%rax),%rdx
+    0.00 :   1fea:   cmp    $0xfffffffffffffffd,%rdx
+    0.00 :   1fee:   ja     225f <sparsematrix+0x3af>
+    0.00 :   1ff4:   mov    %ebx,%ecx
+    0.00 :   1ff6:   or     $0x1,%ecx
+    0.00 :   1ff9:   mov    %rcx,(%rax)
+    0.00 :   1ffc:   lea    0x1(%r13),%rax
+    0.00 :   2000:   cmp    %rax,0x8(%rsp)
+    0.00 :   2005:   jne    1f3f <sparsematrix+0x8f>
+    0.00 :   200b:   nopl   0x0(%rax,%rax,1)
+    0.00 :   2010:   lea    0xff4(%rip),%rdi        # 300b <_IO_stdin_used+0xb>
+    0.00 :   2017:   mov    %r13,0x8(%rsp)
+    0.00 :   201c:   mov    0x10(%rsp),%rbx
+    0.00 :   2021:   mov    %rax,0x28(%rsp)
+    0.00 :   2026:   call   1aa0 <perf_ctl>
+    0.00 :   202b:   cmpq   $0x0,0x18(%rsp)
+    0.00 :   2031:   jle    2266 <sparsematrix+0x3b6>
+    0.00 :   2037:   movq   $0x0,0x10(%rsp)
+    0.00 :   2040:   xor    %r13d,%r13d
+    0.00 :   2043:   xor    %r14d,%r14d
+    0.00 :   2046:   movabs $0xbf58476d1ce4e5b9,%r12
+    0.00 :   2050:   movabs $0x94d049bb133111eb,%rbp
+    0.00 :   205a:   nopw   0x0(%rax,%rax,1)
+    0.00 :   2060:   movabs $0x2545f4914f6cdd1d,%rcx
+    0.00 :   206a:   xor    %r15d,%r15d
+    0.00 :   206d:   jmp    2073 <sparsematrix+0x1c3>
+    0.00 :   206f:   nop
+    0.00 :   2070:   mov    %rax,%r15
+    0.00 :   2073:   movabs $0x9e3779b97f4a7c15,%rax
+    0.00 :   207d:   mov    0x30(%rsp),%rdi
+    0.00 :   2082:   lea    (%rcx,%rax,1),%rdx
+    0.00 :   2086:   mov    %rdx,%rax
+    0.00 :   2089:   shr    $0x1e,%rax
+    0.00 :   208d:   xor    %rdx,%rax
+    0.00 :   2090:   imul   %r12,%rax
+    0.00 :   2094:   mov    %rax,%rdx
+    0.00 :   2097:   shr    $0x1b,%rdx
+    0.00 :   209b:   xor    %rax,%rdx
+    0.00 :   209e:   movabs $0x3c6ef372fe94f82a,%rax
+    0.00 :   20a8:   add    %rax,%rcx
+    0.00 :   20ab:   imul   %rbp,%rdx
+    0.00 :   20af:   mov    %rcx,%rax
+    0.00 :   20b2:   mov    %rcx,0xc648f(%rip)        # c8548 <sm_state>
+    0.00 :   20b9:   shr    $0x1e,%rax
+    0.00 :   20bd:   xor    %rcx,%rax
+    0.00 :   20c0:   imul   %r12,%rax
+    0.00 :   20c4:   mov    %rax,%rcx
+    0.00 :   20c7:   shr    $0x1b,%rcx
+    0.00 :   20cb:   xor    %rax,%rcx
+    0.00 :   20ce:   mov    %rdx,%rax
+    0.00 :   20d1:   shr    $0x1f,%rax
+    0.00 :   20d5:   imul   %rbp,%rcx
+    0.00 :   20d9:   xor    %rdx,%rax
+    0.00 :   20dc:   xor    %edx,%edx
+    0.00 :   20de:   div    %rbx
+    0.00 :   20e1:   mov    %rcx,%rax
+    0.00 :   20e4:   shr    $0x1f,%rax
+    0.00 :   20e8:   xor    %rcx,%rax
+    0.00 :   20eb:   mov    %rdx,%rsi
+    0.00 :   20ee:   xor    %edx,%edx
+    0.00 :   20f0:   div    %rbx
+    0.00 :   20f3:   shl    $0x20,%rsi
+    0.00 :   20f7:   or     %rdx,%rsi
+    0.00 :   20fa:   xor    %edx,%edx
+    0.00 :   20fc:   call   1170 <JudyLGet@plt>
+    0.00 :   2101:   test   %rax,%rax
+    0.00 :   2104:   je     210d <sparsematrix+0x25d>
+   94.98 :   2106:   xor    (%rax),%r14
+    0.00 :   2109:   add    $0x1,%r13
+    0.00 :   210d:   mov    0xc6434(%rip),%rdx        # c8548 <sm_state>
+    0.00 :   2114:   lea    0x1(%r15),%rax
+    0.00 :   2118:   mov    %rdx,%rcx
+    0.00 :   211b:   cmp    %r15,0x8(%rsp)
+    0.00 :   2120:   jne    2070 <sparsematrix+0x1c0>
+    0.00 :   2126:   xor    %r15d,%r15d
+    0.00 :   2129:   jmp    213a <sparsematrix+0x28a>
+    0.00 :   212b:   nopl   0x0(%rax,%rax,1)
+    0.00 :   2130:   mov    0xc6411(%rip),%rdx        # c8548 <sm_state>
+    0.00 :   2137:   mov    %rax,%r15
+    0.00 :   213a:   movabs $0x9e3779b97f4a7c15,%rax
+    0.00 :   2144:   mov    0x30(%rsp),%rdi
+    0.00 :   2149:   lea    (%rdx,%rax,1),%rcx
+    0.00 :   214d:   mov    %rcx,%rax
+    0.00 :   2150:   shr    $0x1e,%rax
+    0.00 :   2154:   xor    %rcx,%rax
+    0.00 :   2157:   imul   %r12,%rax
+    0.00 :   215b:   mov    %rax,%rsi
+    0.00 :   215e:   shr    $0x1b,%rsi
+    0.00 :   2162:   xor    %rax,%rsi
+    0.00 :   2165:   movabs $0x3c6ef372fe94f82a,%rax
+    0.00 :   216f:   add    %rax,%rdx
+    0.00 :   2172:   imul   %rbp,%rsi
+    0.00 :   2176:   mov    %rdx,%rax
+    0.00 :   2179:   mov    %rdx,0xc63c8(%rip)        # c8548 <sm_state>
+    0.00 :   2180:   shr    $0x1e,%rax
+    0.00 :   2184:   xor    %rdx,%rax
+    0.00 :   2187:   xor    %edx,%edx
+    0.00 :   2189:   imul   %r12,%rax
+    0.00 :   218d:   mov    %rax,%rcx
+    0.00 :   2190:   shr    $0x1b,%rcx
+    0.00 :   2194:   xor    %rax,%rcx
+    0.00 :   2197:   mov    %rsi,%rax
+    0.00 :   219a:   shr    $0x1f,%rax
+    0.00 :   219e:   imul   %rbp,%rcx
+    0.00 :   21a2:   xor    %rsi,%rax
+    0.00 :   21a5:   div    %rbx
+    0.00 :   21a8:   mov    %rcx,%rax
+    0.00 :   21ab:   shr    $0x1f,%rax
+    0.00 :   21af:   xor    %rcx,%rax
+    0.00 :   21b2:   mov    %rdx,%rsi
+    0.00 :   21b5:   xor    %edx,%edx
+    0.00 :   21b7:   div    %rbx
+    0.00 :   21ba:   shl    $0x20,%rsi
+    0.00 :   21be:   or     %rdx,%rsi
+    0.00 :   21c1:   xor    %edx,%edx
+    0.00 :   21c3:   call   1170 <JudyLGet@plt>
+    0.00 :   21c8:   test   %rax,%rax
+    0.00 :   21cb:   je     21d4 <sparsematrix+0x324>
+    5.02 :   21cd:   xor    (%rax),%r14
+    0.00 :   21d0:   add    $0x1,%r13
+    0.00 :   21d4:   lea    0x1(%r15),%rax
+    0.00 :   21d8:   cmp    %r15,0x8(%rsp)
+    0.00 :   21dd:   jne    2130 <sparsematrix+0x280>
+    0.00 :   21e3:   addq   $0x1,0x10(%rsp)
+    0.00 :   21e9:   mov    0x10(%rsp),%rax
+    0.00 :   21ee:   cmp    %rax,0x18(%rsp)
+    0.00 :   21f3:   jne    2060 <sparsematrix+0x1b0>
+    0.00 :   21f9:   lea    0xe13(%rip),%rdi        # 3013 <_IO_stdin_used+0x13>
+    0.00 :   2200:   call   1aa0 <perf_ctl>
+    0.00 :   2205:   mov    %r14,%rcx
+    0.00 :   2208:   mov    %r13,%rdx
+    0.00 :   220b:   mov    $0x1,%edi
+    0.00 :   2210:   lea    0xe3e(%rip),%rsi        # 3055 <_IO_stdin_used+0x55>
+    0.00 :   2217:   xor    %eax,%eax
+    0.00 :   2219:   call   1240 <__printf_chk@plt>
+    0.00 :   221e:   mov    0x20(%rsp),%rdi
+    0.00 :   2223:   xor    %esi,%esi
+    0.00 :   2225:   call   1290 <JudyLFreeArray@plt>
+    0.00 :   222a:   mov    0x18(%rsp),%rax
+    0.00 :   222f:   imul   0x28(%rsp),%rax
+    0.00 :   2235:   cmp    %r13,%rax
+    0.00 :   2238:   seta   %al
+    0.00 :   223b:   movzbl %al,%eax
+    0.00 :   223e:   add    %eax,%eax
+    0.00 :   2240:   mov    0x38(%rsp),%rdx
+    0.00 :   2245:   sub    %fs:0x28,%rdx
+    0.00 :   224e:   jne    226e <sparsematrix+0x3be>
+    0.00 :   2250:   add    $0x48,%rsp
+    0.00 :   2254:   pop    %rbx
+    0.00 :   2255:   pop    %rbp
+    0.00 :   2256:   pop    %r12
+    0.00 :   2258:   pop    %r13
+    0.00 :   225a:   pop    %r14
+    0.00 :   225c:   pop    %r15
+    0.00 :   225e:   ret
+    0.00 :   225f:   mov    $0x2,%eax
+    0.00 :   2264:   jmp    2240 <sparsematrix+0x390>
+    0.00 :   2266:   xor    %r13d,%r13d
+    0.00 :   2269:   xor    %r14d,%r14d
+    0.00 :   226c:   jmp    21f9 <sparsematrix+0x349>
+    0.00 :   226e:   call   11d0 <__stack_chk_fail@plt>
+ Percent |	Source code & Disassembly of libexpanse.so.1.0.0 for cpu_core/mem_load_retired.l1_miss/upp (769 samples, percent: local period)
+-----------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3      Disassembly of section .text:
+         :
+         : 5      0000000000228c50 <expanse_trie::get::locate_slot_popcnt>:
+    0.00 :   228c50: push   %rbp
+    0.00 :   228c51: push   %r14
+    0.00 :   228c53: push   %rbx
+    0.00 :   228c54: xor    %eax,%eax
+    0.00 :   228c56: lea    -0x2071b1(%rip),%r9        # 21aac <std::thread::current::id::ID+0x219cc>
+    0.00 :   228c5d: lea    -0x205a64(%rip),%r8        # 23200 <std::thread::current::id::ID+0x23120>
+    0.00 :   228c64: mov    $0x8,%r10d
+    0.52 :   228c6a: movzbl 0xf(%rdi),%r11d
+    0.00 :   228c6f: test   %r11b,%r11b
+    0.00 :   228c72: js     228f24 <expanse_trie::get::locate_slot_popcnt+0x2d4>
+    0.00 :   228c78: movslq (%r9,%r11,4),%rcx
+    0.00 :   228c7c: add    %r9,%rcx
+    0.00 :   228c7f: jmp    *%rcx
+    0.00 :   228c81: mov    (%rdi),%r11
+    0.00 :   228c84: movzbl 0x5(%r11),%ebx
+    0.00 :   228c89: cmp    %bl,%dl
+    0.00 :   228c8b: jbe    228cb9 <expanse_trie::get::locate_slot_popcnt+0x69>
+    0.00 :   228c8d: sub    %bl,%dl
+    0.00 :   228c8f: movzbl %dl,%ecx
+    0.00 :   228c92: cmp    $0x8,%cl
+    0.00 :   228c95: jae    229232 <expanse_trie::get::locate_slot_popcnt+0x5e2>
+    0.00 :   228c9b: mov    (%r8,%rcx,8),%rdx
+    0.00 :   228c9f: lea    0x0(,%rbx,8),%ecx
+    0.00 :   228ca6: shl    %cl,%rdx
+    0.00 :   228ca9: mov    0x8(%rdi),%rcx
+    0.00 :   228cad: xor    %rsi,%rcx
+    0.00 :   228cb0: test   %rdx,%rcx
+    0.00 :   228cb3: jne    228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228cb9: mov    %ebx,%edx
+    0.00 :   228cbb: dec    %dl
+    0.00 :   228cbd: lea    0x0(,%rdx,8),%ecx
+    0.00 :   228cc4: mov    %rsi,%rbx
+    0.00 :   228cc7: shr    %cl,%rbx
+    0.00 :   228cca: mov    %ebx,%ecx
+    0.00 :   228ccc: and    $0xf,%ecx
+    0.00 :   228ccf: movzwl 0x6(%r11),%edi
+    0.00 :   228cd4: bt     %ecx,%edi
+    0.00 :   228cd7: jae    228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228cdd: movzbl 0x4(%r11),%ebp
+    0.00 :   228ce2: cmp    $0x4,%bpl
+    0.00 :   228ce6: jae    228eb5 <expanse_trie::get::locate_slot_popcnt+0x265>
+    0.00 :   228cec: test   %bpl,%bpl
+    0.00 :   228cef: je     228e38 <expanse_trie::get::locate_slot_popcnt+0x1e8>
+    0.00 :   228cf5: cmp    %bl,0x8(%r11)
+    0.00 :   228cf9: je     228e31 <expanse_trie::get::locate_slot_popcnt+0x1e1>
+    0.00 :   228cff: jmp    228e38 <expanse_trie::get::locate_slot_popcnt+0x1e8>
+    0.00 :   228d04: lea    0x0(,%rdx,8),%r11d
+    0.00 :   228d0c: add    $0xf8,%r11b
+    0.00 :   228d10: mov    %r11d,%ecx
+    0.00 :   228d13: and    $0x38,%cl
+    0.00 :   228d16: mov    %rsi,%rbx
+    0.00 :   228d19: shr    %cl,%rbx
+    0.00 :   228d1c: dec    %dl
+    0.00 :   228d1e: movzbl %bl,%ecx
+    0.00 :   228d21: mov    (%rdi),%rbx
+    0.00 :   228d24: shl    $0x4,%ecx
+    0.00 :   228d27: lea    (%rbx,%rcx,1),%rdi
+    0.00 :   228d2b: add    $0x40,%rdi
+    0.00 :   228d2f: add    $0xf8,%r11b
+   99.09 :   228d33: cmpb   $0x4,0x4f(%rbx,%rcx,1)
+    0.00 :   228d38: je     228d10 <expanse_trie::get::locate_slot_popcnt+0xc0>
+    0.00 :   228d3a: jmp    228c6a <expanse_trie::get::locate_slot_popcnt+0x1a>
+    0.00 :   228d3f: mov    (%rdi),%r11
+    0.00 :   228d42: movzbl 0x74(%r11),%ebx
+    0.00 :   228d47: cmp    %bl,%dl
+    0.00 :   228d49: jbe    228d77 <expanse_trie::get::locate_slot_popcnt+0x127>
+    0.00 :   228d4b: sub    %bl,%dl
+    0.00 :   228d4d: movzbl %dl,%ecx
+    0.00 :   228d50: cmp    $0x8,%cl
+    0.00 :   228d53: jae    229232 <expanse_trie::get::locate_slot_popcnt+0x5e2>
+    0.00 :   228d59: mov    (%r8,%rcx,8),%rdx
+    0.00 :   228d5d: lea    0x0(,%rbx,8),%ecx
+    0.00 :   228d64: shl    %cl,%rdx
+    0.00 :   228d67: mov    0x8(%rdi),%rcx
+    0.00 :   228d6b: xor    %rsi,%rcx
+    0.00 :   228d6e: test   %rdx,%rcx
+    0.00 :   228d71: jne    228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228d77: mov    %ebx,%edx
+    0.00 :   228d79: dec    %dl
+    0.00 :   228d7b: lea    0x0(,%rdx,8),%ecx
+    0.00 :   228d82: mov    %rsi,%rdi
+    0.00 :   228d85: shr    %cl,%rdi
+    0.00 :   228d88: mov    %edi,%ebx
+    0.00 :   228d8a: shr    $0x5,%ebx
+    0.00 :   228d8d: and    $0x7,%ebx
+    0.00 :   228d90: mov    (%r11,%rbx,4),%ebp
+    0.00 :   228d94: mov    $0x1,%r14d
+    0.00 :   228d9a: mov    %edi,%ecx
+    0.00 :   228d9c: shl    %cl,%r14d
+    0.00 :   228d9f: bt     %edi,%ebp
+    0.00 :   228da2: jae    228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228da8: dec    %r14d
+    0.00 :   228dab: and    %r14d,%ebp
+    0.00 :   228dae: popcnt %ebp,%edi
+    0.00 :   228db2: shl    $0x4,%edi
+    0.00 :   228db5: add    0x20(%r11,%rbx,8),%rdi
+    0.00 :   228dba: jmp    228c6a <expanse_trie::get::locate_slot_popcnt+0x1a>
+    0.00 :   228dbf: mov    (%rdi),%r11
+    0.00 :   228dc2: movzbl 0x5(%r11),%ebx
+    0.00 :   228dc7: cmp    %bl,%dl
+    0.00 :   228dc9: jbe    228df7 <expanse_trie::get::locate_slot_popcnt+0x1a7>
+    0.00 :   228dcb: sub    %bl,%dl
+    0.00 :   228dcd: movzbl %dl,%ecx
+    0.00 :   228dd0: cmp    $0x8,%cl
+    0.00 :   228dd3: jae    229232 <expanse_trie::get::locate_slot_popcnt+0x5e2>
+    0.00 :   228dd9: mov    (%r8,%rcx,8),%rdx
+    0.00 :   228ddd: lea    0x0(,%rbx,8),%ecx
+    0.00 :   228de4: shl    %cl,%rdx
+    0.00 :   228de7: mov    0x8(%rdi),%rcx
+    0.00 :   228deb: xor    %rsi,%rcx
+    0.00 :   228dee: test   %rdx,%rcx
+    0.00 :   228df1: jne    228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228df7: mov    %ebx,%edx
+    0.00 :   228df9: dec    %dl
+    0.00 :   228dfb: lea    0x0(,%rdx,8),%ecx
+    0.00 :   228e02: mov    %rsi,%rbx
+    0.00 :   228e05: shr    %cl,%rbx
+    0.00 :   228e08: mov    %ebx,%ecx
+    0.00 :   228e0a: and    $0xf,%ecx
+    0.00 :   228e0d: movzwl 0x6(%r11),%edi
+    0.00 :   228e12: bt     %ecx,%edi
+    0.00 :   228e15: jae    228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228e1b: movzbl 0x4(%r11),%ebp
+    0.00 :   228e20: cmp    $0x4,%bpl
+    0.00 :   228e24: jae    228e6b <expanse_trie::get::locate_slot_popcnt+0x21b>
+    0.00 :   228e26: test   %bpl,%bpl
+    0.00 :   228e29: je     228e38 <expanse_trie::get::locate_slot_popcnt+0x1e8>
+    0.00 :   228e2b: cmp    %bl,0x8(%r11)
+    0.00 :   228e2f: jne    228e38 <expanse_trie::get::locate_slot_popcnt+0x1e8>
+    0.00 :   228e31: xor    %edi,%edi
+    0.00 :   228e33: jmp    228efe <expanse_trie::get::locate_slot_popcnt+0x2ae>
+    0.00 :   228e38: cmp    $0x2,%bpl
+    0.00 :   228e3c: jb     228e4d <expanse_trie::get::locate_slot_popcnt+0x1fd>
+    0.00 :   228e3e: mov    $0x1,%edi
+    0.00 :   228e43: cmp    %bl,0x9(%r11)
+    0.00 :   228e47: je     228efe <expanse_trie::get::locate_slot_popcnt+0x2ae>
+    0.00 :   228e4d: cmp    $0x3,%bpl
+    0.00 :   228e51: jne    228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228e57: mov    $0x2,%edi
+    0.00 :   228e5c: cmp    %bl,0xa(%r11)
+    0.00 :   228e60: je     228efe <expanse_trie::get::locate_slot_popcnt+0x2ae>
+    0.00 :   228e66: jmp    228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228e6b: movzbl %bpl,%ecx
+    0.00 :   228e6f: cmp    $0x8,%bpl
+    0.00 :   228e73: cmovae %r10d,%ecx
+    0.00 :   228e77: movzbl %bl,%edi
+    0.00 :   228e7a: movd   %edi,%xmm0
+    0.00 :   228e7e: punpcklbw %xmm0,%xmm0
+    0.00 :   228e82: pshuflw $0x0,%xmm0,%xmm0
+    0.00 :   228e87: pshufd $0x44,%xmm0,%xmm0
+    0.00 :   228e8c: movq   0x8(%r11),%xmm1
+    0.00 :   228e92: mov    $0xffffffff,%edi
+    0.00 :   228e97: shl    %cl,%edi
+    0.00 :   228e99: pcmpeqb %xmm0,%xmm1
+    0.00 :   228e9d: pmovmskb %xmm1,%ecx
+    0.00 :   228ea1: not    %edi
+    0.00 :   228ea3: and    %ecx,%edi
+    0.00 :   228ea5: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228ea7: tzcnt  %edi,%edi
+    0.00 :   228eab: cmp    $0x6,%edi
+    0.00 :   228eae: jbe    228efe <expanse_trie::get::locate_slot_popcnt+0x2ae>
+    0.00 :   228eb0: jmp    22925c <expanse_trie::get::locate_slot_popcnt+0x60c>
+    0.00 :   228eb5: movzbl %bpl,%ecx
+    0.00 :   228eb9: cmp    $0x8,%bpl
+    0.00 :   228ebd: cmovae %r10d,%ecx
+    0.00 :   228ec1: movzbl %bl,%edi
+    0.00 :   228ec4: movd   %edi,%xmm0
+    0.00 :   228ec8: punpcklbw %xmm0,%xmm0
+    0.00 :   228ecc: pshuflw $0x0,%xmm0,%xmm0
+    0.00 :   228ed1: pshufd $0x44,%xmm0,%xmm0
+    0.00 :   228ed6: movq   0x8(%r11),%xmm1
+    0.00 :   228edc: mov    $0xffffffff,%edi
+    0.00 :   228ee1: shl    %cl,%edi
+    0.00 :   228ee3: pcmpeqb %xmm0,%xmm1
+    0.00 :   228ee7: pmovmskb %xmm1,%ecx
+    0.00 :   228eeb: not    %edi
+    0.00 :   228eed: and    %ecx,%edi
+    0.00 :   228eef: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228ef1: tzcnt  %edi,%edi
+    0.00 :   228ef5: cmp    $0x2,%edi
+    0.00 :   228ef8: ja     22926e <expanse_trie::get::locate_slot_popcnt+0x61e>
+    0.00 :   228efe: shl    $0x4,%edi
+    0.00 :   228f01: add    %r11,%rdi
+    0.00 :   228f04: add    $0x10,%rdi
+    0.00 :   228f08: jmp    228c6a <expanse_trie::get::locate_slot_popcnt+0x1a>
+    0.00 :   228f0d: xor    0x8(%rdi),%rsi
+    0.00 :   228f11: shr    $0x4,%r11d
+    0.00 :   228f15: xor    %eax,%eax
+    0.00 :   228f17: test   %rsi,(%r8,%r11,8)
+    0.00 :   228f1b: cmove  %rdi,%rax
+    0.00 :   228f1f: pop    %rbx
+    0.00 :   228f20: pop    %r14
+    0.00 :   228f22: pop    %rbp
+    0.00 :   228f23: ret
+    0.00 :   228f24: lea    -0x5(%r11),%eax
+    0.00 :   228f28: cmp    $0x7,%al
+    0.00 :   228f2a: jae    228fdc <expanse_trie::get::locate_slot_popcnt+0x38c>
+    0.00 :   228f30: add    $0xfc,%r11b
+    0.00 :   228f34: movzbl %r11b,%eax
+    0.00 :   228f38: sub    %r11b,%dl
+    0.00 :   228f3b: jbe    22904d <expanse_trie::get::locate_slot_popcnt+0x3fd>
+    0.00 :   228f41: movzbl %dl,%ecx
+    0.00 :   228f44: cmp    $0x7,%cl
+    0.00 :   228f47: ja     229232 <expanse_trie::get::locate_slot_popcnt+0x5e2>
+    0.00 :   228f4d: mov    (%r8,%rcx,8),%r9
+    0.00 :   228f51: lea    0x0(,%rax,8),%ecx
+    0.00 :   228f58: shl    %cl,%r9
+    0.00 :   228f5b: mov    0x8(%rdi),%rdx
+    0.00 :   228f5f: mov    %rdx,%rcx
+    0.00 :   228f62: xor    %rsi,%rcx
+    0.00 :   228f65: test   %r9,%rcx
+    0.00 :   228f68: jne    228fd5 <expanse_trie::get::locate_slot_popcnt+0x385>
+    0.00 :   228f6a: mov    %rsi,%rcx
+    0.00 :   228f6d: jmp    229054 <expanse_trie::get::locate_slot_popcnt+0x404>
+    0.00 :   228f72: cmp    $0x1,%dl
+    0.00 :   228f75: jbe    228f9a <expanse_trie::get::locate_slot_popcnt+0x34a>
+    0.00 :   228f77: lea    -0x1(%rdx),%eax
+    0.00 :   228f7a: movzbl %al,%eax
+    0.00 :   228f7d: cmp    $0x9,%dl
+    0.00 :   228f80: jae    229247 <expanse_trie::get::locate_slot_popcnt+0x5f7>
+    0.00 :   228f86: mov    (%r8,%rax,8),%rax
+    0.00 :   228f8a: shl    $0x8,%rax
+    0.00 :   228f8e: mov    0x8(%rdi),%rcx
+    0.00 :   228f92: xor    %rsi,%rcx
+    0.00 :   228f95: test   %rax,%rcx
+    0.00 :   228f98: jne    228fd5 <expanse_trie::get::locate_slot_popcnt+0x385>
+    0.00 :   228f9a: mov    (%rdi),%rdx
+    0.00 :   228f9d: mov    %esi,%edi
+    0.00 :   228f9f: shr    $0x5,%edi
+    0.00 :   228fa2: and    $0x7,%edi
+    0.00 :   228fa5: mov    (%rdx,%rdi,4),%eax
+    0.00 :   228fa8: mov    $0x1,%r8d
+    0.00 :   228fae: mov    %esi,%ecx
+    0.00 :   228fb0: shl    %cl,%r8d
+    0.00 :   228fb3: bt     %esi,%eax
+    0.00 :   228fb6: jae    228fd5 <expanse_trie::get::locate_slot_popcnt+0x385>
+    0.00 :   228fb8: mov    0x20(%rdx,%rdi,8),%rcx
+    0.00 :   228fbd: test   %rcx,%rcx
+    0.00 :   228fc0: je     228fd5 <expanse_trie::get::locate_slot_popcnt+0x385>
+    0.00 :   228fc2: dec    %r8d
+    0.00 :   228fc5: and    %r8d,%eax
+    0.00 :   228fc8: popcnt %eax,%eax
+    0.00 :   228fcc: lea    (%rcx,%rax,8),%rax
+    0.00 :   228fd0: pop    %rbx
+    0.00 :   228fd1: pop    %r14
+    0.00 :   228fd3: pop    %rbp
+    0.00 :   228fd4: ret
+    0.00 :   228fd5: xor    %eax,%eax
+    0.00 :   228fd7: pop    %rbx
+    0.00 :   228fd8: pop    %r14
+    0.00 :   228fda: pop    %rbp
+    0.00 :   228fdb: ret
+    0.00 :   228fdc: mov    %r11d,%edx
+    0.00 :   228fdf: shr    $0x4,%edx
+    0.00 :   228fe2: mov    %r11d,%eax
+    0.00 :   228fe5: and    $0xf,%al
+    0.00 :   228fe7: inc    %al
+    0.00 :   228fe9: mul    %dl
+    0.00 :   228feb: mov    %eax,%ecx
+    0.00 :   228fed: xor    %eax,%eax
+    0.00 :   228fef: test   %r11b,%r11b
+    0.00 :   228ff2: js     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   228ff8: test   %dl,%dl
+    0.00 :   228ffa: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   229000: cmp    $0x10,%cl
+    0.00 :   229003: jae    228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   229009: dec    %edx
+    0.00 :   22900b: cmp    $0x5,%edx
+    0.00 :   22900e: ja     2291b8 <expanse_trie::get::locate_slot_popcnt+0x568>
+    0.00 :   229014: lea    -0x20736f(%rip),%rax        # 21cac <std::thread::current::id::ID+0x21bcc>
+    0.00 :   22901b: movslq (%rax,%rdx,4),%rcx
+    0.00 :   22901f: add    %rax,%rcx
+    0.00 :   229022: jmp    *%rcx
+    0.00 :   229024: and    $0xf,%r11d
+    0.00 :   229028: mov    $0xffffffffffffffff,%rdx
+    0.00 :   22902f: xor    %eax,%eax
+    0.00 :   229031: cmp    %rdx,%r11
+    0.00 :   229034: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   22903a: lea    0x1(%rdx),%rcx
+    0.00 :   22903e: cmp    %sil,0x9(%rdi,%rdx,1)
+    0.00 :   229043: mov    %rcx,%rdx
+    0.00 :   229046: jne    229031 <expanse_trie::get::locate_slot_popcnt+0x3e1>
+    0.00 :   229048: jmp    229206 <expanse_trie::get::locate_slot_popcnt+0x5b6>
+    0.00 :   22904d: mov    %rsi,%rcx
+    0.00 :   229050: mov    0x8(%rdi),%rdx
+    0.39 :   229054: mov    (%rdi),%rbx
+    0.00 :   229057: and    (%r8,%rax,8),%rdx
+    0.00 :   22905b: inc    %rdx
+    0.00 :   22905e: mov    %edx,%esi
+    0.00 :   229060: and    $0x3f,%esi
+    0.00 :   229063: lea    -0x2054ae(%rip),%rdi        # 23bbc <std::thread::current::id::ID+0x23adc>
+    0.00 :   22906a: movzwl (%rdi,%rsi,2),%edi
+    0.00 :   22906e: add    %rbx,%rdi
+    0.00 :   229071: mov    %rdx,%rsi
+    0.00 :   229074: mov    %eax,%edx
+    0.00 :   229076: call   229fa0 <expanse_trie::leaf::search>
+    0.00 :   22907b: mov    %rax,%rcx
+    0.00 :   22907e: xor    %eax,%eax
+    0.00 :   229080: test   %rbx,%rbx
+    0.00 :   229083: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   229089: test   $0x1,%cl
+    0.00 :   22908c: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   229092: lea    (%rbx,%rdx,8),%rax
+    0.00 :   229096: pop    %rbx
+    0.00 :   229097: pop    %r14
+    0.00 :   229099: pop    %rbp
+    0.00 :   22909a: ret
+    0.00 :   22909b: movabs $0xffffffffff,%rax
+    0.00 :   2290a5: and    %rax,%rsi
+    0.00 :   2290a8: lea    0xc(%rdi),%rdx
+    0.00 :   2290ac: and    $0xf,%r11d
+    0.00 :   2290b0: mov    $0xffffffffffffffff,%rcx
+    0.00 :   2290b7: xor    %eax,%eax
+    0.00 :   2290b9: cmp    %rcx,%r11
+    0.00 :   2290bc: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   2290c2: mov    -0x4(%rdx),%r8d
+    0.00 :   2290c6: movzbl (%rdx),%r9d
+    0.00 :   2290ca: shl    $0x20,%r9
+    0.00 :   2290ce: or     %r8,%r9
+    0.00 :   2290d1: inc    %rcx
+    0.00 :   2290d4: add    $0x5,%rdx
+    0.00 :   2290d8: cmp    %rsi,%r9
+    0.00 :   2290db: jne    2290b9 <expanse_trie::get::locate_slot_popcnt+0x469>
+    0.00 :   2290dd: jmp    229206 <expanse_trie::get::locate_slot_popcnt+0x5b6>
+    0.00 :   2290e2: and    $0xffffff,%esi
+    0.00 :   2290e8: lea    0xa(%rdi),%rdx
+    0.00 :   2290ec: and    $0xf,%r11d
+    0.00 :   2290f0: mov    $0xffffffffffffffff,%rcx
+    0.00 :   2290f7: xor    %eax,%eax
+    0.00 :   2290f9: cmp    %rcx,%r11
+    0.00 :   2290fc: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   229102: movzwl -0x2(%rdx),%r8d
+    0.00 :   229107: movzbl (%rdx),%r9d
+    0.00 :   22910b: shl    $0x10,%r9d
+    0.00 :   22910f: or     %r8d,%r9d
+    0.00 :   229112: inc    %rcx
+    0.00 :   229115: add    $0x3,%rdx
+    0.00 :   229119: cmp    %esi,%r9d
+    0.00 :   22911c: jne    2290f9 <expanse_trie::get::locate_slot_popcnt+0x4a9>
+    0.00 :   22911e: jmp    229206 <expanse_trie::get::locate_slot_popcnt+0x5b6>
+    0.00 :   229123: and    $0xf,%r11d
+    0.00 :   229127: mov    $0xffffffffffffffff,%rdx
+    0.00 :   22912e: xor    %eax,%eax
+    0.00 :   229130: cmp    %rdx,%r11
+    0.00 :   229133: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   229139: lea    0x1(%rdx),%rcx
+    0.00 :   22913d: cmp    %esi,0xc(%rdi,%rdx,4)
+    0.00 :   229141: mov    %rcx,%rdx
+    0.00 :   229144: jne    229130 <expanse_trie::get::locate_slot_popcnt+0x4e0>
+    0.00 :   229146: jmp    229206 <expanse_trie::get::locate_slot_popcnt+0x5b6>
+    0.00 :   22914b: and    $0xf,%r11d
+    0.00 :   22914f: mov    $0xffffffffffffffff,%rdx
+    0.00 :   229156: xor    %eax,%eax
+    0.00 :   229158: cmp    %rdx,%r11
+    0.00 :   22915b: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   229161: lea    0x1(%rdx),%rcx
+    0.00 :   229165: cmp    %si,0xa(%rdi,%rdx,2)
+    0.00 :   22916a: mov    %rcx,%rdx
+    0.00 :   22916d: jne    229158 <expanse_trie::get::locate_slot_popcnt+0x508>
+    0.00 :   22916f: jmp    229206 <expanse_trie::get::locate_slot_popcnt+0x5b6>
+    0.00 :   229174: movabs $0xffffffffffff,%rax
+    0.00 :   22917e: and    %rax,%rsi
+    0.00 :   229181: lea    0xc(%rdi),%rdx
+    0.00 :   229185: and    $0xf,%r11d
+    0.00 :   229189: mov    $0xffffffffffffffff,%rcx
+    0.00 :   229190: xor    %eax,%eax
+    0.00 :   229192: cmp    %rcx,%r11
+    0.00 :   229195: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   22919b: mov    -0x4(%rdx),%r8d
+    0.00 :   22919f: movzwl (%rdx),%r9d
+    0.00 :   2291a3: shl    $0x20,%r9
+    0.00 :   2291a7: or     %r8,%r9
+    0.00 :   2291aa: inc    %rcx
+    0.00 :   2291ad: add    $0x6,%rdx
+    0.00 :   2291b1: cmp    %rsi,%r9
+    0.00 :   2291b4: jne    229192 <expanse_trie::get::locate_slot_popcnt+0x542>
+    0.00 :   2291b6: jmp    229206 <expanse_trie::get::locate_slot_popcnt+0x5b6>
+    0.00 :   2291b8: movabs $0xffffffffffffff,%rax
+    0.00 :   2291c2: and    %rax,%rsi
+    0.00 :   2291c5: lea    0xe(%rdi),%rdx
+    0.00 :   2291c9: and    $0xf,%r11d
+    0.00 :   2291cd: mov    $0xffffffffffffffff,%rcx
+    0.00 :   2291d4: xor    %eax,%eax
+    0.00 :   2291d6: cmp    %rcx,%r11
+    0.00 :   2291d9: je     228f1f <expanse_trie::get::locate_slot_popcnt+0x2cf>
+    0.00 :   2291df: mov    -0x6(%rdx),%r8d
+    0.00 :   2291e3: movzwl -0x2(%rdx),%r9d
+    0.00 :   2291e8: movzbl (%rdx),%r10d
+    0.00 :   2291ec: shl    $0x20,%r9
+    0.00 :   2291f0: or     %r8,%r9
+    0.00 :   2291f3: shl    $0x30,%r10
+    0.00 :   2291f7: or     %r9,%r10
+    0.00 :   2291fa: inc    %rcx
+    0.00 :   2291fd: add    $0x7,%rdx
+    0.00 :   229201: cmp    %rsi,%r10
+    0.00 :   229204: jne    2291d6 <expanse_trie::get::locate_slot_popcnt+0x586>
+    0.00 :   229206: mov    (%rdi),%rdx
+    0.00 :   229209: test   %rdx,%rdx
+    0.00 :   22920c: lea    (%rdx,%rcx,8),%rax
+    0.00 :   229210: cmove  %rdx,%rax
+    0.00 :   229214: pop    %rbx
+    0.00 :   229215: pop    %r14
+    0.00 :   229217: pop    %rbp
+    0.00 :   229218: ret
+    0.00 :   229219: lea    -0x205fda(%rip),%rdi        # 23246 <std::thread::current::id::ID+0x23166>
+    0.00 :   229220: lea    0x55541(%rip),%rdx        # 27e768 <__frame_dummy_init_array_entry+0x3b10>
+    0.00 :   229227: mov    $0xa1,%esi
+    0.00 :   22922c: call   *0x577be(%rip)        # 2809f0 <_DYNAMIC+0x308>
+    0.00 :   229232: lea    0x534e7(%rip),%rdx        # 27c720 <__frame_dummy_init_array_entry+0x1ac8>
+    0.00 :   229239: mov    $0x8,%esi
+    0.00 :   22923e: mov    %rcx,%rdi
+    0.00 :   229241: call   *0x57719(%rip)        # 280960 <_DYNAMIC+0x278>
+    0.00 :   229247: lea    0x534d2(%rip),%rdx        # 27c720 <__frame_dummy_init_array_entry+0x1ac8>
+    0.00 :   22924e: mov    $0x8,%esi
+    0.00 :   229253: mov    %rax,%rdi
+    0.00 :   229256: call   *0x57704(%rip)        # 280960 <_DYNAMIC+0x278>
+    0.00 :   22925c: lea    0x554ed(%rip),%rdx        # 27e750 <__frame_dummy_init_array_entry+0x3af8>
+    0.00 :   229263: mov    $0x7,%esi
+    0.00 :   229268: call   *0x576f2(%rip)        # 280960 <_DYNAMIC+0x278>
+    0.00 :   22926e: lea    0x554c3(%rip),%rdx        # 27e738 <__frame_dummy_init_array_entry+0x3ae0>
+    0.00 :   229275: mov    $0x3,%esi
+    0.00 :   22927a: call   *0x576e0(%rip)        # 280960 <_DYNAMIC+0x278>

@@ -1,0 +1,166 @@
+    Finished `bench` profile [optimized] target(s) in 1m 06s
+warning: the following packages contain code that will be rejected by a future version of Rust: proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running benches/smoke_instructions.rs (target/release/deps/smoke_instructions-2058d749110ea19d)
+smoke_instructions::smoke_cost::map_insert sequential:keys("sequential")
+  Baselines:                               |a64base
+  Instructions:                     1553753|1553753              (No change)
+  L1 Hits:                          2042563|2042241              (+0.01577%) [+1.00016x]
+  LL Hits:                             1514|1837                 (-17.5830%) [-1.21334x]
+  RAM Hits:                            2886|2885                 (+0.03466%) [+1.00035x]
+  Total read+write:                 2046963|2046963              (No change)
+  Estimated Cycles:                 2151143|2152401              (-0.05845%) [-1.00058x]
+smoke_instructions::smoke_cost::map_insert random:keys("random")
+  Baselines:                               |a64base
+  Instructions:                     6774217|6774196              (+0.00031%) [+1.00000x]
+  L1 Hits:                          9210609|9209561              (+0.01138%) [+1.00011x]
+  LL Hits:                            36340|37338                (-2.67288%) [-1.02746x]
+  RAM Hits:                            7153|7151                 (+0.02797%) [+1.00028x]
+  Total read+write:                 9254102|9254050              (+0.00056%) [+1.00001x]
+  Estimated Cycles:                 9642664|9646536              (-0.04014%) [-1.00040x]
+smoke_instructions::smoke_cost::map_insert clustered:keys("clustered")
+  Baselines:                               |a64base
+  Instructions:                     2924414|2924414              (No change)
+  L1 Hits:                          3918731|3918457              (+0.00699%) [+1.00007x]
+  LL Hits:                             1534|1811                 (-15.2954%) [-1.18057x]
+  RAM Hits:                            2938|2935                 (+0.10221%) [+1.00102x]
+  Total read+write:                 3923203|3923203              (No change)
+  Estimated Cycles:                 4029231|4030237              (-0.02496%) [-1.00025x]
+smoke_instructions::smoke_cost::map_get sequential:built_map("sequential")
+  Baselines:                               |a64base
+  Instructions:                      990966|990916               (+0.00505%) [+1.00005x]
+  L1 Hits:                          1212148|1212096              (+0.00429%) [+1.00004x]
+  LL Hits:                             9061|9049                 (+0.13261%) [+1.00133x]
+  RAM Hits:                              33|31                   (+6.45161%) [+1.06452x]
+  Total read+write:                 1221242|1221176              (+0.00540%) [+1.00005x]
+  Estimated Cycles:                 1258608|1258426              (+0.01446%) [+1.00014x]
+smoke_instructions::smoke_cost::map_get random:built_map("random")
+  Baselines:                               |a64base
+  Instructions:                      853297|844562               (+1.03426%) [+1.01034x]
+  L1 Hits:                          1037565|1026773              (+1.05106%) [+1.01051x]
+  LL Hits:                            23675|23617                (+0.24559%) [+1.00246x]
+  RAM Hits:                              37|39                   (-5.12821%) [-1.05405x]
+  Total read+write:                 1061277|1050429              (+1.03272%) [+1.01033x]
+  Estimated Cycles:                 1157235|1146223              (+0.96072%) [+1.00961x]
+smoke_instructions::smoke_cost::map_get clustered:built_map("clustered")
+  Baselines:                               |a64base
+  Instructions:                      767678|767628               (+0.00651%) [+1.00007x]
+  L1 Hits:                           945206|945162               (+0.00466%) [+1.00005x]
+  LL Hits:                             9095|9071                 (+0.26458%) [+1.00265x]
+  RAM Hits:                              37|39                   (-5.12821%) [-1.05405x]
+  Total read+write:                  954338|954272               (+0.00692%) [+1.00007x]
+  Estimated Cycles:                  991976|991882               (+0.00948%) [+1.00009x]
+smoke_instructions::smoke_cost::set_insert sequential:keys("sequential")
+  Baselines:                               |a64base
+  Instructions:                      683389|683389               (No change)
+  L1 Hits:                           951382|951397               (-0.00158%) [-1.00002x]
+  LL Hits:                             1399|1389                 (+0.71994%) [+1.00720x]
+  RAM Hits:                            1315|1310                 (+0.38168%) [+1.00382x]
+  Total read+write:                  954096|954096               (No change)
+  Estimated Cycles:                 1004402|1004192              (+0.02091%) [+1.00021x]
+smoke_instructions::smoke_cost::set_insert random:keys("random")
+  Baselines:                               |a64base
+  Instructions:                     5640003|5640003              (No change)
+  L1 Hits:                          7614040|7614405              (-0.00479%) [-1.00005x]
+  LL Hits:                            19472|19116                (+1.86231%) [+1.01862x]
+  RAM Hits:                            5756|5747                 (+0.15660%) [+1.00157x]
+  Total read+write:                 7639268|7639268              (No change)
+  Estimated Cycles:                 7912860|7911130              (+0.02187%) [+1.00022x]
+smoke_instructions::smoke_cost::set_insert clustered:keys("clustered")
+  Baselines:                               |a64base
+  Instructions:                     1898591|1898591              (No change)
+  L1 Hits:                          2568785|2568790              (-0.00019%) [-1.00000x]
+  LL Hits:                             1439|1444                 (-0.34626%) [-1.00347x]
+  RAM Hits:                            1437|1427                 (+0.70077%) [+1.00701x]
+  Total read+write:                 2571661|2571661              (No change)
+  Estimated Cycles:                 2626275|2625955              (+0.01219%) [+1.00012x]
+smoke_instructions::smoke_cost::set_contains sequential:built_set("sequential")
+  Baselines:                               |a64base
+  Instructions:                      872612|872612               (No change)
+  L1 Hits:                          1062601|1062600              (+0.00009%) [+1.00000x]
+  LL Hits:                              832|832                  (No change)
+  RAM Hits:                              31|32                   (-3.12500%) [-1.03226x]
+  Total read+write:                 1063464|1063464              (No change)
+  Estimated Cycles:                 1067846|1067880              (-0.00318%) [-1.00003x]
+smoke_instructions::smoke_cost::set_contains random:built_set("random")
+  Baselines:                               |a64base
+  Instructions:                      867778|867778               (No change)
+  L1 Hits:                          1049059|1049067              (-0.00076%) [-1.00001x]
+  LL Hits:                            21137|21125                (+0.05680%) [+1.00057x]
+  RAM Hits:                              39|43                   (-9.30233%) [-1.10256x]
+  Total read+write:                 1070235|1070235              (No change)
+  Estimated Cycles:                 1156109|1156197              (-0.00761%) [-1.00008x]
+smoke_instructions::smoke_cost::set_contains clustered:built_set("clustered")
+  Baselines:                               |a64base
+  Instructions:                      698716|698716               (No change)
+  L1 Hits:                           864459|864459               (No change)
+  LL Hits:                              914|914                  (No change)
+  RAM Hits:                              35|35                   (No change)
+  Total read+write:                  865408|865408               (No change)
+  Estimated Cycles:                  870254|870254               (No change)
+smoke_instructions::smoke_cost::map_ins_slot random:keys("random")
+  Baselines:                               |a64base
+  Instructions:                     6780529|6780508              (+0.00031%) [+1.00000x]
+  L1 Hits:                          9247174|9247235              (-0.00066%) [-1.00001x]
+  LL Hits:                            36028|35911                (+0.32581%) [+1.00326x]
+  RAM Hits:                            7230|7234                 (-0.05529%) [-1.00055x]
+  Total read+write:                 9290432|9290380              (+0.00056%) [+1.00001x]
+  Estimated Cycles:                 9680364|9679980              (+0.00397%) [+1.00004x]
+smoke_instructions::smoke_cost::map_churn random:built_map("random")
+  Baselines:                               |a64base
+  Instructions:                    10733650|10733647             (+0.00003%) [+1.00000x]
+  L1 Hits:                         14581679|14581753             (-0.00051%) [-1.00001x]
+  LL Hits:                            30600|30520                (+0.26212%) [+1.00262x]
+  RAM Hits:                            2156|2156                 (No change)
+  Total read+write:                14614435|14614429             (+0.00004%) [+1.00000x]
+  Estimated Cycles:                14810139|14809813             (+0.00220%) [+1.00002x]
+smoke_instructions::smoke_cost::strmap_insert routes:str_keys("routes")
+  Baselines:                               |a64base
+  Instructions:                     8092685|8120164              (-0.33840%) [-1.00340x]
+  L1 Hits:                         10461038|10480777             (-0.18834%) [-1.00189x]
+  LL Hits:                            30115|29630                (+1.63685%) [+1.01637x]
+  RAM Hits:                            5655|5661                 (-0.10599%) [-1.00106x]
+  Total read+write:                10496808|10516068             (-0.18315%) [-1.00183x]
+  Estimated Cycles:                10809538|10827062             (-0.16185%) [-1.00162x]
+smoke_instructions::smoke_cost::strmap_get routes:built_strmap("routes")
+  Baselines:                               |a64base
+  Instructions:                     6610146|6650946              (-0.61345%) [-1.00617x]
+  L1 Hits:                          8416704|8447690              (-0.36680%) [-1.00368x]
+  LL Hits:                           109331|109143               (+0.17225%) [+1.00172x]
+  RAM Hits:                              52|54                   (-3.70370%) [-1.03846x]
+  Total read+write:                 8526087|8556887              (-0.35994%) [-1.00361x]
+  Estimated Cycles:                 8965179|8995295              (-0.33480%) [-1.00336x]
+smoke_instructions::smoke_cost::strmap_churn routes:built_strmap("routes")
+  Baselines:                               |a64base
+  Instructions:                    21731414|21815415             (-0.38505%) [-1.00387x]
+  L1 Hits:                         27569795|27643913             (-0.26812%) [-1.00269x]
+  LL Hits:                           123040|122923               (+0.09518%) [+1.00095x]
+  RAM Hits:                             123|123                  (No change)
+  Total read+write:                27692958|27766959             (-0.26651%) [-1.00267x]
+  Estimated Cycles:                28189300|28262833             (-0.26018%) [-1.00261x]
+smoke_instructions::smoke_cost::bytesmap_insert routes:str_keys("routes")
+  Baselines:                               |a64base
+  Instructions:                    17494859|17494837             (+0.00013%) [+1.00000x]
+  L1 Hits:                         23883976|23883690             (+0.00120%) [+1.00001x]
+  LL Hits:                            69645|69881                (-0.33772%) [-1.00339x]
+  RAM Hits:                           23494|23500                (-0.02553%) [-1.00026x]
+  Total read+write:                23977115|23977071             (+0.00018%) [+1.00000x]
+  Estimated Cycles:                25054491|25055595             (-0.00441%) [-1.00004x]
+smoke_instructions::smoke_cost::bytesmap_get routes:built_bytesmap("routes")
+  Baselines:                               |a64base
+  Instructions:                     5080138|5087756              (-0.14973%) [-1.00150x]
+  L1 Hits:                          6630113|6635273              (-0.07777%) [-1.00078x]
+  LL Hits:                           103493|103433               (+0.05801%) [+1.00058x]
+  RAM Hits:                              49|50                   (-2.00000%) [-1.02041x]
+  Total read+write:                 6733655|6738756              (-0.07570%) [-1.00076x]
+  Estimated Cycles:                 7149293|7154188              (-0.06842%) [-1.00068x]
+smoke_instructions::smoke_cost::bytesmap_churn routes:built_bytesmap("routes")
+  Baselines:                               |a64base
+  Instructions:                    25314607|25324743             (-0.04002%) [-1.00040x]
+  L1 Hits:                         35017415|35028141             (-0.03062%) [-1.00031x]
+  LL Hits:                           119817|116712               (+2.66039%) [+1.02660x]
+  RAM Hits:                             244|242                  (+0.82645%) [+1.00826x]
+  Total read+write:                35137476|35145095             (-0.02168%) [-1.00022x]
+  Estimated Cycles:                35625040|35620171             (+0.01367%) [+1.00014x]
+
+Iai-Callgrind result: Ok. 20 without regressions; 0 regressed; 20 benchmarks finished in 10.0513s

@@ -2,7 +2,7 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution|sm_main]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution|misp_increment|sm_main|increment]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
@@ -123,5 +123,13 @@ case "${MODE}" in
                 "${SNG_D}/results/diag_ms_attribution_${HOST_LABEL}_run${RUN}" ;;
   misp_attribution) SNG_ATTR=misp SNG_PHASE_SET=gets_main python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_misp_attribution_${HOST_LABEL}_run${RUN}" ;;
+  # The same sampling on an engine increment, head G and merge base M against
+  # stock (SNG_INC_HEAD, SNG_INC_BASE; libraries built for `increment`).
+  misp_increment) SNG_ATTR=misp SNG_PHASE_SET=gets_inc python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_misp_increment_${SNG_INC_HEAD:?}_${HOST_LABEL}_run${RUN}" ;;
+  # An engine increment against its merge base and stock on every cell
+  # (scripts/diag_increment.py; SNG_INC_HEAD, SNG_INC_BASE, SNG_INC_ISSUE).
+  increment)  python3 "${SCRIPT_DIR}/scripts/diag_increment.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_increment_${SNG_INC_HEAD:?}_${HOST_LABEL}_run${RUN}" ;;
   *) echo "REFUSE: unknown mode ${MODE}" >&2; exit 2 ;;
 esac

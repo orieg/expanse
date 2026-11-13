@@ -200,6 +200,8 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/stressng_comparison/scripts/diag_layout_analyze.py",
     "docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py",
     "docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py",
+    "docs/benchmarks/stressng_comparison/scripts/diag_increment_analyze.py",
+    "scripts/compare_shift.py",
     "scripts/bench_baseline.py",
     "scripts/bench_counters.py",
     "scripts/esp32_bench_harvest.py",
@@ -368,6 +370,11 @@ NO_ROUNDS = {
     # kind) and run, events per operation and sample shares with no interval.
     # The perf text sits beside it in `misp_attribution_raw/`.
     "stressng_comparison/results/diagnostic_misp_attribution_ref.json",
+    # The same census on an engine increment's head and merge base (the #1680
+    # keys-offset table, a recorded negative), one file per run; the perf text
+    # sits beside them in `misp_increment_raw/`.
+    "stressng_comparison/results/diagnostic_misp_increment_keyoff_ref_run1.json",
+    "stressng_comparison/results/diagnostic_misp_increment_keyoff_ref_run2.json",
 }
 
 # The comparative suites this gate governs: the ones whose runners drive an

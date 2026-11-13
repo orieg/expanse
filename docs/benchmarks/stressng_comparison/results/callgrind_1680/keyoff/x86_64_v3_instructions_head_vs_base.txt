@@ -1,0 +1,2411 @@
+warning: static `STATE` is never used
+   --> crates/expanse/src/bits.rs:522:12
+    |
+522 |     static STATE: AtomicU8 = AtomicU8::new(0);
+    |            ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `available` is never used
+   --> crates/expanse/src/bits.rs:525:19
+    |
+525 |     pub(crate) fn available() -> bool {
+    |                   ^^^^^^^^^
+
+warning: function `detect` is never used
+   --> crates/expanse/src/bits.rs:543:8
+    |
+543 |     fn detect() -> bool {
+    |        ^^^^^^
+
+warning: `expanse-trie` (lib) generated 3 warnings
+    Finished `bench` profile [optimized] target(s) in 1m 05s
+warning: the following packages contain code that will be rejected by a future version of Rust: proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running benches/instructions.rs (/t/release/deps/instructions-7d68d03b18b20003)
+instructions::cost::map_insert sequential:keys("sequential")
+  Baselines:                               |base
+  Instructions:                     7190004|7190004              (No change)
+  L1 Hits:                          9719813|9720491              (-0.00697%) [-1.00007x]
+  LL Hits:                             7939|7261                 (+9.33756%) [+1.09338x]
+  RAM Hits:                            8937|8937                 (No change)
+  Total read+write:                 9736689|9736689              (No change)
+  Estimated Cycles:                10072303|10069591             (+0.02693%) [+1.00027x]
+instructions::cost::map_insert random:keys("random")
+  Baselines:                               |base
+  Instructions:                    23589640|23589619             (+0.00009%) [+1.00000x]
+  L1 Hits:                         32782265|32780909             (+0.00414%) [+1.00004x]
+  LL Hits:                           199084|200384               (-0.64875%) [-1.00653x]
+  RAM Hits:                           28518|28520                (-0.00701%) [-1.00007x]
+  Total read+write:                33009867|33009813             (+0.00016%) [+1.00000x]
+  Estimated Cycles:                34775815|34781029             (-0.01499%) [-1.00015x]
+instructions::cost::map_insert clustered:keys("clustered")
+  Baselines:                               |base
+  Instructions:                    15227179|15227179             (No change)
+  L1 Hits:                         20761715|20761652             (+0.00030%) [+1.00000x]
+  LL Hits:                             7836|7897                 (-0.77245%) [-1.00778x]
+  RAM Hits:                            8887|8889                 (-0.02250%) [-1.00023x]
+  Total read+write:                20778438|20778438             (No change)
+  Estimated Cycles:                21111940|21112252             (-0.00148%) [-1.00001x]
+instructions::cost::map_insert small:keys("small")
+  Baselines:                               |base
+  Instructions:                    22718777|22718862             (-0.00037%) [-1.00000x]
+  L1 Hits:                         30889865|30889141             (+0.00234%) [+1.00002x]
+  LL Hits:                             8881|9676                 (-8.21621%) [-1.08952x]
+  RAM Hits:                           12675|12672                (+0.02367%) [+1.00024x]
+  Total read+write:                30911421|30911489             (-0.00022%) [-1.00000x]
+  Estimated Cycles:                31377895|31381041             (-0.01003%) [-1.00010x]
+instructions::cost::map_insert dense_leaf:keys("dense_leaf")
+  Baselines:                               |base
+  Instructions:                    22165642|22165642             (No change)
+  L1 Hits:                         29704673|29695899             (+0.02955%) [+1.00030x]
+  LL Hits:                            12939|21715                (-40.4145%) [-1.67826x]
+  RAM Hits:                           14149|14147                (+0.01414%) [+1.00014x]
+  Total read+write:                29731761|29731761             (No change)
+  Estimated Cycles:                30264583|30299619             (-0.11563%) [-1.00116x]
+instructions::cost::map_insert linear_leaf:keys("linear_leaf")
+  Baselines:                               |base
+  Instructions:                    23862893|23864180             (-0.00539%) [-1.00005x]
+  L1 Hits:                         32601068|32594506             (+0.02013%) [+1.00020x]
+  LL Hits:                            20924|28518                (-26.6288%) [-1.36293x]
+  RAM Hits:                           15867|15864                (+0.01891%) [+1.00019x]
+  Total read+write:                32637859|32638888             (-0.00315%) [-1.00003x]
+  Estimated Cycles:                33261033|33292336             (-0.09402%) [-1.00094x]
+instructions::cost::set_insert sequential:keys("sequential")
+  Baselines:                               |base
+  Instructions:                     3022104|3022104              (No change)
+  L1 Hits:                          4426358|4426360              (-0.00005%) [-1.00000x]
+  LL Hits:                             6535|6530                 (+0.07657%) [+1.00077x]
+  RAM Hits:                            1532|1535                 (-0.19544%) [-1.00196x]
+  Total read+write:                 4434425|4434425              (No change)
+  Estimated Cycles:                 4512653|4512735              (-0.00182%) [-1.00002x]
+instructions::cost::set_insert random:keys("random")
+  Baselines:                               |base
+  Instructions:                    19421874|19421874             (No change)
+  L1 Hits:                         26380773|26380802             (-0.00011%) [-1.00000x]
+  LL Hits:                           167824|167790               (+0.02026%) [+1.00020x]
+  RAM Hits:                           22526|22531                (-0.02219%) [-1.00022x]
+  Total read+write:                26571123|26571123             (No change)
+  Estimated Cycles:                28008303|28008337             (-0.00012%) [-1.00000x]
+instructions::cost::set_insert clustered:keys("clustered")
+  Baselines:                               |base
+  Instructions:                    10120619|10120619             (No change)
+  L1 Hits:                         13482378|13482352             (+0.00019%) [+1.00000x]
+  LL Hits:                             6768|6789                 (-0.30932%) [-1.00310x]
+  RAM Hits:                            1755|1760                 (-0.28409%) [-1.00285x]
+  Total read+write:                13490901|13490901             (No change)
+  Estimated Cycles:                13577643|13577897             (-0.00187%) [-1.00002x]
+instructions::cost::set_insert dense_leaf:keys("dense_leaf")
+  Baselines:                               |base
+  Instructions:                    17441396|17441396             (No change)
+  L1 Hits:                         23217464|23217446             (+0.00008%) [+1.00000x]
+  LL Hits:                            10881|10896                (-0.13767%) [-1.00138x]
+  RAM Hits:                            7788|7791                 (-0.03851%) [-1.00039x]
+  Total read+write:                23236133|23236133             (No change)
+  Estimated Cycles:                23544449|23544611             (-0.00069%) [-1.00001x]
+instructions::cost::set_insert linear_leaf:keys("linear_leaf")
+  Baselines:                               |base
+  Instructions:                    18218811|18218811             (No change)
+  L1 Hits:                         24396458|24396437             (+0.00009%) [+1.00000x]
+  LL Hits:                            16308|16324                (-0.09802%) [-1.00098x]
+  RAM Hits:                            8814|8819                 (-0.05670%) [-1.00057x]
+  Total read+write:                24421580|24421580             (No change)
+  Estimated Cycles:                24786488|24786722             (-0.00094%) [-1.00001x]
+instructions::cost::set_insert sparse:keys("sparse")
+  Baselines:                               |base
+  Instructions:                    21691723|21691723             (No change)
+  L1 Hits:                         29412033|29414962             (-0.00996%) [-1.00010x]
+  LL Hits:                            12311|9380                 (+31.2473%) [+1.31247x]
+  RAM Hits:                           14666|14668                (-0.01364%) [-1.00014x]
+  Total read+write:                29439010|29439010             (No change)
+  Estimated Cycles:                29986898|29975242             (+0.03889%) [+1.00039x]
+instructions::cost::map_ins_slot random:keys("random")
+  Baselines:                               |base
+  Instructions:                    23826736|23826715             (+0.00009%) [+1.00000x]
+  L1 Hits:                         33244423|33243875             (+0.00165%) [+1.00002x]
+  LL Hits:                           199920|200407               (-0.24301%) [-1.00244x]
+  RAM Hits:                           28598|28605                (-0.02447%) [-1.00024x]
+  Total read+write:                33472941|33472887             (+0.00016%) [+1.00000x]
+  Estimated Cycles:                35244953|35247085             (-0.00605%) [-1.00006x]
+instructions::cost::map_ins_slot gen_4m:keys("gen_4m")
+  Baselines:                               |base
+  Instructions:                  2449942426|2449942433           (-0.00000%) [-1.00000x]
+  L1 Hits:                       3352319897|3352315847           (+0.00012%) [+1.00000x]
+  LL Hits:                         26305311|26309374             (-0.01544%) [-1.00015x]
+  RAM Hits:                         1671862|1671855              (+0.00042%) [+1.00000x]
+  Total read+write:              3380297070|3380297076           (-0.00000%) [-1.00000x]
+  Estimated Cycles:              3542361622|3542377642           (-0.00045%) [-1.00000x]
+instructions::cost::map_small_tree hashjudy:small_tree_keys("hashjudy")
+  Baselines:                               |base
+  Instructions:                    16612554|16612554             (No change)
+  L1 Hits:                         29382292|29383378             (-0.00370%) [-1.00004x]
+  LL Hits:                            19880|18793                (+5.78407%) [+1.05784x]
+  RAM Hits:                             626|627                  (-0.15949%) [-1.00160x]
+  Total read+write:                29402798|29402798             (No change)
+  Estimated Cycles:                29503602|29499288             (+0.01462%) [+1.00015x]
+instructions::cost::map_get sequential:built_map("sequential")
+  Baselines:                               |base
+  Instructions:                     5650215|5600216              (+0.89280%) [+1.00893x]
+  L1 Hits:                          6963496|6913475              (+0.72353%) [+1.00724x]
+  LL Hits:                            86804|86829                (-0.02879%) [-1.00029x]
+  RAM Hits:                              21|21                   (No change)
+  Total read+write:                 7050321|7000325              (+0.71420%) [+1.00714x]
+  Estimated Cycles:                 7398251|7348355              (+0.67901%) [+1.00679x]
+instructions::cost::map_get random:built_map("random")
+  Baselines:                               |base
+  Instructions:                     5090781|5120807              (-0.58635%) [-1.00590x]
+  L1 Hits:                          6273726|6223761              (+0.80281%) [+1.00803x]
+  LL Hits:                           146283|146171               (+0.07662%) [+1.00077x]
+  RAM Hits:                              39|36                   (+8.33333%) [+1.08333x]
+  Total read+write:                 6420048|6369968              (+0.78619%) [+1.00786x]
+  Estimated Cycles:                 7006506|6955876              (+0.72787%) [+1.00728x]
+instructions::cost::map_get clustered:built_map("clustered")
+  Baselines:                               |base
+  Instructions:                     4444055|4344056              (+2.30197%) [+1.02302x]
+  L1 Hits:                          5613001|5513079              (+1.81245%) [+1.01812x]
+  LL Hits:                            92928|92856                (+0.07754%) [+1.00078x]
+  RAM Hits:                              24|22                   (+9.09091%) [+1.09091x]
+  Total read+write:                 5705953|5605957              (+1.78375%) [+1.01784x]
+  Estimated Cycles:                 6078481|5978129              (+1.67865%) [+1.01679x]
+instructions::cost::map_get dense_leaf:built_map("dense_leaf")
+  Baselines:                               |base
+  Instructions:                     9781791|10212736             (-4.21968%) [-1.04406x]
+  L1 Hits:                         11586224|11867294             (-2.36844%) [-1.02426x]
+  LL Hits:                           233594|233524               (+0.02998%) [+1.00030x]
+  RAM Hits:                              47|43                   (+9.30233%) [+1.09302x]
+  Total read+write:                11819865|12100861             (-2.32212%) [-1.02377x]
+  Estimated Cycles:                12755839|13036419             (-2.15228%) [-1.02200x]
+instructions::cost::map_get linear_leaf:built_map("linear_leaf")
+  Baselines:                               |base
+  Instructions:                     8610752|8916843              (-3.43273%) [-1.03555x]
+  L1 Hits:                         10262288|10418692             (-1.50119%) [-1.01524x]
+  LL Hits:                           255230|254940               (+0.11375%) [+1.00114x]
+  RAM Hits:                              50|45                   (+11.1111%) [+1.11111x]
+  Total read+write:                10517568|10673677             (-1.46256%) [-1.01484x]
+  Estimated Cycles:                11540188|11694967             (-1.32347%) [-1.01341x]
+instructions::cost::map_get sm_10k:built_sm_map("sm_10k")
+  Baselines:                               |base
+  Instructions:                     3644716|3778716              (-3.54618%) [-1.03677x]
+  L1 Hits:                          4377635|4451713              (-1.66403%) [-1.01692x]
+  LL Hits:                            34058|33989                (+0.20301%) [+1.00203x]
+  RAM Hits:                              44|38                   (+15.7895%) [+1.15789x]
+  Total read+write:                 4411737|4485740              (-1.64974%) [-1.01677x]
+  Estimated Cycles:                 4549465|4622988              (-1.59038%) [-1.01616x]
+instructions::cost::map_get sm_1m:built_sm_map("sm_1m")
+  Baselines:                               |base
+  Instructions:                   358609952|371821495            (-3.55320%) [-1.03684x]
+  L1 Hits:                        430910637|438129512            (-1.64766%) [-1.01675x]
+  LL Hits:                          3935254|3929483              (+0.14686%) [+1.00147x]
+  RAM Hits:                         1876469|1876456              (+0.00069%) [+1.00001x]
+  Total read+write:               436722360|443935451            (-1.62481%) [-1.01652x]
+  Estimated Cycles:               516263322|523452887            (-1.37349%) [-1.01393x]
+instructions::cost::map_get_slot_ptr sm_10k:built_sm_map("sm_10k")
+  Baselines:                               |base
+  Instructions:                     4476264|4570263              (-2.05675%) [-1.02100x]
+  L1 Hits:                          5539939|5613964              (-1.31859%) [-1.01336x]
+  LL Hits:                            34040|34012                (+0.08232%) [+1.00082x]
+  RAM Hits:                              11|13                   (-15.3846%) [-1.18182x]
+  Total read+write:                 5573990|5647989              (-1.31018%) [-1.01328x]
+  Estimated Cycles:                 5710524|5784479              (-1.27851%) [-1.01295x]
+instructions::cost::map_get_slot_ptr sm_1m:built_sm_map("sm_1m")
+  Baselines:                               |base
+  Instructions:                   441607160|451511696            (-2.19364%) [-1.02243x]
+  L1 Hits:                        547222080|555132059            (-1.42488%) [-1.01445x]
+  LL Hits:                          3933327|3928418              (+0.12496%) [+1.00125x]
+  RAM Hits:                         1876445|1876426              (+0.00101%) [+1.00001x]
+  Total read+write:               553031852|560936903            (-1.40926%) [-1.01429x]
+  Estimated Cycles:               632564290|640449059            (-1.23113%) [-1.01246x]
+instructions::cost::set_contains random:built_set("random")
+  Baselines:                               |base
+  Instructions:                     5228570|5228570              (No change)
+  L1 Hits:                          6394677|6394663              (+0.00022%) [+1.00000x]
+  LL Hits:                           122049|122061               (-0.00983%) [-1.00010x]
+  RAM Hits:                              40|42                   (-4.76190%) [-1.05000x]
+  Total read+write:                 6516766|6516766              (No change)
+  Estimated Cycles:                 7006322|7006438              (-0.00166%) [-1.00002x]
+instructions::cost::map_get_batch random:built_map("random")
+  Baselines:                               |base
+  Instructions:                     7898406|7925025              (-0.33589%) [-1.00337x]
+  L1 Hits:                         10301257|10301317             (-0.00058%) [-1.00001x]
+  LL Hits:                           164297|164154               (+0.08711%) [+1.00087x]
+  RAM Hits:                              61|60                   (+1.66667%) [+1.01667x]
+  Total read+write:                10465615|10465531             (+0.00080%) [+1.00001x]
+  Estimated Cycles:                11124877|11124187             (+0.00620%) [+1.00006x]
+instructions::cost::set_contains_batch random:built_set("random")
+  Baselines:                               |base
+  Instructions:                     7455317|7455317              (No change)
+  L1 Hits:                          9549300|9549262              (+0.00040%) [+1.00000x]
+  LL Hits:                           123715|123750               (-0.02828%) [-1.00028x]
+  RAM Hits:                              56|59                   (-5.08475%) [-1.05357x]
+  Total read+write:                 9673071|9673071              (No change)
+  Estimated Cycles:                10169835|10170077             (-0.00238%) [-1.00002x]
+instructions::cost::map_churn random:built_map("random")
+  Baselines:                               |base
+  Instructions:                    56329063|56329063             (No change)
+  L1 Hits:                         76873012|76873025             (-0.00002%) [-1.00000x]
+  LL Hits:                           161732|161721               (+0.00680%) [+1.00007x]
+  RAM Hits:                            6198|6196                 (+0.03228%) [+1.00032x]
+  Total read+write:                77040942|77040942             (No change)
+  Estimated Cycles:                77898602|77898490             (+0.00014%) [+1.00000x]
+instructions::cost::map_remove random:built_map("random")
+  Baselines:                               |base
+  Instructions:                    21619332|21619332             (No change)
+  L1 Hits:                         28918792|28918732             (+0.00021%) [+1.00000x]
+  LL Hits:                           238827|238888               (-0.02553%) [-1.00026x]
+  RAM Hits:                             989|988                  (+0.10121%) [+1.00101x]
+  Total read+write:                29158608|29158608             (No change)
+  Estimated Cycles:                30147542|30147752             (-0.00070%) [-1.00001x]
+instructions::cost::map_remove_revgen gen_1k:built_gen_map("gen_1k")
+  Baselines:                               |base
+  Instructions:                      589530|589530               (No change)
+  L1 Hits:                           789136|789128               (+0.00101%) [+1.00001x]
+  LL Hits:                              241|245                  (-1.63265%) [-1.01660x]
+  RAM Hits:                             466|470                  (-0.85106%) [-1.00858x]
+  Total read+write:                  789843|789843               (No change)
+  Estimated Cycles:                  806651|806803               (-0.01884%) [-1.00019x]
+instructions::cost::map_remove_revgen gen_256k:built_gen_map("gen_256k")
+  Baselines:                               |base
+  Instructions:                   166838249|166838249            (No change)
+  L1 Hits:                        218283848|218283833            (+0.00001%) [+1.00000x]
+  LL Hits:                          1658359|1658373              (-0.00084%) [-1.00001x]
+  RAM Hits:                             215|216                  (-0.46296%) [-1.00465x]
+  Total read+write:               219942422|219942422            (No change)
+  Estimated Cycles:               226583168|226583258            (-0.00004%) [-1.00000x]
+instructions::cost::map_remove_revgen gen_4m:built_gen_map("gen_4m")
+  Baselines:                               |base
+  Instructions:                  2614735837|2614735837           (No change)
+  L1 Hits:                       3431267685|3431267561           (+0.00000%) [+1.00000x]
+  LL Hits:                         32139260|32139381             (-0.00038%) [-1.00000x]
+  RAM Hits:                         1673728|1673731              (-0.00018%) [-1.00000x]
+  Total read+write:              3465080673|3465080673           (No change)
+  Estimated Cycles:              3650544465|3650545051           (-0.00002%) [-1.00000x]
+instructions::cost::set_remove random:built_set("random")
+  Baselines:                               |base
+  Instructions:                    22246764|22246764             (No change)
+  L1 Hits:                         28874350|28874113             (+0.00082%) [+1.00001x]
+  LL Hits:                           211684|211916               (-0.10948%) [-1.00110x]
+  RAM Hits:                             505|510                  (-0.98039%) [-1.00990x]
+  Total read+write:                29086539|29086539             (No change)
+  Estimated Cycles:                29950445|29951543             (-0.00367%) [-1.00004x]
+instructions::cost::map_oscillate random:keys("random")
+  Baselines:                               |base
+  Instructions:                     3805925|3805925              (No change)
+  L1 Hits:                          5754602|5754602              (No change)
+  LL Hits:                             6296|6296                 (No change)
+  RAM Hits:                             131|131                  (No change)
+  Total read+write:                 5761029|5761029              (No change)
+  Estimated Cycles:                 5790667|5790667              (No change)
+instructions::cost::set_oscillate random:keys("random")
+  Baselines:                               |base
+  Instructions:                     3455924|3455924              (No change)
+  L1 Hits:                          5354599|5354599              (No change)
+  LL Hits:                             6296|6296                 (No change)
+  RAM Hits:                             130|130                  (No change)
+  Total read+write:                 5361025|5361025              (No change)
+  Estimated Cycles:                 5390629|5390629              (No change)
+instructions::cost::map_refill random:built_map("random")
+  Baselines:                               |base
+  Instructions:                    43895149|43895145             (+0.00001%) [+1.00000x]
+  L1 Hits:                         59504473|59503567             (+0.00152%) [+1.00002x]
+  LL Hits:                           456166|457041               (-0.19145%) [-1.00192x]
+  RAM Hits:                            2719|2724                 (-0.18355%) [-1.00184x]
+  Total read+write:                59963358|59963332             (+0.00004%) [+1.00000x]
+  Estimated Cycles:                61880468|61884112             (-0.00589%) [-1.00006x]
+instructions::cost::set_refill random:built_set("random")
+  Baselines:                               |base
+  Instructions:                    40928528|40928528             (No change)
+  L1 Hits:                         53889000|53889205             (-0.00038%) [-1.00000x]
+  LL Hits:                           394631|394416               (+0.05451%) [+1.00055x]
+  RAM Hits:                            1465|1475                 (-0.67797%) [-1.00683x]
+  Total read+write:                54285096|54285096             (No change)
+  Estimated Cycles:                55913430|55912910             (+0.00093%) [+1.00001x]
+instructions::cost::map_clear_refill random:built_map("random")
+  Baselines:                               |base
+  Instructions:                    26213545|26213541             (+0.00002%) [+1.00000x]
+  L1 Hits:                         36374499|36373913             (+0.00161%) [+1.00002x]
+  LL Hits:                           260322|260883               (-0.21504%) [-1.00216x]
+  RAM Hits:                             125|124                  (+0.80645%) [+1.00806x]
+  Total read+write:                36634946|36634920             (+0.00007%) [+1.00000x]
+  Estimated Cycles:                37680484|37682668             (-0.00580%) [-1.00006x]
+instructions::cost::set_clear_refill random:built_set("random")
+  Baselines:                               |base
+  Instructions:                    21743058|21743058             (No change)
+  L1 Hits:                         29514091|29514335             (-0.00083%) [-1.00001x]
+  LL Hits:                           213645|213403               (+0.11340%) [+1.00113x]
+  RAM Hits:                             103|101                  (+1.98020%) [+1.01980x]
+  Total read+write:                29727839|29727839             (No change)
+  Estimated Cycles:                30585921|30584885             (+0.00339%) [+1.00003x]
+instructions::cost::set_remove_partial random60:built_partial_set("random60")
+  Baselines:                               |base
+  Instructions:                    72391368|72391368             (No change)
+  L1 Hits:                         93989167|93989031             (+0.00014%) [+1.00000x]
+  LL Hits:                           611506|611631               (-0.02044%) [-1.00020x]
+  RAM Hits:                           13490|13501                (-0.08148%) [-1.00082x]
+  Total read+write:                94614163|94614163             (No change)
+  Estimated Cycles:                97518847|97519721             (-0.00090%) [-1.00001x]
+instructions::cost::map_remove_partial random60:built_partial_map("random60")
+  Baselines:                               |base
+  Instructions:                    63169615|63169615             (No change)
+  L1 Hits:                         84312925|84312998             (-0.00009%) [-1.00000x]
+  LL Hits:                           627911|627840               (+0.01131%) [+1.00011x]
+  RAM Hits:                           28846|28844                (+0.00693%) [+1.00007x]
+  Total read+write:                84969682|84969682             (No change)
+  Estimated Cycles:                88462090|88461738             (+0.00040%) [+1.00000x]
+instructions::cost::set_rebuild_drained random60:drained_partial_set("random60")
+  Baselines:                               |base
+  Instructions:                    15342126|15342126             (No change)
+  L1 Hits:                         20517633|20517663             (-0.00015%) [-1.00000x]
+  LL Hits:                           108793|108774               (+0.01747%) [+1.00017x]
+  RAM Hits:                           17650|17639                (+0.06236%) [+1.00062x]
+  Total read+write:                20644076|20644076             (No change)
+  Estimated Cycles:                21679348|21678898             (+0.00208%) [+1.00002x]
+instructions::cost::map_rebuild_drained random60:drained_partial_map("random60")
+  Baselines:                               |base
+  Instructions:                    37442610|37442667             (-0.00015%) [-1.00000x]
+  L1 Hits:                         50084928|50085990             (-0.00212%) [-1.00002x]
+  LL Hits:                           113777|112796               (+0.86971%) [+1.00870x]
+  RAM Hits:                           14538|14499                (+0.26898%) [+1.00269x]
+  Total read+write:                50213243|50213285             (-0.00008%) [-1.00000x]
+  Estimated Cycles:                51162643|51157435             (+0.01018%) [+1.00010x]
+instructions::cost::set_compact_drained random60:drained_partial_set("random60")
+  Baselines:                               |base
+  Instructions:                    14917322|14917322             (No change)
+  L1 Hits:                         19980737|19980758             (-0.00011%) [-1.00000x]
+  LL Hits:                           101059|101044               (+0.01485%) [+1.00015x]
+  RAM Hits:                           17641|17635                (+0.03402%) [+1.00034x]
+  Total read+write:                20099437|20099437             (No change)
+  Estimated Cycles:                21103467|21103203             (+0.00125%) [+1.00001x]
+instructions::cost::map_compact_drained random60:drained_partial_map("random60")
+  Baselines:                               |base
+  Instructions:                    15643284|15643284             (No change)
+  L1 Hits:                         20858666|20858659             (+0.00003%) [+1.00000x]
+  LL Hits:                           135919|135914               (+0.00368%) [+1.00004x]
+  RAM Hits:                           34773|34785                (-0.03450%) [-1.00035x]
+  Total read+write:                21029358|21029358             (No change)
+  Estimated Cycles:                22755316|22755704             (-0.00171%) [-1.00002x]
+instructions::cost::sync_set_compact_drained random60:drained_partial_sync_set("random60")
+  Baselines:                               |base
+  Instructions:                    17473306|17473306             (No change)
+  L1 Hits:                         24264381|24264399             (-0.00007%) [-1.00000x]
+  LL Hits:                           125939|125932               (+0.00556%) [+1.00006x]
+  RAM Hits:                           28308|28297                (+0.03887%) [+1.00039x]
+  Total read+write:                24418628|24418628             (No change)
+  Estimated Cycles:                25884856|25884454             (+0.00155%) [+1.00002x]
+instructions::cost::sync_map_compact_drained random60:drained_partial_sync_map("random60")
+  Baselines:                               |base
+  Instructions:                    19193654|19193654             (No change)
+  L1 Hits:                         27334374|27334401             (-0.00010%) [-1.00000x]
+  LL Hits:                           159839|159809               (+0.01877%) [+1.00019x]
+  RAM Hits:                           51196|51199                (-0.00586%) [-1.00006x]
+  Total read+write:                27545409|27545409             (No change)
+  Estimated Cycles:                29925429|29925411             (+0.00006%) [+1.00000x]
+instructions::cost::sync_set_compact_baseline random60:drained_partial_sync_set("random60")
+  Baselines:                               |base
+  Instructions:                    20952668|20952668             (No change)
+  L1 Hits:                         28529164|28529190             (-0.00009%) [-1.00000x]
+  LL Hits:                           163697|163677               (+0.01222%) [+1.00012x]
+  RAM Hits:                           25746|25740                (+0.02331%) [+1.00023x]
+  Total read+write:                28718607|28718607             (No change)
+  Estimated Cycles:                30248759|30248475             (+0.00094%) [+1.00001x]
+instructions::cost::sync_map_compact_baseline random60:drained_partial_sync_map("random60")
+  Baselines:                               |base
+  Instructions:                    43046379|43046436             (-0.00013%) [-1.00000x]
+  L1 Hits:                         58111729|58115994             (-0.00734%) [-1.00007x]
+  LL Hits:                           170727|166505               (+2.53566%) [+1.02536x]
+  RAM Hits:                           54691|54690                (+0.00183%) [+1.00002x]
+  Total read+write:                58337147|58337189             (-0.00007%) [-1.00000x]
+  Estimated Cycles:                60879549|60862669             (+0.02773%) [+1.00028x]
+instructions::cost::set32_rebuild_drained random28:drained_partial_set32("random28")
+  Baselines:                               |base
+  Instructions:                    69656621|69656621             (No change)
+  L1 Hits:                         96558251|96557540             (+0.00074%) [+1.00001x]
+  LL Hits:                           429725|430432               (-0.16425%) [-1.00165x]
+  RAM Hits:                            2446|2450                 (-0.16327%) [-1.00164x]
+  Total read+write:                96990422|96990422             (No change)
+  Estimated Cycles:                98792486|98795450             (-0.00300%) [-1.00003x]
+instructions::cost::map32_rebuild_drained random28:drained_partial_map32("random28")
+  Baselines:                               |base
+  Instructions:                    92352204|92352204             (No change)
+  L1 Hits:                        127837512|127840787            (-0.00256%) [-1.00003x]
+  LL Hits:                           502345|499072               (+0.65582%) [+1.00656x]
+  RAM Hits:                            2007|2005                 (+0.09975%) [+1.00100x]
+  Total read+write:               128341864|128341864            (No change)
+  Estimated Cycles:               130419482|130406322            (+0.01009%) [+1.00010x]
+instructions::cost::set32_compact_drained random28:drained_partial_set32("random28")
+  Baselines:                               |base
+  Instructions:                    36806477|36806477             (No change)
+  L1 Hits:                         51998377|51998385             (-0.00002%) [-1.00000x]
+  LL Hits:                           399260|399247               (+0.00326%) [+1.00003x]
+  RAM Hits:                            6359|6364                 (-0.07857%) [-1.00079x]
+  Total read+write:                52403996|52403996             (No change)
+  Estimated Cycles:                54217242|54217360             (-0.00022%) [-1.00000x]
+instructions::cost::map32_compact_drained random28:drained_partial_map32("random28")
+  Baselines:                               |base
+  Instructions:                    46508014|46508014             (No change)
+  L1 Hits:                         64647543|64647558             (-0.00002%) [-1.00000x]
+  LL Hits:                           436818|436800               (+0.00412%) [+1.00004x]
+  RAM Hits:                            9847|9850                 (-0.03046%) [-1.00030x]
+  Total read+write:                65094208|65094208             (No change)
+  Estimated Cycles:                67176278|67176308             (-0.00004%) [-1.00000x]
+instructions::cost::set_shrink_drained random60:drained_partial_set("random60")
+  Baselines:                               |base
+  Instructions:                    11341236|11341236             (No change)
+  L1 Hits:                         12594431|12594433             (-0.00002%) [-1.00000x]
+  LL Hits:                           118345|118359               (-0.01183%) [-1.00012x]
+  RAM Hits:                            2456|2440                 (+0.65574%) [+1.00656x]
+  Total read+write:                12715232|12715232             (No change)
+  Estimated Cycles:                13272116|13271628             (+0.00368%) [+1.00004x]
+instructions::cost::map_shrink_drained random60:drained_partial_map("random60")
+  Baselines:                               |base
+  Instructions:                    14866577|14866577             (No change)
+  L1 Hits:                         16459648|16459653             (-0.00003%) [-1.00000x]
+  LL Hits:                           173593|173587               (+0.00346%) [+1.00003x]
+  RAM Hits:                            8092|8093                 (-0.01236%) [-1.00012x]
+  Total read+write:                16641333|16641333             (No change)
+  Estimated Cycles:                17610833|17610843             (-0.00006%) [-1.00000x]
+instructions::cost::map_regrow_after_shrink random60:shrink_drained_map_with_keys("random60")
+  Baselines:                               |base
+  Instructions:                    59735117|59735117             (No change)
+  L1 Hits:                         81979941|81979629             (+0.00038%) [+1.00000x]
+  LL Hits:                           653596|653951               (-0.05429%) [-1.00054x]
+  RAM Hits:                            5907|5864                 (+0.73329%) [+1.00733x]
+  Total read+write:                82639444|82639444             (No change)
+  Estimated Cycles:                85454666|85454624             (+0.00005%) [+1.00000x]
+instructions::cost::map_from_sorted_iter sequential:entries("sequential")
+  Baselines:                               |base
+  Instructions:                     2788304|2788304              (No change)
+  L1 Hits:                          3453799|3453810              (-0.00032%) [-1.00000x]
+  LL Hits:                            50785|50778                (+0.01379%) [+1.00014x]
+  RAM Hits:                           20133|20129                (+0.01987%) [+1.00020x]
+  Total read+write:                 3524717|3524717              (No change)
+  Estimated Cycles:                 4412379|4412215              (+0.00372%) [+1.00004x]
+instructions::cost::map_from_sorted_iter random:entries("random")
+  Baselines:                               |base
+  Instructions:                    24036086|24036086             (No change)
+  L1 Hits:                         36527333|36527207             (+0.00034%) [+1.00000x]
+  LL Hits:                           346266|346396               (-0.03753%) [-1.00038x]
+  RAM Hits:                           45316|45312                (+0.00883%) [+1.00009x]
+  Total read+write:                36918915|36918915             (No change)
+  Estimated Cycles:                39844723|39845107             (-0.00096%) [-1.00001x]
+instructions::cost::map_from_sorted_iter random_sorted:entries("random_sorted")
+  Baselines:                               |base
+  Instructions:                    10215783|10215783             (No change)
+  L1 Hits:                         14272777|14272748             (+0.00020%) [+1.00000x]
+  LL Hits:                            43013|43045                (-0.07434%) [-1.00074x]
+  RAM Hits:                           32729|32726                (+0.00917%) [+1.00009x]
+  Total read+write:                14348519|14348519             (No change)
+  Estimated Cycles:                15633357|15633383             (-0.00017%) [-1.00000x]
+instructions::cost::map_collect sequential:entries("sequential")
+  Baselines:                               |base
+  Instructions:                     7014521|7014521              (No change)
+  L1 Hits:                          9362129|9362897              (-0.00820%) [-1.00008x]
+  LL Hits:                            14565|13802                (+5.52818%) [+1.05528x]
+  RAM Hits:                            8935|8930                 (+0.05599%) [+1.00056x]
+  Total read+write:                 9385629|9385629              (No change)
+  Estimated Cycles:                 9747679|9744457              (+0.03306%) [+1.00033x]
+instructions::cost::map_collect random:entries("random")
+  Baselines:                               |base
+  Instructions:                    23339652|23339631             (+0.00009%) [+1.00000x]
+  L1 Hits:                         32375365|32374186             (+0.00364%) [+1.00004x]
+  LL Hits:                           206022|207142               (-0.54069%) [-1.00544x]
+  RAM Hits:                           28511|28516                (-0.01753%) [-1.00018x]
+  Total read+write:                32609898|32609844             (+0.00017%) [+1.00000x]
+  Estimated Cycles:                34403360|34407956             (-0.01336%) [-1.00013x]
+instructions::cost::map_collect random_sorted:entries("random_sorted")
+  Baselines:                               |base
+  Instructions:                    22154373|22154383             (-0.00005%) [-1.00000x]
+  L1 Hits:                         30610237|30608167             (+0.00676%) [+1.00007x]
+  LL Hits:                            18566|20571                (-9.74673%) [-1.10799x]
+  RAM Hits:                           20719|20720                (-0.00483%) [-1.00005x]
+  Total read+write:                30649522|30649458             (+0.00021%) [+1.00000x]
+  Estimated Cycles:                31428232|31436222             (-0.02542%) [-1.00025x]
+instructions::cost::set32_from_sorted_iter sequential:keys32_build("sequential")
+  Baselines:                               |base
+  Instructions:                      461784|461784               (No change)
+  L1 Hits:                           651070|651068               (+0.00031%) [+1.00000x]
+  LL Hits:                             3257|3258                 (-0.03069%) [-1.00031x]
+  RAM Hits:                             908|909                  (-0.11001%) [-1.00110x]
+  Total read+write:                  655235|655235               (No change)
+  Estimated Cycles:                  699135|699173               (-0.00543%) [-1.00005x]
+instructions::cost::set32_from_sorted_iter random:keys32_build("random")
+  Baselines:                               |base
+  Instructions:                     4715354|4715354              (No change)
+  L1 Hits:                          6391562|6391565              (-0.00005%) [-1.00000x]
+  LL Hits:                             3450|3444                 (+0.17422%) [+1.00174x]
+  RAM Hits:                            4341|4344                 (-0.06906%) [-1.00069x]
+  Total read+write:                 6399353|6399353              (No change)
+  Estimated Cycles:                 6560747|6560825              (-0.00119%) [-1.00001x]
+instructions::cost::set32_from_sorted_iter random_sorted:keys32_build("random_sorted")
+  Baselines:                               |base
+  Instructions:                     3507771|3507771              (No change)
+  L1 Hits:                          4699916|4699921              (-0.00011%) [-1.00000x]
+  LL Hits:                             2907|2899                 (+0.27596%) [+1.00276x]
+  RAM Hits:                            3653|3656                 (-0.08206%) [-1.00082x]
+  Total read+write:                 4706476|4706476              (No change)
+  Estimated Cycles:                 4842306|4842376              (-0.00145%) [-1.00001x]
+instructions::cost::set32_insert_sorted sequential:keys32_build("sequential")
+  Baselines:                               |base
+  Instructions:                     4810250|4810250              (No change)
+  L1 Hits:                          6536111|6536144              (-0.00050%) [-1.00001x]
+  LL Hits:                              777|750                  (+3.60000%) [+1.03600x]
+  RAM Hits:                             521|515                  (+1.16505%) [+1.01165x]
+  Total read+write:                 6537409|6537409              (No change)
+  Estimated Cycles:                 6558231|6557919              (+0.00476%) [+1.00005x]
+instructions::cost::set32_insert_sorted random:keys32_build("random")
+  Baselines:                               |base
+  Instructions:                     9495701|9495701              (No change)
+  L1 Hits:                         13010633|13010594             (+0.00030%) [+1.00000x]
+  LL Hits:                            20491|20528                (-0.18024%) [-1.00181x]
+  RAM Hits:                            3781|3783                 (-0.05287%) [-1.00053x]
+  Total read+write:                13034905|13034905             (No change)
+  Estimated Cycles:                13245423|13245639             (-0.00163%) [-1.00002x]
+instructions::cost::set32_insert_sorted random_sorted:keys32_build("random_sorted")
+  Baselines:                               |base
+  Instructions:                     8536368|8536368              (No change)
+  L1 Hits:                         11784068|11786170             (-0.01783%) [-1.00018x]
+  LL Hits:                             5235|3130                 (+67.2524%) [+1.67252x]
+  RAM Hits:                            2993|2996                 (-0.10013%) [-1.00100x]
+  Total read+write:                11792296|11792296             (No change)
+  Estimated Cycles:                11914998|11906680             (+0.06986%) [+1.00070x]
+instructions::cost::map32_from_sorted_iter sequential:entries32_build("sequential")
+  Baselines:                               |base
+  Instructions:                     1795065|1795065              (No change)
+  L1 Hits:                          2202958|2202964              (-0.00027%) [-1.00000x]
+  LL Hits:                             7114|7112                 (+0.02812%) [+1.00028x]
+  RAM Hits:                            1854|1850                 (+0.21622%) [+1.00216x]
+  Total read+write:                 2211926|2211926              (No change)
+  Estimated Cycles:                 2303418|2303274              (+0.00625%) [+1.00006x]
+instructions::cost::map32_from_sorted_iter random:entries32_build("random")
+  Baselines:                               |base
+  Instructions:                     5258473|5258473              (No change)
+  L1 Hits:                          7266296|7266303              (-0.00010%) [-1.00000x]
+  LL Hits:                            19352|19349                (+0.01550%) [+1.00016x]
+  RAM Hits:                            5192|5188                 (+0.07710%) [+1.00077x]
+  Total read+write:                 7290840|7290840              (No change)
+  Estimated Cycles:                 7544776|7544628              (+0.00196%) [+1.00002x]
+instructions::cost::map32_from_sorted_iter random_sorted:entries32_build("random_sorted")
+  Baselines:                               |base
+  Instructions:                     3729199|3729199              (No change)
+  L1 Hits:                          4981160|4981157              (+0.00006%) [+1.00000x]
+  LL Hits:                             4935|4939                 (-0.08099%) [-1.00081x]
+  RAM Hits:                            5046|5045                 (+0.01982%) [+1.00020x]
+  Total read+write:                 4991141|4991141              (No change)
+  Estimated Cycles:                 5182445|5182427              (+0.00035%) [+1.00000x]
+instructions::cost::map32_insert_sorted sequential:entries32_build("sequential")
+  Baselines:                               |base
+  Instructions:                     4640652|4640652              (No change)
+  L1 Hits:                          6189299|6189154              (+0.00234%) [+1.00002x]
+  LL Hits:                             2370|2517                 (-5.84029%) [-1.06203x]
+  RAM Hits:                            1090|1088                 (+0.18382%) [+1.00184x]
+  Total read+write:                 6192759|6192759              (No change)
+  Estimated Cycles:                 6239299|6239819              (-0.00833%) [-1.00008x]
+instructions::cost::map32_insert_sorted random:entries32_build("random")
+  Baselines:                               |base
+  Instructions:                     9675235|9675235              (No change)
+  L1 Hits:                         13354656|13355223             (-0.00425%) [-1.00004x]
+  LL Hits:                            36894|36324                (+1.56921%) [+1.01569x]
+  RAM Hits:                            3796|3799                 (-0.07897%) [-1.00079x]
+  Total read+write:                13395346|13395346             (No change)
+  Estimated Cycles:                13671986|13669808             (+0.01593%) [+1.00016x]
+instructions::cost::map32_insert_sorted random_sorted:entries32_build("random_sorted")
+  Baselines:                               |base
+  Instructions:                     8954221|8954221              (No change)
+  L1 Hits:                         12406181|12407721             (-0.01241%) [-1.00012x]
+  LL Hits:                             6885|5342                 (+28.8843%) [+1.28884x]
+  RAM Hits:                            3656|3659                 (-0.08199%) [-1.00082x]
+  Total read+write:                12416722|12416722             (No change)
+  Estimated Cycles:                12568566|12562496             (+0.04832%) [+1.00048x]
+instructions::cost::set_subtree_boundary_oscillate band2:osc_setup(2)
+  Baselines:                               |base
+  Instructions:                    15919842|15919842             (No change)
+  L1 Hits:                         20921710|20921701             (+0.00004%) [+1.00000x]
+  LL Hits:                            66310|66314                (-0.00603%) [-1.00006x]
+  RAM Hits:                              58|63                   (-7.93651%) [-1.08621x]
+  Total read+write:                20988078|20988078             (No change)
+  Estimated Cycles:                21255290|21255476             (-0.00088%) [-1.00001x]
+instructions::cost::set_subtree_boundary_oscillate band9:osc_setup(9)
+  Baselines:                               |base
+  Instructions:                    66178530|66178530             (No change)
+  L1 Hits:                         86601972|86601956             (+0.00002%) [+1.00000x]
+  LL Hits:                           130944|130955               (-0.00840%) [-1.00008x]
+  RAM Hits:                              58|63                   (-7.93651%) [-1.08621x]
+  Total read+write:                86732974|86732974             (No change)
+  Estimated Cycles:                87258722|87258936             (-0.00025%) [-1.00000x]
+instructions::cost::set_subtree_split e1024:split_leaf_setup(expanse_trie :: types :: LEAF_CAP...
+  Baselines:                               |base
+  Instructions:                    10751287|10751287             (No change)
+  L1 Hits:                         15321147|15320305             (+0.00550%) [+1.00005x]
+  LL Hits:                             9076|9918                 (-8.48961%) [-1.09277x]
+  RAM Hits:                           10570|10570                (No change)
+  Total read+write:                15340793|15340793             (No change)
+  Estimated Cycles:                15736477|15739845             (-0.02140%) [-1.00021x]
+instructions::cost::set_subtree_split_control e1024:split_leaf_setup(expanse_trie :: types :: LEAF_CAP...
+  Baselines:                               |base
+  Instructions:                      382129|382129               (No change)
+  L1 Hits:                           488418|488418               (No change)
+  LL Hits:                             3680|3680                 (No change)
+  RAM Hits:                              10|10                   (No change)
+  Total read+write:                  492108|492108               (No change)
+  Estimated Cycles:                  507168|507168               (No change)
+instructions::cost::set_subtree_condense h1:condense_setup(SUBTREE_T_H1 + 1)
+  Baselines:                               |base
+  Instructions:                      611723|611723               (No change)
+  L1 Hits:                           811112|811105               (+0.00086%) [+1.00001x]
+  LL Hits:                             6152|6160                 (-0.12987%) [-1.00130x]
+  RAM Hits:                             217|216                  (+0.46296%) [+1.00463x]
+  Total read+write:                  817481|817481               (No change)
+  Estimated Cycles:                  849467|849465               (+0.00024%) [+1.00000x]
+instructions::cost::set_subtree_condense wide:condense_setup(SUBTREE_T_WIDE + 1)
+  Baselines:                               |base
+  Instructions:                      495636|495636               (No change)
+  L1 Hits:                           633810|633810               (No change)
+  LL Hits:                             4400|4401                 (-0.02272%) [-1.00023x]
+  RAM Hits:                              12|11                   (+9.09091%) [+1.09091x]
+  Total read+write:                  638222|638222               (No change)
+  Estimated Cycles:                  656230|656200               (+0.00457%) [+1.00005x]
+instructions::cost::set_subtree_condense_control h1:condense_setup(SUBTREE_T_H1 + 2)
+  Baselines:                               |base
+  Instructions:                      617899|617899               (No change)
+  L1 Hits:                           821948|821951               (-0.00036%) [-1.00000x]
+  LL Hits:                             6157|6152                 (+0.08127%) [+1.00081x]
+  RAM Hits:                             322|324                  (-0.61728%) [-1.00621x]
+  Total read+write:                  828427|828427               (No change)
+  Estimated Cycles:                  864003|864051               (-0.00556%) [-1.00006x]
+instructions::cost::set_subtree_condense_control wide:condense_setup(SUBTREE_T_WIDE + 2)
+  Baselines:                               |base
+  Instructions:                      521214|521214               (No change)
+  L1 Hits:                           672686|672688               (-0.00030%) [-1.00000x]
+  LL Hits:                             4883|4882                 (+0.02048%) [+1.00020x]
+  RAM Hits:                              20|19                   (+5.26316%) [+1.05263x]
+  Total read+write:                  677589|677589               (No change)
+  Estimated Cycles:                  697801|697763               (+0.00545%) [+1.00005x]
+instructions::cost::map_iterate random:built_map("random")
+  Baselines:                               |base
+  Instructions:                     4727854|4727854              (No change)
+  L1 Hits:                          6126553|6126564              (-0.00018%) [-1.00000x]
+  LL Hits:                            22347|22344                (+0.01343%) [+1.00013x]
+  RAM Hits:                              94|86                   (+9.30233%) [+1.09302x]
+  Total read+write:                 6148994|6148994              (No change)
+  Estimated Cycles:                 6241578|6241294              (+0.00455%) [+1.00005x]
+instructions::cost::map_iterate sequential:built_map("sequential")
+  Baselines:                               |base
+  Instructions:                     1388657|1388657              (No change)
+  L1 Hits:                          1943874|1943877              (-0.00015%) [-1.00000x]
+  LL Hits:                             7259|7259                 (No change)
+  RAM Hits:                              65|62                   (+4.83871%) [+1.04839x]
+  Total read+write:                 1951198|1951198              (No change)
+  Estimated Cycles:                 1982444|1982342              (+0.00515%) [+1.00005x]
+instructions::cost::map_iterate clustered:built_map("clustered")
+  Baselines:                               |base
+  Instructions:                     1400876|1400876              (No change)
+  L1 Hits:                          1958967|1958969              (-0.00010%) [-1.00000x]
+  LL Hits:                             7261|7260                 (+0.01377%) [+1.00014x]
+  RAM Hits:                              74|73                   (+1.36986%) [+1.01370x]
+  Total read+write:                 1966302|1966302              (No change)
+  Estimated Cycles:                 1997862|1997824              (+0.00190%) [+1.00002x]
+instructions::cost::map_iterate sparse:built_map("sparse")
+  Baselines:                               |base
+  Instructions:                     5317007|5317007              (No change)
+  L1 Hits:                          6460247|6460250              (-0.00005%) [-1.00000x]
+  LL Hits:                            12619|12619                (No change)
+  RAM Hits:                              78|75                   (+4.00000%) [+1.04000x]
+  Total read+write:                 6472944|6472944              (No change)
+  Estimated Cycles:                 6526072|6525970              (+0.00156%) [+1.00002x]
+instructions::cost::map_iterate random_10k:built_map("random_10k")
+  Baselines:                               |base
+  Instructions:                     1072022|1072022              (No change)
+  L1 Hits:                          1354595|1354602              (-0.00052%) [-1.00001x]
+  LL Hits:                             4066|4067                 (-0.02459%) [-1.00025x]
+  RAM Hits:                              86|78                   (+10.2564%) [+1.10256x]
+  Total read+write:                 1358747|1358747              (No change)
+  Estimated Cycles:                 1377935|1377667              (+0.01945%) [+1.00019x]
+instructions::cost::map_iterate sparse_10k:built_map("sparse_10k")
+  Baselines:                               |base
+  Instructions:                     1062426|1062426              (No change)
+  L1 Hits:                          1291137|1291135              (+0.00015%) [+1.00000x]
+  LL Hits:                             2577|2577                 (No change)
+  RAM Hits:                              75|77                   (-2.59740%) [-1.02667x]
+  Total read+write:                 1293789|1293789              (No change)
+  Estimated Cycles:                 1306647|1306715              (-0.00520%) [-1.00005x]
+instructions::cost::set_iterate random:built_set("random")
+  Baselines:                               |base
+  Instructions:                     5794510|5794510              (No change)
+  L1 Hits:                          7606276|7606283              (-0.00009%) [-1.00000x]
+  LL Hits:                            13529|13531                (-0.01478%) [-1.00015x]
+  RAM Hits:                             116|107                  (+8.41121%) [+1.08411x]
+  Total read+write:                 7619921|7619921              (No change)
+  Estimated Cycles:                 7677981|7677683              (+0.00388%) [+1.00004x]
+instructions::cost::set_iterate sequential:built_set("sequential")
+  Baselines:                               |base
+  Instructions:                      570925|570925               (No change)
+  L1 Hits:                           826203|826204               (-0.00012%) [-1.00000x]
+  LL Hits:                              109|109                  (No change)
+  RAM Hits:                              58|57                   (+1.75439%) [+1.01754x]
+  Total read+write:                  826370|826370               (No change)
+  Estimated Cycles:                  828778|828744               (+0.00410%) [+1.00004x]
+instructions::cost::set_iterate sparse:built_set("sparse")
+  Baselines:                               |base
+  Instructions:                     4619184|4619184              (No change)
+  L1 Hits:                          5663512|5663515              (-0.00005%) [-1.00000x]
+  LL Hits:                            12619|12619                (No change)
+  RAM Hits:                              78|75                   (+4.00000%) [+1.04000x]
+  Total read+write:                 5676209|5676209              (No change)
+  Estimated Cycles:                 5729337|5729235              (+0.00178%) [+1.00002x]
+instructions::cost::set_iterate random_10k:built_set("random_10k")
+  Baselines:                               |base
+  Instructions:                     1124312|1124312              (No change)
+  L1 Hits:                          1415660|1415663              (-0.00021%) [-1.00000x]
+  LL Hits:                             3483|3487                 (-0.11471%) [-1.00115x]
+  RAM Hits:                             104|97                   (+7.21649%) [+1.07216x]
+  Total read+write:                 1419247|1419247              (No change)
+  Estimated Cycles:                 1436715|1436493              (+0.01545%) [+1.00015x]
+instructions::cost::set_iterate sparse_10k:built_set("sparse_10k")
+  Baselines:                               |base
+  Instructions:                      922963|922963               (No change)
+  L1 Hits:                          1131563|1131565              (-0.00018%) [-1.00000x]
+  LL Hits:                             2577|2576                 (+0.03882%) [+1.00039x]
+  RAM Hits:                              74|73                   (+1.36986%) [+1.01370x]
+  Total read+write:                 1134214|1134214              (No change)
+  Estimated Cycles:                 1147038|1147000              (+0.00331%) [+1.00003x]
+instructions::cost::map_clone sequential:built_map("sequential")
+  Baselines:                               |base
+  Instructions:                     8370808|8370808              (No change)
+  L1 Hits:                         11283348|11284558             (-0.01072%) [-1.00011x]
+  LL Hits:                             9450|8240                 (+14.6845%) [+1.14684x]
+  RAM Hits:                            8702|8702                 (No change)
+  Total read+write:                11301500|11301500             (No change)
+  Estimated Cycles:                11635168|11630328             (+0.04162%) [+1.00042x]
+instructions::cost::map_clone random:built_map("random")
+  Baselines:                               |base
+  Instructions:                    26256982|26256992             (-0.00004%) [-1.00000x]
+  L1 Hits:                         36070812|36077891             (-0.01962%) [-1.00020x]
+  LL Hits:                            46203|39063                (+18.2782%) [+1.18278x]
+  RAM Hits:                           19887|19884                (+0.01509%) [+1.00015x]
+  Total read+write:                36136902|36136838             (+0.00018%) [+1.00000x]
+  Estimated Cycles:                36997872|36969146             (+0.07770%) [+1.00078x]
+instructions::cost::set_clone sequential:built_set("sequential")
+  Baselines:                               |base
+  Instructions:                     2392698|2392698              (No change)
+  L1 Hits:                          3450743|3450739              (+0.00012%) [+1.00000x]
+  LL Hits:                            21658|21663                (-0.02308%) [-1.00023x]
+  RAM Hits:                            8488|8487                 (+0.01178%) [+1.00012x]
+  Total read+write:                 3480889|3480889              (No change)
+  Estimated Cycles:                 3856113|3856099              (+0.00036%) [+1.00000x]
+instructions::cost::set_clone random:built_set("random")
+  Baselines:                               |base
+  Instructions:                    14353046|14353046             (No change)
+  L1 Hits:                         19676015|19676021             (-0.00003%) [-1.00000x]
+  LL Hits:                            34612|34611                (+0.00289%) [+1.00003x]
+  RAM Hits:                           19740|19735                (+0.02534%) [+1.00025x]
+  Total read+write:                19730367|19730367             (No change)
+  Estimated Cycles:                20539975|20539801             (+0.00085%) [+1.00001x]
+instructions::cost::map_nav random:built_map("random")
+  Baselines:                               |base
+  Instructions:                    14118782|14118782             (No change)
+  L1 Hits:                         19275475|19275479             (-0.00002%) [-1.00000x]
+  LL Hits:                           147484|147479               (+0.00339%) [+1.00003x]
+  RAM Hits:                              52|53                   (-1.88679%) [-1.01923x]
+  Total read+write:                19423011|19423011             (No change)
+  Estimated Cycles:                20014715|20014729             (-0.00007%) [-1.00000x]
+instructions::cost::map_nav sequential:built_map("sequential")
+  Baselines:                               |base
+  Instructions:                    20800213|20800213             (No change)
+  L1 Hits:                         28462355|28462353             (+0.00001%) [+1.00000x]
+  LL Hits:                            87929|87930                (-0.00114%) [-1.00001x]
+  RAM Hits:                              36|37                   (-2.70270%) [-1.02778x]
+  Total read+write:                28550320|28550320             (No change)
+  Estimated Cycles:                28903260|28903298             (-0.00013%) [-1.00000x]
+instructions::cost::map_nav clustered:built_map("clustered")
+  Baselines:                               |base
+  Instructions:                    14114565|14114565             (No change)
+  L1 Hits:                         18990099|18990098             (+0.00001%) [+1.00000x]
+  LL Hits:                            93523|93523                (No change)
+  RAM Hits:                              42|43                   (-2.32558%) [-1.02381x]
+  Total read+write:                19083664|19083664             (No change)
+  Estimated Cycles:                19459184|19459218             (-0.00017%) [-1.00000x]
+instructions::cost::map_prev random:built_map("random")
+  Baselines:                               |base
+  Instructions:                    19118707|19118707             (No change)
+  L1 Hits:                         25880176|25880155             (+0.00008%) [+1.00000x]
+  LL Hits:                           175439|175459               (-0.01140%) [-1.00011x]
+  RAM Hits:                              55|56                   (-1.78571%) [-1.01818x]
+  Total read+write:                26055670|26055670             (No change)
+  Estimated Cycles:                26759296|26759410             (-0.00043%) [-1.00000x]
+instructions::cost::map_prev sequential:built_map("sequential")
+  Baselines:                               |base
+  Instructions:                    21249811|21249811             (No change)
+  L1 Hits:                         29011581|29011579             (+0.00001%) [+1.00000x]
+  LL Hits:                            88155|88156                (-0.00113%) [-1.00001x]
+  RAM Hits:                              36|37                   (-2.70270%) [-1.02778x]
+  Total read+write:                29099772|29099772             (No change)
+  Estimated Cycles:                29453616|29453654             (-0.00013%) [-1.00000x]
+instructions::cost::map_prev clustered:built_map("clustered")
+  Baselines:                               |base
+  Instructions:                    14541468|14541468             (No change)
+  L1 Hits:                         19630781|19630780             (+0.00001%) [+1.00000x]
+  LL Hits:                            93379|93379                (No change)
+  RAM Hits:                              37|38                   (-2.63158%) [-1.02703x]
+  Total read+write:                19724197|19724197             (No change)
+  Estimated Cycles:                20098971|20099005             (-0.00017%) [-1.00000x]
+instructions::cost::set_nav random:built_set("random")
+  Baselines:                               |base
+  Instructions:                    14511918|14511918             (No change)
+  L1 Hits:                         20063769|20063772             (-0.00001%) [-1.00000x]
+  LL Hits:                           123186|123183               (+0.00244%) [+1.00002x]
+  RAM Hits:                              53|53                   (No change)
+  Total read+write:                20187008|20187008             (No change)
+  Estimated Cycles:                20681554|20681542             (+0.00006%) [+1.00000x]
+instructions::cost::set_nav sequential:built_set("sequential")
+  Baselines:                               |base
+  Instructions:                    18657614|18657614             (No change)
+  L1 Hits:                         25952450|25952450             (No change)
+  LL Hits:                             5910|5910                 (No change)
+  RAM Hits:                              38|38                   (No change)
+  Total read+write:                25958398|25958398             (No change)
+  Estimated Cycles:                25983330|25983330             (No change)
+instructions::cost::set_nav clustered:built_set("clustered")
+  Baselines:                               |base
+  Instructions:                    13212862|13212862             (No change)
+  L1 Hits:                         17825502|17825502             (No change)
+  LL Hits:                             6423|6423                 (No change)
+  RAM Hits:                              41|41                   (No change)
+  Total read+write:                17831966|17831966             (No change)
+  Estimated Cycles:                17859052|17859052             (No change)
+instructions::cost::set_prev random:built_set("random")
+  Baselines:                               |base
+  Instructions:                    20513559|20513559             (No change)
+  L1 Hits:                         28145050|28145042             (+0.00003%) [+1.00000x]
+  LL Hits:                           140646|140654               (-0.00569%) [-1.00006x]
+  RAM Hits:                              53|53                   (No change)
+  Total read+write:                28285749|28285749             (No change)
+  Estimated Cycles:                28850135|28850167             (-0.00011%) [-1.00000x]
+instructions::cost::set_prev sequential:built_set("sequential")
+  Baselines:                               |base
+  Instructions:                    19405873|19405873             (No change)
+  L1 Hits:                         26700568|26700568             (No change)
+  LL Hits:                             5907|5907                 (No change)
+  RAM Hits:                              37|37                   (No change)
+  Total read+write:                26706512|26706512             (No change)
+  Estimated Cycles:                26731398|26731398             (No change)
+instructions::cost::set_prev clustered:built_set("clustered")
+  Baselines:                               |base
+  Instructions:                    13841480|13841480             (No change)
+  L1 Hits:                         18667738|18667738             (No change)
+  LL Hits:                             6437|6437                 (No change)
+  RAM Hits:                              40|40                   (No change)
+  Total read+write:                18674215|18674215             (No change)
+  Estimated Cycles:                18701323|18701323             (No change)
+instructions::cost::map_cursor_scan random:built_map("random")
+  Baselines:                               |base
+  Instructions:                     5787663|5787663              (No change)
+  L1 Hits:                          7919529|7919532              (-0.00004%) [-1.00000x]
+  LL Hits:                            22363|22362                (+0.00447%) [+1.00004x]
+  RAM Hits:                             109|107                  (+1.86916%) [+1.01869x]
+  Total read+write:                 7942001|7942001              (No change)
+  Estimated Cycles:                 8035159|8035087              (+0.00090%) [+1.00001x]
+instructions::cost::map_cursor_scan sequential:built_map("sequential")
+  Baselines:                               |base
+  Instructions:                     2289597|2289597              (No change)
+  L1 Hits:                          3396057|3396052              (+0.00015%) [+1.00000x]
+  LL Hits:                             7270|7270                 (No change)
+  RAM Hits:                              76|81                   (-6.17284%) [-1.06579x]
+  Total read+write:                 3403403|3403403              (No change)
+  Estimated Cycles:                 3435067|3435237              (-0.00495%) [-1.00005x]
+instructions::cost::map_cursor_scan clustered:built_map("clustered")
+  Baselines:                               |base
+  Instructions:                     2301519|2301519              (No change)
+  L1 Hits:                          3410449|3410440              (+0.00026%) [+1.00000x]
+  LL Hits:                             7273|7275                 (-0.02749%) [-1.00027x]
+  RAM Hits:                              87|94                   (-7.44681%) [-1.08046x]
+  Total read+write:                 3417809|3417809              (No change)
+  Estimated Cycles:                 3449859|3450105              (-0.00713%) [-1.00007x]
+instructions::cost::map_range_cursor_scan random:built_map("random")
+  Baselines:                               |base
+  Instructions:                     7107161|7107161              (No change)
+  L1 Hits:                         10060422|10060421             (+0.00001%) [+1.00000x]
+  LL Hits:                            22358|22360                (-0.00894%) [-1.00009x]
+  RAM Hits:                             107|106                  (+0.94340%) [+1.00943x]
+  Total read+write:                10082887|10082887             (No change)
+  Estimated Cycles:                10175957|10175931             (+0.00026%) [+1.00000x]
+instructions::cost::map_range_cursor_scan sequential:built_map("sequential")
+  Baselines:                               |base
+  Instructions:                     3936574|3936574              (No change)
+  L1 Hits:                          5992641|5992640              (+0.00002%) [+1.00000x]
+  LL Hits:                             7269|7269                 (No change)
+  RAM Hits:                              80|81                   (-1.23457%) [-1.01250x]
+  Total read+write:                 5999990|5999990              (No change)
+  Estimated Cycles:                 6031786|6031820              (-0.00056%) [-1.00001x]
+instructions::cost::map_range_cursor_scan clustered:built_map("clustered")
+  Baselines:                               |base
+  Instructions:                     3951701|3951701              (No change)
+  L1 Hits:                          6011213|6011214              (-0.00002%) [-1.00000x]
+  LL Hits:                             7272|7271                 (+0.01375%) [+1.00014x]
+  RAM Hits:                              91|91                   (No change)
+  Total read+write:                 6018576|6018576              (No change)
+  Estimated Cycles:                 6050758|6050754              (+0.00007%) [+1.00000x]
+instructions::cost::map_count_below random:built_map("random")
+  Baselines:                               |base
+  Instructions:                   460506920|460506920            (No change)
+  L1 Hits:                        577022282|577028362            (-0.00105%) [-1.00001x]
+  LL Hits:                          1314922|1308841              (+0.46461%) [+1.00465x]
+  RAM Hits:                              55|56                   (-1.78571%) [-1.01818x]
+  Total read+write:               578337259|578337259            (No change)
+  Estimated Cycles:               583598817|583574527            (+0.00416%) [+1.00004x]
+instructions::cost::map_count_below sequential:built_map("sequential")
+  Baselines:                               |base
+  Instructions:                   186848318|186848318            (No change)
+  L1 Hits:                        240457767|240457766            (+0.00000%) [+1.00000x]
+  LL Hits:                             6310|6310                 (No change)
+  RAM Hits:                              41|42                   (-2.38095%) [-1.02439x]
+  Total read+write:               240464118|240464118            (No change)
+  Estimated Cycles:               240490752|240490786            (-0.00001%) [-1.00000x]
+instructions::cost::map_count_below one_top_byte:built_map("one_top_byte")
+  Baselines:                               |base
+  Instructions:                   463483249|463483249            (No change)
+  L1 Hits:                        581106420|581111663            (-0.00090%) [-1.00001x]
+  LL Hits:                          1357107|1351863              (+0.38791%) [+1.00388x]
+  RAM Hits:                              61|62                   (-1.61290%) [-1.01639x]
+  Total read+write:               582463588|582463588            (No change)
+  Estimated Cycles:               587894090|587873148            (+0.00356%) [+1.00004x]
+instructions::cost::set_count_below random:built_set("random")
+  Baselines:                               |base
+  Instructions:                   465946116|465946116            (No change)
+  L1 Hits:                        580530441|580530022            (+0.00007%) [+1.00000x]
+  LL Hits:                          1300802|1301219              (-0.03205%) [-1.00032x]
+  RAM Hits:                              49|51                   (-3.92157%) [-1.04082x]
+  Total read+write:               581831292|581831292            (No change)
+  Estimated Cycles:               587036166|587037902            (-0.00030%) [-1.00000x]
+instructions::cost::set_count_below sequential:built_set("sequential")
+  Baselines:                               |base
+  Instructions:                   199310878|199310878            (No change)
+  L1 Hits:                        252635154|252635151            (+0.00000%) [+1.00000x]
+  LL Hits:                             5913|5913                 (No change)
+  RAM Hits:                              43|46                   (-6.52174%) [-1.06977x]
+  Total read+write:               252641110|252641110            (No change)
+  Estimated Cycles:               252666224|252666326            (-0.00004%) [-1.00000x]
+instructions::cost::set_count_below one_top_byte:built_set("one_top_byte")
+  Baselines:                               |base
+  Instructions:                   470700849|470700849            (No change)
+  L1 Hits:                        586033662|586055276            (-0.00369%) [-1.00004x]
+  LL Hits:                          1317315|1295699              (+1.66829%) [+1.01668x]
+  RAM Hits:                              52|54                   (-3.70370%) [-1.03846x]
+  Total read+write:               587351029|587351029            (No change)
+  Estimated Cycles:               592622057|592535661            (+0.01458%) [+1.00015x]
+instructions::cost::set32_insert sensor_timestamps
+  Baselines:                               |base
+  Instructions:                     4841568|4841568              (No change)
+  L1 Hits:                          6588697|6588725              (-0.00042%) [-1.00000x]
+  LL Hits:                               91|67                   (+35.8209%) [+1.35821x]
+  RAM Hits:                             527|523                  (+0.76482%) [+1.00765x]
+  Total read+write:                 6589315|6589315              (No change)
+  Estimated Cycles:                 6607597|6607365              (+0.00351%) [+1.00004x]
+instructions::cost::map32_insert sensor_timestamps
+  Baselines:                               |base
+  Instructions:                     4641438|4641438              (No change)
+  L1 Hits:                          6189016|6189039              (-0.00037%) [-1.00000x]
+  LL Hits:                              670|649                  (+3.23575%) [+1.03236x]
+  RAM Hits:                            1671|1669                 (+0.11983%) [+1.00120x]
+  Total read+write:                 6191357|6191357              (No change)
+  Estimated Cycles:                 6250851|6250699              (+0.00243%) [+1.00002x]
+instructions::cost::map32_get can_dispatch:built_map32("can_dispatch")
+  Baselines:                               |base
+  Instructions:                       92841|92841                (No change)
+  L1 Hits:                           116335|116336               (-0.00086%) [-1.00001x]
+  LL Hits:                                0|0                    (No change)
+  RAM Hits:                              18|17                   (+5.88235%) [+1.05882x]
+  Total read+write:                  116353|116353               (No change)
+  Estimated Cycles:                  116965|116931               (+0.02908%) [+1.00029x]
+instructions::cost::map32_iterate sequential:built_map32_dist("sequential")
+  Baselines:                               |base
+  Instructions:                      189578|189578               (No change)
+  L1 Hits:                           278666|278673               (-0.00251%) [-1.00003x]
+  LL Hits:                               72|66                   (+9.09091%) [+1.09091x]
+  RAM Hits:                              65|64                   (+1.56250%) [+1.01562x]
+  Total read+write:                  278803|278803               (No change)
+  Estimated Cycles:                  281301|281243               (+0.02062%) [+1.00021x]
+instructions::cost::map32_iterate clustered:built_map32_dist("clustered")
+  Baselines:                               |base
+  Instructions:                      293112|293112               (No change)
+  L1 Hits:                           416055|416054               (+0.00024%) [+1.00000x]
+  LL Hits:                              289|285                  (+1.40351%) [+1.01404x]
+  RAM Hits:                              52|57                   (-8.77193%) [-1.09615x]
+  Total read+write:                  416396|416396               (No change)
+  Estimated Cycles:                  419320|419474               (-0.03671%) [-1.00037x]
+instructions::cost::map32_iterate random:built_map32_dist("random")
+  Baselines:                               |base
+  Instructions:                      337553|337553               (No change)
+  L1 Hits:                           469806|469807               (-0.00021%) [-1.00000x]
+  LL Hits:                              231|227                  (+1.76211%) [+1.01762x]
+  RAM Hits:                              57|60                   (-5.00000%) [-1.05263x]
+  Total read+write:                  470094|470094               (No change)
+  Estimated Cycles:                  472956|473042               (-0.01818%) [-1.00018x]
+instructions::cost::map32_nav sequential:built_map32_remove("sequential")
+  Baselines:                               |base
+  Instructions:                      936593|936593               (No change)
+  L1 Hits:                          1284975|1284978              (-0.00023%) [-1.00000x]
+  LL Hits:                               91|87                   (+4.59770%) [+1.04598x]
+  RAM Hits:                              42|43                   (-2.32558%) [-1.02381x]
+  Total read+write:                 1285108|1285108              (No change)
+  Estimated Cycles:                 1286900|1286918              (-0.00140%) [-1.00001x]
+instructions::cost::map32_nav clustered:built_map32_remove("clustered")
+  Baselines:                               |base
+  Instructions:                     1722767|1722767              (No change)
+  L1 Hits:                          2244808|2244816              (-0.00036%) [-1.00000x]
+  LL Hits:                              507|497                  (+2.01207%) [+1.02012x]
+  RAM Hits:                              53|55                   (-3.63636%) [-1.03774x]
+  Total read+write:                 2245368|2245368              (No change)
+  Estimated Cycles:                 2249198|2249226              (-0.00124%) [-1.00001x]
+instructions::cost::map32_nav random:built_map32_remove("random")
+  Baselines:                               |base
+  Instructions:                     5310649|5310649              (No change)
+  L1 Hits:                          6804542|6804548              (-0.00009%) [-1.00000x]
+  LL Hits:                              663|657                  (+0.91324%) [+1.00913x]
+  RAM Hits:                              41|41                   (No change)
+  Total read+write:                 6805246|6805246              (No change)
+  Estimated Cycles:                 6809292|6809268              (+0.00035%) [+1.00000x]
+instructions::cost::map32_prev sequential:built_map32_remove("sequential")
+  Baselines:                               |base
+  Instructions:                      979312|979312               (No change)
+  L1 Hits:                          1327330|1327332              (-0.00015%) [-1.00000x]
+  LL Hits:                               92|89                   (+3.37079%) [+1.03371x]
+  RAM Hits:                              45|46                   (-2.17391%) [-1.02222x]
+  Total read+write:                 1327467|1327467              (No change)
+  Estimated Cycles:                 1329365|1329387              (-0.00165%) [-1.00002x]
+instructions::cost::map32_prev clustered:built_map32_remove("clustered")
+  Baselines:                               |base
+  Instructions:                     1909743|1909743              (No change)
+  L1 Hits:                          2460387|2460390              (-0.00012%) [-1.00000x]
+  LL Hits:                              505|502                  (+0.59761%) [+1.00598x]
+  RAM Hits:                              55|55                   (No change)
+  Total read+write:                 2460947|2460947              (No change)
+  Estimated Cycles:                 2464837|2464825              (+0.00049%) [+1.00000x]
+instructions::cost::map32_prev random:built_map32_remove("random")
+  Baselines:                               |base
+  Instructions:                     5135140|5135140              (No change)
+  L1 Hits:                          6663019|6663019              (No change)
+  LL Hits:                              694|694                  (No change)
+  RAM Hits:                              60|60                   (No change)
+  Total read+write:                 6663773|6663773              (No change)
+  Estimated Cycles:                 6668589|6668589              (No change)
+instructions::cost::map32_range sequential:built_map32_dist("sequential")
+  Baselines:                               |base
+  Instructions:                      189587|189587               (No change)
+  L1 Hits:                           278680|278687               (-0.00251%) [-1.00003x]
+  LL Hits:                               72|66                   (+9.09091%) [+1.09091x]
+  RAM Hits:                              65|64                   (+1.56250%) [+1.01562x]
+  Total read+write:                  278817|278817               (No change)
+  Estimated Cycles:                  281315|281257               (+0.02062%) [+1.00021x]
+instructions::cost::map32_range clustered:built_map32_dist("clustered")
+  Baselines:                               |base
+  Instructions:                      293121|293121               (No change)
+  L1 Hits:                           416069|416068               (+0.00024%) [+1.00000x]
+  LL Hits:                              289|285                  (+1.40351%) [+1.01404x]
+  RAM Hits:                              52|57                   (-8.77193%) [-1.09615x]
+  Total read+write:                  416410|416410               (No change)
+  Estimated Cycles:                  419334|419488               (-0.03671%) [-1.00037x]
+instructions::cost::map32_range random:built_map32_dist("random")
+  Baselines:                               |base
+  Instructions:                      169856|169856               (No change)
+  L1 Hits:                           236361|236359               (+0.00085%) [+1.00001x]
+  LL Hits:                              106|105                  (+0.95238%) [+1.00952x]
+  RAM Hits:                              57|60                   (-5.00000%) [-1.05263x]
+  Total read+write:                  236524|236524               (No change)
+  Estimated Cycles:                  238886|238984               (-0.04101%) [-1.00041x]
+instructions::cost::map32_for_each_range sequential:built_map32_dist("sequential")
+  Baselines:                               |base
+  Instructions:                      134988|134988               (No change)
+  L1 Hits:                           192017|192024               (-0.00365%) [-1.00004x]
+  LL Hits:                               76|71                   (+7.04225%) [+1.07042x]
+  RAM Hits:                              43|41                   (+4.87805%) [+1.04878x]
+  Total read+write:                  192136|192136               (No change)
+  Estimated Cycles:                  193902|193814               (+0.04540%) [+1.00045x]
+instructions::cost::map32_for_each_range clustered:built_map32_dist("clustered")
+  Baselines:                               |base
+  Instructions:                      207757|207757               (No change)
+  L1 Hits:                           300428|300436               (-0.00266%) [-1.00003x]
+  LL Hits:                              291|285                  (+2.10526%) [+1.02105x]
+  RAM Hits:                              47|45                   (+4.44444%) [+1.04444x]
+  Total read+write:                  300766|300766               (No change)
+  Estimated Cycles:                  303528|303436               (+0.03032%) [+1.00030x]
+instructions::cost::map32_for_each_range random:built_map32_dist("random")
+  Baselines:                               |base
+  Instructions:                       99634|99634                (No change)
+  L1 Hits:                           135251|135254               (-0.00222%) [-1.00002x]
+  LL Hits:                              109|107                  (+1.86916%) [+1.01869x]
+  RAM Hits:                              44|43                   (+2.32558%) [+1.02326x]
+  Total read+write:                  135404|135404               (No change)
+  Estimated Cycles:                  137336|137294               (+0.03059%) [+1.00031x]
+instructions::cost::set32_iterate sequential:built_set32_dist("sequential")
+  Baselines:                               |base
+  Instructions:                      135421|135421               (No change)
+  L1 Hits:                           202725|202722               (+0.00148%) [+1.00001x]
+  LL Hits:                                1|1                    (No change)
+  RAM Hits:                              58|61                   (-4.91803%) [-1.05172x]
+  Total read+write:                  202784|202784               (No change)
+  Estimated Cycles:                  204760|204862               (-0.04979%) [-1.00050x]
+instructions::cost::set32_iterate clustered:built_set32_dist("clustered")
+  Baselines:                               |base
+  Instructions:                      260112|260112               (No change)
+  L1 Hits:                           379133|379131               (+0.00053%) [+1.00001x]
+  LL Hits:                              213|210                  (+1.42857%) [+1.01429x]
+  RAM Hits:                              50|55                   (-9.09091%) [-1.10000x]
+  Total read+write:                  379396|379396               (No change)
+  Estimated Cycles:                  381948|382106               (-0.04135%) [-1.00041x]
+instructions::cost::set32_iterate random:built_set32_dist("random")
+  Baselines:                               |base
+  Instructions:                      298200|298200               (No change)
+  L1 Hits:                           423968|423964               (+0.00094%) [+1.00001x]
+  LL Hits:                                6|6                    (No change)
+  RAM Hits:                              51|55                   (-7.27273%) [-1.07843x]
+  Total read+write:                  424025|424025               (No change)
+  Estimated Cycles:                  425783|425919               (-0.03193%) [-1.00032x]
+instructions::cost::set32_range sequential:built_set32_dist("sequential")
+  Baselines:                               |base
+  Instructions:                      135430|135430               (No change)
+  L1 Hits:                           202738|202735               (+0.00148%) [+1.00001x]
+  LL Hits:                                1|1                    (No change)
+  RAM Hits:                              59|62                   (-4.83871%) [-1.05085x]
+  Total read+write:                  202798|202798               (No change)
+  Estimated Cycles:                  204808|204910               (-0.04978%) [-1.00050x]
+instructions::cost::set32_range clustered:built_set32_dist("clustered")
+  Baselines:                               |base
+  Instructions:                      260121|260121               (No change)
+  L1 Hits:                           379146|379144               (+0.00053%) [+1.00001x]
+  LL Hits:                              213|210                  (+1.42857%) [+1.01429x]
+  RAM Hits:                              51|56                   (-8.92857%) [-1.09804x]
+  Total read+write:                  379410|379410               (No change)
+  Estimated Cycles:                  381996|382154               (-0.04134%) [-1.00041x]
+instructions::cost::set32_range random:built_set32_dist("random")
+  Baselines:                               |base
+  Instructions:                      150282|150282               (No change)
+  L1 Hits:                           213641|213637               (+0.00187%) [+1.00002x]
+  LL Hits:                                4|4                    (No change)
+  RAM Hits:                              52|56                   (-7.14286%) [-1.07692x]
+  Total read+write:                  213697|213697               (No change)
+  Estimated Cycles:                  215481|215617               (-0.06307%) [-1.00063x]
+instructions::cost::map32_remove sequential:built_map32_remove("sequential")
+  Baselines:                               |base
+  Instructions:                     1342882|1342882              (No change)
+  L1 Hits:                          1819652|1819656              (-0.00022%) [-1.00000x]
+  LL Hits:                              204|198                  (+3.03030%) [+1.03030x]
+  RAM Hits:                             240|242                  (-0.82645%) [-1.00833x]
+  Total read+write:                 1820096|1820096              (No change)
+  Estimated Cycles:                 1829072|1829116              (-0.00241%) [-1.00002x]
+instructions::cost::map32_remove clustered:built_map32_remove("clustered")
+  Baselines:                               |base
+  Instructions:                     1850313|1850313              (No change)
+  L1 Hits:                          2517456|2517473              (-0.00068%) [-1.00001x]
+  LL Hits:                             1615|1597                 (+1.12711%) [+1.01127x]
+  RAM Hits:                             189|190                  (-0.52632%) [-1.00529x]
+  Total read+write:                 2519260|2519260              (No change)
+  Estimated Cycles:                 2532146|2532108              (+0.00150%) [+1.00002x]
+instructions::cost::map32_remove random:built_map32_remove("random")
+  Baselines:                               |base
+  Instructions:                     1405909|1405909              (No change)
+  L1 Hits:                          1903774|1903753              (+0.00110%) [+1.00001x]
+  LL Hits:                             1762|1784                 (-1.23318%) [-1.01249x]
+  RAM Hits:                             128|127                  (+0.78740%) [+1.00787x]
+  Total read+write:                 1905664|1905664              (No change)
+  Estimated Cycles:                 1917064|1917118              (-0.00282%) [-1.00003x]
+instructions::cost::set32_remove sequential:built_set32_remove("sequential")
+  Baselines:                               |base
+  Instructions:                      999579|999579               (No change)
+  L1 Hits:                          1389477|1389472              (+0.00036%) [+1.00000x]
+  LL Hits:                               14|16                   (-12.5000%) [-1.14286x]
+  RAM Hits:                             190|193                  (-1.55440%) [-1.01579x]
+  Total read+write:                 1389681|1389681              (No change)
+  Estimated Cycles:                 1396197|1396307              (-0.00788%) [-1.00008x]
+instructions::cost::set32_remove clustered:built_set32_remove("clustered")
+  Baselines:                               |base
+  Instructions:                     1673633|1673633              (No change)
+  L1 Hits:                          2263661|2263652              (+0.00040%) [+1.00000x]
+  LL Hits:                              593|598                  (-0.83612%) [-1.00843x]
+  RAM Hits:                             136|140                  (-2.85714%) [-1.02941x]
+  Total read+write:                 2264390|2264390              (No change)
+  Estimated Cycles:                 2271386|2271542              (-0.00687%) [-1.00007x]
+instructions::cost::set32_remove random:built_set32_remove("random")
+  Baselines:                               |base
+  Instructions:                     1146793|1146793              (No change)
+  L1 Hits:                          1567806|1567808              (-0.00013%) [-1.00000x]
+  LL Hits:                              262|261                  (+0.38314%) [+1.00383x]
+  RAM Hits:                             191|190                  (+0.52632%) [+1.00526x]
+  Total read+write:                 1568259|1568259              (No change)
+  Estimated Cycles:                 1575801|1575763              (+0.00241%) [+1.00002x]
+instructions::cost::sync32_map_write overwrite:built_sync32_write("overwrite")
+  Baselines:                               |base
+  Instructions:                     1298573|1298573              (No change)
+  L1 Hits:                          1743623|1743624              (-0.00006%) [-1.00000x]
+  LL Hits:                             1189|1188                 (+0.08418%) [+1.00084x]
+  RAM Hits:                              10|10                   (No change)
+  Total read+write:                 1744822|1744822              (No change)
+  Estimated Cycles:                 1749918|1749914              (+0.00023%) [+1.00000x]
+instructions::cost::sync32_map_write overwrite_same:built_sync32_write("overwrite_same")
+  Baselines:                               |base
+  Instructions:                      518573|518573               (No change)
+  L1 Hits:                           667679|667678               (+0.00015%) [+1.00000x]
+  LL Hits:                             1134|1134                 (No change)
+  RAM Hits:                               9|10                   (-10.0000%) [-1.11111x]
+  Total read+write:                  668822|668822               (No change)
+  Estimated Cycles:                  673664|673698               (-0.00505%) [-1.00005x]
+instructions::cost::sync32_map_write churn:built_sync32_write("churn")
+  Baselines:                               |base
+  Instructions:                     1005838|1005838              (No change)
+  L1 Hits:                          1375327|1375348              (-0.00153%) [-1.00002x]
+  LL Hits:                             1128|1106                 (+1.98915%) [+1.01989x]
+  RAM Hits:                              11|12                   (-8.33333%) [-1.09091x]
+  Total read+write:                 1376466|1376466              (No change)
+  Estimated Cycles:                 1381352|1381298              (+0.00391%) [+1.00004x]
+instructions::cost::sync32_map_get bitmap:built_sync32_read("bitmap")
+  Baselines:                               |base
+  Instructions:                     1244720|1244720              (No change)
+  L1 Hits:                          1632076|1632077              (-0.00006%) [-1.00000x]
+  LL Hits:                              927|927                  (No change)
+  RAM Hits:                              30|29                   (+3.44828%) [+1.03448x]
+  Total read+write:                 1633033|1633033              (No change)
+  Estimated Cycles:                 1637761|1637727              (+0.00208%) [+1.00002x]
+instructions::cost::sync32_map_get linear:built_sync32_read("linear")
+  Baselines:                               |base
+  Instructions:                     1703738|1703738              (No change)
+  L1 Hits:                          2140735|2140737              (-0.00009%) [-1.00000x]
+  LL Hits:                             1608|1607                 (+0.06223%) [+1.00062x]
+  RAM Hits:                              37|36                   (+2.77778%) [+1.02778x]
+  Total read+write:                 2142380|2142380              (No change)
+  Estimated Cycles:                 2150070|2150032              (+0.00177%) [+1.00002x]
+instructions::cost::sync32_map_get linear_wide:built_sync32_read("linear_wide")
+  Baselines:                               |base
+  Instructions:                     1352786|1352786              (No change)
+  L1 Hits:                          1706099|1706098              (+0.00006%) [+1.00000x]
+  LL Hits:                             4170|4172                 (-0.04794%) [-1.00048x]
+  RAM Hits:                              49|48                   (+2.08333%) [+1.02083x]
+  Total read+write:                 1710318|1710318              (No change)
+  Estimated Cycles:                 1728664|1728638              (+0.00150%) [+1.00002x]
+instructions::cost::blobmap32_scan ipv4_routes:built_blobmap32("ipv4_routes")
+  Baselines:                               |base
+  Instructions:                      339718|339718               (No change)
+  L1 Hits:                           484025|484025               (No change)
+  LL Hits:                              268|268                  (No change)
+  RAM Hits:                              32|32                   (No change)
+  Total read+write:                  484325|484325               (No change)
+  Estimated Cycles:                  486485|486485               (No change)
+instructions::cost::strmap_insert routes:str_keys("routes")
+  Baselines:                               |base
+  Instructions:                    40730593|40988574             (-0.62940%) [-1.00633x]
+  L1 Hits:                         54228731|54441863             (-0.39149%) [-1.00393x]
+  LL Hits:                           150019|152006               (-1.30719%) [-1.01324x]
+  RAM Hits:                           22055|22048                (+0.03175%) [+1.00032x]
+  Total read+write:                54400805|54615917             (-0.39386%) [-1.00395x]
+  Estimated Cycles:                55750751|55973573             (-0.39808%) [-1.00400x]
+instructions::cost::strmap_insert_plain routes:str_keys("routes")
+  Baselines:                               |base
+  Instructions:                    40730593|40988574             (-0.62940%) [-1.00633x]
+  L1 Hits:                         54228731|54441863             (-0.39149%) [-1.00393x]
+  LL Hits:                           150019|152006               (-1.30719%) [-1.01324x]
+  RAM Hits:                           22055|22048                (+0.03175%) [+1.00032x]
+  Total read+write:                54400805|54615917             (-0.39386%) [-1.00395x]
+  Estimated Cycles:                55750751|55973573             (-0.39808%) [-1.00400x]
+instructions::cost::strmap_get routes:built_strmap("routes")
+  Baselines:                               |base
+  Instructions:                    33129096|33379896             (-0.75135%) [-1.00757x]
+  L1 Hits:                         41801182|42002141             (-0.47845%) [-1.00481x]
+  LL Hits:                           667862|667701               (+0.02411%) [+1.00024x]
+  RAM Hits:                              52|54                   (-3.70370%) [-1.03846x]
+  Total read+write:                42469096|42669896             (-0.47059%) [-1.00473x]
+  Estimated Cycles:                45142312|45342536             (-0.44158%) [-1.00444x]
+instructions::cost::strmap_churn routes:built_strmap("routes")
+  Baselines:                               |base
+  Instructions:                   112240348|112945873            (-0.62466%) [-1.00629x]
+  L1 Hits:                        146924623|147480596            (-0.37698%) [-1.00378x]
+  LL Hits:                           741797|741353               (+0.05989%) [+1.00060x]
+  RAM Hits:                             140|136                  (+2.94118%) [+1.02941x]
+  Total read+write:               147666560|148222085            (-0.37479%) [-1.00376x]
+  Estimated Cycles:               150638508|151192121            (-0.36617%) [-1.00368x]
+instructions::cost::strmap_oscillate routes:str_keys("routes")
+  Baselines:                               |base
+  Instructions:                    27285059|27285059             (No change)
+  L1 Hits:                         39917594|39917591             (+0.00001%) [+1.00000x]
+  LL Hits:                           137543|137543               (No change)
+  RAM Hits:                             320|323                  (-0.92879%) [-1.00937x]
+  Total read+write:                40055457|40055457             (No change)
+  Estimated Cycles:                40616509|40616611             (-0.00025%) [-1.00000x]
+instructions::cost::strmap_refill routes:built_strmap("routes")
+  Baselines:                               |base
+  Instructions:                    96254491|96766129             (-0.52874%) [-1.00532x]
+  L1 Hits:                        127267439|127677081            (-0.32084%) [-1.00322x]
+  LL Hits:                          1271983|1271695              (+0.02265%) [+1.00023x]
+  RAM Hits:                           15262|15256                (+0.03933%) [+1.00039x]
+  Total read+write:               128554684|128964032            (-0.31741%) [-1.00318x]
+  Estimated Cycles:               134161524|134569516            (-0.30318%) [-1.00304x]
+instructions::cost::strmap_clear_refill routes:built_strmap("routes")
+  Baselines:                               |base
+  Instructions:                    49571568|49821588             (-0.50183%) [-1.00504x]
+  L1 Hits:                         66075828|66274334             (-0.29952%) [-1.00300x]
+  LL Hits:                           705305|707003               (-0.24017%) [-1.00241x]
+  RAM Hits:                           14828|14820                (+0.05398%) [+1.00054x]
+  Total read+write:                66795961|66996157             (-0.29882%) [-1.00300x]
+  Estimated Cycles:                70121333|70328049             (-0.29393%) [-1.00295x]
+instructions::cost::strmap_refill_small routes:small_strmap("routes")
+  Baselines:                               |base
+  Instructions:                    82639489|83427290             (-0.94430%) [-1.00953x]
+  L1 Hits:                        110172348|110919047            (-0.67319%) [-1.00678x]
+  LL Hits:                           432540|429792               (+0.63938%) [+1.00639x]
+  RAM Hits:                             412|410                  (+0.48780%) [+1.00488x]
+  Total read+write:               110605300|111349249            (-0.66812%) [-1.00673x]
+  Estimated Cycles:               112349468|113082357            (-0.64810%) [-1.00652x]
+instructions::cost::strmap_prefix_scan paths:built_path_strmap("paths")
+  Baselines:                               |base
+  Instructions:                     2802607|2802607              (No change)
+  L1 Hits:                          4148244|4147514              (+0.01760%) [+1.00018x]
+  LL Hits:                            17534|18264                (-3.99693%) [-1.04163x]
+  RAM Hits:                              11|11                   (No change)
+  Total read+write:                 4165789|4165789              (No change)
+  Estimated Cycles:                 4236299|4239219              (-0.06888%) [-1.00069x]
+instructions::cost::strmap_prefix_scan paths_dense:built_path_strmap("paths_dense")
+  Baselines:                               |base
+  Instructions:                     3916248|3916248              (No change)
+  L1 Hits:                          5668948|5669657              (-0.01251%) [-1.00013x]
+  LL Hits:                            17335|16626                (+4.26441%) [+1.04264x]
+  RAM Hits:                              16|16                   (No change)
+  Total read+write:                 5686299|5686299              (No change)
+  Estimated Cycles:                 5756183|5753347              (+0.04929%) [+1.00049x]
+instructions::cost::strmap_prefix_bounded paths:built_path_strmap("paths")
+  Baselines:                               |base
+  Instructions:                     2613647|2613647              (No change)
+  L1 Hits:                          3930864|3930388              (+0.01211%) [+1.00012x]
+  LL Hits:                            17925|18400                (-2.58152%) [-1.02650x]
+  RAM Hits:                              12|13                   (-7.69231%) [-1.08333x]
+  Total read+write:                 3948801|3948801              (No change)
+  Estimated Cycles:                 4020909|4022843              (-0.04808%) [-1.00048x]
+instructions::cost::strmap_prefix_bounded paths_dense:built_path_strmap("paths_dense")
+  Baselines:                               |base
+  Instructions:                     3716212|3716212              (No change)
+  L1 Hits:                          5413872|5413957              (-0.00157%) [-1.00002x]
+  LL Hits:                            17214|17128                (+0.50210%) [+1.00502x]
+  RAM Hits:                              13|14                   (-7.14286%) [-1.07692x]
+  Total read+write:                 5431099|5431099              (No change)
+  Estimated Cycles:                 5500397|5500087              (+0.00564%) [+1.00006x]
+instructions::cost::strmap_prefix_seek paths:built_path_strmap("paths")
+  Baselines:                               |base
+  Instructions:                      145275|145275               (No change)
+  L1 Hits:                           203530|203530               (No change)
+  LL Hits:                              667|667                  (No change)
+  RAM Hits:                               7|7                    (No change)
+  Total read+write:                  204204|204204               (No change)
+  Estimated Cycles:                  207110|207110               (No change)
+instructions::cost::strmap_prefix_seek paths_dense:built_path_strmap("paths_dense")
+  Baselines:                               |base
+  Instructions:                      146839|146839               (No change)
+  L1 Hits:                           205117|205116               (+0.00049%) [+1.00000x]
+  LL Hits:                              706|707                  (-0.14144%) [-1.00142x]
+  RAM Hits:                               7|7                    (No change)
+  Total read+write:                  205830|205830               (No change)
+  Estimated Cycles:                  208892|208896               (-0.00191%) [-1.00002x]
+instructions::cost::strmap_cursor_scan paths:built_path_strmap("paths")
+  Baselines:                               |base
+  Instructions:                     9229356|9229356              (No change)
+  L1 Hits:                         13952886|13952910             (-0.00017%) [-1.00000x]
+  LL Hits:                            62642|62603                (+0.06230%) [+1.00062x]
+  RAM Hits:                             257|272                  (-5.51471%) [-1.05837x]
+  Total read+write:                14015785|14015785             (No change)
+  Estimated Cycles:                14275091|14275445             (-0.00248%) [-1.00002x]
+instructions::cost::strmap_cursor_scan paths_dense:built_path_strmap("paths_dense")
+  Baselines:                               |base
+  Instructions:                    13649836|13649836             (No change)
+  L1 Hits:                         19990486|19990505             (-0.00010%) [-1.00000x]
+  LL Hits:                            58898|58864                (+0.05776%) [+1.00058x]
+  RAM Hits:                             121|136                  (-11.0294%) [-1.12397x]
+  Total read+write:                20049505|20049505             (No change)
+  Estimated Cycles:                20289211|20289585             (-0.00184%) [-1.00002x]
+instructions::cost::strmap_transcode_insert clean:transcode_keys("clean")
+  Baselines:                               |base
+  Instructions:                    41477596|41493815             (-0.03909%) [-1.00039x]
+  L1 Hits:                         57542228|57558739             (-0.02869%) [-1.00029x]
+  LL Hits:                           119142|115377               (+3.26322%) [+1.03263x]
+  RAM Hits:                           35588|35586                (+0.00562%) [+1.00006x]
+  Total read+write:                57696958|57709702             (-0.02208%) [-1.00022x]
+  Estimated Cycles:                59383518|59381134             (+0.00401%) [+1.00004x]
+instructions::cost::strmap_transcode_insert escaped:transcode_keys("escaped")
+  Baselines:                               |base
+  Instructions:                    91940477|91971289             (-0.03350%) [-1.00034x]
+  L1 Hits:                        128984326|129014775            (-0.02360%) [-1.00024x]
+  LL Hits:                           120211|114727               (+4.78004%) [+1.04780x]
+  RAM Hits:                           40986|40983                (+0.00732%) [+1.00007x]
+  Total read+write:               129145523|129170485            (-0.01932%) [-1.00019x]
+  Estimated Cycles:               131019891|131022815            (-0.00223%) [-1.00002x]
+instructions::cost::strmap_transcode_get clean:built_transcode_strmap("clean")
+  Baselines:                               |base
+  Instructions:                    20258158|20258158             (No change)
+  L1 Hits:                         26080564|26080562             (+0.00001%) [+1.00000x]
+  LL Hits:                           366883|366885               (-0.00055%) [-1.00001x]
+  RAM Hits:                              36|36                   (No change)
+  Total read+write:                26447483|26447483             (No change)
+  Estimated Cycles:                27916239|27916247             (-0.00003%) [-1.00000x]
+instructions::cost::strmap_transcode_get escaped:built_transcode_strmap("escaped")
+  Baselines:                               |base
+  Instructions:                    64219787|64219787             (No change)
+  L1 Hits:                         88360923|88360961             (-0.00004%) [-1.00000x]
+  LL Hits:                           289508|289470               (+0.01313%) [+1.00013x]
+  RAM Hits:                              48|48                   (No change)
+  Total read+write:                88650479|88650479             (No change)
+  Estimated Cycles:                89810143|89809991             (+0.00017%) [+1.00000x]
+instructions::cost::strmap_transcode_cursor clean:built_transcode_strmap("clean")
+  Baselines:                               |base
+  Instructions:                    26927810|26927810             (No change)
+  L1 Hits:                         38135175|38135179             (-0.00001%) [-1.00000x]
+  LL Hits:                           126012|126007               (+0.00397%) [+1.00004x]
+  RAM Hits:                             213|214                  (-0.46729%) [-1.00469x]
+  Total read+write:                38261400|38261400             (No change)
+  Estimated Cycles:                38772690|38772704             (-0.00004%) [-1.00000x]
+instructions::cost::strmap_transcode_cursor escaped:built_transcode_strmap("escaped")
+  Baselines:                               |base
+  Instructions:                    40317777|40317777             (No change)
+  L1 Hits:                         55717052|55717058             (-0.00001%) [-1.00000x]
+  LL Hits:                           130775|130769               (+0.00459%) [+1.00005x]
+  RAM Hits:                             259|259                  (No change)
+  Total read+write:                55848086|55848086             (No change)
+  Estimated Cycles:                56379992|56379968             (+0.00004%) [+1.00000x]
+instructions::cost::ordered_bytesmap_insert clean:transcode_keys("clean")
+  Baselines:                               |base
+  Instructions:                    42546244|42562463             (-0.03811%) [-1.00038x]
+  L1 Hits:                         58874580|58889991             (-0.02617%) [-1.00026x]
+  LL Hits:                           108087|105421               (+2.52891%) [+1.02529x]
+  RAM Hits:                           35534|35533                (+0.00281%) [+1.00003x]
+  Total read+write:                59018201|59030945             (-0.02159%) [-1.00022x]
+  Estimated Cycles:                60658705|60660751             (-0.00337%) [-1.00003x]
+instructions::cost::ordered_bytesmap_insert escaped:transcode_keys("escaped")
+  Baselines:                               |base
+  Instructions:                    59913427|59944239             (-0.05140%) [-1.00051x]
+  L1 Hits:                         80766813|80791620             (-0.03070%) [-1.00031x]
+  LL Hits:                           114222|114378               (-0.13639%) [-1.00137x]
+  RAM Hits:                           40941|40940                (+0.00244%) [+1.00002x]
+  Total read+write:                80921976|80946938             (-0.03084%) [-1.00031x]
+  Estimated Cycles:                82770858|82796410             (-0.03086%) [-1.00031x]
+instructions::cost::ordered_bytesmap_get clean:built_ordered_bytesmap("clean")
+  Baselines:                               |base
+  Instructions:                    20558156|20558156             (No change)
+  L1 Hits:                         26580568|26580567             (+0.00000%) [+1.00000x]
+  LL Hits:                           366876|366877               (-0.00027%) [-1.00000x]
+  RAM Hits:                              36|36                   (No change)
+  Total read+write:                26947480|26947480             (No change)
+  Estimated Cycles:                28416208|28416212             (-0.00001%) [-1.00000x]
+instructions::cost::ordered_bytesmap_get escaped:built_ordered_bytesmap("escaped")
+  Baselines:                               |base
+  Instructions:                    31903654|31903654             (No change)
+  L1 Hits:                         40079184|40079146             (+0.00009%) [+1.00000x]
+  LL Hits:                           289148|289186               (-0.01314%) [-1.00013x]
+  RAM Hits:                              52|52                   (No change)
+  Total read+write:                40368384|40368384             (No change)
+  Estimated Cycles:                41526744|41526896             (-0.00037%) [-1.00000x]
+instructions::cost::ordered_bytesmap_cursor clean:built_ordered_bytesmap("clean")
+  Baselines:                               |base
+  Instructions:                    27839243|27839243             (No change)
+  L1 Hits:                         39798868|39798869             (-0.00000%) [-1.00000x]
+  LL Hits:                           126009|126009               (No change)
+  RAM Hits:                             200|199                  (+0.50251%) [+1.00503x]
+  Total read+write:                39925077|39925077             (No change)
+  Estimated Cycles:                40435913|40435879             (+0.00008%) [+1.00000x]
+instructions::cost::ordered_bytesmap_cursor escaped:built_ordered_bytesmap("escaped")
+  Baselines:                               |base
+  Instructions:                    41118295|41118295             (No change)
+  L1 Hits:                         57268098|57268102             (-0.00001%) [-1.00000x]
+  LL Hits:                           130798|130796               (+0.00153%) [+1.00002x]
+  RAM Hits:                             261|259                  (+0.77220%) [+1.00772x]
+  Total read+write:                57399157|57399157             (No change)
+  Estimated Cycles:                57931223|57931147             (+0.00013%) [+1.00000x]
+instructions::cost::ordered_bytesmap_cursor_into clean:built_ordered_bytesmap("clean")
+  Baselines:                               |base
+  Instructions:                    18689221|18689221             (No change)
+  L1 Hits:                         26048827|26048827             (No change)
+  LL Hits:                           126015|126018               (-0.00238%) [-1.00002x]
+  RAM Hits:                             197|194                  (+1.54639%) [+1.01546x]
+  Total read+write:                26175039|26175039             (No change)
+  Estimated Cycles:                26685797|26685707             (+0.00034%) [+1.00000x]
+instructions::cost::ordered_bytesmap_cursor_into escaped:built_ordered_bytesmap("escaped")
+  Baselines:                               |base
+  Instructions:                    29715115|29715115             (No change)
+  L1 Hits:                         38014912|38014912             (No change)
+  LL Hits:                           130793|130797               (-0.00306%) [-1.00003x]
+  RAM Hits:                             256|252                  (+1.58730%) [+1.01587x]
+  Total read+write:                38145961|38145961             (No change)
+  Estimated Cycles:                38677837|38677717             (+0.00031%) [+1.00000x]
+instructions::cost::strmap_raw_insert clean:transcode_keys("clean")
+  Baselines:                               |base
+  Instructions:                    37227692|37247386             (-0.05287%) [-1.00053x]
+  L1 Hits:                         52446023|52461162             (-0.02886%) [-1.00029x]
+  LL Hits:                           115540|116623               (-0.92863%) [-1.00937x]
+  RAM Hits:                           35581|35578                (+0.00843%) [+1.00008x]
+  Total read+write:                52597144|52613363             (-0.03083%) [-1.00031x]
+  Estimated Cycles:                54269058|54289507             (-0.03767%) [-1.00038x]
+instructions::cost::strmap_raw_get clean:built_raw_strmap("clean")
+  Baselines:                               |base
+  Instructions:                    16008156|16008156             (No change)
+  L1 Hits:                         20980620|20980658             (-0.00018%) [-1.00000x]
+  LL Hits:                           366826|366787               (+0.01063%) [+1.00011x]
+  RAM Hits:                              34|35                   (-2.85714%) [-1.02941x]
+  Total read+write:                21347480|21347480             (No change)
+  Estimated Cycles:                22815940|22815818             (+0.00053%) [+1.00001x]
+instructions::cost::strmap_raw_cursor clean:built_raw_strmap("clean")
+  Baselines:                               |base
+  Instructions:                    14477809|14477809             (No change)
+  L1 Hits:                         21135171|21135170             (+0.00000%) [+1.00000x]
+  LL Hits:                           126018|126016               (+0.00159%) [+1.00002x]
+  RAM Hits:                             207|210                  (-1.42857%) [-1.01449x]
+  Total read+write:                21261396|21261396             (No change)
+  Estimated Cycles:                21772506|21772600             (-0.00043%) [-1.00000x]
+instructions::cost::domain_dict_insert routes:str_keys("routes")
+  Baselines:                               |base
+  Instructions:                    83992338|84443432             (-0.53420%) [-1.00537x]
+  L1 Hits:                        111372211|111735532            (-0.32516%) [-1.00326x]
+  LL Hits:                           187816|189894               (-1.09429%) [-1.01106x]
+  RAM Hits:                           71572|71560                (+0.01677%) [+1.00017x]
+  Total read+write:               111631599|111996986            (-0.32625%) [-1.00327x]
+  Estimated Cycles:               114816311|115189602            (-0.32407%) [-1.00325x]
+instructions::cost::domain_dict_get routes:built_domain_dict("routes")
+  Baselines:                               |base
+  Instructions:                    49231230|49482030             (-0.50685%) [-1.00509x]
+  L1 Hits:                         61624395|61825208             (-0.32481%) [-1.00326x]
+  LL Hits:                           693121|693112               (+0.00130%) [+1.00001x]
+  RAM Hits:                            4448|4444                 (+0.09001%) [+1.00090x]
+  Total read+write:                62321964|62522764             (-0.32116%) [-1.00322x]
+  Estimated Cycles:                65245680|65446308             (-0.30655%) [-1.00307x]
+instructions::cost::bytesmap_insert routes:str_keys("routes")
+  Baselines:                               |base
+  Instructions:                    76851481|76851454             (+0.00004%) [+1.00000x]
+  L1 Hits:                        102522919|102521257            (+0.00162%) [+1.00002x]
+  LL Hits:                           286222|287830               (-0.55866%) [-1.00562x]
+  RAM Hits:                          179932|179932               (No change)
+  Total read+write:               102989073|102989019            (+0.00005%) [+1.00000x]
+  Estimated Cycles:               110251649|110258027            (-0.00578%) [-1.00006x]
+instructions::cost::bytesmap_get routes:built_bytesmap("routes")
+  Baselines:                               |base
+  Instructions:                    27856530|27883373             (-0.09627%) [-1.00096x]
+  L1 Hits:                         35240896|35241125             (-0.00065%) [-1.00001x]
+  LL Hits:                           397829|397782               (+0.01182%) [+1.00012x]
+  RAM Hits:                          143549|143527               (+0.01533%) [+1.00015x]
+  Total read+write:                35782274|35782434             (-0.00045%) [-1.00000x]
+  Estimated Cycles:                42254256|42253480             (+0.00184%) [+1.00002x]
+instructions::cost::bytesmap_churn routes:built_bytesmap("routes")
+  Baselines:                               |base
+  Instructions:                   142705612|142732455            (-0.01881%) [-1.00019x]
+  L1 Hits:                        192502607|192475927            (+0.01386%) [+1.00014x]
+  LL Hits:                           546453|573186               (-4.66393%) [-1.04892x]
+  RAM Hits:                          151428|151535               (-0.07061%) [-1.00071x]
+  Total read+write:               193200488|193200648            (-0.00008%) [-1.00000x]
+  Estimated Cycles:               200534852|200645582            (-0.05519%) [-1.00055x]
+instructions::cost::sync_map_insert random:keys("random")
+  Baselines:                               |base
+  Instructions:                    46261692|46261692             (No change)
+  L1 Hits:                         63692592|63694270             (-0.00263%) [-1.00003x]
+  LL Hits:                           264151|262475               (+0.63854%) [+1.00639x]
+  RAM Hits:                           32407|32405                (+0.00617%) [+1.00006x]
+  Total read+write:                63989150|63989150             (No change)
+  Estimated Cycles:                66147592|66140820             (+0.01024%) [+1.00010x]
+instructions::cost::sync_set_insert random:keys("random")
+  Baselines:                               |base
+  Instructions:                    42347591|42347591             (No change)
+  L1 Hits:                         58761017|58762571             (-0.00264%) [-1.00003x]
+  LL Hits:                           227303|225751               (+0.68748%) [+1.00687x]
+  RAM Hits:                           24442|24440                (+0.00818%) [+1.00008x]
+  Total read+write:                59012762|59012762             (No change)
+  Estimated Cycles:                60753002|60746726             (+0.01033%) [+1.00010x]
+instructions::cost::sync_map_get random:built_sync_map("random")
+  Baselines:                               |base
+  Instructions:                    14239549|14239549             (No change)
+  L1 Hits:                         18431988|18432026             (-0.00021%) [-1.00000x]
+  LL Hits:                           159866|159827               (+0.02440%) [+1.00024x]
+  RAM Hits:                              59|60                   (-1.66667%) [-1.01695x]
+  Total read+write:                18591913|18591913             (No change)
+  Estimated Cycles:                19233383|19233261             (+0.00063%) [+1.00001x]
+instructions::cost::sync_map_get leaf:built_sync_map_leaf("leaf")
+  Baselines:                               |base
+  Instructions:                     7604525|7604525              (No change)
+  L1 Hits:                         10035903|10035903             (No change)
+  LL Hits:                             6264|6264                 (No change)
+  RAM Hits:                              23|23                   (No change)
+  Total read+write:                10042190|10042190             (No change)
+  Estimated Cycles:                10068028|10068028             (No change)
+instructions::cost::sync_map_prev_locked random:built_sync_map("random")
+  Baselines:                               |base
+  Instructions:                    52279927|52279927             (No change)
+  L1 Hits:                         69314472|69314406             (+0.00010%) [+1.00000x]
+  LL Hits:                           210316|210376               (-0.02852%) [-1.00029x]
+  RAM Hits:                             103|109                  (-5.50459%) [-1.05825x]
+  Total read+write:                69524891|69524891             (No change)
+  Estimated Cycles:                70369657|70370101             (-0.00063%) [-1.00001x]
+instructions::cost::sync_map_prev random:built_sync_map("random")
+  Baselines:                               |base
+  Instructions:                    31630843|31630843             (No change)
+  L1 Hits:                         43589516|43589502             (+0.00003%) [+1.00000x]
+  LL Hits:                           189392|189405               (-0.00686%) [-1.00007x]
+  RAM Hits:                              85|86                   (-1.16279%) [-1.01176x]
+  Total read+write:                43778993|43778993             (No change)
+  Estimated Cycles:                44539451|44539537             (-0.00019%) [-1.00000x]
+instructions::cost::sync_map_next_after_scan random:built_sync_map("random")
+  Baselines:                               |base
+  Instructions:                    31213269|31213269             (No change)
+  L1 Hits:                         42942395|42942396             (-0.00000%) [-1.00000x]
+  LL Hits:                            26702|26702                (No change)
+  RAM Hits:                              80|79                   (+1.26582%) [+1.01266x]
+  Total read+write:                42969177|42969177             (No change)
+  Estimated Cycles:                43078705|43078671             (+0.00008%) [+1.00000x]
+instructions::cost::sync_map_next_after_scan sequential:built_sync_map("sequential")
+  Baselines:                               |base
+  Instructions:                    34151483|34151483             (No change)
+  L1 Hits:                         48194802|48194802             (No change)
+  LL Hits:                             7231|7232                 (-0.01383%) [-1.00014x]
+  RAM Hits:                              62|61                   (+1.63934%) [+1.01639x]
+  Total read+write:                48202095|48202095             (No change)
+  Estimated Cycles:                48233127|48233097             (+0.00006%) [+1.00000x]
+instructions::cost::sync_map_next_after_scan clustered:built_sync_map("clustered")
+  Baselines:                               |base
+  Instructions:                    24393665|24393665             (No change)
+  L1 Hits:                         33686500|33686500             (No change)
+  LL Hits:                             7379|7380                 (-0.01355%) [-1.00014x]
+  RAM Hits:                              65|64                   (+1.56250%) [+1.01562x]
+  Total read+write:                33693944|33693944             (No change)
+  Estimated Cycles:                33725670|33725640             (+0.00009%) [+1.00000x]
+instructions::cost::sync_map_scan random:built_sync_map("random")
+  Baselines:                               |base
+  Instructions:                     9601569|9601569              (No change)
+  L1 Hits:                         12754076|12754072             (+0.00003%) [+1.00000x]
+  LL Hits:                            27103|27107                (-0.01476%) [-1.00015x]
+  RAM Hits:                              97|97                   (No change)
+  Total read+write:                12781276|12781276             (No change)
+  Estimated Cycles:                12892986|12893002             (-0.00012%) [-1.00000x]
+instructions::cost::sync_map_scan sequential:built_sync_map("sequential")
+  Baselines:                               |base
+  Instructions:                     3741470|3741470              (No change)
+  L1 Hits:                          4845389|4845384              (+0.00010%) [+1.00000x]
+  LL Hits:                             7299|7300                 (-0.01370%) [-1.00014x]
+  RAM Hits:                              70|74                   (-5.40541%) [-1.05714x]
+  Total read+write:                 4852758|4852758              (No change)
+  Estimated Cycles:                 4884334|4884474              (-0.00287%) [-1.00003x]
+instructions::cost::sync_map_scan clustered:built_sync_map("clustered")
+  Baselines:                               |base
+  Instructions:                     3738117|3738117              (No change)
+  L1 Hits:                          4835221|4835217              (+0.00008%) [+1.00000x]
+  LL Hits:                             7456|7457                 (-0.01341%) [-1.00013x]
+  RAM Hits:                              71|74                   (-4.05405%) [-1.04225x]
+  Total read+write:                 4842748|4842748              (No change)
+  Estimated Cycles:                 4874986|4875092              (-0.00217%) [-1.00002x]
+instructions::cost::sync_set_prev_locked random:built_sync_set("random")
+  Baselines:                               |base
+  Instructions:                    53778718|53778718             (No change)
+  L1 Hits:                         71665859|71665847             (+0.00002%) [+1.00000x]
+  LL Hits:                           166302|166313               (-0.00661%) [-1.00007x]
+  RAM Hits:                             112|113                  (-0.88496%) [-1.00893x]
+  Total read+write:                71832273|71832273             (No change)
+  Estimated Cycles:                72501289|72501367             (-0.00011%) [-1.00000x]
+instructions::cost::sync_set_prev_locked leaf:built_sync_set_leaf_prev("leaf")
+  Baselines:                               |base
+  Instructions:                    35131426|35131426             (No change)
+  L1 Hits:                         45460558|45460559             (-0.00000%) [-1.00000x]
+  LL Hits:                             6353|6353                 (No change)
+  RAM Hits:                              22|21                   (+4.76190%) [+1.04762x]
+  Total read+write:                45466933|45466933             (No change)
+  Estimated Cycles:                45493093|45493059             (+0.00007%) [+1.00000x]
+instructions::cost::sync_set_prev_locked immed:built_sync_set_immed("immed")
+  Baselines:                               |base
+  Instructions:                    75634239|75634239             (No change)
+  L1 Hits:                         98705248|98705243             (+0.00001%) [+1.00000x]
+  LL Hits:                            40405|40412                (-0.01732%) [-1.00017x]
+  RAM Hits:                              68|66                   (+3.03030%) [+1.03030x]
+  Total read+write:                98745721|98745721             (No change)
+  Estimated Cycles:                98909653|98909613             (+0.00004%) [+1.00000x]
+instructions::cost::sync_set_next_after_scan_locked random:built_sync_set("random")
+  Baselines:                               |base
+  Instructions:                    53065136|53065136             (No change)
+  L1 Hits:                         70774641|70774639             (+0.00000%) [+1.00000x]
+  LL Hits:                            25182|25182                (No change)
+  RAM Hits:                             114|116                  (-1.72414%) [-1.01754x]
+  Total read+write:                70799937|70799937             (No change)
+  Estimated Cycles:                70904541|70904609             (-0.00010%) [-1.00000x]
+instructions::cost::sync_set_next_after_scan_locked sequential:built_sync_set("sequential")
+  Baselines:                               |base
+  Instructions:                    50267560|50267560             (No change)
+  L1 Hits:                         67271810|67271808             (+0.00000%) [+1.00000x]
+  LL Hits:                              176|176                  (No change)
+  RAM Hits:                              98|100                  (-2.00000%) [-1.02041x]
+  Total read+write:                67272084|67272084             (No change)
+  Estimated Cycles:                67276120|67276188             (-0.00010%) [-1.00000x]
+instructions::cost::sync_set_next_after_scan_locked clustered:built_sync_set("clustered")
+  Baselines:                               |base
+  Instructions:                    44851331|44851331             (No change)
+  L1 Hits:                         59182319|59182316             (+0.00001%) [+1.00000x]
+  LL Hits:                              389|389                  (No change)
+  RAM Hits:                              99|102                  (-2.94118%) [-1.03030x]
+  Total read+write:                59182807|59182807             (No change)
+  Estimated Cycles:                59187729|59187831             (-0.00017%) [-1.00000x]
+instructions::cost::sync_set_prev random:built_sync_set("random")
+  Baselines:                               |base
+  Instructions:                    30762977|30762977             (No change)
+  L1 Hits:                         42607557|42607529             (+0.00007%) [+1.00000x]
+  LL Hits:                           144432|144460               (-0.01938%) [-1.00019x]
+  RAM Hits:                              82|82                   (No change)
+  Total read+write:                42752071|42752071             (No change)
+  Estimated Cycles:                43332587|43332699             (-0.00026%) [-1.00000x]
+instructions::cost::sync_set_prev leaf:built_sync_set_leaf_prev("leaf")
+  Baselines:                               |base
+  Instructions:                     7002515|7002515              (No change)
+  L1 Hits:                          9379730|9379731              (-0.00001%) [-1.00000x]
+  LL Hits:                             6293|6293                 (No change)
+  RAM Hits:                              23|22                   (+4.54545%) [+1.04545x]
+  Total read+write:                 9386046|9386046              (No change)
+  Estimated Cycles:                 9412000|9411966              (+0.00036%) [+1.00000x]
+instructions::cost::sync_set_prev immed:built_sync_set_immed("immed")
+  Baselines:                               |base
+  Instructions:                    56201161|56201161             (No change)
+  L1 Hits:                         74426265|74426245             (+0.00003%) [+1.00000x]
+  LL Hits:                            38008|38028                (-0.05259%) [-1.00053x]
+  RAM Hits:                              73|73                   (No change)
+  Total read+write:                74464346|74464346             (No change)
+  Estimated Cycles:                74618860|74618940             (-0.00011%) [-1.00000x]
+instructions::cost::sync_set_next_after_scan random:built_sync_set("random")
+  Baselines:                               |base
+  Instructions:                    31642938|31642938             (No change)
+  L1 Hits:                         43804028|43804028             (No change)
+  LL Hits:                            14225|14226                (-0.00703%) [-1.00007x]
+  RAM Hits:                              88|87                   (+1.14943%) [+1.01149x]
+  Total read+write:                43818341|43818341             (No change)
+  Estimated Cycles:                43878233|43878203             (+0.00007%) [+1.00000x]
+instructions::cost::sync_set_next_after_scan sequential:built_sync_set("sequential")
+  Baselines:                               |base
+  Instructions:                    33104693|33104693             (No change)
+  L1 Hits:                         46355155|46355154             (+0.00000%) [+1.00000x]
+  LL Hits:                              128|130                  (-1.53846%) [-1.01562x]
+  RAM Hits:                              71|70                   (+1.42857%) [+1.01429x]
+  Total read+write:                46355354|46355354             (No change)
+  Estimated Cycles:                46358280|46358254             (+0.00006%) [+1.00000x]
+instructions::cost::sync_set_next_after_scan clustered:built_sync_set("clustered")
+  Baselines:                               |base
+  Instructions:                    24004532|24004532             (No change)
+  L1 Hits:                         32700483|32700483             (No change)
+  LL Hits:                              324|325                  (-0.30769%) [-1.00309x]
+  RAM Hits:                              72|71                   (+1.40845%) [+1.01408x]
+  Total read+write:                32700879|32700879             (No change)
+  Estimated Cycles:                32704623|32704593             (+0.00009%) [+1.00000x]
+instructions::cost::sync_map_count_locked random:built_sync_map_count("random")
+  Baselines:                               |base
+  Instructions:                     9869407|9869407              (No change)
+  L1 Hits:                         12355705|12355100             (+0.00490%) [+1.00005x]
+  LL Hits:                            59327|59933                (-1.01113%) [-1.01021x]
+  RAM Hits:                              64|63                   (+1.58730%) [+1.01587x]
+  Total read+write:                12415096|12415096             (No change)
+  Estimated Cycles:                12654580|12656970             (-0.01888%) [-1.00019x]
+instructions::cost::sync_map_count_locked sequential:built_sync_map_count("sequential")
+  Baselines:                               |base
+  Instructions:                     4352271|4352271              (No change)
+  L1 Hits:                          5613678|5613678              (No change)
+  LL Hits:                              428|429                  (-0.23310%) [-1.00234x]
+  RAM Hits:                              47|46                   (+2.17391%) [+1.02174x]
+  Total read+write:                 5614153|5614153              (No change)
+  Estimated Cycles:                 5617463|5617433              (+0.00053%) [+1.00001x]
+instructions::cost::sync_map_count_locked one_top_byte:built_sync_map_count("one_top_byte")
+  Baselines:                               |base
+  Instructions:                     9928937|9928937              (No change)
+  L1 Hits:                         12433890|12435538             (-0.01325%) [-1.00013x]
+  LL Hits:                            63666|62019                (+2.65564%) [+1.02656x]
+  RAM Hits:                              70|69                   (+1.44928%) [+1.01449x]
+  Total read+write:                12497626|12497626             (No change)
+  Estimated Cycles:                12754670|12748048             (+0.05195%) [+1.00052x]
+instructions::cost::sync_map_write_twin random:built_sync_map_count("random")
+  Baselines:                               |base
+  Instructions:                     1574510|1574510              (No change)
+  L1 Hits:                          2228568|2229077              (-0.02283%) [-1.00023x]
+  LL Hits:                             9750|9242                 (+5.49665%) [+1.05497x]
+  RAM Hits:                             238|237                  (+0.42194%) [+1.00422x]
+  Total read+write:                 2238556|2238556              (No change)
+  Estimated Cycles:                 2285648|2283582              (+0.09047%) [+1.00090x]
+instructions::cost::sync_map_write_twin sequential:built_sync_map_count("sequential")
+  Baselines:                               |base
+  Instructions:                     2008212|2008212              (No change)
+  L1 Hits:                          2580200|2580206              (-0.00023%) [-1.00000x]
+  LL Hits:                              401|397                  (+1.00756%) [+1.01008x]
+  RAM Hits:                             189|187                  (+1.06952%) [+1.01070x]
+  Total read+write:                 2580790|2580790              (No change)
+  Estimated Cycles:                 2588820|2588736              (+0.00324%) [+1.00003x]
+instructions::cost::sync_map_write_twin one_top_byte:built_sync_map_count("one_top_byte")
+  Baselines:                               |base
+  Instructions:                     1740532|1740532              (No change)
+  L1 Hits:                          2433643|2433853              (-0.00863%) [-1.00009x]
+  LL Hits:                             9911|9700                 (+2.17526%) [+1.02175x]
+  RAM Hits:                             244|245                  (-0.40816%) [-1.00410x]
+  Total read+write:                 2443798|2443798              (No change)
+  Estimated Cycles:                 2491738|2490928              (+0.03252%) [+1.00033x]
+instructions::cost::sync_map_count_after_write random:built_sync_map_count("random")
+  Baselines:                               |base
+  Instructions:                    34072519|34072519             (No change)
+  L1 Hits:                         44131506|44131882             (-0.00085%) [-1.00001x]
+  LL Hits:                           412013|411636               (+0.09159%) [+1.00092x]
+  RAM Hits:                             301|302                  (-0.33113%) [-1.00332x]
+  Total read+write:                44543820|44543820             (No change)
+  Estimated Cycles:                46202106|46200632             (+0.00319%) [+1.00003x]
+instructions::cost::sync_map_count_after_write sequential:built_sync_map_count("sequential")
+  Baselines:                               |base
+  Instructions:                    14307291|14307291             (No change)
+  L1 Hits:                         19767423|19767759             (-0.00170%) [-1.00002x]
+  LL Hits:                             1323|987                  (+34.0426%) [+1.34043x]
+  RAM Hits:                             230|230                  (No change)
+  Total read+write:                19768976|19768976             (No change)
+  Estimated Cycles:                19782088|19780744             (+0.00679%) [+1.00007x]
+instructions::cost::sync_map_count_after_write one_top_byte:built_sync_map_count("one_top_byte")
+  Baselines:                               |base
+  Instructions:                  1720265591|1720265591           (No change)
+  L1 Hits:                       2320224506|2320220750           (+0.00016%) [+1.00000x]
+  LL Hits:                         11161956|11165709             (-0.03361%) [-1.00034x]
+  RAM Hits:                             308|311                  (-0.96463%) [-1.00974x]
+  Total read+write:              2331386770|2331386770           (No change)
+  Estimated Cycles:              2376045066|2376060180           (-0.00064%) [-1.00001x]
+instructions::cost::sync_set_contains random:built_sync_set("random")
+  Baselines:                               |base
+  Instructions:                    13744164|13744164             (No change)
+  L1 Hits:                         18080312|18080280             (+0.00018%) [+1.00000x]
+  LL Hits:                           125158|125190               (-0.02556%) [-1.00026x]
+  RAM Hits:                              52|52                   (No change)
+  Total read+write:                18205522|18205522             (No change)
+  Estimated Cycles:                18707922|18708050             (-0.00068%) [-1.00001x]
+instructions::cost::sync_set_contains leaf:built_sync_set_leaf("leaf")
+  Baselines:                               |base
+  Instructions:                     6854530|6854530              (No change)
+  L1 Hits:                          9623414|9623415              (-0.00001%) [-1.00000x]
+  LL Hits:                             6265|6265                 (No change)
+  RAM Hits:                              23|22                   (+4.54545%) [+1.04545x]
+  Total read+write:                 9629702|9629702              (No change)
+  Estimated Cycles:                 9655544|9655510              (+0.00035%) [+1.00000x]
+instructions::cost::sync_map_churn random:built_sync_map("random")
+  Baselines:                               |base
+  Instructions:                   115265081|115265081            (No change)
+  L1 Hits:                        161016025|161026924            (-0.00677%) [-1.00007x]
+  LL Hits:                           294204|283307               (+3.84636%) [+1.03846x]
+  RAM Hits:                           11817|11815                (+0.01693%) [+1.00017x]
+  Total read+write:               161322046|161322046            (No change)
+  Estimated Cycles:               162900640|162856984            (+0.02681%) [+1.00027x]
+instructions::cost::sync_map_churn leaf:built_sync_map_leaf("leaf")
+  Baselines:                               |base
+  Instructions:                   124916655|124916655            (No change)
+  L1 Hits:                        174830907|174813260            (+0.01009%) [+1.00010x]
+  LL Hits:                           180884|198531               (-8.88879%) [-1.09756x]
+  RAM Hits:                             720|720                  (No change)
+  Total read+write:               175012511|175012511            (No change)
+  Estimated Cycles:               175760527|175831115            (-0.04015%) [-1.00040x]
+instructions::cost::sync_map_remove random:built_sync_map("random")
+  Baselines:                               |base
+  Instructions:                    46371694|46371694             (No change)
+  L1 Hits:                         65154892|65153930             (+0.00148%) [+1.00001x]
+  LL Hits:                           350140|351102               (-0.27399%) [-1.00275x]
+  RAM Hits:                             532|532                  (No change)
+  Total read+write:                65505564|65505564             (No change)
+  Estimated Cycles:                66924212|66928060             (-0.00575%) [-1.00006x]
+instructions::cost::sync_map_compare_exchange random:built_sync_map("random")
+  Baselines:                               |base
+  Instructions:                    38911802|38911802             (No change)
+  L1 Hits:                         53507838|53507395             (+0.00083%) [+1.00001x]
+  LL Hits:                           163704|164147               (-0.26988%) [-1.00271x]
+  RAM Hits:                             126|126                  (No change)
+  Total read+write:                53671668|53671668             (No change)
+  Estimated Cycles:                54330768|54332540             (-0.00326%) [-1.00003x]
+instructions::cost::sync_map_update random:built_sync_map("random")
+  Baselines:                               |base
+  Instructions:                    38911802|38911802             (No change)
+  L1 Hits:                         53508024|53507837             (+0.00035%) [+1.00000x]
+  LL Hits:                           163518|163705               (-0.11423%) [-1.00114x]
+  RAM Hits:                             126|126                  (No change)
+  Total read+write:                53671668|53671668             (No change)
+  Estimated Cycles:                54330024|54330772             (-0.00138%) [-1.00001x]
+instructions::cost::sync_set_churn random:built_sync_set("random")
+  Baselines:                               |base
+  Instructions:                    89369359|89369359             (No change)
+  L1 Hits:                        124406390|124417245            (-0.00872%) [-1.00009x]
+  LL Hits:                           216190|205340               (+5.28392%) [+1.05284x]
+  RAM Hits:                             151|146                  (+3.42466%) [+1.03425x]
+  Total read+write:               124622731|124622731            (No change)
+  Estimated Cycles:               125492625|125449055            (+0.03473%) [+1.00035x]
+instructions::cost::sync_set_churn leaf:built_sync_set_leaf("leaf")
+  Baselines:                               |base
+  Instructions:                    95910894|95910894             (No change)
+  L1 Hits:                        133933518|133928306            (+0.00389%) [+1.00004x]
+  LL Hits:                             7223|12437                (-41.9233%) [-1.72186x]
+  RAM Hits:                             447|445                  (+0.44944%) [+1.00449x]
+  Total read+write:               133941188|133941188            (No change)
+  Estimated Cycles:               133985278|134006066            (-0.01551%) [-1.00016x]
+instructions::cost::sync_set_remove random:built_sync_set("random")
+  Baselines:                               |base
+  Instructions:                    36337281|36337281             (No change)
+  L1 Hits:                         49781589|49781285             (+0.00061%) [+1.00001x]
+  LL Hits:                           258958|259263               (-0.11764%) [-1.00118x]
+  RAM Hits:                             419|418                  (+0.23923%) [+1.00239x]
+  Total read+write:                50040966|50040966             (No change)
+  Estimated Cycles:                51091044|51092230             (-0.00232%) [-1.00002x]
+instructions::cost::sync_map_drain_floor top:built_sync_map_floor("top")
+  Baselines:                               |base
+  Instructions:                      186680|186680               (No change)
+  L1 Hits:                           252298|252296               (+0.00079%) [+1.00001x]
+  LL Hits:                              119|121                  (-1.65289%) [-1.01681x]
+  RAM Hits:                             375|375                  (No change)
+  Total read+write:                  252792|252792               (No change)
+  Estimated Cycles:                  266018|266026               (-0.00301%) [-1.00003x]
+instructions::cost::sync_set_drain_floor top:built_sync_set_floor("top")
+  Baselines:                               |base
+  Instructions:                      184013|184013               (No change)
+  L1 Hits:                           244203|244192               (+0.00450%) [+1.00005x]
+  LL Hits:                              130|141                  (-7.80142%) [-1.08462x]
+  RAM Hits:                             380|380                  (No change)
+  Total read+write:                  244713|244713               (No change)
+  Estimated Cycles:                  258153|258197               (-0.01704%) [-1.00017x]
+instructions::cost::sync_map_branchu_band top:built_sync_map_band("top")
+  Baselines:                               |base
+  Instructions:                     8383071|8383071              (No change)
+  L1 Hits:                         11121779|11122426             (-0.00582%) [-1.00006x]
+  LL Hits:                            10023|9376                 (+6.90060%) [+1.06901x]
+  RAM Hits:                             392|392                  (No change)
+  Total read+write:                11132194|11132194             (No change)
+  Estimated Cycles:                11185614|11183026             (+0.02314%) [+1.00023x]
+instructions::cost::strmap_get_short short:built_strmap_short("short")
+  Baselines:                               |base
+  Instructions:                    19044950|19333516             (-1.49257%) [-1.01515x]
+  L1 Hits:                         24528901|24767677             (-0.96406%) [-1.00973x]
+  LL Hits:                           449590|449379               (+0.04695%) [+1.00047x]
+  RAM Hits:                              36|37                   (-2.70270%) [-1.02778x]
+  Total read+write:                24978527|25217093             (-0.94605%) [-1.00955x]
+  Estimated Cycles:                26778111|27015867             (-0.88006%) [-1.00888x]
+instructions::cost::sync_strmap_get_short short:built_sync_strmap_short("short")
+  Baselines:                               |base
+  Instructions:                    27290789|27290789             (No change)
+  L1 Hits:                         35966274|35966436             (-0.00045%) [-1.00000x]
+  LL Hits:                           429280|429115               (+0.03845%) [+1.00038x]
+  RAM Hits:                              52|55                   (-5.45455%) [-1.05769x]
+  Total read+write:                36395606|36395606             (No change)
+  Estimated Cycles:                38114494|38113936             (+0.00146%) [+1.00001x]
+instructions::cost::sync_strmap_insert_short short:short_keys("short")
+  Baselines:                               |base
+  Instructions:                    97430458|97430458             (No change)
+  L1 Hits:                        130484464|130497437            (-0.00994%) [-1.00010x]
+  LL Hits:                           684119|671146               (+1.93296%) [+1.01933x]
+  RAM Hits:                           25263|25263                (No change)
+  Total read+write:               131193846|131193846            (No change)
+  Estimated Cycles:               134789264|134737372            (+0.03851%) [+1.00039x]
+instructions::cost::sync_strmap_churn_short short:built_sync_strmap_short("short")
+  Baselines:                               |base
+  Instructions:                   223887556|223837556            (+0.02234%) [+1.00022x]
+  L1 Hits:                        298737436|298890748            (-0.05129%) [-1.00051x]
+  LL Hits:                          1382052|1128745              (+22.4415%) [+1.22441x]
+  RAM Hits:                             256|251                  (+1.99203%) [+1.01992x]
+  Total read+write:               300119744|300019744            (+0.03333%) [+1.00033x]
+  Estimated Cycles:               305656656|304543258            (+0.36560%) [+1.00366x]
+instructions::cost::sync_strmap_insert routes:str_keys("routes")
+  Baselines:                               |base
+  Instructions:                    77311456|77311456             (No change)
+  L1 Hits:                        104874369|104878476            (-0.00392%) [-1.00004x]
+  LL Hits:                           255698|251600               (+1.62878%) [+1.01629x]
+  RAM Hits:                           23049|23040                (+0.03906%) [+1.00039x]
+  Total read+write:               105153116|105153116            (No change)
+  Estimated Cycles:               106959574|106942876            (+0.01561%) [+1.00016x]
+instructions::cost::sync_strmap_remove routes:built_sync_strmap("routes")
+  Baselines:                               |base
+  Instructions:                    84819893|83822683             (+1.18967%) [+1.01190x]
+  L1 Hits:                        114044058|112782226            (+1.11882%) [+1.01119x]
+  LL Hits:                           831829|846447               (-1.72698%) [-1.01757x]
+  RAM Hits:                            4106|4108                 (-0.04869%) [-1.00049x]
+  Total read+write:               114879993|113632781            (+1.09758%) [+1.01098x]
+  Estimated Cycles:               118346913|117158241            (+1.01459%) [+1.01015x]
+instructions::cost::sync_strmap_churn routes:built_sync_strmap("routes")
+  Baselines:                               |base
+  Instructions:                   185747886|184750286            (+0.53997%) [+1.00540x]
+  L1 Hits:                        249364354|248116358            (+0.50299%) [+1.00503x]
+  LL Hits:                           756584|756980               (-0.05231%) [-1.00052x]
+  RAM Hits:                             108|108                  (No change)
+  Total read+write:               250121046|248873446            (+0.50130%) [+1.00501x]
+  Estimated Cycles:               253151054|251905038            (+0.49464%) [+1.00495x]
+instructions::cost::sync_strmap_update routes:built_sync_strmap("routes")
+  Baselines:                               |base
+  Instructions:                    70146456|70648056             (-0.71000%) [-1.00715x]
+  L1 Hits:                         90380602|90782128             (-0.44230%) [-1.00444x]
+  LL Hits:                           702420|702494               (-0.01053%) [-1.00011x]
+  RAM Hits:                              76|76                   (No change)
+  Total read+write:                91083098|91484698             (-0.43898%) [-1.00441x]
+  Estimated Cycles:                93895362|94297258             (-0.42620%) [-1.00428x]
+instructions::cost::sync_strmap_compare_exchange routes:built_sync_strmap("routes")
+  Baselines:                               |base
+  Instructions:                   115506123|116007723            (-0.43239%) [-1.00434x]
+  L1 Hits:                        151047755|151450176            (-0.26571%) [-1.00266x]
+  LL Hits:                           706204|705385               (+0.11611%) [+1.00116x]
+  RAM Hits:                             130|128                  (+1.56250%) [+1.01562x]
+  Total read+write:               151754089|152155689            (-0.26394%) [-1.00265x]
+  Estimated Cycles:               154583325|154981581            (-0.25697%) [-1.00258x]
+instructions::cost::sync_strmap_insert_sorted uuid:uuid_keys_sorted("uuid")
+  Baselines:                               |base
+  Instructions:                    46012066|46012066             (No change)
+  L1 Hits:                         61304189|61301051             (+0.00512%) [+1.00005x]
+  LL Hits:                           221608|224756               (-1.40063%) [-1.01421x]
+  RAM Hits:                           30853|30843                (+0.03242%) [+1.00032x]
+  Total read+write:                61556650|61556650             (No change)
+  Estimated Cycles:                63492084|63504336             (-0.01929%) [-1.00019x]
+instructions::cost::sync_strmap_scan_locked paths:built_sync_path_strmap("paths")
+  Baselines:                               |base
+  Instructions:                     9180110|9180110              (No change)
+  L1 Hits:                         13840718|13840701             (+0.00012%) [+1.00000x]
+  LL Hits:                            75151|75220                (-0.09173%) [-1.00092x]
+  RAM Hits:                             731|679                  (+7.65832%) [+1.07658x]
+  Total read+write:                13916600|13916600             (No change)
+  Estimated Cycles:                14242058|14240566             (+0.01048%) [+1.00010x]
+instructions::cost::sync_strmap_scan_locked paths_dense:built_sync_path_strmap("paths_dense")
+  Baselines:                               |base
+  Instructions:                    13600083|13600083             (No change)
+  L1 Hits:                         19881719|19881712             (+0.00004%) [+1.00000x]
+  LL Hits:                            67293|67335                (-0.06237%) [-1.00062x]
+  RAM Hits:                             691|656                  (+5.33537%) [+1.05335x]
+  Total read+write:                19949703|19949703             (No change)
+  Estimated Cycles:                20242369|20241347             (+0.00505%) [+1.00005x]
+instructions::cost::sync_strmap_next_after_scan_locked paths:built_sync_path_strmap("paths")
+  Baselines:                               |base
+  Instructions:                   114870529|114870529            (No change)
+  L1 Hits:                        158283675|158283952            (-0.00018%) [-1.00000x]
+  LL Hits:                            85745|85504                (+0.28186%) [+1.00282x]
+  RAM Hits:                             574|538                  (+6.69145%) [+1.06691x]
+  Total read+write:               158369994|158369994            (No change)
+  Estimated Cycles:               158732490|158730302            (+0.00138%) [+1.00001x]
+instructions::cost::sync_strmap_next_after_scan_locked paths_dense:built_sync_path_strmap("paths_dense")
+  Baselines:                               |base
+  Instructions:                   131344696|131344696            (No change)
+  L1 Hits:                        180596999|180596994            (+0.00000%) [+1.00000x]
+  LL Hits:                            69288|69319                (-0.04472%) [-1.00045x]
+  RAM Hits:                             508|482                  (+5.39419%) [+1.05394x]
+  Total read+write:               180666795|180666795            (No change)
+  Estimated Cycles:               180961219|180960459            (+0.00042%) [+1.00000x]
+instructions::cost::sync_strmap_scan_pointops paths:built_sync_path_strmap("paths")
+  Baselines:                               |base
+  Instructions:                   178436661|178436661            (No change)
+  L1 Hits:                        252030151|252030136            (+0.00001%) [+1.00000x]
+  LL Hits:                            84980|85019                (-0.04587%) [-1.00046x]
+  RAM Hits:                             709|685                  (+3.50365%) [+1.03504x]
+  Total read+write:               252115840|252115840            (No change)
+  Estimated Cycles:               252479866|252479206            (+0.00026%) [+1.00000x]
+instructions::cost::sync_strmap_scan_pointops paths_dense:built_sync_path_strmap("paths_dense")
+  Baselines:                               |base
+  Instructions:                   168808302|168808302            (No change)
+  L1 Hits:                        240536904|240536901            (+0.00000%) [+1.00000x]
+  LL Hits:                            71354|71369                (-0.02102%) [-1.00021x]
+  RAM Hits:                             566|554                  (+2.16606%) [+1.02166x]
+  Total read+write:               240608824|240608824            (No change)
+  Estimated Cycles:               240913484|240913136            (+0.00014%) [+1.00000x]
+instructions::cost::sync_strmap_scan paths:built_sync_path_strmap("paths")
+  Baselines:                               |base
+  Instructions:                    18900148|18900148             (No change)
+  L1 Hits:                         26047639|26048143             (-0.00193%) [-1.00002x]
+  LL Hits:                            81169|80713                (+0.56496%) [+1.00565x]
+  RAM Hits:                             838|790                  (+6.07595%) [+1.06076x]
+  Total read+write:                26129646|26129646             (No change)
+  Estimated Cycles:                26482814|26479358             (+0.01305%) [+1.00013x]
+instructions::cost::sync_strmap_scan paths_dense:built_sync_path_strmap("paths_dense")
+  Baselines:                               |base
+  Instructions:                    33485286|33485286             (No change)
+  L1 Hits:                         45854079|45854199             (-0.00026%) [-1.00000x]
+  LL Hits:                            71164|71070                (+0.13226%) [+1.00132x]
+  RAM Hits:                             846|820                  (+3.17073%) [+1.03171x]
+  Total read+write:                45926089|45926089             (No change)
+  Estimated Cycles:                46239509|46238249             (+0.00273%) [+1.00003x]
+instructions::cost::sync_strmap_short_scan user22:built_sync_strmap_short_scan("user22")
+  Baselines:                               |base
+  Instructions:                    91462771|91462771             (No change)
+  L1 Hits:                        153023830|153023497            (+0.00022%) [+1.00000x]
+  LL Hits:                           789555|789871               (-0.04001%) [-1.00040x]
+  RAM Hits:                           21631|21648                (-0.07853%) [-1.00079x]
+  Total read+write:               153835016|153835016            (No change)
+  Estimated Cycles:               157728690|157730532            (-0.00117%) [-1.00001x]
+instructions::cost::sync_strmap_short_scan_capped user22:built_sync_strmap_short_scan("user22")
+  Baselines:                               |base
+  Instructions:                    63560324|63560324             (No change)
+  L1 Hits:                        114802131|114800480            (+0.00144%) [+1.00001x]
+  LL Hits:                           573354|574995               (-0.28539%) [-1.00286x]
+  RAM Hits:                           17686|17696                (-0.05651%) [-1.00057x]
+  Total read+write:               115393171|115393171            (No change)
+  Estimated Cycles:               118287911|118294815            (-0.00584%) [-1.00006x]
+instructions::cost::sync_strmap_mem_used routes:built_sync_strmap("routes")
+  Baselines:                               |base
+  Instructions:                     5701733|5701733              (No change)
+  L1 Hits:                          7833623|7833625              (-0.00003%) [-1.00000x]
+  LL Hits:                           118390|118388               (+0.00169%) [+1.00002x]
+  RAM Hits:                              20|20                   (No change)
+  Total read+write:                 7952033|7952033              (No change)
+  Estimated Cycles:                 8426273|8426265              (+0.00009%) [+1.00000x]
+instructions::cost::sync_strmap_mem_used short:built_sync_strmap_short("short")
+  Baselines:                               |base
+  Instructions:                     5701831|5701831              (No change)
+  L1 Hits:                          7883410|7883410              (No change)
+  LL Hits:                            68721|68721                (No change)
+  RAM Hits:                              13|13                   (No change)
+  Total read+write:                 7952144|7952144              (No change)
+  Estimated Cycles:                 8227470|8227470              (No change)
+instructions::cost::sync_bytesmap_insert routes:str_keys("routes")
+  Baselines:                               |base
+  Instructions:                   108219307|108219307            (No change)
+  L1 Hits:                        145651700|145657558            (-0.00402%) [-1.00004x]
+  LL Hits:                           394780|388934               (+1.50308%) [+1.01503x]
+  RAM Hits:                          187777|187765               (+0.00639%) [+1.00006x]
+  Total read+write:               146234257|146234257            (No change)
+  Estimated Cycles:               154197795|154174003            (+0.01543%) [+1.00015x]
+instructions::cost::sync_bytesmap_remove routes:built_sync_bytesmap("routes")
+  Baselines:                               |base
+  Instructions:                   132717345|132716403            (+0.00071%) [+1.00001x]
+  L1 Hits:                        182536948|182568877            (-0.01749%) [-1.00017x]
+  LL Hits:                          1272135|1238381              (+2.72566%) [+1.02726x]
+  RAM Hits:                          184460|184430               (+0.01627%) [+1.00016x]
+  Total read+write:               183993543|183991688            (+0.00101%) [+1.00001x]
+  Estimated Cycles:               195353723|195215832            (+0.07064%) [+1.00071x]
+instructions::cost::sync_bytesmap_churn routes:built_sync_bytesmap("routes")
+  Baselines:                               |base
+  Instructions:                   252046474|252046474            (No change)
+  L1 Hits:                        343583507|343443717            (+0.04070%) [+1.00041x]
+  LL Hits:                          2572025|2711784              (-5.15377%) [-1.05434x]
+  RAM Hits:                          167357|167388               (-0.01852%) [-1.00019x]
+  Total read+write:               346322889|346322889            (No change)
+  Estimated Cycles:               362301127|362861217            (-0.15435%) [-1.00155x]
+instructions::cost::sync_blobmap_insert random:keys("random")
+  Baselines:                               |base
+  Instructions:                    53204618|53204618             (No change)
+  L1 Hits:                         74203931|74203558             (+0.00050%) [+1.00001x]
+  LL Hits:                           287319|287690               (-0.12896%) [-1.00129x]
+  RAM Hits:                           57693|57695                (-0.00347%) [-1.00003x]
+  Total read+write:                74548943|74548943             (No change)
+  Estimated Cycles:                77659781|77661333             (-0.00200%) [-1.00002x]
+instructions::cost::sync_blobmap_remove random:built_sync_blobmap("random")
+  Baselines:                               |base
+  Instructions:                    48201547|48201547             (No change)
+  L1 Hits:                         67134410|67140205             (-0.00863%) [-1.00009x]
+  LL Hits:                           425825|420030               (+1.37966%) [+1.01380x]
+  RAM Hits:                             513|513                  (No change)
+  Total read+write:                67560748|67560748             (No change)
+  Estimated Cycles:                69281490|69258310             (+0.03347%) [+1.00033x]
+instructions::cost::sync_blobmap_remove_miss random:built_sync_blobmap_misses("random")
+  Baselines:                               |base
+  Instructions:                    17373871|17373871             (No change)
+  L1 Hits:                         24644573|24644483             (+0.00037%) [+1.00000x]
+  LL Hits:                            97072|97162                (-0.09263%) [-1.00093x]
+  RAM Hits:                              58|58                   (No change)
+  Total read+write:                24741703|24741703             (No change)
+  Estimated Cycles:                25131963|25132323             (-0.00143%) [-1.00001x]
+instructions::cost::sync_blobmap_churn random:built_sync_blobmap("random")
+  Baselines:                               |base
+  Instructions:                   117988176|117988176            (No change)
+  L1 Hits:                        167540989|167540449            (+0.00032%) [+1.00000x]
+  LL Hits:                           579871|580414               (-0.09355%) [-1.00094x]
+  RAM Hits:                           50368|50365                (+0.00596%) [+1.00006x]
+  Total read+write:               168171228|168171228            (No change)
+  Estimated Cycles:               172203224|172205294            (-0.00120%) [-1.00001x]
+instructions::cost::bytesmap_remove routes:built_bytesmap("routes")
+  Baselines:                               |base
+  Instructions:                    83782765|83776336             (+0.00767%) [+1.00008x]
+  L1 Hits:                        112984717|112952151            (+0.02883%) [+1.00029x]
+  LL Hits:                          1097691|1097167              (+0.04776%) [+1.00048x]
+  RAM Hits:                          170974|170968               (+0.00351%) [+1.00004x]
+  Total read+write:               114253382|114220286            (+0.02898%) [+1.00029x]
+  Estimated Cycles:               124457262|124421866            (+0.02845%) [+1.00028x]
+instructions::cost::bytesmap_overwrite routes:built_bytesmap("routes")
+  Baselines:                               |base
+  Instructions:                    33971379|33971379             (No change)
+  L1 Hits:                         44712879|44712895             (-0.00004%) [-1.00000x]
+  LL Hits:                           398842|398835               (+0.00176%) [+1.00002x]
+  RAM Hits:                          143506|143497               (+0.00627%) [+1.00006x]
+  Total read+write:                45255227|45255227             (No change)
+  Estimated Cycles:                51729799|51729465             (+0.00065%) [+1.00001x]
+instructions::cost::blobmap_insert random:keys("random")
+  Baselines:                               |base
+  Instructions:                    29922987|29922966             (+0.00007%) [+1.00000x]
+  L1 Hits:                         42378847|42378390             (+0.00108%) [+1.00001x]
+  LL Hits:                           206369|206769               (-0.19345%) [-1.00194x]
+  RAM Hits:                           53548|53551                (-0.00560%) [-1.00006x]
+  Total read+write:                42638764|42638710             (+0.00013%) [+1.00000x]
+  Estimated Cycles:                45284872|45286520             (-0.00364%) [-1.00004x]
+instructions::cost::blobmap_insert_inline random:keys("random")
+  Baselines:                               |base
+  Instructions:                    27522335|27522314             (+0.00008%) [+1.00000x]
+  L1 Hits:                         38309929|38309396             (+0.00139%) [+1.00001x]
+  LL Hits:                           199414|199889               (-0.23763%) [-1.00238x]
+  RAM Hits:                           28525|28529                (-0.01402%) [-1.00014x]
+  Total read+write:                38537868|38537814             (+0.00014%) [+1.00000x]
+  Estimated Cycles:                40305374|40307356             (-0.00492%) [-1.00005x]
+instructions::cost::blobmap_get random:built_blobmap("random")
+  Baselines:                               |base
+  Instructions:                    10467493|10494112             (-0.25366%) [-1.00254x]
+  L1 Hits:                         13783674|13783858             (-0.00133%) [-1.00001x]
+  LL Hits:                           209661|209394               (+0.12751%) [+1.00128x]
+  RAM Hits:                              27|26                   (+3.84615%) [+1.03846x]
+  Total read+write:                13993362|13993278             (+0.00060%) [+1.00001x]
+  Estimated Cycles:                14832924|14831738             (+0.00800%) [+1.00008x]
+instructions::cost::blobmap_remove random:built_blobmap("random")
+  Baselines:                               |base
+  Instructions:                    24497851|24497851             (No change)
+  L1 Hits:                         32805144|32804902             (+0.00074%) [+1.00001x]
+  LL Hits:                           298445|298684               (-0.08002%) [-1.00080x]
+  RAM Hits:                             962|965                  (-0.31088%) [-1.00312x]
+  Total read+write:                33104551|33104551             (No change)
+  Estimated Cycles:                34331039|34332097             (-0.00308%) [-1.00003x]
+instructions::cost::blobmap_overwrite random:built_blobmap("random")
+  Baselines:                               |base
+  Instructions:                    18618867|18618867             (No change)
+  L1 Hits:                         26109348|26109395             (-0.00018%) [-1.00000x]
+  LL Hits:                           215347|215299               (+0.02229%) [+1.00022x]
+  RAM Hits:                           25016|25017                (-0.00400%) [-1.00004x]
+  Total read+write:                26349711|26349711             (No change)
+  Estimated Cycles:                28061643|28061485             (+0.00056%) [+1.00001x]
+instructions::cost::blobmap_churn random:built_blobmap("random")
+  Baselines:                               |base
+  Instructions:                    70836639|70836639             (No change)
+  L1 Hits:                         98221445|98220903             (+0.00055%) [+1.00001x]
+  LL Hits:                           337992|338531               (-0.15922%) [-1.00159x]
+  RAM Hits:                           50207|50210                (-0.00597%) [-1.00006x]
+  Total read+write:                98609644|98609644             (No change)
+  Estimated Cycles:               101668650|101670908            (-0.00222%) [-1.00002x]
+instructions::cost::blobmap_compact random:built_blobmap_garbage("random")
+  Baselines:                               |base
+  Instructions:                    18928382|18955001             (-0.14043%) [-1.00141x]
+  L1 Hits:                         25867425|25867357             (+0.00026%) [+1.00000x]
+  LL Hits:                           144279|144274               (+0.00347%) [+1.00003x]
+  RAM Hits:                           37646|37635                (+0.02923%) [+1.00029x]
+  Total read+write:                26049350|26049266             (+0.00032%) [+1.00000x]
+  Estimated Cycles:                27906430|27905952             (+0.00171%) [+1.00002x]
+instructions::cost::blobmap_insert_reclaiming random:built_blobmap_reclaiming("random")
+  Baselines:                               |base
+  Instructions:                      501023|501023               (No change)
+  L1 Hits:                           799620|799654               (-0.00425%) [-1.00004x]
+  LL Hits:                              104|69                   (+50.7246%) [+1.50725x]
+  RAM Hits:                              16|17                   (-5.88235%) [-1.06250x]
+  Total read+write:                  799740|799740               (No change)
+  Estimated Cycles:                  800700|800594               (+0.01324%) [+1.00013x]
+instructions::cost::sync_bytesmap_get routes:built_sync_bytesmap("routes")
+  Baselines:                               |base
+  Instructions:                    31329993|31329993             (No change)
+  L1 Hits:                         39653458|39653444             (+0.00004%) [+1.00000x]
+  LL Hits:                           392912|392960               (-0.01221%) [-1.00012x]
+  RAM Hits:                          151770|151736               (+0.02241%) [+1.00022x]
+  Total read+write:                40198140|40198140             (No change)
+  Estimated Cycles:                46929968|46929004             (+0.00205%) [+1.00002x]
+instructions::cost::sync_bytesmap_overwrite routes:built_sync_bytesmap("routes")
+  Baselines:                               |base
+  Instructions:                    55091194|55091194             (No change)
+  L1 Hits:                         72993263|72993211             (+0.00007%) [+1.00000x]
+  LL Hits:                           393873|393954               (-0.02056%) [-1.00021x]
+  RAM Hits:                          152009|151980               (+0.01908%) [+1.00019x]
+  Total read+write:                73539145|73539145             (No change)
+  Estimated Cycles:                80282943|80282281             (+0.00082%) [+1.00001x]
+instructions::cost::sync_bytesmap_update routes:built_sync_bytesmap_rmw("routes")
+  Baselines:                               |base
+  Instructions:                    96845738|96872581             (-0.02771%) [-1.00028x]
+  L1 Hits:                        127181001|127180709            (+0.00023%) [+1.00000x]
+  LL Hits:                           406755|407230               (-0.11664%) [-1.00117x]
+  RAM Hits:                          152153|152130               (+0.01512%) [+1.00015x]
+  Total read+write:               127739909|127740069            (-0.00013%) [-1.00000x]
+  Estimated Cycles:               134540131|134541409            (-0.00095%) [-1.00001x]
+instructions::cost::sync_bytesmap_compare_exchange routes:built_sync_bytesmap_rmw("routes")
+  Baselines:                               |base
+  Instructions:                   123320123|123346966            (-0.02176%) [-1.00022x]
+  L1 Hits:                        161626549|161626519            (+0.00002%) [+1.00000x]
+  LL Hits:                           406923|407160               (-0.05821%) [-1.00058x]
+  RAM Hits:                          152578|152531               (+0.03081%) [+1.00031x]
+  Total read+write:               162186050|162186210            (-0.00010%) [-1.00000x]
+  Estimated Cycles:               169001394|169000904            (+0.00029%) [+1.00000x]
+instructions::cost::sync_blobmap_get random:built_sync_blobmap("random")
+  Baselines:                               |base
+  Instructions:                    18384367|18384367             (No change)
+  L1 Hits:                         24173841|24173814             (+0.00011%) [+1.00000x]
+  LL Hits:                           220777|220806               (-0.01313%) [-1.00013x]
+  RAM Hits:                              68|66                   (+3.03030%) [+1.03030x]
+  Total read+write:                24394686|24394686             (No change)
+  Estimated Cycles:                25280106|25280154             (-0.00019%) [-1.00000x]
+instructions::cost::sync_blobmap_get_into random:built_sync_blobmap("random")
+  Baselines:                               |base
+  Instructions:                    18893268|18893268             (No change)
+  L1 Hits:                         25303053|25303016             (+0.00015%) [+1.00000x]
+  LL Hits:                           250471|250508               (-0.01477%) [-1.00015x]
+  RAM Hits:                              70|70                   (No change)
+  Total read+write:                25553594|25553594             (No change)
+  Estimated Cycles:                26557858|26558006             (-0.00056%) [-1.00001x]
+instructions::cost::sync_blobmap_overwrite random:built_sync_blobmap("random")
+  Baselines:                               |base
+  Instructions:                    31249194|31249194             (No change)
+  L1 Hits:                         44376468|44376390             (+0.00018%) [+1.00000x]
+  LL Hits:                           240687|240762               (-0.03115%) [-1.00031x]
+  RAM Hits:                           25069|25072                (-0.01197%) [-1.00012x]
+  Total read+write:                44642224|44642224             (No change)
+  Estimated Cycles:                46457318|46457720             (-0.00087%) [-1.00001x]
+instructions::cost::sync_blobmap_compare_exchange random:built_sync_blobmap("random")
+  Baselines:                               |base
+  Instructions:                    48138504|48138504             (No change)
+  L1 Hits:                         66802394|66802187             (+0.00031%) [+1.00000x]
+  LL Hits:                           259075|259284               (-0.08061%) [-1.00081x]
+  RAM Hits:                           25078|25076                (+0.00798%) [+1.00008x]
+  Total read+write:                67086547|67086547             (No change)
+  Estimated Cycles:                68975499|68976267             (-0.00111%) [-1.00001x]
+instructions::cost::sync_blobmap_compact random:built_sync_blobmap_garbage("random")
+  Baselines:                               |base
+  Instructions:                    18929136|18955755             (-0.14043%) [-1.00141x]
+  L1 Hits:                         25859851|25859775             (+0.00029%) [+1.00000x]
+  LL Hits:                           153011|153009               (+0.00131%) [+1.00001x]
+  RAM Hits:                           37689|37683                (+0.01592%) [+1.00016x]
+  Total read+write:                26050551|26050467             (+0.00032%) [+1.00000x]
+  Estimated Cycles:                27944021|27943725             (+0.00106%) [+1.00001x]
+instructions::cost::sync_blobmap_insert_reclaiming random:built_sync_blobmap_reclaiming("random")
+  Baselines:                               |base
+  Instructions:                      694127|694127               (No change)
+  L1 Hits:                          1081519|1081661              (-0.01313%) [-1.00013x]
+  LL Hits:                             2609|2468                 (+5.71313%) [+1.05713x]
+  RAM Hits:                             236|235                  (+0.42553%) [+1.00426x]
+  Total read+write:                 1084364|1084364              (No change)
+  Estimated Cycles:                 1102824|1102226              (+0.05425%) [+1.00054x]
+instructions::cost::sync_blobmap_reclaim_free random:built_sync_blobmap_reclaim_free("random")
+  Baselines:                               |base
+  Instructions:                      269595|269595               (No change)
+  L1 Hits:                           375244|375257               (-0.00346%) [-1.00003x]
+  LL Hits:                             3207|3195                 (+0.37559%) [+1.00376x]
+  RAM Hits:                              17|16                   (+6.25000%) [+1.06250x]
+  Total read+write:                  378468|378468               (No change)
+  Estimated Cycles:                  391874|391792               (+0.02093%) [+1.00021x]
+instructions::range_cost::map_range random:built_map("random")
+  Baselines:                               |base
+  Instructions:                       65203|65203                (No change)
+  L1 Hits:                            91828|91826                (+0.00218%) [+1.00002x]
+  LL Hits:                              466|466                  (No change)
+  RAM Hits:                              97|99                   (-2.02020%) [-1.02062x]
+  Total read+write:                   92391|92391                (No change)
+  Estimated Cycles:                   97553|97621                (-0.06966%) [-1.00070x]
+instructions::range_cost::map_range sequential:built_map("sequential")
+  Baselines:                               |base
+  Instructions:                      404420|404420               (No change)
+  L1 Hits:                           552203|552201               (+0.00036%) [+1.00000x]
+  LL Hits:                             1775|1775                 (No change)
+  RAM Hits:                              70|72                   (-2.77778%) [-1.02857x]
+  Total read+write:                  554048|554048               (No change)
+  Estimated Cycles:                  563528|563596               (-0.01207%) [-1.00012x]
+instructions::range_cost::map_range clustered:built_map("clustered")
+  Baselines:                               |base
+  Instructions:                      345423|345423               (No change)
+  L1 Hits:                           473039|473033               (+0.00127%) [+1.00001x]
+  LL Hits:                             1601|1605                 (-0.24922%) [-1.00250x]
+  RAM Hits:                              89|91                   (-2.19780%) [-1.02247x]
+  Total read+write:                  474729|474729               (No change)
+  Estimated Cycles:                  484159|484243               (-0.01735%) [-1.00017x]
+instructions::range_cost::set_range random:built_set("random")
+  Baselines:                               |base
+  Instructions:                       69310|69310                (No change)
+  L1 Hits:                            98980|98980                (No change)
+  LL Hits:                              394|394                  (No change)
+  RAM Hits:                             120|120                  (No change)
+  Total read+write:                   99494|99494                (No change)
+  Estimated Cycles:                  105150|105150               (No change)
+instructions::range_cost::set_range sequential:built_set("sequential")
+  Baselines:                               |base
+  Instructions:                      202667|202667               (No change)
+  L1 Hits:                           308577|308576               (+0.00032%) [+1.00000x]
+  LL Hits:                               86|86                   (No change)
+  RAM Hits:                              58|59                   (-1.69492%) [-1.01724x]
+  Total read+write:                  308721|308721               (No change)
+  Estimated Cycles:                  311037|311071               (-0.01093%) [-1.00011x]
+instructions::range_cost::set_range clustered:built_set("clustered")
+  Baselines:                               |base
+  Instructions:                      255346|255346               (No change)
+  L1 Hits:                           357144|357143               (+0.00028%) [+1.00000x]
+  LL Hits:                              206|206                  (No change)
+  RAM Hits:                              87|88                   (-1.13636%) [-1.01149x]
+  Total read+write:                  357437|357437               (No change)
+  Estimated Cycles:                  361219|361253               (-0.00941%) [-1.00009x]
+
+Iai-Callgrind result: Ok. 298 without regressions; 0 regressed; 298 benchmarks finished in 1012.20s
