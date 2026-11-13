@@ -1,0 +1,267 @@
+{
+ "instrument": "wasmtime-fuel",
+ "target": "wasm64-unknown-unknown",
+ "wasmtime": "48.0.0",
+ "rustc": "rustc 1.100.0-nightly (2e2b193f8 2026-09-02)",
+ "host": "Linux x86_64",
+ "commit": "unknown",
+ "pop": 10000,
+ "arms": [
+  {
+   "name": "map_insert/sequential",
+   "fuel": 3043623,
+   "fuel_setup": 713579,
+   "fuel_total": 3757202,
+   "per_op": 304.3623,
+   "checksum": "0x00000000009cd8d0"
+  },
+  {
+   "name": "map_insert/clustered",
+   "fuel": 10320755,
+   "fuel_setup": 811080,
+   "fuel_total": 11131835,
+   "per_op": 1032.0755,
+   "checksum": "0x0000000001e267d0"
+  },
+  {
+   "name": "map_insert/random",
+   "fuel": 14669559,
+   "fuel_setup": 9926490,
+   "fuel_total": 24596049,
+   "per_op": 1466.9559,
+   "checksum": "0x4e514a77d296c44c"
+  },
+  {
+   "name": "map_get/sequential",
+   "fuel": 1537697,
+   "fuel_setup": 9197325,
+   "fuel_total": 10735022,
+   "per_op": 153.7697,
+   "checksum": "0x23da6cf36655a027"
+  },
+  {
+   "name": "map_get/clustered",
+   "fuel": 2288192,
+   "fuel_setup": 16571104,
+   "fuel_total": 18859296,
+   "per_op": 228.8192,
+   "checksum": "0x-578e3dcf6dbcc28d"
+  },
+  {
+   "name": "map_get/random",
+   "fuel": 1705904,
+   "fuel_setup": 30473415,
+   "fuel_total": 32179319,
+   "per_op": 170.5904,
+   "checksum": "0x431ce1ffb7f7ace6"
+  },
+  {
+   "name": "map_iterate/sequential",
+   "fuel": 801282,
+   "fuel_setup": 3127779,
+   "fuel_total": 3929061,
+   "per_op": 80.1282,
+   "checksum": "0x-3de476c1fba4ffef"
+  },
+  {
+   "name": "map_iterate/clustered",
+   "fuel": 905884,
+   "fuel_setup": 10502610,
+   "fuel_total": 11408494,
+   "per_op": 90.5884,
+   "checksum": "0x63b610ff9c1676bf"
+  },
+  {
+   "name": "map_iterate/random",
+   "fuel": 2318786,
+   "fuel_setup": 23966433,
+   "fuel_total": 26285219,
+   "per_op": 231.8786,
+   "checksum": "0x-61fc8138b95acd08"
+  },
+  {
+   "name": "map_range/sequential",
+   "fuel": 1123591,
+   "fuel_setup": 3404620,
+   "fuel_total": 4528211,
+   "per_op": 112.3591,
+   "checksum": "0x-3de476c53ed0ffef"
+  },
+  {
+   "name": "map_range/clustered",
+   "fuel": 1253243,
+   "fuel_setup": 10779581,
+   "fuel_total": 12032824,
+   "per_op": 125.3243,
+   "checksum": "0x63b610fb596276bf"
+  },
+  {
+   "name": "map_range/random",
+   "fuel": 2618312,
+   "fuel_setup": 27535248,
+   "fuel_total": 30153560,
+   "per_op": 261.8312,
+   "checksum": "0x-61fc813c7c2ecd08"
+  },
+  {
+   "name": "map_remove/sequential",
+   "fuel": 7520049,
+   "fuel_setup": 3758199,
+   "fuel_total": 11278248,
+   "per_op": 752.0049,
+   "checksum": "0x44efa402e01b2cbc"
+  },
+  {
+   "name": "map_remove/clustered",
+   "fuel": 10892604,
+   "fuel_setup": 11133095,
+   "fuel_total": 22025699,
+   "per_op": 1089.2604,
+   "checksum": "0x700b7be8584b15b4"
+  },
+  {
+   "name": "map_remove/random",
+   "fuel": 6305460,
+   "fuel_setup": 24596918,
+   "fuel_total": 30902378,
+   "per_op": 630.546,
+   "checksum": "0x-198666bee6b48d68"
+  },
+  {
+   "name": "set_insert/sequential",
+   "fuel": 1520858,
+   "fuel_setup": 713579,
+   "fuel_total": 2234437,
+   "per_op": 152.0858,
+   "checksum": "0x0000000000a1c6d0"
+  },
+  {
+   "name": "set_insert/clustered",
+   "fuel": 8707791,
+   "fuel_setup": 811080,
+   "fuel_total": 9518871,
+   "per_op": 870.7791,
+   "checksum": "0x0000000001e705d0"
+  },
+  {
+   "name": "set_insert/random",
+   "fuel": 12156598,
+   "fuel_setup": 9926490,
+   "fuel_total": 22083088,
+   "per_op": 1215.6598,
+   "checksum": "0x4e514a77d29be24c"
+  },
+  {
+   "name": "set_contains/sequential",
+   "fuel": 1460461,
+   "fuel_setup": 7483362,
+   "fuel_total": 8943823,
+   "per_op": 146.0461,
+   "checksum": "0x64604b980399e777"
+  },
+  {
+   "name": "set_contains/clustered",
+   "fuel": 2526610,
+   "fuel_setup": 14767274,
+   "fuel_total": 17293884,
+   "per_op": 252.661,
+   "checksum": "0x64604b980399e777"
+  },
+  {
+   "name": "set_contains/random",
+   "fuel": 1844063,
+   "fuel_setup": 27749022,
+   "fuel_total": 29593085,
+   "per_op": 184.4063,
+   "checksum": "0x652b66bfc2c0a338"
+  },
+  {
+   "name": "set_iterate/sequential",
+   "fuel": 257377,
+   "fuel_setup": 1544679,
+   "fuel_total": 1802056,
+   "per_op": 25.7377,
+   "checksum": "0x2ad2f6ce118f7ee8"
+  },
+  {
+   "name": "set_iterate/clustered",
+   "fuel": 1803013,
+   "fuel_setup": 8829385,
+   "fuel_total": 10632398,
+   "per_op": 180.3013,
+   "checksum": "0x-4188a41ac6093d4e"
+  },
+  {
+   "name": "set_iterate/random",
+   "fuel": 2530748,
+   "fuel_setup": 21393531,
+   "fuel_total": 23924279,
+   "per_op": 253.0748,
+   "checksum": "0x-32b371b47fc49f78"
+  },
+  {
+   "name": "set_range/sequential",
+   "fuel": 566651,
+   "fuel_setup": 1821650,
+   "fuel_total": 2388301,
+   "per_op": 56.6651,
+   "checksum": "0x2ad2f6cad4fb7ee8"
+  },
+  {
+   "name": "set_range/clustered",
+   "fuel": 2234456,
+   "fuel_setup": 9106356,
+   "fuel_total": 11340812,
+   "per_op": 223.4456,
+   "checksum": "0x-4188a41e037d3d4e"
+  },
+  {
+   "name": "set_range/random",
+   "fuel": 2833528,
+   "fuel_setup": 24962335,
+   "fuel_total": 27795863,
+   "per_op": 283.3528,
+   "checksum": "0x-32b371b0bab09f78"
+  },
+  {
+   "name": "set_remove/sequential",
+   "fuel": 6215599,
+   "fuel_setup": 2175158,
+   "fuel_total": 8390757,
+   "per_op": 621.5599,
+   "checksum": "0x0000000000a1e1c0"
+  },
+  {
+   "name": "set_remove/clustered",
+   "fuel": 9736560,
+   "fuel_setup": 9459864,
+   "fuel_total": 19196424,
+   "per_op": 973.656,
+   "checksum": "0x0000000001e722c0"
+  },
+  {
+   "name": "set_remove/random",
+   "fuel": 7030907,
+   "fuel_setup": 22024010,
+   "fuel_total": 29054917,
+   "per_op": 703.0907,
+   "checksum": "0x4e514a77d29bc55c"
+  }
+ ],
+ "mem_used_bytes": {
+  "map/sequential": 85840,
+  "map/clustered": 131424,
+  "map/random": 239456,
+  "set/sequential": 912,
+  "set/clustered": 31456,
+  "set/random": 212064
+ },
+ "mem_used_bytes_per_key": {
+  "map/sequential": 8.584,
+  "map/clustered": 13.1424,
+  "map/random": 23.9456,
+  "set/sequential": 0.0912,
+  "set/clustered": 3.1456,
+  "set/random": 21.2064
+ }
+}

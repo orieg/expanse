@@ -1320,6 +1320,57 @@ Every pre-registered target and bound holds in both runs, on the phase clock and
 
 **Zen 5 pending.** That host's bench lock is held by another job, which this measurement does not run beside or disturb. #1680's two-host condition is not yet tested on main.
 
+## Negative: the lookup walks' keys offset from a table
+
+**A recorded negative** (#1680; the change was pull request #1726, closed unmerged). It replaced `cap_class`'s compare chain in the lookup walks (`walk_map_impl`, `step_map`, `locate_slot_impl`) with a 64-entry `u16` table read at `pop & 63`, to remove the `common.rs:19`/`:21` mispredicts that [the attribution diagnostic](#diagnostic-where-the-1680-shapes-mispredict-and-miss) found. Its pre-registration is in `docs/BENCHMARKING.md`, "Pre-registration: the lookup walks' keys offset from a table"; the verdict is **FAIL**, with two instruments outside their bounds. Arms: G, the head `b05bc0295` (libexpanse sha256 `ad9e3b33…`); M, its merge base `9b4df014a` (`cf291603…`); S, stock (`76f121a8…`).
+
+### Increment runs (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `b05bc0295`, binary `490c0595…`; artifacts `results/diagnostic_increment_keyoff_ref_run{1,2}.json`) (workloads: every cell of METHODOLOGY.md §5)
+
+**Hygiene.** Run 1 ran 22:21:17–22:31:30 UTC on 2026-11-12, and run 2 06:41:09–06:51:23 on 2026-11-13, each under the bench lock. 720 processes per run and none discarded; max load1 4.95 and 4.93 against a void limit of 12. Run 2 reused the libraries built for run 1 after a sha256 check. Two lapses, neither inside a timed run:
+- after run 1, a polling loop of this measurement's watcher opened an ssh connection to the host at a fixed interval from 22:56 to 00:16 UTC, while nothing of this measurement ran (its process match matched itself);
+- run 2 was first launched at 05:47:26 inside another job's booked window, which was idle at that moment, and was killed, with its own process group only, at 05:47:58, before its first round finished.
+
+**Target met.** `sng_sm_judy_default` gets G/M, BCa 95%: W = 1 1.038 [1.035, 1.041] and 1.039 [1.036, 1.043]; W = 8 1.039 [1.037, 1.041] and 1.039 [1.036, 1.040]. The G/S verdict stays SLOWER at both W.
+
+**Bounds L1 and L2 fail on `sng_judy_1k` finds**, G/M in both runs:
+
+| W | G/M run 1 | G/M run 2 | G/S verdict | M/S verdict |
+|---|---|---|---|---|
+| 1 | 0.975 [0.966, 0.986] | 0.969 [0.959, 0.978] | SLOWER | EQUIVALENT |
+| 2 | 0.968 [0.959, 0.977] | 0.971 [0.961, 0.980] | SLOWER | EQUIVALENT |
+| 4 | 0.970 [0.965, 0.977] | 0.970 [0.963, 0.978] | SLOWER | EQUIVALENT |
+| 8 | 0.970 [0.958, 0.976] | 0.970 [0.966, 0.974] | SLOWER | FASTER |
+
+Why the 1k finds lose is not measured. A hypothesis, unmeasured: on a small tree whose leaves share a size class, `cap_class`'s branches predict and yield the offset as a constant, while the table puts a dependent load in front of the key load.
+
+### Instruction counts
+
+- **x86-64 deterministic and smoke** (CI run [43312193022](https://github.com/orieg/expanse/actions/runs/43312193022) at `b05bc0295`): every arm at most +0.038% and +0.0007%.
+- **AArch64 smoke** (same run): `map_get random` +1.034% (853,284 against 844,549), over the +0.1% bound. A local replica reproduces it to 13 Ir (Callgrind 3.24.0, Debian trixie arm64 container, rustc 1.99.1; `results/callgrind_1680/keyoff/aarch64_smoke_head_vs_base.txt`). All of the +8,735 Ir sit in the lookup walk inlined into the bench loop. Of the 10,000 gets, 2,113 reach a linear leaf. On each of them the head runs one 34-instruction path. M runs a 22-instruction path, and its `cap_class` branch chain (`cmp #0x11`, `#0x19`, `#0x21`, each arm calling `leaf::search` with a constant offset) adds 16,623 Ir, 7.9 per visit on this key mix. The head's path holds the table's `and`/`ldrh`/`add`, an `adrp`/`add` rematerialisation and six register moves around its `bl leaf::search`, none of which M's has (`results/callgrind_1680/keyoff/aarch64_map_get_random_walk_instr.txt`).
+- **x86-64 with `-C target-cpu=x86-64-v3`** (a diagnostic, not a pre-registered instrument; Callgrind 3.22.0, Ubuntu 24.04 container, rustc 1.99.1; `results/callgrind_1680/keyoff/x86_64_v3_instructions_head_vs_base.txt`): 4 of 298 arms over +0.1%, `map_get clustered` +2.302%, `sync_strmap_remove` +1.190%, `map_get sequential` +0.893% and `sync_strmap_churn` +0.540%, while `map_get random` is −0.586% and `map_get dense_leaf` −4.220%. The `sync_strmap_*` paths do not contain the change.
+- **wasm32 and wasm64 fuel** (base against head built in one container, wasmtime 48.0.0; `results/callgrind_1680/keyoff/wasm_fuel_*.json`): no arm above +0.1%; wasm64 `map_get random` −1.20%, `map_get clustered` −3.17%.
+
+**Reading.** Whether the table saves or costs instructions depends on how the walk is inlined into each caller under each `target-cpu`, not on `target_arch`, so a `cfg(target_arch)` gate would key on the wrong variable.
+
+### Mispredicts, head against base (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `0e0030af2` (`run.sh <run> ref misp_increment`, `SNG_PHASE_SET=gets_inc`), the design of [the attribution diagnostic](#diagnostic-where-the-1680-shapes-mispredict-and-miss) with arms G, M and S; artifacts `results/diagnostic_misp_increment_keyoff_ref_run{1,2}.json`, perf text in `results/misp_increment_raw/`) (workloads: phase_sm_default, phase_sm_big, phase_judy_4m)
+
+Runs at 06:54:13–06:54:18 and 06:54:18–06:54:23 UTC, each under the bench lock. Events per operation, samples × 503 / operations:
+
+| Shape | Kind | G run 1 | G run 2 | M run 1 | M run 2 |
+|---|---|---|---|---|---|
+| `sm_default` | mispredicts | 1.099 | 1.090 | 1.231 | 1.233 |
+| `sm_default` | L1D-miss loads | 1.234 | 1.200 | 1.275 | 1.204 |
+| `sm_big` | mispredicts | 0.669 | 0.673 | 0.668 | 0.667 |
+| `sm_big` | L1D-miss loads | 2.539 | 2.448 | 2.558 | 2.487 |
+
+On `sm_default` the table removes 0.13–0.14 mispredicts per get, and M's `cap_class` sites (`cmp $0x11,%rsi` with 0.157 of M's run-1 samples, `cmp $0x19,%rsi` with 0.090) are absent from G's. L1D misses do not move, so the gets' gain is consistent with fewer mispredicts. `judy_4m`'s L1D-miss rate for M reads 3.784 and 2.128 in the two runs and is not read.
+
+**Not run.** The verdict was FAIL before them, so the `compare` pairings, the second host and the `concurrency` report were not run for this change.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

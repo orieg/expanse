@@ -1,0 +1,3107 @@
+{
+ "provenance": {
+  "suite": "stressng_comparison",
+  "issue": 1680,
+  "commit": "0e0030af2",
+  "host": {
+   "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+   "cpus_online": 24,
+   "cpu_core_cpus": "0-15",
+   "cpu_atom_cpus": "16-23",
+   "cpu0_thread_siblings": "0-1",
+   "scaling_driver": "intel_pstate",
+   "scaling_governor": "powersave",
+   "scaling_governor_by_cpu": {
+    "0": "powersave",
+    "2": "powersave",
+    "4": "powersave",
+    "6": "powersave",
+    "8": "powersave",
+    "10": "powersave",
+    "12": "powersave",
+    "14": "powersave"
+   },
+   "scaling_governor_pin_set": "0,2,4,6,8,10,12,14",
+   "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+   "transparent_hugepage": "always [madvise] never",
+   "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+   "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+  },
+  "estimators": {
+   "ratio": "share of the run's samples per function and per instruction, one process per (shape, arm); a census, no interval",
+   "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+   "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+  },
+  "core_pin": "0,2,4,6,8,10,12,14",
+  "loads": [
+   {
+    "label": "start",
+    "since": null,
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:14Z",
+    "stat_busy_jiffies": 62543429,
+    "stat_total_jiffies": 5843485292,
+    "child_cpu_s": 0.07,
+    "monotonic_s": 2435680.281,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "record:sm_default:G:br_misp_retired.all_branches",
+    "since": "start",
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:14Z",
+    "stat_busy_jiffies": 62543429,
+    "stat_total_jiffies": 5843485292,
+    "child_cpu_s": 0.07,
+    "monotonic_s": 2435680.281,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "record:sm_default:G:mem_load_retired.l1_miss",
+    "since": "record:sm_default:G:br_misp_retired.all_branches",
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:14Z",
+    "stat_busy_jiffies": 62543449,
+    "stat_total_jiffies": 5843485799,
+    "child_cpu_s": 0.257,
+    "monotonic_s": 2435680.493,
+    "busy_cpus_since_prev": 0.95,
+    "own_busy_cpus_since_prev": 0.89,
+    "foreign_busy_cpus_since_prev": 0.06
+   },
+   {
+    "label": "record:sm_default:M:br_misp_retired.all_branches",
+    "since": "record:sm_default:G:mem_load_retired.l1_miss",
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:14Z",
+    "stat_busy_jiffies": 62543468,
+    "stat_total_jiffies": 5843486260,
+    "child_cpu_s": 0.44,
+    "monotonic_s": 2435680.685,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 0.95,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "record:sm_default:M:mem_load_retired.l1_miss",
+    "since": "record:sm_default:M:br_misp_retired.all_branches",
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:14Z",
+    "stat_busy_jiffies": 62543486,
+    "stat_total_jiffies": 5843486694,
+    "child_cpu_s": 0.615,
+    "monotonic_s": 2435680.867,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 0.97,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "record:sm_default:S:br_misp_retired.all_branches",
+    "since": "record:sm_default:M:mem_load_retired.l1_miss",
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:15Z",
+    "stat_busy_jiffies": 62543508,
+    "stat_total_jiffies": 5843487213,
+    "child_cpu_s": 0.82,
+    "monotonic_s": 2435681.083,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 0.95,
+    "foreign_busy_cpus_since_prev": 0.07
+   },
+   {
+    "label": "record:sm_default:S:mem_load_retired.l1_miss",
+    "since": "record:sm_default:S:br_misp_retired.all_branches",
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:15Z",
+    "stat_busy_jiffies": 62543525,
+    "stat_total_jiffies": 5843487635,
+    "child_cpu_s": 0.991,
+    "monotonic_s": 2435681.259,
+    "busy_cpus_since_prev": 0.97,
+    "own_busy_cpus_since_prev": 0.97,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "record:sm_big:G:br_misp_retired.all_branches",
+    "since": "record:sm_default:S:mem_load_retired.l1_miss",
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:15Z",
+    "stat_busy_jiffies": 62543541,
+    "stat_total_jiffies": 5843488024,
+    "child_cpu_s": 1.15,
+    "monotonic_s": 2435681.422,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 0.98,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "record:sm_big:G:mem_load_retired.l1_miss",
+    "since": "record:sm_big:G:br_misp_retired.all_branches",
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:15Z",
+    "stat_busy_jiffies": 62543564,
+    "stat_total_jiffies": 5843488549,
+    "child_cpu_s": 1.362,
+    "monotonic_s": 2435681.641,
+    "busy_cpus_since_prev": 1.05,
+    "own_busy_cpus_since_prev": 0.97,
+    "foreign_busy_cpus_since_prev": 0.08
+   },
+   {
+    "label": "record:sm_big:M:br_misp_retired.all_branches",
+    "since": "record:sm_big:G:mem_load_retired.l1_miss",
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:15Z",
+    "stat_busy_jiffies": 62543587,
+    "stat_total_jiffies": 5843489123,
+    "child_cpu_s": 1.594,
+    "monotonic_s": 2435681.881,
+    "busy_cpus_since_prev": 0.96,
+    "own_busy_cpus_since_prev": 0.97,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "record:sm_big:M:mem_load_retired.l1_miss",
+    "since": "record:sm_big:M:br_misp_retired.all_branches",
+    "load1": 0.22,
+    "load5": 2.02,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:16Z",
+    "stat_busy_jiffies": 62543606,
+    "stat_total_jiffies": 5843489589,
+    "child_cpu_s": 1.785,
+    "monotonic_s": 2435682.075,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 0.98,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "record:sm_big:S:br_misp_retired.all_branches",
+    "since": "record:sm_big:M:mem_load_retired.l1_miss",
+    "load1": 0.28,
+    "load5": 2.0,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:16Z",
+    "stat_busy_jiffies": 62543631,
+    "stat_total_jiffies": 5843490190,
+    "child_cpu_s": 2.029,
+    "monotonic_s": 2435682.326,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 0.97,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "record:sm_big:S:mem_load_retired.l1_miss",
+    "since": "record:sm_big:S:br_misp_retired.all_branches",
+    "load1": 0.28,
+    "load5": 2.0,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:16Z",
+    "stat_busy_jiffies": 62543652,
+    "stat_total_jiffies": 5843490713,
+    "child_cpu_s": 2.244,
+    "monotonic_s": 2435682.544,
+    "busy_cpus_since_prev": 0.96,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": -0.03
+   },
+   {
+    "label": "record:judy_4m:G:br_misp_retired.all_branches",
+    "since": "record:sm_big:S:mem_load_retired.l1_miss",
+    "load1": 0.28,
+    "load5": 2.0,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:16Z",
+    "stat_busy_jiffies": 62543676,
+    "stat_total_jiffies": 5843491290,
+    "child_cpu_s": 2.479,
+    "monotonic_s": 2435682.785,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 0.98,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "record:judy_4m:G:mem_load_retired.l1_miss",
+    "since": "record:judy_4m:G:br_misp_retired.all_branches",
+    "load1": 0.28,
+    "load5": 2.0,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:17Z",
+    "stat_busy_jiffies": 62543713,
+    "stat_total_jiffies": 5843492141,
+    "child_cpu_s": 2.814,
+    "monotonic_s": 2435683.14,
+    "busy_cpus_since_prev": 1.04,
+    "own_busy_cpus_since_prev": 0.94,
+    "foreign_busy_cpus_since_prev": 0.1
+   },
+   {
+    "label": "record:judy_4m:M:br_misp_retired.all_branches",
+    "since": "record:judy_4m:G:mem_load_retired.l1_miss",
+    "load1": 0.28,
+    "load5": 2.0,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:17Z",
+    "stat_busy_jiffies": 62543756,
+    "stat_total_jiffies": 5843493138,
+    "child_cpu_s": 3.224,
+    "monotonic_s": 2435683.557,
+    "busy_cpus_since_prev": 1.04,
+    "own_busy_cpus_since_prev": 0.98,
+    "foreign_busy_cpus_since_prev": 0.06
+   },
+   {
+    "label": "record:judy_4m:M:mem_load_retired.l1_miss",
+    "since": "record:judy_4m:M:br_misp_retired.all_branches",
+    "load1": 0.28,
+    "load5": 2.0,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:17Z",
+    "stat_busy_jiffies": 62543789,
+    "stat_total_jiffies": 5843493907,
+    "child_cpu_s": 3.528,
+    "monotonic_s": 2435683.877,
+    "busy_cpus_since_prev": 1.03,
+    "own_busy_cpus_since_prev": 0.95,
+    "foreign_busy_cpus_since_prev": 0.08
+   },
+   {
+    "label": "record:judy_4m:S:br_misp_retired.all_branches",
+    "since": "record:judy_4m:M:mem_load_retired.l1_miss",
+    "load1": 0.28,
+    "load5": 2.0,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:18Z",
+    "stat_busy_jiffies": 62543823,
+    "stat_total_jiffies": 5843494718,
+    "child_cpu_s": 3.837,
+    "monotonic_s": 2435684.217,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 0.91,
+    "foreign_busy_cpus_since_prev": 0.1
+   },
+   {
+    "label": "record:judy_4m:S:mem_load_retired.l1_miss",
+    "since": "record:judy_4m:S:br_misp_retired.all_branches",
+    "load1": 0.28,
+    "load5": 2.0,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:18Z",
+    "stat_busy_jiffies": 62543849,
+    "stat_total_jiffies": 5843495346,
+    "child_cpu_s": 4.094,
+    "monotonic_s": 2435684.479,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 0.98,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "end",
+    "since": "record:judy_4m:S:mem_load_retired.l1_miss",
+    "load1": 0.28,
+    "load5": 2.0,
+    "load15": 1.73,
+    "at": "2026-11-13T06:54:18Z",
+    "stat_busy_jiffies": 62543888,
+    "stat_total_jiffies": 5843496257,
+    "child_cpu_s": 4.465,
+    "monotonic_s": 2435684.859,
+    "busy_cpus_since_prev": 1.03,
+    "own_busy_cpus_since_prev": 0.98,
+    "foreign_busy_cpus_since_prev": 0.05
+   }
+  ],
+  "host_label": "ref",
+  "run": 1,
+  "diagnostic": "mispredicted-branch and L1D-miss attribution on the #1680 shapes, outside METHODOLOGY.md's pre-registration",
+  "attribution": "misp",
+  "kinds": {
+   "misp": [
+    [
+     "br_misp_retired.all_branches",
+     "upp"
+    ]
+   ],
+   "l1miss": [
+    [
+     "mem_load_retired.l1_miss",
+     "upp"
+    ]
+   ]
+  },
+  "probe": "scripts/phase_probe.c",
+  "shapes": [
+   [
+    "sm_default",
+    200,
+    4000000
+   ],
+   [
+    "sm_big",
+    1,
+    2000000
+   ],
+   [
+    "judy_4m",
+    1,
+    4194304
+   ]
+  ],
+  "arms": {
+   "G": "/var/tmp/stressng-eval/expcompat-b05bc0295/lib",
+   "M": "/var/tmp/stressng-eval/expcompat-9b4df014a/lib",
+   "S": "/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu"
+  },
+  "pmu": "cpu_core",
+  "period": 503,
+  "perf_version": "perf version 6.8.12",
+  "sha256": {
+   "probe": "d08917e4db9f3d25b5664a7a9e89dfdf6fcacea1e32ad9cff224b8adeb970e9e",
+   "arm_G": "ad9e3b339e56e4f3d9ada815569142b2dd97ac634906f75e3204fb81a36d689b",
+   "arm_M": "cf2916037dc65b240e13f24fb02e12772b91be685978524cb4d11f8cb7c85aa0",
+   "arm_S": "76f121a81b7d8b019e7c5f3bc43e8ead5f7f6a99b377ea7afb9f1d6ff483d731"
+  }
+ },
+ "cells": [
+  {
+   "workload_id": "phase_sm_default",
+   "arm": "G",
+   "kind": "misp",
+   "ops": 4000000,
+   "event": "br_misp_retired.all_branches",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "br_misp_retired.all_branches",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 2081000 sink 0\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_default:G:br_misp_retired.all_branches",
+    "wall_s": 0.137,
+    "busy_cpus_since_prev": 0.95,
+    "own_busy_cpus": 0.91,
+    "foreign_busy_cpus": 0.04
+   },
+   "samples": 8741.8734,
+   "perf_script_samples": 8741,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 54.91,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    },
+    {
+     "pct": 45.01,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 53.51,
+     "samples": 2105.0834,
+     "addr": "228cf5",
+     "insn": "cmp    %bl,0x8(%r11)",
+     "share": 0.2408046083119895
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 39.2,
+     "samples": 1542.1280000000002,
+     "addr": "228cf9",
+     "insn": "je     228e31 <expanse_trie::get::locate_slot_popcnt+0x1e1>",
+     "share": 0.17640703879330946
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 30.17,
+     "samples": 1448.16,
+     "addr": "22a917",
+     "insn": "ja     22a930 <expanse_trie::leaf::search+0x990>",
+     "share": 0.1656578554432051
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 22.96,
+     "samples": 1102.08,
+     "addr": "22a5b5",
+     "insn": "jae    22a8eb <expanse_trie::leaf::search+0x94b>",
+     "share": 0.12606908720503776
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 21.5,
+     "samples": 1032.0,
+     "addr": "22a600",
+     "insn": "jne    22a5f0 <expanse_trie::leaf::search+0x650>",
+     "share": 0.11805249890715644
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 20.12,
+     "samples": 965.7600000000001,
+     "addr": "22a914",
+     "insn": "cmp    %r10,%r8",
+     "share": 0.11047517572148781
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 5.36,
+     "samples": 210.8624,
+     "addr": "229089",
+     "insn": "test   $0x1,%cl",
+     "share": 0.024120962447248435
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 3.0,
+     "samples": 144.0,
+     "addr": "22a605",
+     "insn": "jae    22ab63 <expanse_trie::leaf::search+0xbc3>",
+     "share": 0.016472441707975318
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_default",
+   "arm": "G",
+   "kind": "l1miss",
+   "ops": 4000000,
+   "event": "mem_load_retired.l1_miss",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "mem_load_retired.l1_miss",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 2081000 sink 0\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_default:G:mem_load_retired.l1_miss",
+    "wall_s": 0.143,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus": 0.99,
+    "foreign_busy_cpus": -0.01
+   },
+   "samples": 9817.0,
+   "perf_script_samples": 9817,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 61.74,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    },
+    {
+     "pct": 30.43,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    },
+    {
+     "pct": 7.83,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 57.19,
+     "samples": 3466.2859,
+     "addr": "22a5db",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.35309013955383517
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "local_pct": 94.98,
+     "samples": 2837.0526000000004,
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.28899384740755835
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 28.82,
+     "samples": 1746.7802000000001,
+     "addr": "22a5f4",
+     "insn": "cmp    -0x4(%rdi,%rax,4),%r8d",
+     "share": 0.1779342161556484
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 13.99,
+     "samples": 847.9339,
+     "addr": "22a910",
+     "insn": "mov    (%rdi,%r9,4),%r10d",
+     "share": 0.08637403483752674
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 99.09,
+     "samples": 762.0021,
+     "addr": "228d33",
+     "insn": "cmpb   $0x4,0x4f(%rbx,%rcx,1)",
+     "share": 0.07762066822858307
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "local_pct": 5.02,
+     "samples": 149.9474,
+     "addr": "21cd",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.015274258938575938
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_default",
+   "arm": "M",
+   "kind": "misp",
+   "ops": 4000000,
+   "event": "br_misp_retired.all_branches",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "br_misp_retired.all_branches",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 2081000 sink 0\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_default:M:br_misp_retired.all_branches",
+    "wall_s": 0.129,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus": 0.99,
+    "foreign_busy_cpus": 0.01
+   },
+   "samples": 9786.660599999997,
+   "perf_script_samples": 9786,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 67.5,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 32.49,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 32.8,
+     "samples": 2166.7679999999996,
+     "addr": "228c75",
+     "insn": "cmp    %bl,0x8(%r11)",
+     "share": 0.2214001372439543
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 23.78,
+     "samples": 1570.9068,
+     "addr": "228c79",
+     "insn": "je     228db1 <expanse_trie::get::locate_slot_popcnt+0x1e1>",
+     "share": 0.1605150995018669
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 23.25,
+     "samples": 1535.895,
+     "addr": "228fe5",
+     "insn": "cmp    $0x11,%rsi",
+     "share": 0.15693759728420545
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 47.25,
+     "samples": 1502.0774999999999,
+     "addr": "22a8b7",
+     "insn": "ja     22a8d0 <expanse_trie::leaf::search+0x990>",
+     "share": 0.153482128520938
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 30.01,
+     "samples": 954.0179,
+     "addr": "22a8b4",
+     "insn": "cmp    %r10,%r8",
+     "share": 0.09748145347964762
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 13.37,
+     "samples": 883.2221999999999,
+     "addr": "228ffd",
+     "insn": "cmp    $0x19,%rsi",
+     "share": 0.09024755594364846
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 14.41,
+     "samples": 458.0939,
+     "addr": "22a5a0",
+     "insn": "jne    22a590 <expanse_trie::leaf::search+0x650>",
+     "share": 0.0468079888251157
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 3.88,
+     "samples": 256.3128,
+     "addr": "229027",
+     "insn": "test   $0x1,%cl",
+     "share": 0.026190016234955572
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 5.91,
+     "samples": 187.8789,
+     "addr": "22a5a5",
+     "insn": "jae    22ab03 <expanse_trie::leaf::search+0xbc3>",
+     "share": 0.019197447186428438
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_default",
+   "arm": "M",
+   "kind": "l1miss",
+   "ops": 4000000,
+   "event": "mem_load_retired.l1_miss",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "mem_load_retired.l1_miss",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 2081000 sink 0\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_default:M:mem_load_retired.l1_miss",
+    "wall_s": 0.142,
+    "busy_cpus_since_prev": 1.06,
+    "own_busy_cpus": 0.99,
+    "foreign_busy_cpus": 0.07
+   },
+   "samples": 10136.0,
+   "perf_script_samples": 10136,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 63.71,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    },
+    {
+     "pct": 26.36,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    },
+    {
+     "pct": 9.93,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 58.11,
+     "samples": 3752.7437999999997,
+     "addr": "22a57b",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.37023912786108915
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "local_pct": 95.55,
+     "samples": 2553.096,
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.2518839779005525
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 28.34,
+     "samples": 1830.1971999999998,
+     "addr": "22a594",
+     "insn": "cmp    -0x4(%rdi,%rax,4),%r8d",
+     "share": 0.1805640489344909
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 99.2,
+     "samples": 997.952,
+     "addr": "228cb3",
+     "insn": "cmpb   $0x4,0x4f(%rbx,%rcx,1)",
+     "share": 0.0984561957379637
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 13.55,
+     "samples": 875.0590000000001,
+     "addr": "22a8b0",
+     "insn": "mov    (%rdi,%r9,4),%r10d",
+     "share": 0.08633178768745067
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "local_pct": 4.45,
+     "samples": 118.90400000000001,
+     "addr": "21cd",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.011730860299921075
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_default",
+   "arm": "S",
+   "kind": "misp",
+   "ops": 4000000,
+   "event": "br_misp_retired.all_branches",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "br_misp_retired.all_branches",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 2081000 sink 0\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_default:S:br_misp_retired.all_branches",
+    "wall_s": 0.147,
+    "busy_cpus_since_prev": 0.95,
+    "own_busy_cpus": 0.99,
+    "foreign_busy_cpus": -0.04
+   },
+   "samples": 3866.0,
+   "perf_script_samples": 3866,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 99.72,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 59.58,
+     "samples": 2296.809,
+     "addr": "f64d",
+     "insn": "ja     f630 <JudyLGet@@Base+0x510>",
+     "share": 0.594104759441283
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 31.75,
+     "samples": 1223.9625,
+     "addr": "f649",
+     "insn": "cmp    $0x1,%rax",
+     "share": 0.3165966114847388
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 3.89,
+     "samples": 149.95950000000002,
+     "addr": "f65a",
+     "insn": "je     f660 <JudyLGet@@Base+0x540>",
+     "share": 0.03878931712364201
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 3.71,
+     "samples": 143.0205,
+     "addr": "f653",
+     "insn": "je     f65c <JudyLGet@@Base+0x53c>",
+     "share": 0.03699443869632695
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_default",
+   "arm": "S",
+   "kind": "l1miss",
+   "ops": 4000000,
+   "event": "mem_load_retired.l1_miss",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "mem_load_retired.l1_miss",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 2081000 sink 0\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_default:S:mem_load_retired.l1_miss",
+    "wall_s": 0.134,
+    "busy_cpus_since_prev": 0.97,
+    "own_busy_cpus": 0.99,
+    "foreign_busy_cpus": -0.02
+   },
+   "samples": 9720.210000000001,
+   "perf_script_samples": 9721,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 81.27,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    },
+    {
+     "pct": 18.73,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 82.2,
+     "samples": 6493.8,
+     "addr": "f637",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.6680719860990657
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "local_pct": 96.05,
+     "samples": 1749.0705,
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.17994163706339678
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 6.39,
+     "samples": 504.81,
+     "addr": "f376",
+     "insn": "cmpb   $0x18,0xf(%rax)",
+     "share": 0.05193406315295657
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 5.8,
+     "samples": 458.2,
+     "addr": "f1d9",
+     "insn": "movzbl 0xf(%rdi),%ecx",
+     "share": 0.047138899262464486
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 5.53,
+     "samples": 436.87,
+     "addr": "f1cf",
+     "insn": "cmpb   $0x34,0xf(%rdi)",
+     "share": 0.04494450222783252
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_big",
+   "arm": "G",
+   "kind": "misp",
+   "ops": 2000000,
+   "event": "br_misp_retired.all_branches",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "br_misp_retired.all_branches",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 1000093 sink 100359\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_big:G:br_misp_retired.all_branches",
+    "wall_s": 0.168,
+    "busy_cpus_since_prev": 0.96,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": -0.04
+   },
+   "samples": 2659.1151999999997,
+   "perf_script_samples": 2659,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 56.64,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 43.32,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 85.52,
+     "samples": 1287.9312,
+     "addr": "228cf5",
+     "insn": "cmp    %bl,0x8(%r11)",
+     "share": 0.4843457703524842
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 75.52,
+     "samples": 869.9904,
+     "addr": "22a600",
+     "insn": "jne    22a5f0 <expanse_trie::leaf::search+0x650>",
+     "share": 0.32717288818476165
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 13.28,
+     "samples": 199.9968,
+     "addr": "228cf9",
+     "insn": "je     228e31 <expanse_trie::get::locate_slot_popcnt+0x1e1>",
+     "share": 0.0752117847320041
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 17.19,
+     "samples": 198.02880000000002,
+     "addr": "22a605",
+     "insn": "jae    22ab63 <expanse_trie::leaf::search+0xbc3>",
+     "share": 0.07447168892870833
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 3.73,
+     "samples": 42.9696,
+     "addr": "22a135",
+     "insn": "cmp    $0x4,%rsi",
+     "share": 0.01615936007586283
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_big",
+   "arm": "G",
+   "kind": "l1miss",
+   "ops": 2000000,
+   "event": "mem_load_retired.l1_miss",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "mem_load_retired.l1_miss",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 1000093 sink 100359\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_big:G:mem_load_retired.l1_miss",
+    "wall_s": 0.191,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": -0.01
+   },
+   "samples": 10094.953800000001,
+   "perf_script_samples": 10095,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 47.67,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 43.09,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    },
+    {
+     "pct": 9.23,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 87.32,
+     "samples": 4201.8384,
+     "addr": "228d33",
+     "insn": "cmpb   $0x4,0x4f(%rbx,%rcx,1)",
+     "share": 0.4162315631399917
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 87.24,
+     "samples": 3794.9399999999996,
+     "addr": "22a5db",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.3759244544536696
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "local_pct": 100.0,
+     "samples": 932.0,
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.09232335466458498
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 10.99,
+     "samples": 478.065,
+     "addr": "22a5f4",
+     "insn": "cmp    -0x4(%rdi,%rax,4),%r8d",
+     "share": 0.04735682891386783
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 6.5,
+     "samples": 312.78000000000003,
+     "addr": "228c6a",
+     "insn": "movzbl 0xf(%rdi),%r11d",
+     "share": 0.030983797072949456
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 4.63,
+     "samples": 222.7956,
+     "addr": "228d21",
+     "insn": "mov    (%rdi),%rbx",
+     "share": 0.022069996991962458
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_big",
+   "arm": "M",
+   "kind": "misp",
+   "ops": 2000000,
+   "event": "br_misp_retired.all_branches",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "br_misp_retired.all_branches",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 1000093 sink 100359\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_big:M:br_misp_retired.all_branches",
+    "wall_s": 0.167,
+    "busy_cpus_since_prev": 0.96,
+    "own_busy_cpus": 0.99,
+    "foreign_busy_cpus": -0.03
+   },
+   "samples": 2654.6782000000003,
+   "perf_script_samples": 2655,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 60.6,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 39.36,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 78.74,
+     "samples": 1266.9266,
+     "addr": "228c75",
+     "insn": "cmp    %bl,0x8(%r11)",
+     "share": 0.47724300444400375
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 75.22,
+     "samples": 786.049,
+     "addr": "22a5a0",
+     "insn": "jne    22a590 <expanse_trie::leaf::search+0x650>",
+     "share": 0.2960995423098739
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 11.25,
+     "samples": 181.01250000000002,
+     "addr": "228c79",
+     "insn": "je     228db1 <expanse_trie::get::locate_slot_popcnt+0x1e1>",
+     "share": 0.0681862306323983
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 16.84,
+     "samples": 175.97799999999998,
+     "addr": "22a5a5",
+     "insn": "jae    22ab03 <expanse_trie::leaf::search+0xbc3>",
+     "share": 0.06628976724937884
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 8.51,
+     "samples": 136.92589999999998,
+     "addr": "228fe9",
+     "insn": "jae    228ff8 <expanse_trie::get::locate_slot_popcnt+0x428>",
+     "share": 0.051579095349485286
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 6.12,
+     "samples": 63.95400000000001,
+     "addr": "22a0d5",
+     "insn": "cmp    $0x4,%rsi",
+     "share": 0.024091055556187565
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_big",
+   "arm": "M",
+   "kind": "l1miss",
+   "ops": 2000000,
+   "event": "mem_load_retired.l1_miss",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "mem_load_retired.l1_miss",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 1000093 sink 100359\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_big:M:mem_load_retired.l1_miss",
+    "wall_s": 0.177,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": 0.02
+   },
+   "samples": 10172.0,
+   "perf_script_samples": 10172,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 46.55,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt"
+    },
+    {
+     "pct": 42.9,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search"
+    },
+    {
+     "pct": 10.55,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 87.16,
+     "samples": 4127.026,
+     "addr": "228cb3",
+     "insn": "cmpb   $0x4,0x4f(%rbx,%rcx,1)",
+     "share": 0.4057241447109713
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 87.47,
+     "samples": 3817.1908000000003,
+     "addr": "22a57b",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.37526453008257965
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "local_pct": 100.0,
+     "samples": 1073.0,
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.10548564687377114
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::leaf::search",
+     "local_pct": 11.02,
+     "samples": 480.91279999999995,
+     "addr": "22a594",
+     "insn": "cmp    -0x4(%rdi,%rax,4),%r8d",
+     "share": 0.04727809673613841
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 5.17,
+     "samples": 244.7995,
+     "addr": "228bea",
+     "insn": "movzbl 0xf(%rdi),%r11d",
+     "share": 0.024066014549744396
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::get::locate_slot_popcnt",
+     "local_pct": 4.63,
+     "samples": 219.2305,
+     "addr": "228ca1",
+     "insn": "mov    (%rdi),%rbx",
+     "share": 0.021552349587101848
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_big",
+   "arm": "S",
+   "kind": "misp",
+   "ops": 2000000,
+   "event": "br_misp_retired.all_branches",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "br_misp_retired.all_branches",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 1000093 sink 100359\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_big:S:br_misp_retired.all_branches",
+    "wall_s": 0.2,
+    "busy_cpus_since_prev": 0.95,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": -0.05
+   },
+   "samples": 2079.2079,
+   "perf_script_samples": 2079,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 100.0,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 60.56,
+     "samples": 1259.0424,
+     "addr": "f649",
+     "insn": "cmp    $0x1,%rax",
+     "share": 0.6055394460553946
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 30.16,
+     "samples": 627.0264,
+     "addr": "f64d",
+     "insn": "ja     f630 <JudyLGet@@Base+0x510>",
+     "share": 0.30156984301569845
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 8.42,
+     "samples": 175.0518,
+     "addr": "f653",
+     "insn": "je     f65c <JudyLGet@@Base+0x53c>",
+     "share": 0.0841915808419158
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_sm_big",
+   "arm": "S",
+   "kind": "l1miss",
+   "ops": 2000000,
+   "event": "mem_load_retired.l1_miss",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "mem_load_retired.l1_miss",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "hits 1000093 sink 100359\n"
+    }
+   ],
+   "load": {
+    "since": "record:sm_big:S:mem_load_retired.l1_miss",
+    "wall_s": 0.2,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": 0.0
+   },
+   "samples": 7867.286,
+   "perf_script_samples": 7868,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 90.75,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    },
+    {
+     "pct": 9.25,
+     "dso": "phase_probe",
+     "symbol": "sparsematrix"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 55.62,
+     "samples": 3971.268,
+     "addr": "f637",
+     "insn": "cmp    (%rdi,%rax,4),%r8d",
+     "share": 0.504782462465455
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "sparsematrix",
+     "local_pct": 100.0,
+     "samples": 728.0,
+     "addr": "2106",
+     "insn": "xor    (%rax),%r14",
+     "share": 0.09253508770368842
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 5.71,
+     "samples": 407.69399999999996,
+     "addr": "f1cf",
+     "insn": "cmpb   $0x34,0xf(%rdi)",
+     "share": 0.05182142863498288
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 5.71,
+     "samples": 407.69399999999996,
+     "addr": "f1d9",
+     "insn": "movzbl 0xf(%rdi),%ecx",
+     "share": 0.05182142863498288
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 5.71,
+     "samples": 407.69399999999996,
+     "addr": "f376",
+     "insn": "cmpb   $0x18,0xf(%rax)",
+     "share": 0.05182142863498288
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 5.14,
+     "samples": 366.996,
+     "addr": "f5f9",
+     "insn": "movzbl 0xd(%rdi),%eax",
+     "share": 0.04664836132816323
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 4.65,
+     "samples": 332.01000000000005,
+     "addr": "f616",
+     "insn": "mov    (%rdi),%rdi",
+     "share": 0.04220133855563406
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 2.96,
+     "samples": 211.34400000000002,
+     "addr": "f302",
+     "insn": "cmpb   $0x19,0xf(%rax)",
+     "share": 0.026863647768747702
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 2.8,
+     "samples": 199.92,
+     "addr": "f31a",
+     "insn": "movzbl 0x9(%rdi),%eax",
+     "share": 0.025411558700166738
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 2.7,
+     "samples": 192.78000000000003,
+     "addr": "f30f",
+     "insn": "movzbl 0x8(%rdi),%eax",
+     "share": 0.024504003032303646
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 2.45,
+     "samples": 174.93,
+     "addr": "f5e3",
+     "insn": "movzbl 0xb(%rdi),%eax",
+     "share": 0.0222351138626459
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 2.34,
+     "samples": 167.076,
+     "addr": "f5d8",
+     "insn": "movzbl 0xa(%rdi),%eax",
+     "share": 0.02123680262799649
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 1.92,
+     "samples": 137.088,
+     "addr": "f5ee",
+     "insn": "movzbl 0xc(%rdi),%eax",
+     "share": 0.017425068822971478
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "arm": "G",
+   "kind": "misp",
+   "ops": 4194304,
+   "event": "br_misp_retired.all_branches",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "br_misp_retired.all_branches",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "inserted 4194304 freed 68457352\n"
+    }
+   ],
+   "load": {
+    "since": "record:judy_4m:G:br_misp_retired.all_branches",
+    "wall_s": 0.216,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": 0.02
+   },
+   "samples": 222.028,
+   "perf_script_samples": 1437,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 11.83,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4264"
+    },
+    {
+     "pct": 6.26,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4266"
+    },
+    {
+     "pct": 4.87,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 4.66,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2854"
+    },
+    {
+     "pct": 4.52,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f3d"
+    },
+    {
+     "pct": 4.24,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a426c"
+    },
+    {
+     "pct": 4.11,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a171f"
+    },
+    {
+     "pct": 3.83,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate14upgrade_b_to_uKb0_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 3.69,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a288a"
+    },
+    {
+     "pct": 3.34,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f43"
+    },
+    {
+     "pct": 3.13,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4102"
+    },
+    {
+     "pct": 2.99,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a426f"
+    },
+    {
+     "pct": 2.57,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "JudyLIns"
+    },
+    {
+     "pct": 2.37,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a456d"
+    },
+    {
+     "pct": 2.16,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4240"
+    },
+    {
+     "pct": 2.16,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a456a"
+    },
+    {
+     "pct": 2.16,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie10mutate_map13read_map_leaf"
+    },
+    {
+     "pct": 2.02,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1728"
+    },
+    {
+     "pct": 2.02,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4176"
+    },
+    {
+     "pct": 2.02,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4242"
+    },
+    {
+     "pct": 1.74,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvCs1njKG4L9aB3_7___rustc18___rdl_alloc_zeroed"
+    },
+    {
+     "pct": 1.6,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a456f"
+    },
+    {
+     "pct": 1.53,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f26"
+    },
+    {
+     "pct": 1.46,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f23"
+    },
+    {
+     "pct": 1.39,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a10d7"
+    },
+    {
+     "pct": 1.32,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4198"
+    },
+    {
+     "pct": 1.11,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4173"
+    },
+    {
+     "pct": 1.11,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a434f"
+    },
+    {
+     "pct": 1.04,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1725"
+    },
+    {
+     "pct": 0.97,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a174d"
+    },
+    {
+     "pct": 0.84,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a10da"
+    },
+    {
+     "pct": 0.7,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a28bb"
+    },
+    {
+     "pct": 0.7,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4108"
+    },
+    {
+     "pct": 0.63,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f37"
+    },
+    {
+     "pct": 0.56,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a41df"
+    },
+    {
+     "pct": 0.56,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4344"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "JudyLIns",
+     "local_pct": 100.0,
+     "samples": 37.0,
+     "addr": "443a1",
+     "insn": "ret",
+     "share": 0.16664564829661124
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::read_map_leaf",
+     "local_pct": 100.0,
+     "samples": 31.0,
+     "addr": "226d39",
+     "insn": "je     226daf <expanse_trie::mutate_map::read_map_leaf+0x1ff>",
+     "share": 0.13962202965391754
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 40.0,
+     "samples": 28.0,
+     "addr": "7f361",
+     "insn": "ret",
+     "share": 0.12611022033257066
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "__rustc::__rdl_alloc_zeroed",
+     "local_pct": 100.0,
+     "samples": 25.0,
+     "addr": "25417b",
+     "insn": "ret",
+     "share": 0.11259841101122381
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "local_pct": 45.45,
+     "samples": 24.997500000000002,
+     "addr": "9b1da",
+     "insn": "ret",
+     "share": 0.1125871511701227
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "local_pct": 25.45,
+     "samples": 13.9975,
+     "addr": "9b10a",
+     "insn": "je     9b0f7 <expanse_trie::mutate::upgrade_b_to_u::<false>+0x247>",
+     "share": 0.06304385032518421
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "local_pct": 14.55,
+     "samples": 8.002500000000001,
+     "addr": "9af69",
+     "insn": "jne    9af50 <expanse_trie::mutate::upgrade_b_to_u::<false>+0xa0>",
+     "share": 0.036042751364692746
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 10.0,
+     "samples": 7.0,
+     "addr": "7bea2",
+     "insn": "cmp    $0x4,%ecx",
+     "share": 0.031527555083142665
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 8.57,
+     "samples": 5.999,
+     "addr": "7a595",
+     "insn": "jmp    *%rax",
+     "share": 0.027019114706253265
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "local_pct": 9.09,
+     "samples": 4.999499999999999,
+     "addr": "9b107",
+     "insn": "test   %rax,%rax",
+     "share": 0.022517430234024534
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 4.29,
+     "samples": 3.003,
+     "addr": "7cc7d",
+     "insn": "cmp    $0x7,%rdx",
+     "share": 0.013525321130668205
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "arm": "G",
+   "kind": "l1miss",
+   "ops": 4194304,
+   "event": "mem_load_retired.l1_miss",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "mem_load_retired.l1_miss",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "inserted 4194304 freed 68457352\n"
+    }
+   ],
+   "load": {
+    "since": "record:judy_4m:G:mem_load_retired.l1_miss",
+    "wall_s": 0.207,
+    "busy_cpus_since_prev": 0.97,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": -0.03
+   },
+   "samples": 18693.772699999972,
+   "perf_script_samples": 20703,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 86.74,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 2.95,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate14upgrade_b_to_uKb0_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 1.14,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2884"
+    },
+    {
+     "pct": 0.97,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1709"
+    },
+    {
+     "pct": 0.7,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a0a24"
+    },
+    {
+     "pct": 0.62,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a088d"
+    },
+    {
+     "pct": 0.55,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a0a29"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 37.43,
+     "samples": 6721.6794,
+     "addr": "7ab3a",
+     "insn": "movzbl 0x74(%r15),%esi",
+     "share": 0.3595678361917822
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 34.03,
+     "samples": 6111.1074,
+     "addr": "7a575",
+     "insn": "movzbl 0xf(%rbp),%ebx",
+     "share": 0.32690605037687276
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 15.57,
+     "samples": 2796.0606000000002,
+     "addr": "7ab36",
+     "insn": "mov    0x0(%rbp),%r15",
+     "share": 0.1495717662170999
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 4.29,
+     "samples": 770.3982,
+     "addr": "7a831",
+     "insn": "mov    (%rdx),%rax",
+     "share": 0.04121148857234159
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 1.56,
+     "samples": 280.14480000000003,
+     "addr": "7b438",
+     "insn": "add    0x20(%r15,%r13,8),%rax",
+     "share": 0.014985995844487851
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 1.52,
+     "samples": 272.9616,
+     "addr": "7b808",
+     "insn": "movdqa 0x10(%r15),%xmm1",
+     "share": 0.014601739540783032
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 1.38,
+     "samples": 247.8204,
+     "addr": "7b3cf",
+     "insn": "mov    (%r15,%r13,4),%eax",
+     "share": 0.013256842477816175
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "arm": "M",
+   "kind": "misp",
+   "ops": 4194304,
+   "event": "br_misp_retired.all_branches",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "br_misp_retired.all_branches",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "inserted 4194304 freed 68457352\n"
+    }
+   ],
+   "load": {
+    "since": "record:judy_4m:M:br_misp_retired.all_branches",
+    "wall_s": 0.187,
+    "busy_cpus_since_prev": 0.96,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": -0.04
+   },
+   "samples": 220.978,
+   "perf_script_samples": 1441,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 11.1,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4264"
+    },
+    {
+     "pct": 5.69,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4266"
+    },
+    {
+     "pct": 5.62,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2854"
+    },
+    {
+     "pct": 4.51,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate14upgrade_b_to_uKb0_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 4.16,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f3d"
+    },
+    {
+     "pct": 4.02,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a171f"
+    },
+    {
+     "pct": 3.96,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 3.89,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a288a"
+    },
+    {
+     "pct": 3.61,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a426c"
+    },
+    {
+     "pct": 3.4,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a426f"
+    },
+    {
+     "pct": 3.19,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f43"
+    },
+    {
+     "pct": 3.05,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4102"
+    },
+    {
+     "pct": 2.64,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "JudyLIns"
+    },
+    {
+     "pct": 2.43,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvNtCs141xjyg4q0k_12expanse_trie10mutate_map13read_map_leaf"
+    },
+    {
+     "pct": 2.15,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1728"
+    },
+    {
+     "pct": 2.15,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4242"
+    },
+    {
+     "pct": 2.08,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a456a"
+    },
+    {
+     "pct": 1.87,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4176"
+    },
+    {
+     "pct": 1.73,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4240"
+    },
+    {
+     "pct": 1.6,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a456f"
+    },
+    {
+     "pct": 1.6,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a10d7"
+    },
+    {
+     "pct": 1.53,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a456d"
+    },
+    {
+     "pct": 1.39,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f23"
+    },
+    {
+     "pct": 1.32,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4198"
+    },
+    {
+     "pct": 1.18,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4173"
+    },
+    {
+     "pct": 1.11,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1725"
+    },
+    {
+     "pct": 1.11,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f26"
+    },
+    {
+     "pct": 1.11,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RNvCs1njKG4L9aB3_7___rustc18___rdl_alloc_zeroed"
+    },
+    {
+     "pct": 1.04,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a434f"
+    },
+    {
+     "pct": 0.97,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a174d"
+    },
+    {
+     "pct": 0.83,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4423"
+    },
+    {
+     "pct": 0.83,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a09e5"
+    },
+    {
+     "pct": 0.76,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a10da"
+    },
+    {
+     "pct": 0.69,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a28c2"
+    },
+    {
+     "pct": 0.69,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f37"
+    },
+    {
+     "pct": 0.69,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a41e2"
+    },
+    {
+     "pct": 0.62,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a437c"
+    },
+    {
+     "pct": 0.56,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1718"
+    },
+    {
+     "pct": 0.56,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4108"
+    },
+    {
+     "pct": 0.56,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a41a0"
+    },
+    {
+     "pct": 0.56,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a41df"
+    },
+    {
+     "pct": 0.56,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a434a"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "JudyLIns",
+     "local_pct": 100.0,
+     "samples": 38.0,
+     "addr": "442a1",
+     "insn": "ret",
+     "share": 0.17196281982821818
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::read_map_leaf",
+     "local_pct": 100.0,
+     "samples": 35.0,
+     "addr": "226c69",
+     "insn": "je     226cdf <expanse_trie::mutate_map::read_map_leaf+0x1ff>",
+     "share": 0.15838680773651675
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "local_pct": 43.08,
+     "samples": 28.002,
+     "addr": "9b0da",
+     "insn": "ret",
+     "share": 0.1267184968639412
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 35.09,
+     "samples": 20.001300000000004,
+     "addr": "7f261",
+     "insn": "ret",
+     "share": 0.09051263021658267
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "local_pct": 24.62,
+     "samples": 16.003,
+     "addr": "9b00a",
+     "insn": "je     9aff7 <expanse_trie::mutate::upgrade_b_to_u::<false>+0x247>",
+     "share": 0.07241897383449936
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "__rustc::__rdl_alloc_zeroed",
+     "local_pct": 100.0,
+     "samples": 16.0,
+     "addr": "25411b",
+     "insn": "ret",
+     "share": 0.07240539782240765
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "local_pct": 16.92,
+     "samples": 10.998000000000001,
+     "addr": "9b007",
+     "insn": "test   %rax,%rax",
+     "share": 0.04976966032817747
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "local_pct": 10.77,
+     "samples": 7.0005,
+     "addr": "9ae69",
+     "insn": "jne    9ae50 <expanse_trie::mutate::upgrade_b_to_u::<false>+0xa0>",
+     "share": 0.0316796242159853
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 10.53,
+     "samples": 6.0020999999999995,
+     "addr": "7a495",
+     "insn": "jmp    *%rax",
+     "share": 0.02716152739186706
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "posix_memalign@@GLIBC_2.2.5",
+     "local_pct": 100.0,
+     "samples": 5.0,
+     "addr": "a725e",
+     "insn": "ret",
+     "share": 0.022626686819502393
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 7.02,
+     "samples": 4.0014,
+     "addr": "7bd84",
+     "insn": "je     7c33a <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x1f6a>",
+     "share": 0.018107684927911375
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 5.26,
+     "samples": 2.9982,
+     "addr": "7bda5",
+     "insn": "jb     7c693 <expanse_trie::mutate_map::map_insert_with_path_flat::<true>+0x22c3>",
+     "share": 0.013567866484446417
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 5.26,
+     "samples": 2.9982,
+     "addr": "7cb7d",
+     "insn": "cmp    $0x7,%rdx",
+     "share": 0.013567866484446417
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "arm": "M",
+   "kind": "l1miss",
+   "ops": 4194304,
+   "event": "mem_load_retired.l1_miss",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "mem_load_retired.l1_miss",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "inserted 4194304 freed 68457352\n"
+    }
+   ],
+   "load": {
+    "since": "record:judy_4m:M:mem_load_retired.l1_miss",
+    "wall_s": 0.203,
+    "busy_cpus_since_prev": 1.03,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": 0.03
+   },
+   "samples": 31549.153,
+   "perf_script_samples": 34594,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 87.3,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 3.36,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate14upgrade_b_to_uKb0_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 1.11,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a088d"
+    },
+    {
+     "pct": 1.01,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2884"
+    },
+    {
+     "pct": 0.66,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000001a0956"
+    },
+    {
+     "pct": 0.57,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1709"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 31.07,
+     "samples": 9383.7614,
+     "addr": "7aa3a",
+     "insn": "movzbl 0x74(%r15),%esi",
+     "share": 0.29743306896384825
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 23.14,
+     "samples": 6988.7428,
+     "addr": "7a475",
+     "insn": "movzbl 0xf(%rbp),%ebx",
+     "share": 0.22151918943751042
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 10.53,
+     "samples": 3180.2706,
+     "addr": "7aa36",
+     "insn": "mov    0x0(%rbp),%r15",
+     "share": 0.10080367609235025
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 10.43,
+     "samples": 3150.0686,
+     "addr": "7b708",
+     "insn": "movdqa 0x10(%r15),%xmm1",
+     "share": 0.0998463762244267
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 7.62,
+     "samples": 2301.3924,
+     "addr": "7b2cf",
+     "insn": "mov    (%r15,%r13,4),%eax",
+     "share": 0.07294624993577482
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 7.56,
+     "samples": 2283.2712,
+     "addr": "7b338",
+     "insn": "add    0x20(%r15,%r13,8),%rax",
+     "share": 0.0723718700150207
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 1.87,
+     "samples": 564.7774000000001,
+     "addr": "7cdf1",
+     "insn": "movzwl (%r15,%rax,2),%eax",
+     "share": 0.017901507530170464
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 1.71,
+     "samples": 516.4542,
+     "addr": "7a731",
+     "insn": "mov    (%rdx),%rax",
+     "share": 0.016369827741492777
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+     "local_pct": 1.32,
+     "samples": 398.6664,
+     "addr": "7c391",
+     "insn": "mov    (%rdi),%rax",
+     "share": 0.012636358256590915
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "arm": "S",
+   "kind": "misp",
+   "ops": 4194304,
+   "event": "br_misp_retired.all_branches",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "br_misp_retired.all_branches",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "inserted 4194304 freed 69427512\n"
+    }
+   ],
+   "load": {
+    "since": "record:judy_4m:S:br_misp_retired.all_branches",
+    "wall_s": 0.194,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": -0.02
+   },
+   "samples": 222.9886,
+   "perf_script_samples": 1243,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 30.81,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000001057c"
+    },
+    {
+     "pct": 11.42,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000010646"
+    },
+    {
+     "pct": 7.8,
+     "dso": "libc.so.6",
+     "symbol": "malloc"
+    },
+    {
+     "pct": 4.59,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU"
+    },
+    {
+     "pct": 3.22,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLIns"
+    },
+    {
+     "pct": 3.14,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4264"
+    },
+    {
+     "pct": 2.74,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4266"
+    },
+    {
+     "pct": 2.25,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000003246"
+    },
+    {
+     "pct": 2.17,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000013aca"
+    },
+    {
+     "pct": 1.85,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000013031"
+    },
+    {
+     "pct": 1.85,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1806"
+    },
+    {
+     "pct": 1.77,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2854"
+    },
+    {
+     "pct": 1.69,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCascade2"
+    },
+    {
+     "pct": 1.45,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000001166e"
+    },
+    {
+     "pct": 1.45,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000013034"
+    },
+    {
+     "pct": 1.45,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a426c"
+    },
+    {
+     "pct": 1.29,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f23"
+    },
+    {
+     "pct": 1.05,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000012fd8"
+    },
+    {
+     "pct": 1.05,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a288a"
+    },
+    {
+     "pct": 0.88,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a41df"
+    },
+    {
+     "pct": 0.88,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a426f"
+    },
+    {
+     "pct": 0.88,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a434a"
+    },
+    {
+     "pct": 0.8,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3e5a"
+    },
+    {
+     "pct": 0.8,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4240"
+    },
+    {
+     "pct": 0.8,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a434f"
+    },
+    {
+     "pct": 0.72,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000012fd4"
+    },
+    {
+     "pct": 0.72,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2702"
+    },
+    {
+     "pct": 0.64,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f26"
+    },
+    {
+     "pct": 0.64,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3f37"
+    },
+    {
+     "pct": 0.64,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a40dd"
+    },
+    {
+     "pct": 0.56,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4423"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "local_pct": 74.23,
+     "samples": 72.0031,
+     "addr": "a51c8",
+     "insn": "je     a50b7 <__libc_malloc@@GLIBC_2.2.5+0x57>",
+     "share": 0.3229003635163412
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLIns@@Base",
+     "local_pct": 100.0,
+     "samples": 40.0,
+     "addr": "142de",
+     "insn": "ret",
+     "share": 0.1793813674779787
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "local_pct": 23.71,
+     "samples": 22.9987,
+     "addr": "a51c5",
+     "insn": "test   %cx,%cx",
+     "share": 0.10313845640539472
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCascade2@@Base",
+     "local_pct": 85.71,
+     "samples": 17.9991,
+     "addr": "3a5c",
+     "insn": "je     3a73 <j__udyLCascade2@@Base+0x193>",
+     "share": 0.08071757928432216
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "local_pct": 28.07,
+     "samples": 15.9999,
+     "addr": "8aae",
+     "insn": "test   $0x1,%dl",
+     "share": 0.07175209853777278
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "local_pct": 26.32,
+     "samples": 15.0024,
+     "addr": "8a78",
+     "insn": "ret",
+     "share": 0.06727877568629069
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "local_pct": 21.05,
+     "samples": 11.998500000000002,
+     "addr": "8a86",
+     "insn": "jne    8aae <j__udyLCreateBranchU@@Base+0x11e>",
+     "share": 0.053807683442113195
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "local_pct": 8.77,
+     "samples": 4.9989,
+     "addr": "8a45",
+     "insn": "jne    89e8 <j__udyLCreateBranchU@@Base+0x58>",
+     "share": 0.02241773794714169
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCascade2@@Base",
+     "local_pct": 14.29,
+     "samples": 3.0009,
+     "addr": "3fc0",
+     "insn": "ret",
+     "share": 0.013457638641616658
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLAllocJBU@@Base",
+     "local_pct": 100.0,
+     "samples": 3.0,
+     "addr": "164b1",
+     "insn": "ret",
+     "share": 0.013453602560848403
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "local_pct": 5.26,
+     "samples": 2.9982,
+     "addr": "8ae0",
+     "insn": "cmp    %r15,%rax",
+     "share": 0.013445530399311895
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "arm": "S",
+   "kind": "l1miss",
+   "ops": 4194304,
+   "event": "mem_load_retired.l1_miss",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "mem_load_retired.l1_miss",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "inserted 4194304 freed 69427512\n"
+    }
+   ],
+   "load": {
+    "since": "record:judy_4m:S:mem_load_retired.l1_miss",
+    "wall_s": 0.227,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": 0.01
+   },
+   "samples": 1076.9582999999998,
+   "perf_script_samples": 19158,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 18.08,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000001055b"
+    },
+    {
+     "pct": 10.12,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000012eed"
+    },
+    {
+     "pct": 9.91,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000012ef0"
+    },
+    {
+     "pct": 8.47,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x00000000000110ff"
+    },
+    {
+     "pct": 8.32,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000001301a"
+    },
+    {
+     "pct": 5.31,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000013023"
+    },
+    {
+     "pct": 4.28,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1709"
+    },
+    {
+     "pct": 3.05,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a16df"
+    },
+    {
+     "pct": 2.6,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU"
+    },
+    {
+     "pct": 2.38,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x00000000000130db"
+    },
+    {
+     "pct": 2.3,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1800"
+    },
+    {
+     "pct": 1.93,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a187b"
+    },
+    {
+     "pct": 1.85,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a1892"
+    },
+    {
+     "pct": 1.84,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2884"
+    },
+    {
+     "pct": 1.81,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a185e"
+    },
+    {
+     "pct": 1.53,
+     "dso": "libc.so.6",
+     "symbol": "cfree"
+    },
+    {
+     "pct": 1.36,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3efd"
+    },
+    {
+     "pct": 1.23,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3a61"
+    },
+    {
+     "pct": 1.21,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3ee9"
+    },
+    {
+     "pct": 1.18,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3a65"
+    },
+    {
+     "pct": 0.94,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3ea3"
+    },
+    {
+     "pct": 0.85,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x00000000000111af"
+    },
+    {
+     "pct": 0.82,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3ed2"
+    },
+    {
+     "pct": 0.72,
+     "dso": "libc.so.6",
+     "symbol": "malloc"
+    },
+    {
+     "pct": 0.64,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a45be"
+    },
+    {
+     "pct": 0.57,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x0000000000013b0a"
+    },
+    {
+     "pct": 0.56,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a3ef9"
+    },
+    {
+     "pct": 0.55,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a2671"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "local_pct": 58.52,
+     "samples": 292.01480000000004,
+     "addr": "8b08",
+     "insn": "mov    (%rdi,%rax,1),%rdx",
+     "share": 0.27114773153240945
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_free@@GLIBC_2.2.5",
+     "local_pct": 94.88,
+     "samples": 277.9984,
+     "addr": "a53be",
+     "insn": "mov    -0x8(%rdi),%rax",
+     "share": 0.2581329286379984
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "local_pct": 32.06,
+     "samples": 159.9794,
+     "addr": "8b10",
+     "insn": "mov    0x8(%rdi,%rax,1),%rdx",
+     "share": 0.14854744143761187
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "local_pct": 33.58,
+     "samples": 46.004599999999996,
+     "addr": "a51e9",
+     "insn": "xor    (%rax),%rsi",
+     "share": 0.04271715998660301
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCascade2@@Base",
+     "local_pct": 67.21,
+     "samples": 40.998099999999994,
+     "addr": "3cb1",
+     "insn": "mov    (%rax,%rdx,8),%rax",
+     "share": 0.03806841917648994
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "local_pct": 4.61,
+     "samples": 23.0039,
+     "addr": "8a90",
+     "insn": "mov    (%rsi),%rcx",
+     "share": 0.021360065658995345
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "local_pct": 10.95,
+     "samples": 15.001499999999998,
+     "addr": "a506f",
+     "insn": "cmpb   $0x0,0x17c472(%rip)        # 2214e8 <__malloc_initialize_hook@GLIBC_2.2.5+0x28>",
+     "share": 0.013929508691283591
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "local_pct": 10.95,
+     "samples": 15.001499999999998,
+     "addr": "a5096",
+     "insn": "mov    0x174d0b(%rip),%rbx        # 219da8 <h_errlist@@GLIBC_2.2.5+0xae8>",
+     "share": 0.013929508691283591
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "local_pct": 10.95,
+     "samples": 15.001499999999998,
+     "addr": "a50aa",
+     "insn": "cmp    %r12,0x175317(%rip)        # 21a3c8 <__nptl_nthreads@@GLIBC_PRIVATE+0x120>",
+     "share": 0.013929508691283591
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "malloc@plt",
+     "local_pct": 100.0,
+     "samples": 14.0,
+     "addr": "2df0",
+     "insn": "jmp    *0x24d0f2(%rip)        # 24fee8 <malloc@GLIBC_2.2.5>",
+     "share": 0.01299957482104925
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_free@@GLIBC_2.2.5",
+     "local_pct": 4.44,
+     "samples": 13.0092,
+     "addr": "a53b7",
+     "insn": "mov    0x174a52(%rip),%rbx        # 219e10 <h_errlist@@GLIBC_2.2.5+0xb50>",
+     "share": 0.01207957634014242
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "local_pct": 9.49,
+     "samples": 13.0013,
+     "addr": "a509d",
+     "insn": "mov    %fs:(%rbx),%rdx",
+     "share": 0.012072240865779115
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__libc_malloc@@GLIBC_2.2.5",
+     "local_pct": 8.03,
+     "samples": 11.0011,
+     "addr": "a522b",
+     "insn": "mov    -0x8(%rax),%rdx",
+     "share": 0.010214973040274635
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLAllocJBBJP@@Base",
+     "local_pct": 78.57,
+     "samples": 10.999799999999999,
+     "addr": "16402",
+     "insn": "mov    (%rax),%rax",
+     "share": 0.010213765936898394
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCascade2@@Base",
+     "local_pct": 18.03,
+     "samples": 10.9983,
+     "addr": "3916",
+     "insn": "movzwl (%r8),%ebp",
+     "share": 0.010212373125310426
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "j__udyLCreateBranchU@@Base",
+     "local_pct": 2.2,
+     "samples": 10.978000000000002,
+     "addr": "8aa1",
+     "insn": "mov    -0x8(%rsi),%rcx",
+     "share": 0.010193523741819905
+    }
+   ]
+  }
+ ]
+}

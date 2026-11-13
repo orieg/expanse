@@ -78,6 +78,16 @@ elif SET == "gets_main":
     ARMS = {"N": f"{driver.D}/expcompat-5f4892932/lib", "S": driver.ARMS["S"]}
     SHAPES = [("sm_default", 200, 200 * 20_000), ("sm_big", 1, 2_000_000), ("judy_4m", 1, 4_194_304)]
     PREFLIGHT = ("sm_big", 1, "N")
+elif SET == "gets_inc":
+    # The #1680 shapes on an engine increment (README.md, "Diagnostic: where
+    # the #1680 shapes mispredict and miss"): G is the increment's head and M
+    # its merge base, the libraries `diag_increment.py` built
+    # (SNG_INC_HEAD, SNG_INC_BASE), against stock.
+    ARMS = {"G": f"{driver.D}/expcompat-{os.environ['SNG_INC_HEAD']}/lib",
+            "M": f"{driver.D}/expcompat-{os.environ['SNG_INC_BASE']}/lib",
+            "S": driver.ARMS["S"]}
+    SHAPES = [("sm_default", 200, 200 * 20_000), ("sm_big", 1, 2_000_000), ("judy_4m", 1, 4_194_304)]
+    PREFLIGHT = ("sm_big", 1, "G")
 else:
     sys.exit(f"STOP: unknown SNG_PHASE_SET {SET}")
 ORDERS = list(itertools.permutations(ARMS))
