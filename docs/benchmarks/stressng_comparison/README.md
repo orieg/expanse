@@ -1371,6 +1371,52 @@ On `sm_default` the table removes 0.13–0.14 mispredicts per get, and M's `cap_
 
 **Not run.** The verdict was FAIL before them, so the `compare` pairings, the second host and the `concurrency` report were not run for this change.
 
+## Diagnostic: the 4 Mi phases on main
+
+**A diagnostic, not a pre-registered result** (#1679, #1680). The 4 Mi inserts and deletes stay below stock on main (#1679's criterion on main, and #1721's 4 Mi insert cells). The last phase counters on these shapes measured `6ec29a656`. Those runs also show something no reading has addressed: E's L1D-miss loads per insert range over 2.29–5.22 between processes on the same keys, while stock's stay at 2.08–2.81 (`results/diagnostic_phase_counters_ref_run{1,2}.json`, `phase_judy_4m`). This re-takes the counters on main before any attribution.
+
+**Design, fixed before the run** (`scripts/diag_phase_counters.py` with `SNG_PHASE_SET=big_main`, `run.sh <run> <host> phase_big_main`):
+- **Arms.** N, main's library at the commit `SNG_MAIN` names, built by `scripts/build_layout_lib.sh` and hash-recorded; E, the published comparison's library (`da5814a7…`); S, stock (`76f121a8…`).
+- **Shapes.** `judy_4m` (4,194,304 inserts of `gen_index(i)`) and `del_4m` (the same keys, inserted and then deleted in reverse order, the deletes measured), one repetition each.
+- **Counters.** The phase-counter diagnostic's groups (`mem`, `stall`, `l3`, `fe`), each in its own process beside the fixed `cycles` and `instructions`. 12 rounds per run over the six arm orders. Two runs on the reference host under the host bench lock and the comparison's pin.
+
+**Reading rule:**
+- Per shape and counter, N/S and N/E as that diagnostic computes them (BCa 95% on the ratio of means), and the events per operation.
+- **Spread:** per arm, the range of each process's L1D-miss loads and cycles per operation. N's spread *persists* if, in both runs, N's L1D-miss range is wider than twice S's.
+- No verdict and no engine change. If N's spread persists, the next diagnostic records, per process, what could vary between processes with identical keys and code (huge-page backing of the allocator's pages and their alignment). It is designed and committed before it runs.
+
+**Expected** (projected): N/S cycles per insert above 1 on `judy_4m`, as on E. Whether the spread persists on main is not predicted.
+
+### 4 Mi phases result (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `84c441684`, N main `c386578f8` (sha256 `9b42a88b…`), E `da5814a7…`, S `76f121a8…`; artifacts `results/diagnostic_big_main_ref_run{1,2}.json`) (workloads: phase_judy_4m, phase_del_4m)
+
+**Hygiene.** Both runs ran 08:20–08:23 UTC under the bench lock, 288 processes each, none discarded; max load1 0.92 and 0.99 against a void limit of 12.
+
+**Cycles per operation, BCa 95%:**
+
+| Shape | N/S run 1 | N/S run 2 | E/S run 1 | E/S run 2 |
+|---|---|---|---|---|
+| `judy_4m` | 1.0245 [1.0159, 1.0337] | 1.0300 [1.0215, 1.0368] | 1.1402 [1.1308, 1.1478] | 1.1358 [1.1256, 1.1444] |
+| `del_4m` | 1.0273 [1.0189, 1.0356] | 1.0286 [1.0208, 1.0367] | 1.5499 [1.5410, 1.5587] | 1.5419 [1.5343, 1.5502] |
+
+N retires fewer instructions than S (0.822× on inserts, 0.919× on deletes) and more branches (1.314×, 1.403×). Its L1D-miss loads per operation are 1.60–1.82× S's on inserts, and its stall cycles waiting on them (`cycle_activity.stalls_l1d_miss`) 1.85–1.96×.
+
+**Spread: persists.** Per process, in both runs, N's range of L1D-miss loads per operation is more than twice S's:
+
+| Shape | Run | N L1D-miss loads per op | S L1D-miss loads per op | N cycles per op | S cycles per op |
+|---|---|---|---|---|---|
+| `judy_4m` | 1 | 2.90–5.21 | 2.21–2.66 | 161.2–179.1 | 165.1–171.3 |
+| `judy_4m` | 2 | 2.92–5.21 | 2.19–3.05 | 163.2–178.1 | 165.4–171.2 |
+| `del_4m` | 1 | 3.31–5.83 | 2.37–2.75 | 190.5–205.1 | 188.8–197.5 |
+| `del_4m` | 2 | 3.33–5.53 | 2.38–2.70 | 191.0–207.4 | 188.9–197.1 |
+
+- **The spread carries the cycles.** Over N's 12 `mem`-group processes per shape and run, L1D-miss loads and cycles per operation correlate at 0.983–0.999, about 5.3–6.0 cycles per additional miss.
+- **The deletes are bimodal.** N's processes sit near 3.34 misses and 191–192 cycles per delete, or at 5.07–5.83 misses and 201–205 cycles, with two processes between them, both in run 2 (3.65 and 193; 4.42 and 197). S runs 190–197 cycles.
+- **Reading, as a description of these runs only:** N's processes with the fewest L1D misses run the inserts below S's cycles and the deletes within S's range. N's deficit against S on both 4 Mi phases is then the share of processes in the high-miss state. The keys and the code are the same in every process, so what differs between them is not identified here.
+
+Per the reading rule, the next diagnostic records per process what could differ between them. It is designed and committed before it runs.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

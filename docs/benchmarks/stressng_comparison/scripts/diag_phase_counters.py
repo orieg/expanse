@@ -78,6 +78,15 @@ elif SET == "gets_main":
     ARMS = {"N": f"{driver.D}/expcompat-5f4892932/lib", "S": driver.ARMS["S"]}
     SHAPES = [("sm_default", 200, 200 * 20_000), ("sm_big", 1, 2_000_000), ("judy_4m", 1, 4_194_304)]
     PREFLIGHT = ("sm_big", 1, "N")
+elif SET == "big_main":
+    # The 4 Mi insert and delete phases on main (README.md, "Diagnostic: the
+    # 4 Mi phases on main"): N is main's library (SNG_MAIN, a commit whose
+    # library `build_layout_lib.sh` built), E the published comparison's,
+    # against stock.
+    ARMS = {"N": f"{driver.D}/expcompat-{os.environ['SNG_MAIN']}/lib", "E": driver.ARMS["E"],
+            "S": driver.ARMS["S"]}
+    SHAPES = [("judy_4m", 1, 4_194_304), ("del_4m", 1, 4_194_304)]
+    PREFLIGHT = ("judy_4m", 1, "N")
 elif SET == "gets_inc":
     # The #1680 shapes on an engine increment (README.md, "Diagnostic: where
     # the #1680 shapes mispredict and miss"): G is the increment's head and M
