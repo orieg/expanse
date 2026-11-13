@@ -202,6 +202,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py",
     "scripts/bench_baseline.py",
     "scripts/bench_counters.py",
+    # #1682 measurement (c): the top-node skip's saving per test call, BCa
+    # over interleaved process pairs, recorded with its `ci_method`.
+    "scripts/colour_top_skip.py",
     "scripts/esp32_bench_harvest.py",
     "scripts/line_transfer_matrix.py",
     "scripts/perf_counters.py",
