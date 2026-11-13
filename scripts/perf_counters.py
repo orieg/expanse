@@ -607,8 +607,16 @@ def preflight(
     available: list[str] = []
     unavailable: list[dict[str, str]] = []
     alone: dict[str, float] = {}
+    # A top-down metric event (`topdown-*`) is read out of the PERF_METRICS
+    # register relative to the `slots` counter, and the kernel opens it only in
+    # a group led by `slots`: probed alone it reports `<not supported>` even
+    # where the sweep, which requests `slots` beside it, counts it (#1682).
+    slots = next((e for e in events if split_event_name(e)[1] == "slots"), None)
     for event in events:
-        rc, csv_text, _out, err = run_perf([event], [str(workload)], probe_env, pin=pin)
+        probe_set = [event]
+        if split_event_name(event)[1].startswith("topdown-") and slots is not None:
+            probe_set = [slots, event]
+        rc, csv_text, _out, err = run_perf(probe_set, [str(workload)], probe_env, pin=pin)
         parsed = parse_perf_csv(csv_text)
         served = select_rows(parsed, event)
         entry = row_for(parsed, event, pmu)
