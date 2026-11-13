@@ -633,6 +633,8 @@ This contract is verified by single-threaded Miri Tier-1 tests (`sync_locator_re
 
 **`SyncExpanseBytesMap`** completes the family for unordered byte keys: one validated walk over the hash trie, then a byte-exact comparison against a collision bucket that is write-once after publication. Structural changes publish a replacement bucket and retire the old shell, entries and key buffers through the same collector. Only value words mutate in place, through their atomic view. Under multi-writer OLC (Refs #929 Task C, #1047), concurrent writers take one of four publishes by what the operation changes: a chain change (a fresh hash, a colliding key) allocates an immutable replacement bucket and publishes it into the hash trie with atomic CAS under `OlcHost`, retiring the superseded bucket through the epoch collector; an overwrite of a key already in its bucket stores its one value word in place, with no allocation and nothing retired; a removal either removes the terminal with the single-entry bucket it names, or publishes a replacement one entry shorter. All four take the terminal's parent version lock, which is what orders them against each other (§4.2, *The bytes wrapper*). Root transitions, trie conversions, structural shrinks and retry exhaustion fall back to serial writer mutex synchronization; `ablation-bytes-serial-writers` restores the single serial writer mutex.
 
+**A `NodeAlloc` has one owner.** It is `Send` and not `Sync`: its per-tree freelists and slab list are updated by plain load/store pairs, so safe code cannot reach one allocator from two threads. A tree is shared only through a `Sync*` wrapper, which defers the allocator to its collector, and that wrapper's own `Sync` implementation covers its threads' use of the handle. Because only that owner updates a plain tree's counters, its allocation and free paths update `bytes_in_use`, `live_allocs` and `total_allocs` by a relaxed load and store, which x86 emits without a `lock` prefix (Refs #1679). `ablation-locked-plain-acct` restores the locked updates. The promotion's gates and measurements are in [`benchmarks/stressng_comparison/README.md`](benchmarks/stressng_comparison/README.md), "Promotion, judged on timing".
+
 **Deferred mode must be entered before an allocator ever slab-carves** (`NodeAlloc::defer_to` asserts this). The sync wrappers therefore share a populated structure by rebuilding it through pre-deferred allocators.
 
 ### 4.2 Multi-writer optimistic lock coupling (Stage B, issue #568)
@@ -987,7 +989,7 @@ byte  8 .. 14   aux      7 B, level-split: low L bytes pop0, high bytes decode
 byte 15         tag      1 B type tag
 ```
 
-`Edge` is declared at `crates/expanse/src/node.rs:66`; `size_of` = 16, `align_of` = 8, `aux` at offset 8, `tag` at offset 15, all const-asserted (`offset_of!(Edge, tag)`, `crates/expanse/src/node.rs:978`–`981`).
+`Edge` is declared at `crates/expanse/src/node.rs:66`; `size_of` = 16, `align_of` = 8, `aux` at offset 8, `tag` at offset 15, all const-asserted (`offset_of!(Edge, tag)`, `crates/expanse/src/node.rs:1009`–`1012`).
 
 **Word 0 is a `union Word0`** (`crates/expanse/src/node.rs:51`) of `*mut u8` and `[u8; 8]`. What it carries depends on the tag class:
 
@@ -1000,7 +1002,7 @@ byte 15         tag      1 B type tag
 | Map immediate, 1 key | the value word (`Edge::new_immed_single_map`, `crates/expanse/src/node.rs:135`) |
 | Map immediate, ≥ 2 keys | a pointer to a heap value array of `8 × cap_class(n)` bytes, allocated in `write_map_immed` (`map_immed_val_size`, `crates/expanse/src/mutate_map.rs:100`) and sized by `map_immed_val_size` (`crates/expanse/src/mutate_map.rs:37`) |
 
-**Word 1 is the aux/tag word.** `Edge::aux_word` (`crates/expanse/src/node.rs:267`) reads `aux[0..7]` plus the tag byte as one little-endian `u64`: `aux[0]` is the low byte, the tag is the high byte. The little-endian requirement is const-asserted (`target_endian`, `crates/expanse/src/node.rs:985`).
+**Word 1 is the aux/tag word.** `Edge::aux_word` (`crates/expanse/src/node.rs:267`) reads `aux[0..7]` plus the tag byte as one little-endian `u64`: `aux[0]` is the low byte, the tag is the high byte. The little-endian requirement is const-asserted (`target_endian`, `crates/expanse/src/node.rs:1016`).
 
 The 7 aux bytes are **level-split** for a pointer-carrying edge whose child sits at level `L` (1..=7):
 
@@ -1032,7 +1034,7 @@ byte 4 .. 6   aux      3 B, decode digits / population / more payload
 byte 7        tag      1 B tag discriminant
 ```
 
-`Edge32` is declared at `crates/expanse/src/types32.rs:167`; `size_of` = 8, `align_of` = 4, const-asserted (`size_of::<Edge32>`, `crates/expanse/src/types32.rs:176`–`177`). `trie32`/`set32`/`map32`/`blobmap32` compile unconditionally on every target; on a 32-bit target the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, and so on, `crates/expanse/src/lib.rs:182`–`191`).
+`Edge32` is declared at `crates/expanse/src/types32.rs:167`; `size_of` = 8, `align_of` = 4, const-asserted (`size_of::<Edge32>`, `crates/expanse/src/types32.rs:176`–`177`). `trie32`/`set32`/`map32`/`blobmap32` compile unconditionally on every target; on a 32-bit target the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, and so on, `crates/expanse/src/lib.rs:189`–`198`).
 
 Three divergences from the 64-bit `Edge` matter:
 
@@ -1159,7 +1161,7 @@ The budget rule is a byte count, not a key count. This is the fact most often re
 
 The `n/a` rows are widths a 32-bit key cannot produce: a 4-level trie leaves at most 4 undecoded bytes.
 
-Pinning tests for these numbers are `immed_capacity_bounds` (`crates/expanse/src/types.rs:396`), `tag_spaces_are_disjoint_and_total` (`crates/expanse/src/types.rs:372`) and `immediate_payload_round_trips_all_widths` (`crates/expanse/src/trie32.rs:7665`), in addition to the doc gate.
+Pinning tests for these numbers are `immed_capacity_bounds` (`crates/expanse/src/types.rs:396`), `tag_spaces_are_disjoint_and_total` (`crates/expanse/src/types.rs:372`) and `immediate_payload_round_trips_all_widths` (`crates/expanse/src/trie32.rs:7679`), in addition to the doc gate.
 
 ### 10.5 `ValueSlot` — the 8-byte polymorphic value word
 
@@ -1252,13 +1254,13 @@ Both bitmap branches and bitmap map-leaves partition those 256 values into **eig
 
 **`BranchB`** (`crates/expanse/src/node.rs:784`) is 128 bytes: the bitmap at offset 0, `subarrays: [*mut Edge; 8]` at offset 32, `pop_counts: [u16; 8]` at offset 96, `version` at 112. Line 0 therefore holds the bitmap plus the first four subarray pointers, so a lookup landing in digits `0x00..0x7F` touches one line before the child edge. Reaching a child is: `test_and_subexpanse_rank(digit)` → `subarrays[digit >> 5]` → `.add(rank)`.
 
-**`LeafBitmapL`** (`crates/expanse/src/node.rs:937`) is the map-flavor bitmap leaf, also 128 bytes: bitmap at 0, `values: [*mut u64; 8]` at offset 32, `version` at 96. Reaching a value is the same three steps against the value subarrays — bitmap test, subexpanse rank, index into `values[digit >> 5]`.
+**`LeafBitmapL`** (`crates/expanse/src/node.rs:968`) is the map-flavor bitmap leaf, also 128 bytes: bitmap at 0, `values: [*mut u64; 8]` at offset 32, `version` at 96. Reaching a value is the same three steps against the value subarrays — bitmap test, subexpanse rank, index into `values[digit >> 5]`.
 
-**`LeafBitmap1`** (`crates/expanse/src/node.rs:905`) is the set-flavor level-1 leaf, 64 bytes: the bitmap *is* the membership answer, so there is no subarray and no rank on the lookup path.
+**`LeafBitmap1`** (`crates/expanse/src/node.rs:936`) is the set-flavor level-1 leaf, 64 bytes: the bitmap *is* the membership answer, so there is no subarray and no rank on the lookup path.
 
 The 32-bit bitmap leaf `LeafBitmap1_32` (`crates/expanse/src/node32.rs:208`) stores its 256-bit mask as `[u64; 4]` plus a `u16` population and a level byte. Its declared fields total 36 bytes but `#[repr(C, align(32))]` rounds the type to 64 bytes, and 64 is the figure the engine's own accounting uses (`size_of::<LeafBitmap1_32>()`, `crates/expanse/src/trie32.rs:1098`) and its conversion threshold is set at (`SET_BITMAP_ENTER_32`, `crates/expanse/src/types32.rs:78`).
 
-**Subarray allocation sizing.** A subexpanse's packed array is allocated at `cap_class(pop)` slots, not `pop` slots — the live entries occupy `[0, pop)` and the trailing spare slots hold filler, so a growth or shrink that stays inside a capacity class shifts in place instead of reallocating. On 64-bit that is the value-subarray sizing in `sub_vals_size` (`crates/expanse/src/mutate.rs:450`); on 32-bit, `BranchB32Data::subarrays` and `LeafBitmapL32Data::subarrays` are raw-owned `[Edge32]` / `[u32]` allocations with atomic address and length words (`SubEdges` / `SubVals`), sized the same way by the shared writer's `sub_edges_*` / `sub_vals_*_shared` helpers and by `subarray_insert` (`crates/expanse/src/trie32.rs:2598`) and `subarray_remove` (`crates/expanse/src/trie32.rs:2640`), with `cap_class` (`crates/expanse/src/trie32.rs:62`, a re-export of the default ladder at `crates/expanse/src/common.rs:16`) pinned to the 64-bit schedule. `cap_class(pop)` is exact for `pop ≤ 2`, rounds in 4-slot steps for `pop ≤ 16` (4, 8, 12, 16), and coarsens to 8-slot steps in the mature tail (24, 32), halving mature boundary crossings while keeping memory within gate ceilings.
+**Subarray allocation sizing.** A subexpanse's packed array is allocated at `cap_class(pop)` slots, not `pop` slots — the live entries occupy `[0, pop)` and the trailing spare slots hold filler, so a growth or shrink that stays inside a capacity class shifts in place instead of reallocating. On 64-bit that is the value-subarray sizing in `sub_vals_size` (`crates/expanse/src/mutate.rs:450`); on 32-bit, `BranchB32Data::subarrays` and `LeafBitmapL32Data::subarrays` are raw-owned `[Edge32]` / `[u32]` allocations with atomic address and length words (`SubEdges` / `SubVals`), sized the same way by the shared writer's `sub_edges_*` / `sub_vals_*_shared` helpers and by `subarray_insert` (`crates/expanse/src/trie32.rs:2602`) and `subarray_remove` (`crates/expanse/src/trie32.rs:2644`), with `cap_class` (`crates/expanse/src/trie32.rs:62`, a re-export of the default ladder at `crates/expanse/src/common.rs:16`) pinned to the 64-bit schedule. `cap_class(pop)` is exact for `pop ≤ 2`, rounds in 4-slot steps for `pop ≤ 16` (4, 8, 12, 16), and coarsens to 8-slot steps in the mature tail (24, 32), halving mature boundary crossings while keeping memory within gate ceilings.
 
 The consequence for readers is that a subarray's **length is its allocation size, never its population**. Population comes from the node's own bitmap popcount (bitmap leaves) or `pop_counts[sub]` (bitmap branches); every slot access is by a bitmap-derived rank, which is `< pop` by construction, so the spare slots are unreachable through any ordinary path. They are nonetheless always initialised (`0` for a value, `Edge32::null()` for a child) because an optimistic reader racing an in-place shift may load one before the version seal rejects its result.
 
@@ -1284,10 +1286,10 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 
 | Symbol | Value | Source |
 |---|---|---|
-| `size_of::<Edge>()` | 16 | `crates/expanse/src/node.rs:978` |
-| `align_of::<Edge>()` | 8 | `crates/expanse/src/node.rs:979` |
-| `offset_of!(Edge, aux)` | 8 | `crates/expanse/src/node.rs:980` |
-| `offset_of!(Edge, tag)` | 15 | `crates/expanse/src/node.rs:981` |
+| `size_of::<Edge>()` | 16 | `crates/expanse/src/node.rs:1009` |
+| `align_of::<Edge>()` | 8 | `crates/expanse/src/node.rs:1010` |
+| `offset_of!(Edge, aux)` | 8 | `crates/expanse/src/node.rs:1011` |
+| `offset_of!(Edge, tag)` | 15 | `crates/expanse/src/node.rs:1012` |
 | `MAX_LEVEL` | 8 | `crates/expanse/src/types.rs:61` |
 | `BRANCH_FANOUT` | 256 | `crates/expanse/src/types.rs:64` |
 | `BRANCH_L3_CAP` | 3 | `crates/expanse/src/types.rs:71` |
@@ -1302,25 +1304,25 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `ROOT_LEAF_CAP` | 31 | `crates/expanse/src/types.rs:102` |
 | `CACHE_LINE` | 64 | `crates/expanse/src/types.rs:43` |
 | `RAW_ALIGN` | 16 | `crates/expanse/src/types.rs:58` |
-| `size_of::<BranchHeader>()` | 16 | `crates/expanse/src/node.rs:987` |
+| `size_of::<BranchHeader>()` | 16 | `crates/expanse/src/node.rs:1018` |
 | `offset_of!(BranchHeader, version)` | 0 | `crates/expanse/src/node.rs:443` |
-| `offset_of!(BranchHeader, digits)` | 8 | `crates/expanse/src/node.rs:988` |
-| `size_of::<BranchL3>()` | 64 | `crates/expanse/src/node.rs:990` |
-| `offset_of!(BranchL3, edges)` | 16 | `crates/expanse/src/node.rs:992` |
-| `size_of::<BranchL7>()` | 128 | `crates/expanse/src/node.rs:994` |
-| `offset_of!(BranchL7, edges)` | 16 | `crates/expanse/src/node.rs:996` |
-| `size_of::<BranchB>()` | 128 | `crates/expanse/src/node.rs:999` |
-| `offset_of!(BranchB, subarrays)` | 32 | `crates/expanse/src/node.rs:1002` |
-| `offset_of!(BranchB, pop_counts)` | 96 | `crates/expanse/src/node.rs:1004` |
-| `offset_of!(BranchB, version)` | 112 | `crates/expanse/src/node.rs:1005` |
-| `size_of::<BranchU>()` | 4160 | `crates/expanse/src/node.rs:1007` |
+| `offset_of!(BranchHeader, digits)` | 8 | `crates/expanse/src/node.rs:1019` |
+| `size_of::<BranchL3>()` | 64 | `crates/expanse/src/node.rs:1021` |
+| `offset_of!(BranchL3, edges)` | 16 | `crates/expanse/src/node.rs:1023` |
+| `size_of::<BranchL7>()` | 128 | `crates/expanse/src/node.rs:1025` |
+| `offset_of!(BranchL7, edges)` | 16 | `crates/expanse/src/node.rs:1027` |
+| `size_of::<BranchB>()` | 128 | `crates/expanse/src/node.rs:1030` |
+| `offset_of!(BranchB, subarrays)` | 32 | `crates/expanse/src/node.rs:1033` |
+| `offset_of!(BranchB, pop_counts)` | 96 | `crates/expanse/src/node.rs:1035` |
+| `offset_of!(BranchB, version)` | 112 | `crates/expanse/src/node.rs:1036` |
+| `size_of::<BranchU>()` | 4160 | `crates/expanse/src/node.rs:1038` |
 | `offset_of!(BranchU, version)` | 0 | `crates/expanse/src/node.rs:821` |
-| `size_of::<LeafBitmap1>()` | 64 | `crates/expanse/src/node.rs:1014` |
-| `offset_of!(LeafBitmap1, version)` | 32 | `crates/expanse/src/node.rs:909` |
-| `size_of::<LeafBitmapL>()` | 128 | `crates/expanse/src/node.rs:1015` |
-| `offset_of!(LeafBitmapL, values)` | 32 | `crates/expanse/src/node.rs:1016` |
-| `offset_of!(LeafBitmapL, version)` | 96 | `crates/expanse/src/node.rs:943` |
-| `size_of::<Bitmap256>()` | 32 | `crates/expanse/src/node.rs:998` |
+| `size_of::<LeafBitmap1>()` | 64 | `crates/expanse/src/node.rs:1045` |
+| `offset_of!(LeafBitmap1, version)` | 32 | `crates/expanse/src/node.rs:940` |
+| `size_of::<LeafBitmapL>()` | 128 | `crates/expanse/src/node.rs:1046` |
+| `offset_of!(LeafBitmapL, values)` | 32 | `crates/expanse/src/node.rs:1047` |
+| `offset_of!(LeafBitmapL, version)` | 96 | `crates/expanse/src/node.rs:974` |
+| `size_of::<Bitmap256>()` | 32 | `crates/expanse/src/node.rs:1029` |
 | `size_of::<ValueSlot>()` | 8 | `crates/expanse/src/slot.rs:171` |
 | `ValueSlot::TAG_MASK` | 0xFF | `crates/expanse/src/slot.rs:180` |
 | `ValueSlot::ARENA_META_MASK` | 0xFFFFFF | `crates/expanse/src/slot.rs:182` |

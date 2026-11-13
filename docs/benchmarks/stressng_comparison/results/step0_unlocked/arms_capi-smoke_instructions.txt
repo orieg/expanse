@@ -1,0 +1,7 @@
+arms compared: 14 (base 14, head 14); above +0.1%: 4; below -0.1%: 1
+  +2.187%  smoke_instructions::smoke_capi_cost::judy1_set clustered:keys("clustered")  2,292,143 -> 2,342,270
+  +0.674%  smoke_instructions::smoke_capi_cost::judy1_set random:keys("random")  6,492,243 -> 6,536,014
+  +0.408%  smoke_instructions::smoke_capi_cost::judy1_set sequential:keys("sequential")  959,815 -> 963,731
+  +0.332%  smoke_instructions::smoke_capi_cost::judyl_insert random:keys("random")  7,604,634 -> 7,629,847
+improved:
+  -0.481%  smoke_instructions::smoke_capi_cost::judysl_insert routes:str_keys("routes")

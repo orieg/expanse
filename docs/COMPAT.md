@@ -137,7 +137,7 @@ chunk-geometry fields) is `CorruptedHeader`, a different error.
   | 1 key | 16 B | 4,096 B | 0 B | 728 B |
   | 20 keys | 384 B | 20,864 B | 20,480 B | 1,096 B |
 
-  Each row is per array, box excluded except in the last column. The values are deterministic allocator accounting from the `bytes_per_key` small-array rows, which the `memory-budget` CI job gates at exactly these values. An array emptied by deleting every key frees its tree, pages included. stress-ng's `sparsematrix hashjudy` method keeps one such array per matrix row, and the resident-memory comparison against stock libjudy that motivated these rows is tracked in [#1666](https://github.com/orieg/expanse/issues/1666).
+  Each row is per array, box excluded except in the last column. The values are deterministic allocator accounting from the `bytes_per_key` small-array rows, which the `memory-budget` CI job gates at exactly these values. An array emptied by deleting every key frees its tree, pages included. stress-ng's `sparsematrix hashjudy` method keeps one such array per matrix row, and the resident-memory comparison against stock libjudy that motivated these rows is tracked in [#1666](https://github.com/orieg/expanse/issues/1666). Its re-measure, with stress-ng's per-phase rates on two hosts, is the [`stressng_comparison`](benchmarks/stressng_comparison/README.md) suite.
 - **Internal structure equality** — no attempt to match libjudy's node layouts, only its observable behavior.
 - **`JErrno` legacy globals** beyond what the documented macro layer requires.
 

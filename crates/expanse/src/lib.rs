@@ -63,6 +63,13 @@ compile_error!(
      scaling on the default build, use the writer_scaling suite."
 );
 
+#[cfg(feature = "ablation-unlocked-plain-acct")]
+compile_error!(
+    "ablation-unlocked-plain-acct is retired (Refs #1679): a plain tree's accounting updates are \
+     unlocked by default. To measure the locked updates they replaced, use \
+     ablation-locked-plain-acct."
+);
+
 #[cfg(feature = "packed-suffix")]
 compile_error!(
     "packed-suffix has been promoted to the default (Refs #1586, concurrency METHODOLOGY §47): \

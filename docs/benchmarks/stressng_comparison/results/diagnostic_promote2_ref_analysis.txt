@@ -1,0 +1,140 @@
+run 1: 216 processes, 12 discarded; max load1 0.97 (void above 12.0): valid -> docs/benchmarks/stressng_comparison/results/diagnostic_promote2_ref_run1.json
+run 2: 216 processes, 12 discarded; max load1 1.06 (void above 12.0): valid -> docs/benchmarks/stressng_comparison/results/diagnostic_promote2_ref_run2.json
+
+| shape | counter | pair | per op (num) | per op (den) | run 1 [BCa 95%] | run 2 [BCa 95%] |
+|---|---|---|---|---|---|---|
+| del_1k | `cycles` | P/M | 136.6 | 158.1 | 0.8643 [0.8601, 0.8672] | 0.8492 [0.8230, 0.8649] |
+| del_1k | `cycles` | P/S | 136.6 | 143.5 | 0.9519 [0.9487, 0.9545] | 0.9499 [0.9465, 0.9524] |
+| del_1k | `cycles` | M/S | 158.1 | 143.5 | 1.1014 [1.0986, 1.1056] | 1.1185 [1.0985, 1.1588] |
+| del_1k | `instructions` | P/M | 661.8 | 661.6 | 1.0004 [1.0004, 1.0004] (bc) | 1.0004 [1.0004, 1.0004] (bc) |
+| del_1k | `instructions` | P/S | 661.8 | 771.6 | 0.8577 [0.8577, 0.8577] (bc) | 0.8577 [0.8577, 0.8577] (bc) |
+| del_1k | `instructions` | M/S | 661.6 | 771.6 | 0.8574 [0.8574, 0.8574] (bc) | 0.8574 [0.8574, 0.8574] (bc) |
+| del_1k | `cycle_activity.stalls_total` | P/M | 5.534 | 12.14 | 0.4559 [0.4525, 0.4592] | 0.3538 [0.2615, 0.4541] |
+| del_1k | `cycle_activity.stalls_total` | P/S | 5.534 | 3.901 | 1.4184 [1.4095, 1.4263] | 1.3972 [1.3853, 1.4099] |
+| del_1k | `cycle_activity.stalls_total` | M/S | 12.14 | 3.901 | 3.1114 [3.0882, 3.1353] | 3.9494 [3.0831, 5.6882] |
+| del_1k | `idq_uops_not_delivered.core` | P/M | 165.3 | 150 | 1.1020 [1.0818, 1.1194] | 1.0890 [1.0680, 1.1093] |
+| del_1k | `idq_uops_not_delivered.core` | P/S | 165.3 | 59.84 | 2.7629 [2.6880, 2.8153] | 2.7733 [2.7149, 2.8213] |
+| del_1k | `idq_uops_not_delivered.core` | M/S | 150 | 59.84 | 2.5073 [2.4440, 2.5389] | 2.5467 [2.5114, 2.5790] |
+| del_1k | `mem_inst_retired.lock_loads` | P/M | 0.03906 | 2 | 0.0195 [0.0195, 0.0195] (degenerate) | 0.0195 [0.0195, 0.0195] (degenerate) |
+| del_1k | `mem_inst_retired.lock_loads` | P/S | 0.03906 | 0.00029 | 134.6768 [134.6768, 134.6768] (degenerate) | 134.6768 [134.6768, 134.6768] (degenerate) |
+| del_1k | `mem_inst_retired.lock_loads` | M/S | 2 | 0.00029 | 6895.6195 [6895.6195, 6895.6195] (degenerate) | 6895.6195 [6895.6195, 6895.6195] (degenerate) |
+| del_1k | `phase_ns` | P/M | 27.63 | 31.97 | 0.8644 [0.8594, 0.8695] | 0.8502 [0.8230, 0.8666] |
+| del_1k | `phase_ns` | P/S | 27.63 | 29.12 | 0.9488 [0.9441, 0.9544] | 0.9508 [0.9464, 0.9550] |
+| del_1k | `phase_ns` | M/S | 31.97 | 29.12 | 1.0977 [1.0923, 1.1035] | 1.1183 [1.0973, 1.1560] |
+| del_4m | `cycles` | P/M | 198.5 | 206.9 | 0.9596 [0.9477, 0.9724] | 0.9570 [0.9435, 0.9698] |
+| del_4m | `cycles` | P/S | 198.5 | 193.2 | 1.0277 [1.0154, 1.0434] | 1.0305 [1.0176, 1.0441] |
+| del_4m | `cycles` | M/S | 206.9 | 193.2 | 1.0710 [1.0619, 1.0842] | 1.0768 [1.0665, 1.0884] |
+| del_4m | `instructions` | P/M | 747.3 | 745.8 | 1.0020 [1.0020, 1.0020] (bc) | 1.0020 [1.0020, 1.0020] (bc) |
+| del_4m | `instructions` | P/S | 747.3 | 812.9 | 0.9193 [0.9193, 0.9193] (bc) | 0.9193 [0.9193, 0.9193] (bc) |
+| del_4m | `instructions` | M/S | 745.8 | 812.9 | 0.9174 [0.9174, 0.9174] (bc) | 0.9174 [0.9174, 0.9174] (bc) |
+| del_4m | `cycle_activity.stalls_total` | P/M | 32.46 | 35.49 | 0.9148 [0.8735, 0.9570] | 0.9005 [0.8569, 0.9439] |
+| del_4m | `cycle_activity.stalls_total` | P/S | 32.46 | 17.82 | 1.8214 [1.7402, 1.9190] | 1.8451 [1.7595, 1.9340] |
+| del_4m | `cycle_activity.stalls_total` | M/S | 35.49 | 17.82 | 1.9910 [1.9197, 2.0821] | 2.0490 [1.9701, 2.1326] |
+| del_4m | `idq_uops_not_delivered.core` | P/M | 40.67 | 62.88 | 0.6468 [0.6426, 0.6509] | 0.6488 [0.6444, 0.6543] |
+| del_4m | `idq_uops_not_delivered.core` | P/S | 40.67 | 24.13 | 1.6857 [1.6720, 1.6969] | 1.6890 [1.6774, 1.7024] |
+| del_4m | `idq_uops_not_delivered.core` | M/S | 62.88 | 24.13 | 2.6062 [2.5889, 2.6198] | 2.6031 [2.5922, 2.6132] |
+| del_4m | `mem_inst_retired.lock_loads` | P/M | 1.192e-05 | 0.7935 | 0.0000 [0.0000, 0.0000] (degenerate) | 0.0000 [0.0000, 0.0000] (degenerate) |
+| del_4m | `mem_inst_retired.lock_loads` | P/S | 1.192e-05 | 0.000546 | 0.0218 [0.0218, 0.0218] (degenerate) | 0.0218 [0.0218, 0.0218] (degenerate) |
+| del_4m | `mem_inst_retired.lock_loads` | M/S | 0.7935 | 0.000546 | 1453.2795 [1453.2795, 1453.2795] (degenerate) | 1453.2795 [1453.2795, 1453.2795] (degenerate) |
+| del_4m | `phase_ns` | P/M | 40.14 | 41.75 | 0.9616 [0.9496, 0.9737] | 0.9614 [0.9498, 0.9736] |
+| del_4m | `phase_ns` | P/S | 40.14 | 38.06 | 1.0547 [1.0421, 1.0695] | 1.0578 [1.0450, 1.0718] |
+| del_4m | `phase_ns` | M/S | 41.75 | 38.06 | 1.0968 [1.0874, 1.1105] | 1.1003 [1.0903, 1.1108] |
+| ins_1k | `cycles` | P/M | 111.9 | 145.8 | 0.7674 [0.7642, 0.7696] | 0.7682 [0.7666, 0.7696] |
+| ins_1k | `cycles` | P/S | 111.9 | 159.9 | 0.6998 [0.6983, 0.7011] | 0.7002 [0.6991, 0.7013] |
+| ins_1k | `cycles` | M/S | 145.8 | 159.9 | 0.9118 [0.9099, 0.9157] | 0.9115 [0.9099, 0.9136] |
+| ins_1k | `instructions` | P/M | 489.9 | 482.1 | 1.0162 [1.0162, 1.0162] (bc) | 1.0162 [1.0162, 1.0162] (bc) |
+| ins_1k | `instructions` | P/S | 489.9 | 839.5 | 0.5836 [0.5836, 0.5836] (bc) | 0.5836 [0.5836, 0.5836] (bc) |
+| ins_1k | `instructions` | M/S | 482.1 | 839.5 | 0.5743 [0.5743, 0.5743] (bc) | 0.5743 [0.5743, 0.5743] (bc) |
+| ins_1k | `cycle_activity.stalls_total` | P/M | 7.182 | 22.41 | 0.3205 [0.3166, 0.3243] | 0.3277 [0.3221, 0.3421] |
+| ins_1k | `cycle_activity.stalls_total` | P/S | 7.182 | 6.286 | 1.1424 [1.1291, 1.1559] | 1.1685 [1.1476, 1.2192] |
+| ins_1k | `cycle_activity.stalls_total` | M/S | 22.41 | 6.286 | 3.5645 [3.5289, 3.5988] | 3.5653 [3.5234, 3.6058] |
+| ins_1k | `idq_uops_not_delivered.core` | P/M | 155.7 | 135.6 | 1.1482 [1.1279, 1.1636] | 1.1524 [1.1439, 1.1598] |
+| ins_1k | `idq_uops_not_delivered.core` | P/S | 155.7 | 65.08 | 2.3927 [2.3520, 2.4220] | 2.3952 [2.3752, 2.4132] |
+| ins_1k | `idq_uops_not_delivered.core` | M/S | 135.6 | 65.08 | 2.0838 [2.0668, 2.1026] | 2.0785 [2.0673, 2.0893] |
+| ins_1k | `mem_inst_retired.lock_loads` | P/M | 0.1562 | 2.473 | 0.0632 [0.0632, 0.0632] (degenerate) | 0.0632 [0.0632, 0.0632] (degenerate) |
+| ins_1k | `mem_inst_retired.lock_loads` | P/S | 0.1562 | 0.01953 | 7.9991 [7.9991, 7.9991] (degenerate) | 7.9991 [7.9991, 7.9991] (degenerate) |
+| ins_1k | `mem_inst_retired.lock_loads` | M/S | 2.473 | 0.01953 | 126.5972 [126.5972, 126.5972] (degenerate) | 126.5972 [126.5972, 126.5972] (degenerate) |
+| ins_1k | `phase_ns` | P/M | 22.75 | 29.63 | 0.7680 [0.7623, 0.7730] | 0.7679 [0.7634, 0.7717] |
+| ins_1k | `phase_ns` | P/S | 22.75 | 32.5 | 0.7002 [0.6954, 0.7048] | 0.7004 [0.6962, 0.7037] |
+| ins_1k | `phase_ns` | M/S | 29.63 | 32.5 | 0.9118 [0.9068, 0.9175] | 0.9120 [0.9054, 0.9186] |
+| j1s_clustered | `cycles` | P/M | 47.55 | 49.5 | 0.9606 [0.9561, 0.9648] | 0.9518 [0.9488, 0.9552] |
+| j1s_clustered | `cycles` | P/S | 47.55 | 95.66 | 0.4971 [0.4952, 0.4988] | 0.4978 [0.4958, 0.4995] |
+| j1s_clustered | `cycles` | M/S | 49.5 | 95.66 | 0.5175 [0.5149, 0.5203] | 0.5231 [0.5205, 0.5252] |
+| j1s_clustered | `instructions` | P/M | 233.7 | 233 | 1.0031 [1.0031, 1.0031] (bc) | 1.0031 [1.0031, 1.0031] (bc) |
+| j1s_clustered | `instructions` | P/S | 233.7 | 436 | 0.5359 [0.5359, 0.5359] (bc) | 0.5359 [0.5359, 0.5359] (bc) |
+| j1s_clustered | `instructions` | M/S | 233 | 436 | 0.5343 [0.5343, 0.5343] (bc) | 0.5343 [0.5343, 0.5343] (bc) |
+| j1s_clustered | `cycle_activity.stalls_total` | P/M | 1.526 | 2.456 | 0.6215 [0.6096, 0.6339] | 0.6015 [0.5917, 0.6106] |
+| j1s_clustered | `cycle_activity.stalls_total` | P/S | 1.526 | 5.538 | 0.2756 [0.2682, 0.2829] | 0.2728 [0.2663, 0.2787] |
+| j1s_clustered | `cycle_activity.stalls_total` | M/S | 2.456 | 5.538 | 0.4435 [0.4332, 0.4534] | 0.4536 [0.4424, 0.4623] |
+| j1s_clustered | `idq_uops_not_delivered.core` | P/M | 49.69 | 57.52 | 0.8639 [0.8367, 0.8916] | 0.8275 [0.8123, 0.8442] |
+| j1s_clustered | `idq_uops_not_delivered.core` | P/S | 49.69 | 20.44 | 2.4315 [2.4006, 2.4573] | 2.4185 [2.3962, 2.4409] |
+| j1s_clustered | `idq_uops_not_delivered.core` | M/S | 57.52 | 20.44 | 2.8146 [2.7324, 2.9092] | 2.9227 [2.8645, 2.9757] |
+| j1s_clustered | `mem_inst_retired.lock_loads` | P/M | 0.003806 | 0.1413 | 0.0269 [0.0269, 0.0269] (degenerate) | 0.0269 [0.0269, 0.0269] (degenerate) |
+| j1s_clustered | `mem_inst_retired.lock_loads` | P/S | 0.003806 | 0.0001996 | 19.0661 [19.0661, 19.0661] (degenerate) | 19.0661 [19.0661, 19.0661] (degenerate) |
+| j1s_clustered | `mem_inst_retired.lock_loads` | M/S | 0.1413 | 0.0001996 | 708.1443 [708.1443, 708.1443] (degenerate) | 708.1443 [708.1443, 708.1443] (degenerate) |
+| j1s_clustered | `phase_ns` | P/M | 9.645 | 10.02 | 0.9627 [0.9584, 0.9673] | 0.9559 [0.9510, 0.9639] |
+| j1s_clustered | `phase_ns` | P/S | 9.645 | 19.29 | 0.5001 [0.4980, 0.5021] | 0.5014 [0.4984, 0.5051] |
+| j1s_clustered | `phase_ns` | M/S | 10.02 | 19.29 | 0.5195 [0.5170, 0.5218] | 0.5246 [0.5215, 0.5273] |
+| j1s_sparse | `cycles` | P/M | 111.7 | 118.3 | 0.9434 [0.9355, 0.9595] | 0.9345 [0.9308, 0.9390] |
+| j1s_sparse | `cycles` | P/S | 111.7 | 110 | 1.0150 [1.0065, 1.0322] | 1.0044 [0.9963, 1.0090] |
+| j1s_sparse | `cycles` | M/S | 118.3 | 110 | 1.0759 [1.0721, 1.0802] | 1.0747 [1.0655, 1.0790] |
+| j1s_sparse | `instructions` | P/M | 475.4 | 474.4 | 1.0021 [1.0021, 1.0021] (bc) | 1.0021 [1.0021, 1.0021] (bc) |
+| j1s_sparse | `instructions` | P/S | 475.4 | 562.5 | 0.8453 [0.8453, 0.8453] (bc) | 0.8453 [0.8453, 0.8453] (bc) |
+| j1s_sparse | `instructions` | M/S | 474.4 | 562.5 | 0.8435 [0.8435, 0.8435] (bc) | 0.8435 [0.8435, 0.8435] (bc) |
+| j1s_sparse | `cycle_activity.stalls_total` | P/M | 8.26 | 11.2 | 0.7372 [0.7146, 0.7859] | 0.7156 [0.7073, 0.7252] |
+| j1s_sparse | `cycle_activity.stalls_total` | P/S | 8.26 | 3.408 | 2.4237 [2.2863, 2.5705] | 2.3337 [2.1187, 2.4117] |
+| j1s_sparse | `cycle_activity.stalls_total` | M/S | 11.2 | 3.408 | 3.2876 [3.0849, 3.3875] | 3.2614 [2.9708, 3.3681] |
+| j1s_sparse | `idq_uops_not_delivered.core` | P/M | 82.03 | 97.7 | 0.8395 [0.8147, 0.8490] | 0.8361 [0.8249, 0.8528] |
+| j1s_sparse | `idq_uops_not_delivered.core` | P/S | 82.03 | 15.97 | 5.1361 [5.0071, 5.2006] | 5.0744 [5.0006, 5.1922] |
+| j1s_sparse | `idq_uops_not_delivered.core` | M/S | 97.7 | 15.97 | 6.1178 [6.0326, 6.1675] | 6.0690 [5.9913, 6.1322] |
+| j1s_sparse | `mem_inst_retired.lock_loads` | P/M | 0.04237 | 1.115 | 0.0380 [0.0380, 0.0380] (degenerate) | 0.0380 [0.0380, 0.0380] (degenerate) |
+| j1s_sparse | `mem_inst_retired.lock_loads` | P/S | 0.04237 | 2.667e-07 | 158896.0000 [158896.0000, 158896.0000] (degenerate) | 158896.0000 [158896.0000, 158896.0000] (degenerate) |
+| j1s_sparse | `mem_inst_retired.lock_loads` | M/S | 1.115 | 2.667e-07 | 4182871.0000 [4182871.0000, 4182871.0000] (degenerate) | 4182871.0000 [4182871.0000, 4182871.0000] (degenerate) |
+| j1s_sparse | `phase_ns` | P/M | 22.91 | 24.25 | 0.9450 [0.9330, 0.9603] | 0.9327 [0.9162, 0.9407] |
+| j1s_sparse | `phase_ns` | P/S | 22.91 | 22.32 | 1.0267 [1.0175, 1.0450] | 1.0182 [1.0093, 1.0241] |
+| j1s_sparse | `phase_ns` | M/S | 24.25 | 22.32 | 1.0864 [1.0801, 1.1011] | 1.0916 [1.0820, 1.1110] |
+| osc_1 | `cycles` | P/M | 1061 | 1219 | 0.8708 [0.8628, 0.8736] | 0.8761 [0.8737, 0.8812] |
+| osc_1 | `cycles` | P/S | n < 8 | | | |
+| osc_1 | `cycles` | M/S | n < 8 | | | |
+| osc_1 | `instructions` | P/M | 3340 | 3339 | 1.0003 [1.0000, 1.0010] | 1.0001 [0.9993, 1.0009] |
+| osc_1 | `instructions` | P/S | n < 8 | | | |
+| osc_1 | `instructions` | M/S | n < 8 | | | |
+| osc_1 | `cycle_activity.stalls_total` | P/M | 130.6 | 199.6 | 0.6542 [0.6396, 0.6620] | 0.6753 [0.6625, 0.7058] |
+| osc_1 | `cycle_activity.stalls_total` | P/S | n < 8 | | | |
+| osc_1 | `cycle_activity.stalls_total` | M/S | n < 8 | | | |
+| osc_1 | `idq_uops_not_delivered.core` | P/M | 961.7 | 1545 | 0.6224 [0.6181, 0.6297] | 0.6389 [0.6222, 0.6782] |
+| osc_1 | `idq_uops_not_delivered.core` | P/S | n < 8 | | | |
+| osc_1 | `idq_uops_not_delivered.core` | M/S | n < 8 | | | |
+| osc_1 | `mem_inst_retired.lock_loads` | P/M | 10 | 15 | 0.6667 [0.6667, 0.6667] (degenerate) | 0.6667 [0.6667, 0.6667] (degenerate) |
+| osc_1 | `mem_inst_retired.lock_loads` | P/S | n < 8 | | | |
+| osc_1 | `mem_inst_retired.lock_loads` | M/S | n < 8 | | | |
+| osc_1 | `phase_ns` | P/M | 210.9 | 241.4 | 0.8736 [0.8642, 0.8775] | 0.8774 [0.8736, 0.8825] |
+| osc_1 | `phase_ns` | P/S | n < 8 | | | |
+| osc_1 | `phase_ns` | M/S | n < 8 | | | |
+
+reading rule (README.md), promote2, P against M per shape:
+  del_1k phase_ns: P/M run 1 0.8644 [0.8594, 0.8695]; run 2 0.8502 [0.8230, 0.8666]
+  del_1k cycles: P/M run 1 0.8643 [0.8601, 0.8672]; run 2 0.8492 [0.8230, 0.8649]
+  del_1k lock_loads per process (run 1): P 399990.0, M 20479990.0
+  del_1k: target FASTER MET
+  del_4m phase_ns: P/M run 1 0.9616 [0.9496, 0.9737]; run 2 0.9614 [0.9498, 0.9736]
+  del_4m cycles: P/M run 1 0.9596 [0.9477, 0.9724]; run 2 0.9570 [0.9435, 0.9698]
+  del_4m lock_loads per process (run 1): P 50.0, M 3328010.0
+  del_4m: target FASTER MET
+  ins_1k phase_ns: P/M run 1 0.7680 [0.7623, 0.7730]; run 2 0.7679 [0.7634, 0.7717]
+  ins_1k cycles: P/M run 1 0.7674 [0.7642, 0.7696]; run 2 0.7682 [0.7666, 0.7696]
+  ins_1k lock_loads per process (run 1): P 959912.0, M 15191912.0
+  ins_1k: no-loss bound (upper <= 1.02) MET
+  j1s_clustered phase_ns: P/M run 1 0.9627 [0.9584, 0.9673]; run 2 0.9559 [0.9510, 0.9639]
+  j1s_clustered cycles: P/M run 1 0.9606 [0.9561, 0.9648]; run 2 0.9518 [0.9488, 0.9552]
+  j1s_clustered lock_loads per process (run 1): P 76112.0, M 2826912.0
+  j1s_clustered: no-loss bound (upper <= 1.02) MET
+  j1s_sparse phase_ns: P/M run 1 0.9450 [0.9330, 0.9603]; run 2 0.9327 [0.9162, 0.9407]
+  j1s_sparse cycles: P/M run 1 0.9434 [0.9355, 0.9595]; run 2 0.9345 [0.9308, 0.9390]
+  j1s_sparse lock_loads per process (run 1): P 317792.0, M 8365742.0
+  j1s_sparse: no-loss bound (upper <= 1.02) MET
+  osc_1 phase_ns: P/M run 1 0.8736 [0.8642, 0.8775]; run 2 0.8774 [0.8736, 0.8825]
+  osc_1 cycles: P/M run 1 0.8708 [0.8628, 0.8736]; run 2 0.8761 [0.8737, 0.8812]
+  osc_1 lock_loads per process (run 1): P 14999912.0, M 22499912.0
+  osc_1: no-loss bound (upper <= 1.02) MET
+promote2 verdict: PASS

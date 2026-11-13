@@ -714,6 +714,15 @@ fn walk<const MAP: bool, const CHECK_BRANCH_POP0: bool>(
                     ));
                 }
             }
+            // The removals' lower bound on the non-null slots (#1679).
+            // SAFETY: the live branch above; the validator runs with no
+            // writer, so the plain load races nothing.
+            let lower = unsafe { BranchU::digits_lower::<false>(ptr.cast()) } as usize;
+            if lower > digits {
+                return Err(format!(
+                    "uncompressed branch lower bound {lower} exceeds its {digits} non-null slots"
+                ));
+            }
             if crate::mutate::branch_u_below_floor(digits) {
                 return Err(format!(
                     "uncompressed branch population {digits} at or below demotion threshold \

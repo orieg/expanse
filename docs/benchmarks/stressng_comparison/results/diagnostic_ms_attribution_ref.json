@@ -1,0 +1,679 @@
+{
+ "provenance": {
+  "suite": "stressng_comparison",
+  "issue": 1679,
+  "commit": "3588d4b6e",
+  "host": {
+   "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+   "cpus_online": 24,
+   "cpu_core_cpus": "0-15",
+   "cpu_atom_cpus": "16-23",
+   "cpu0_thread_siblings": "0-1",
+   "scaling_driver": "intel_pstate",
+   "scaling_governor": "powersave",
+   "scaling_governor_by_cpu": {
+    "0": "powersave",
+    "2": "powersave",
+    "4": "powersave",
+    "6": "powersave",
+    "8": "powersave",
+    "10": "powersave",
+    "12": "powersave",
+    "14": "powersave"
+   },
+   "scaling_governor_pin_set": "0,2,4,6,8,10,12,14",
+   "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+   "transparent_hugepage": "always [madvise] never",
+   "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+   "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+  },
+  "estimators": {
+   "ratio": "share of the run's samples per function and per instruction, one process per (shape, arm); a census, no interval",
+   "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+   "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+  },
+  "core_pin": "0,2,4,6,8,10,12,14",
+  "loads": [
+   {
+    "label": "start",
+    "since": null,
+    "load1": 0.32,
+    "load5": 0.44,
+    "load15": 0.24,
+    "at": "2026-11-11T19:57:12Z",
+    "stat_busy_jiffies": 60097640,
+    "stat_total_jiffies": 5541575353,
+    "child_cpu_s": 0.056,
+    "monotonic_s": 2309858.281,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "record:del_1k:D:frontend_retired.ms_flows",
+    "since": "start",
+    "load1": 0.32,
+    "load5": 0.44,
+    "load15": 0.24,
+    "at": "2026-11-11T19:57:12Z",
+    "stat_busy_jiffies": 60097640,
+    "stat_total_jiffies": 5541575353,
+    "child_cpu_s": 0.056,
+    "monotonic_s": 2309858.281,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "record:del_1k:S:frontend_retired.ms_flows",
+    "since": "record:del_1k:D:frontend_retired.ms_flows",
+    "load1": 0.58,
+    "load5": 0.5,
+    "load15": 0.26,
+    "at": "2026-11-11T19:57:32Z",
+    "stat_busy_jiffies": 60099629,
+    "stat_total_jiffies": 5541623772,
+    "child_cpu_s": 18.44,
+    "monotonic_s": 2309878.647,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 0.9,
+    "foreign_busy_cpus_since_prev": 0.09
+   },
+   {
+    "label": "record:del_4m:D:frontend_retired.ms_flows",
+    "since": "record:del_1k:S:frontend_retired.ms_flows",
+    "load1": 0.72,
+    "load5": 0.53,
+    "load15": 0.28,
+    "at": "2026-11-11T19:57:54Z",
+    "stat_busy_jiffies": 60101433,
+    "stat_total_jiffies": 5541674643,
+    "child_cpu_s": 37.394,
+    "monotonic_s": 2309900.022,
+    "busy_cpus_since_prev": 0.85,
+    "own_busy_cpus_since_prev": 0.89,
+    "foreign_busy_cpus_since_prev": -0.04
+   },
+   {
+    "label": "record:del_4m:S:frontend_retired.ms_flows",
+    "since": "record:del_4m:D:frontend_retired.ms_flows",
+    "load1": 0.72,
+    "load5": 0.53,
+    "load15": 0.28,
+    "at": "2026-11-11T19:57:54Z",
+    "stat_busy_jiffies": 60101479,
+    "stat_total_jiffies": 5541675761,
+    "child_cpu_s": 37.843,
+    "monotonic_s": 2309900.489,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 0.96,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "end",
+    "since": "record:del_4m:S:frontend_retired.ms_flows",
+    "load1": 0.72,
+    "load5": 0.53,
+    "load15": 0.28,
+    "at": "2026-11-11T19:57:54Z",
+    "stat_busy_jiffies": 60101517,
+    "stat_total_jiffies": 5541676665,
+    "child_cpu_s": 38.217,
+    "monotonic_s": 2309900.866,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   }
+  ],
+  "host_label": "ref",
+  "run": 1,
+  "diagnostic": "microcode-uop attribution on the delete phase, outside METHODOLOGY.md's pre-registration",
+  "probe": "scripts/phase_probe.c",
+  "shapes": [
+   [
+    "del_1k",
+    10000,
+    10240000
+   ],
+   [
+    "del_4m",
+    1,
+    4194304
+   ]
+  ],
+  "arms": {
+   "D": "/var/tmp/stressng-eval/expcompat-45f83ac5e/lib",
+   "S": "/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu"
+  },
+  "pmu": "cpu_core",
+  "period": 503,
+  "perf_version": "perf version 6.8.12",
+  "sha256": {
+   "probe": "b9ead8d92231ca49e9afeff0f266a723fecfc5254b7cbcb33d5f65b5207d17cb",
+   "arm_D": "f6bb333ea4416b5a1e2074d27b4f84a4d9ebbaa094f7fc2009adcae24a824a93",
+   "arm_S": "76f121a81b7d8b019e7c5f3bc43e8ead5f7f6a99b377ea7afb9f1d6ff483d731"
+  }
+ },
+ "cells": [
+  {
+   "workload_id": "phase_del_1k",
+   "arm": "D",
+   "ops": 10240000,
+   "event": "frontend_retired.ms_flows",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "frontend_retired.ms_flows",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "deleted 1024 x 10000\n"
+    }
+   ],
+   "load": {
+    "since": "record:del_1k:D:frontend_retired.ms_flows",
+    "wall_s": 20.267,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus": 0.9,
+    "foreign_busy_cpus": 0.09
+   },
+   "samples": 39989.15089999999,
+   "perf_script_samples": 40871,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 94.57,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map10map_removeKb0_KBV_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 1.95,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a17d7"
+    },
+    {
+     "pct": 1.95,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "JudyLDel"
+    },
+    {
+     "pct": 0.96,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate16downgrade_u_to_bKb0_ECshnNRJsApaqI_7expanse"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 13.72,
+     "samples": 5302.917200000001,
+     "addr": "5bd28",
+     "insn": "lock sub %rax,0x200(%rcx)",
+     "share": 0.13260889717965985
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 13.32,
+     "samples": 5148.3132000000005,
+     "addr": "5b41d",
+     "insn": "lock sub %rax,0x200(%rbx)",
+     "share": 0.12874274857383886
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 13.31,
+     "samples": 5144.4481,
+     "addr": "5bd30",
+     "insn": "lock decq 0x208(%rcx)",
+     "share": 0.1286460948586933
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 13.18,
+     "samples": 5094.2018,
+     "addr": "5ba35",
+     "insn": "lock incq 0x218(%rsi)",
+     "share": 0.1273895965618015
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 13.09,
+     "samples": 5059.4159,
+     "addr": "5ba2d",
+     "insn": "lock incq 0x208(%rsi)",
+     "share": 0.12651971312549176
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 13.01,
+     "samples": 5028.4951,
+     "addr": "5b425",
+     "insn": "lock decq 0x208(%rbx)",
+     "share": 0.12574648340432756
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 12.72,
+     "samples": 4916.407200000001,
+     "addr": "5ba25",
+     "insn": "lock add %rbp,0x200(%rsi)",
+     "share": 0.12294352566510737
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 1.35,
+     "samples": 521.7885000000001,
+     "addr": "5cc73",
+     "insn": "lock add %r11,0x200(%rsi)",
+     "share": 0.01304825154464583
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 1.29,
+     "samples": 498.5979,
+     "addr": "5cc96",
+     "insn": "lock incq 0x218(%rsi)",
+     "share": 0.012468329253772678
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 1.08,
+     "samples": 417.43080000000003,
+     "addr": "5cf01",
+     "insn": "lock decq (%rcx)",
+     "share": 0.010438601235716664
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 1.07,
+     "samples": 413.56570000000005,
+     "addr": "5cc87",
+     "insn": "lock incq 0x208(%rsi)",
+     "share": 0.010341947520571139
+    }
+   ],
+   "reparsed": {
+    "from": "del_1k_D.report.txt, del_1k_D.annotate.txt",
+    "parser_commit": "3588d4b6e"
+   }
+  },
+  {
+   "workload_id": "phase_del_1k",
+   "arm": "S",
+   "ops": 10240000,
+   "event": "frontend_retired.ms_flows",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "frontend_retired.ms_flows",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "deleted 1024 x 10000\n"
+    }
+   ],
+   "load": {
+    "since": "record:del_1k:S:frontend_retired.ms_flows",
+    "wall_s": 21.304,
+    "busy_cpus_since_prev": 0.85,
+    "own_busy_cpus": 0.89,
+    "foreign_busy_cpus": -0.04
+   },
+   "samples": 38.0,
+   "perf_script_samples": 47,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 57.45,
+     "dso": "libc.so.6",
+     "symbol": "read"
+    },
+    {
+     "pct": 14.89,
+     "dso": "libc.so.6",
+     "symbol": "write"
+    },
+    {
+     "pct": 8.51,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a17d7"
+    },
+    {
+     "pct": 4.26,
+     "dso": "phase_probe",
+     "symbol": "perf_ctl"
+    },
+    {
+     "pct": 2.13,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet"
+    },
+    {
+     "pct": 2.13,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000000ad50"
+    },
+    {
+     "pct": 2.13,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000000b856"
+    },
+    {
+     "pct": 2.13,
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "0x000000000000d6c3"
+    },
+    {
+     "pct": 2.13,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a4275"
+    },
+    {
+     "pct": 2.13,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a437e"
+    },
+    {
+     "pct": 2.13,
+     "dso": "phase_probe",
+     "symbol": "judy_delete"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libc.so.6",
+     "symbol": "__read@@GLIBC_2.2.5",
+     "local_pct": 100.0,
+     "samples": 27.0,
+     "addr": "114930",
+     "insn": "syscall",
+     "share": 0.7105263157894737
+    },
+    {
+     "dso": "libc.so.6",
+     "symbol": "__write@@GLIBC_2.2.5",
+     "local_pct": 100.0,
+     "samples": 7.0,
+     "addr": "1149d7",
+     "insn": "cmp    $0xfffffffffffff000,%rax",
+     "share": 0.18421052631578946
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "perf_ctl",
+     "local_pct": 100.0,
+     "samples": 2.0,
+     "addr": "15df",
+     "insn": "test   %rax,%rax",
+     "share": 0.05263157894736842
+    },
+    {
+     "dso": "libJudy.so.1.0.3",
+     "symbol": "JudyLGet@@Base",
+     "local_pct": 100.0,
+     "samples": 1.0,
+     "addr": "f277",
+     "insn": "cmpb   $0x1b,0xf(%rax)",
+     "share": 0.02631578947368421
+    },
+    {
+     "dso": "phase_probe",
+     "symbol": "judy_delete",
+     "local_pct": 100.0,
+     "samples": 1.0,
+     "addr": "16f8",
+     "insn": "cmp    $0x1,%eax",
+     "share": 0.02631578947368421
+    }
+   ],
+   "reparsed": {
+    "from": "del_1k_S.report.txt, del_1k_S.annotate.txt",
+    "parser_commit": "3588d4b6e"
+   }
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "arm": "D",
+   "ops": 4194304,
+   "event": "frontend_retired.ms_flows",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "frontend_retired.ms_flows",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "deleted 4194304 x 1\n"
+    }
+   ],
+   "load": {
+    "since": "record:del_4m:D:frontend_retired.ms_flows",
+    "wall_s": 0.38,
+    "busy_cpus_since_prev": 0.97,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": -0.03
+   },
+   "samples": 6617.1102999999985,
+   "perf_script_samples": 6620,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 83.14,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map10map_removeKb0_KBV_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 9.8,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate16downgrade_u_to_bKb0_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 3.43,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate17downgrade_b_to_l7Kb0_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 2.58,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate18downgrade_l7_to_l3Kb0_ECshnNRJsApaqI_7expanse"
+    },
+    {
+     "pct": 1.0,
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "_RINvNtCs141xjyg4q0k_12expanse_trie6mutate16free_branch_nodeKb0_ECshnNRJsApaqI_7expanse"
+    }
+   ],
+   "instructions": [
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 16.22,
+     "samples": 892.7488,
+     "addr": "5cc73",
+     "insn": "lock add %r11,0x200(%rsi)",
+     "share": 0.13491520611346017
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 16.06,
+     "samples": 883.9423999999999,
+     "addr": "5cc96",
+     "insn": "lock incq 0x218(%rsi)",
+     "share": 0.13358435327880208
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 16.01,
+     "samples": 881.1904000000001,
+     "addr": "5cc87",
+     "insn": "lock incq 0x208(%rsi)",
+     "share": 0.13316846176797148
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 13.17,
+     "samples": 724.8768000000001,
+     "addr": "5cefd",
+     "insn": "lock sub %rsi,(%rax)",
+     "share": 0.10954582395279104
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 13.06,
+     "samples": 718.8224,
+     "addr": "5cf01",
+     "insn": "lock decq (%rcx)",
+     "share": 0.10863086262896361
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 5.96,
+     "samples": 328.0384,
+     "addr": "5cf65",
+     "insn": "lock sub %rsi,(%rax)",
+     "share": 0.049574268091012494
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 5.94,
+     "samples": 326.93760000000003,
+     "addr": "5cf69",
+     "insn": "lock decq (%rcx)",
+     "share": 0.04940791148668024
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+     "local_pct": 29.28,
+     "samples": 190.0272,
+     "addr": "9dde1",
+     "insn": "lock incq 0x218(%r14)",
+     "share": 0.028717550620245825
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 3.09,
+     "samples": 170.07359999999997,
+     "addr": "5cd08",
+     "insn": "lock add %rax,0x200(%rsi)",
+     "share": 0.02570209536933365
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 2.93,
+     "samples": 161.26720000000003,
+     "addr": "5cd1c",
+     "insn": "lock incq 0x208(%rsi)",
+     "share": 0.024371242534675607
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 2.87,
+     "samples": 157.9648,
+     "addr": "5cd30",
+     "insn": "lock incq 0x218(%rsi)",
+     "share": 0.023872172721678832
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+     "local_pct": 22.65,
+     "samples": 146.99849999999998,
+     "addr": "9ddd9",
+     "insn": "lock incq 0x208(%r14)",
+     "share": 0.0222149085228336
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+     "local_pct": 22.5,
+     "samples": 146.025,
+     "addr": "9ddd1",
+     "insn": "lock add %r13,0x200(%r14)",
+     "share": 0.02206778992334464
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 2.56,
+     "samples": 140.9024,
+     "addr": "5b99e",
+     "insn": "lock subq $0x10,0x200(%r8)",
+     "share": 0.021293645354528854
+    },
+    {
+     "dso": "libexpanse.so.1.0.0",
+     "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+     "local_pct": 2.13,
+     "samples": 117.23519999999999,
+     "addr": "5b9a7",
+     "insn": "lock decq 0x208(%r8)",
+     "share": 0.017716978361385336
+    }
+   ],
+   "reparsed": {
+    "from": "del_4m_D.report.txt, del_4m_D.annotate.txt",
+    "parser_commit": "3588d4b6e"
+   }
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "arm": "S",
+   "ops": 4194304,
+   "event": "frontend_retired.ms_flows",
+   "modifiers": "upp",
+   "tried": [
+    {
+     "event": "frontend_retired.ms_flows",
+     "modifiers": "upp",
+     "rc": 0,
+     "log": "deleted 4194304 x 1\n"
+    }
+   ],
+   "load": {
+    "since": "record:del_4m:S:frontend_retired.ms_flows",
+    "wall_s": 0.362,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus": 1.0,
+    "foreign_busy_cpus": 0.0
+   },
+   "samples": 0,
+   "perf_script_samples": 4,
+   "rep_string_share": 0,
+   "functions": [
+    {
+     "pct": 75.0,
+     "dso": "libc.so.6",
+     "symbol": "0x00000000000a17d7"
+    },
+    {
+     "pct": 25.0,
+     "dso": "[unknown]",
+     "symbol": "0xffffffff9b20128c"
+    }
+   ],
+   "instructions": [],
+   "reparsed": {
+    "from": "del_4m_S.report.txt, del_4m_S.annotate.txt",
+    "parser_commit": "3588d4b6e"
+   }
+  }
+ ]
+}

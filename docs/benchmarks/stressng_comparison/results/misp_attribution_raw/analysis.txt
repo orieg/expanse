@@ -1,0 +1,340 @@
+-> docs/benchmarks/stressng_comparison/results/diagnostic_misp_attribution_ref.json
+
+## run 1 phase_sm_default misp N: 1.231 events/op (9788 samples, 100.0% annotated)
+    68.0% _RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt
+    32.0% _RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search
+   0.218 (0.218 of all) branch digit search  cmp    %bl,0x8(%r11)                 expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149
+         `if len >= 1 && hay[0] == needle {`
+   0.160 (0.160 of all) branch digit search  je     228db1 <expanse_trie::get::lo expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149
+         `if len >= 1 && hay[0] == needle {`
+   0.160 (0.160 of all) other                cmp    $0x11,%rsi                    expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:19
+         `} else if pop <= 16 {`
+   0.144 (0.144 of all) leaf search          ja     22a8d0 <expanse_trie::leaf::s expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:316
+         `if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {`
+   0.100 (0.100 of all) other                cmp    $0x19,%rsi                    expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:21
+         `} else if pop <= 24 {`
+   0.099 (0.099 of all) leaf search          cmp    %r10,%r8                      expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:316
+         `if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {`
+   0.051 (0.051 of all) leaf search          jne    22a590 <expanse_trie::leaf::s expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:297
+         `while step > 0 {`
+   0.025 (0.025 of all)                      test   $0x1,%cl                      expanse_trie::get::locate_slot_popcnt @ library/core/src/option.rs:2872
+
+## run 1 phase_sm_default l1miss N: 1.205 events/op (9580 samples, 100.0% annotated)
+    58.6% _RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search
+    35.2% sparsematrix
+     6.2% _RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt
+   0.337 (0.337 of all) other                xor    (%rax),%r14                   
+   0.323 (0.323 of all) leaf search          cmp    (%rdi,%rax,4),%r8d            expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:294
+         `let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;`
+   0.174 (0.174 of all) leaf search          cmp    -0x4(%rdi,%rax,4),%r8d        expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:305
+         `unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;`
+   0.088 (0.088 of all) other                mov    (%rdi,%r9,4),%r10d            expanse_trie::leaf::search @ library/core/src/ptr/mod.rs:1731
+   0.061 (0.061 of all) other                cmpb   $0x4,0x4f(%rbx,%rcx,1)        expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/get.rs:1333
+         `if next_tag == 0x04 {`
+   0.015 (0.015 of all)                      xor    (%rax),%r14                   
+
+## run 1 phase_sm_default misp S: 0.487 events/op (3876 samples, 100.0% annotated)
+   100.0% JudyLGet
+   0.575 (0.575 of all)                      ja     f630 <JudyLGet@@Base+0x510>   
+   0.336 (0.336 of all)                      cmp    $0x1,%rax                     
+   0.040 (0.040 of all)                      je     f660 <JudyLGet@@Base+0x540>   
+   0.038 (0.038 of all)                      je     f65c <JudyLGet@@Base+0x53c>   
+
+## run 1 phase_sm_default l1miss S: 1.225 events/op (9738 samples, 100.0% annotated)
+    81.5% JudyLGet
+    18.5% sparsematrix
+   0.677 (0.677 of all)                      cmp    (%rdi,%rax,4),%r8d            
+   0.177 (0.177 of all)                      xor    (%rax),%r14                   
+   0.049 (0.049 of all)                      cmpb   $0x34,0xf(%rdi)               
+   0.045 (0.045 of all)                      movzbl 0xf(%rdi),%ecx                
+   0.044 (0.044 of all)                      cmpb   $0x18,0xf(%rax)               
+
+## run 1 phase_sm_big misp N: 0.666 events/op (2648 samples, 100.0% annotated)
+    62.6% _RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt
+    37.4% _RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search
+   0.488 (0.488 of all) branch digit search  cmp    %bl,0x8(%r11)                 expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149
+         `if len >= 1 && hay[0] == needle {`
+   0.286 (0.285 of all) leaf search          jne    22a590 <expanse_trie::leaf::s expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:297
+         `while step > 0 {`
+   0.065 (0.065 of all) branch digit search  je     228db1 <expanse_trie::get::lo expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149
+         `if len >= 1 && hay[0] == needle {`
+   0.064 (0.064 of all) other                jae    228ff8 <expanse_trie::get::lo expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:19
+         `} else if pop <= 16 {`
+   0.060 (0.060 of all) leaf search          jae    22ab03 <expanse_trie::leaf::s expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:814
+         `if pos < pop && crate::mutate::read_packed_fixed::<KB>(keys, pos) == needle {`
+   0.017 (0.017 of all)                      cmp    $0x4,%rsi                     expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:742
+         `} else if KB == 4 && pop == 4 {`
+
+## run 1 phase_sm_big l1miss N: 2.484 events/op (9876 samples, 100.0% annotated)
+    48.5% _RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt
+    44.7% _RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search
+     6.8% sparsematrix
+   0.421 (0.421 of all) other                cmpb   $0x4,0x4f(%rbx,%rcx,1)        expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/get.rs:1333
+         `if next_tag == 0x04 {`
+   0.388 (0.388 of all) leaf search          cmp    (%rdi,%rax,4),%r8d            expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:294
+         `let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;`
+   0.068 (0.068 of all) other                xor    (%rax),%r14                   
+   0.051 (0.051 of all) leaf search          cmp    -0x4(%rdi,%rax,4),%r8d        expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:305
+         `unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;`
+   0.026 (0.026 of all)                      movzbl 0xf(%rdi),%r11d               expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/node.rs:152
+         `self.tag`
+   0.024 (0.024 of all)                      mov    (%rdi),%rbx                   expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/node.rs:186
+         `unsafe { self.w0.ptr }`
+
+## run 1 phase_sm_big misp S: 0.522 events/op (2076 samples, 100.0% annotated)
+   100.0% JudyLGet
+   0.623 (0.623 of all)                      cmp    $0x1,%rax                     
+   0.287 (0.287 of all)                      ja     f630 <JudyLGet@@Base+0x510>   
+   0.078 (0.078 of all)                      je     f65c <JudyLGet@@Base+0x53c>   
+   0.011 (0.011 of all)                      cmp    $0xffffffffffffffff,%rdx      
+
+## run 1 phase_sm_big l1miss S: 1.984 events/op (7890 samples, 100.0% annotated)
+    91.4% JudyLGet
+     8.6% sparsematrix
+   0.514 (0.514 of all)                      cmp    (%rdi,%rax,4),%r8d            
+   0.086 (0.086 of all)                      xor    (%rax),%r14                   
+   0.056 (0.056 of all)                      cmpb   $0x34,0xf(%rdi)               
+   0.048 (0.048 of all)                      movzbl 0xf(%rdi),%ecx                
+   0.048 (0.048 of all)                      cmpb   $0x18,0xf(%rax)               
+   0.044 (0.044 of all)                      movzbl 0xd(%rdi),%eax                
+   0.042 (0.042 of all)                      mov    (%rdi),%rdi                   
+   0.027 (0.027 of all)                      movzbl 0x9(%rdi),%eax                
+
+## run 1 phase_judy_4m misp N: 0.174 events/op (1447 samples, 13.7% annotated)
+    11.1% 0x00000000000a4264
+     7.7% 0x00000000000a4266
+     5.5% 0x00000000000a2854
+     5.4% 0x00000000000a3f3d
+   0.167 (0.023 of all) other                je     226cdf <expanse_trie::mutate_ expanse_trie::mutate_map::read_map_leaf @ library/core/src/iter/range.rs:900
+   0.121 (0.017 of all) other                ret                                  __rustc::__rdl_alloc_zeroed @ library/std/src/alloc.rs:489
+   0.116 (0.016 of all) leaf search          ret                                  expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/leaf.rs:632
+         `core::ptr::copy_nonoverlapping(ok, nk, pos * KB);`
+   0.091 (0.012 of all) insert bookkeeping   ret                                  expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2503
+         `}`
+   0.086 (0.012 of all) other                ret                                  JudyLIns @ crates/expanse-capi/src/compat.rs:449
+         `}`
+   0.056 (0.008 of all) insert bookkeeping   jne    9ae50 <expanse_trie::mutate:: expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2465
+         `while bits != 0 {`
+   0.056 (0.008 of all) insert bookkeeping   je     9aff7 <expanse_trie::mutate:: expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2476
+         `if n > 0 {`
+   0.030 (0.004 of all)                      test   %rax,%rax                     expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2475
+         `let n = old.pop_counts[sub] as usize;`
+
+## run 1 phase_judy_4m l1miss N: 3.628 events/op (30250 samples, 91.1% annotated)
+    87.1% _RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApa
+     3.4% _RINvNtCs141xjyg4q0k_12expanse_trie6mutate14upgrade_b_to_uKb0_ECshnNRJsApaqI_7expanse
+     1.1% 0x00000000000a2884
+     1.0% 0x00000000001a088d
+   0.311 (0.284 of all) branch digit search  movzbl 0x74(%r15),%esi               expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:248
+         `self.aux_word() & POP0_MASKS[level as usize]`
+   0.241 (0.219 of all) other                movzbl 0xf(%rbp),%ebx                expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ library/core/src/iter/range.rs:900
+   0.107 (0.097 of all) branch digit search  mov    0x0(%rbp),%r15                expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:248
+         `self.aux_word() & POP0_MASKS[level as usize]`
+   0.083 (0.075 of all) insert bookkeeping   movdqa 0x10(%r15),%xmm1              expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate.rs:764
+         `self.leaf = core::ptr::null_mut();`
+   0.063 (0.057 of all) other                add    0x20(%r15,%r13,8),%rax        expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/core/src/ptr/mod.rs:1939
+   0.062 (0.057 of all) insert bookkeeping   mov    (%r15,%r13,4),%eax            expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate.rs:747
+         `bump_pop0(self.edges[i], self.levels[i], delta);`
+   0.022 (0.020 of all)                      mov    (%rdx),%rax                   expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ crates/expanse/src/node.rs:248
+         `self.aux_word() & POP0_MASKS[level as usize]`
+   0.017 (0.015 of all)                      movzwl (%r15,%rax,2),%eax            expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate.rs:747
+         `bump_pop0(self.edges[i], self.levels[i], delta);`
+
+## run 1 phase_judy_4m misp S: 0.151 events/op (1263 samples, 16.2% annotated)
+    29.7% 0x000000000001057c
+    11.2% 0x0000000000010646
+     7.7% malloc
+     4.0% j__udyLCreateBranchU
+   0.390 (0.063 of all)                      je     a50b7 <__libc_malloc@@GLIBC_2 
+   0.180 (0.029 of all)                      ret                                  
+   0.083 (0.013 of all)                      test   %cx,%cx                       
+   0.068 (0.011 of all)                      test   $0x1,%dl                      
+   0.063 (0.010 of all)                      je     3a73 <j__udyLCascade2@@Base+0 
+   0.063 (0.010 of all)                      ret                                  
+   0.063 (0.010 of all)                      jne    8aae <j__udyLCreateBranchU@@B 
+   0.020 (0.003 of all)                      cmp    %rbx,%r15                     
+
+## run 1 phase_judy_4m l1miss S: 2.028 events/op (16911 samples, 6.2% annotated)
+    12.3% 0x000000000001055b
+    11.6% 0x0000000000012eed
+    10.7% 0x0000000000012ef0
+     9.1% 0x00000000000110ff
+   0.298 (0.019 of all)                      mov    (%rdi,%rax,1),%rdx            
+   0.272 (0.017 of all)                      mov    -0x8(%rdi),%rax               
+   0.151 (0.009 of all)                      mov    0x8(%rdi,%rax,1),%rdx         
+   0.047 (0.003 of all)                      xor    (%rax),%rsi                   
+   0.027 (0.002 of all)                      mov    (%rsi),%rcx                   
+   0.023 (0.001 of all)                      jmp    *0x24d0f2(%rip)        # 24fe 
+   0.016 (0.001 of all)                      mov    -0x8(%rsi),%rcx               
+   0.014 (0.001 of all)                      mov    (%rax),%rax                   
+
+## run 2 phase_sm_default misp N: 1.239 events/op (9854 samples, 100.0% annotated)
+    67.7% _RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt
+    32.3% _RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search
+   0.213 (0.213 of all) branch digit search  cmp    %bl,0x8(%r11)                 expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149
+         `if len >= 1 && hay[0] == needle {`
+   0.170 (0.170 of all) branch digit search  je     228db1 <expanse_trie::get::lo expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149
+         `if len >= 1 && hay[0] == needle {`
+   0.154 (0.154 of all) leaf search          ja     22a8d0 <expanse_trie::leaf::s expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:316
+         `if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {`
+   0.151 (0.151 of all) other                cmp    $0x11,%rsi                    expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:19
+         `} else if pop <= 16 {`
+   0.101 (0.101 of all) leaf search          cmp    %r10,%r8                      expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:316
+         `if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {`
+   0.097 (0.097 of all) other                cmp    $0x19,%rsi                    expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:21
+         `} else if pop <= 24 {`
+   0.043 (0.043 of all)                      jne    22a590 <expanse_trie::leaf::s expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:297
+         `while step > 0 {`
+   0.025 (0.025 of all)                      test   $0x1,%cl                      expanse_trie::get::locate_slot_popcnt @ library/core/src/option.rs:2872
+
+## run 2 phase_sm_default l1miss N: 1.219 events/op (9696 samples, 100.0% annotated)
+    58.7% _RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search
+    34.7% sparsematrix
+     6.6% _RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt
+   0.333 (0.333 of all) other                xor    (%rax),%r14                   
+   0.327 (0.327 of all) leaf search          cmp    (%rdi,%rax,4),%r8d            expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:294
+         `let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;`
+   0.172 (0.172 of all) leaf search          cmp    -0x4(%rdi,%rax,4),%r8d        expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:305
+         `unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;`
+   0.087 (0.087 of all) other                mov    (%rdi,%r9,4),%r10d            expanse_trie::leaf::search @ library/core/src/ptr/mod.rs:1731
+   0.066 (0.066 of all) other                cmpb   $0x4,0x4f(%rbx,%rcx,1)        expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/get.rs:1333
+         `if next_tag == 0x04 {`
+   0.014 (0.014 of all)                      xor    (%rax),%r14                   
+
+## run 2 phase_sm_default misp S: 0.485 events/op (3856 samples, 100.0% annotated)
+   100.0% JudyLGet
+   0.543 (0.543 of all)                      ja     f630 <JudyLGet@@Base+0x510>   
+   0.365 (0.365 of all)                      cmp    $0x1,%rax                     
+   0.044 (0.044 of all)                      je     f65c <JudyLGet@@Base+0x53c>   
+   0.039 (0.039 of all)                      je     f660 <JudyLGet@@Base+0x540>   
+
+## run 2 phase_sm_default l1miss S: 1.225 events/op (9741 samples, 100.0% annotated)
+    81.5% JudyLGet
+    18.5% sparsematrix
+   0.674 (0.674 of all)                      cmp    (%rdi,%rax,4),%r8d            
+   0.179 (0.179 of all)                      xor    (%rax),%r14                   
+   0.049 (0.049 of all)                      cmpb   $0x34,0xf(%rdi)               
+   0.047 (0.047 of all)                      movzbl 0xf(%rdi),%ecx                
+   0.045 (0.045 of all)                      cmpb   $0x18,0xf(%rax)               
+
+## run 2 phase_sm_big misp N: 0.668 events/op (2658 samples, 100.0% annotated)
+    62.6% _RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt
+    37.3% _RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search
+   0.468 (0.468 of all) branch digit search  cmp    %bl,0x8(%r11)                 expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149
+         `if len >= 1 && hay[0] == needle {`
+   0.268 (0.268 of all) leaf search          jne    22a590 <expanse_trie::leaf::s expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:297
+         `while step > 0 {`
+   0.082 (0.082 of all) branch digit search  je     228db1 <expanse_trie::get::lo expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/bits.rs:149
+         `if len >= 1 && hay[0] == needle {`
+   0.075 (0.075 of all) leaf search          jae    22ab03 <expanse_trie::leaf::s expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:814
+         `if pos < pop && crate::mutate::read_packed_fixed::<KB>(keys, pos) == needle {`
+   0.064 (0.064 of all) other                jae    228ff8 <expanse_trie::get::lo expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/common.rs:19
+         `} else if pop <= 16 {`
+   0.020 (0.020 of all)                      cmp    $0x4,%rsi                     expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:742
+         `} else if KB == 4 && pop == 4 {`
+
+## run 2 phase_sm_big l1miss N: 2.481 events/op (9864 samples, 100.0% annotated)
+    48.5% _RNvNtCs141xjyg4q0k_12expanse_trie3get18locate_slot_popcnt
+    44.7% _RNvNtCs141xjyg4q0k_12expanse_trie4leaf6search
+     6.8% sparsematrix
+   0.422 (0.422 of all) other                cmpb   $0x4,0x4f(%rbx,%rcx,1)        expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/get.rs:1333
+         `if next_tag == 0x04 {`
+   0.388 (0.388 of all) leaf search          cmp    (%rdi,%rax,4),%r8d            expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:294
+         `let first = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - k) } < needle;`
+   0.068 (0.068 of all) other                xor    (%rax),%r14                   
+   0.050 (0.050 of all)                      cmp    -0x4(%rdi,%rax,4),%r8d        expanse_trie::leaf::search @ crates/expanse/src/leaf.rs:305
+         `unsafe { crate::mutate::read_packed_fixed::<KB>(keys, base + step - 1) } < needle;`
+   0.027 (0.027 of all)                      movzbl 0xf(%rdi),%r11d               expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/node.rs:152
+         `self.tag`
+   0.024 (0.024 of all)                      mov    (%rdi),%rbx                   expanse_trie::get::locate_slot_popcnt @ crates/expanse/src/node.rs:186
+         `unsafe { self.w0.ptr }`
+
+## run 2 phase_sm_big misp S: 0.523 events/op (2079 samples, 100.0% annotated)
+   100.0% JudyLGet
+   0.609 (0.609 of all)                      cmp    $0x1,%rax                     
+   0.287 (0.287 of all)                      ja     f630 <JudyLGet@@Base+0x510>   
+   0.091 (0.091 of all)                      je     f65c <JudyLGet@@Base+0x53c>   
+   0.011 (0.011 of all)                      cmp    $0xffffffffffffffff,%rdx      
+
+## run 2 phase_sm_big l1miss S: 1.982 events/op (7880 samples, 100.0% annotated)
+    90.8% JudyLGet
+     9.2% sparsematrix
+   0.521 (0.521 of all)                      cmp    (%rdi,%rax,4),%r8d            
+   0.092 (0.092 of all)                      xor    (%rax),%r14                   
+   0.052 (0.052 of all)                      movzbl 0xf(%rdi),%ecx                
+   0.051 (0.051 of all)                      cmpb   $0x34,0xf(%rdi)               
+   0.045 (0.045 of all)                      movzbl 0xd(%rdi),%eax                
+   0.041 (0.041 of all)                      cmpb   $0x18,0xf(%rax)               
+   0.038 (0.038 of all)                      mov    (%rdi),%rdi                   
+   0.028 (0.028 of all)                      movzbl 0x8(%rdi),%eax                
+
+## run 2 phase_judy_4m misp N: 0.174 events/op (1450 samples, 17.3% annotated)
+    11.7% 0x00000000000a4264
+     6.1% 0x00000000000a4266
+     5.0% _RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApa
+     4.8% _RINvNtCs141xjyg4q0k_12expanse_trie6mutate14upgrade_b_to_uKb0_ECshnNRJsApaqI_7expanse
+   0.171 (0.030 of all) other                je     226cdf <expanse_trie::mutate_ expanse_trie::mutate_map::read_map_leaf @ library/core/src/iter/range.rs:900
+   0.155 (0.027 of all) other                ret                                  JudyLIns @ crates/expanse-capi/src/compat.rs:449
+         `}`
+   0.108 (0.019 of all) insert bookkeeping   ret                                  expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2503
+         `}`
+   0.104 (0.018 of all) insert bookkeeping   je     9aff7 <expanse_trie::mutate:: expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2476
+         `if n > 0 {`
+   0.096 (0.017 of all) other                ret                                  __rustc::__rdl_alloc_zeroed @ library/std/src/alloc.rs:489
+   0.088 (0.015 of all) leaf search          ret                                  expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/leaf.rs:632
+         `core::ptr::copy_nonoverlapping(ok, nk, pos * KB);`
+   0.032 (0.006 of all)                      test   %rax,%rax                     expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2475
+         `let n = old.pop_counts[sub] as usize;`
+   0.028 (0.005 of all)                      jmp    *%rax                         expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ crates/expanse/src/mutate.rs:565
+         `(*edge).set_pop0(level, (pop0 + delta) as u64);`
+
+## run 2 phase_judy_4m l1miss N: 2.374 events/op (19799 samples, 90.1% annotated)
+    85.8% _RINvNtCs141xjyg4q0k_12expanse_trie10mutate_map25map_insert_with_path_flatKb1_ECshnNRJsApa
+     3.6% _RINvNtCs141xjyg4q0k_12expanse_trie6mutate14upgrade_b_to_uKb0_ECshnNRJsApaqI_7expanse
+     1.2% 0x00000000000a2884
+     1.0% 0x00000000000a1709
+   0.346 (0.312 of all) other                movzbl 0xf(%rbp),%ebx                expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ library/core/src/iter/range.rs:900
+   0.326 (0.294 of all) branch digit search  movzbl 0x74(%r15),%esi               expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:248
+         `self.aux_word() & POP0_MASKS[level as usize]`
+   0.158 (0.142 of all) branch digit search  mov    0x0(%rbp),%r15                expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/node.rs:248
+         `self.aux_word() & POP0_MASKS[level as usize]`
+   0.039 (0.035 of all)                      mov    (%rdx),%rax                   expanse_trie::mutate_map::map_insert_with_path_flat::<false> @ crates/expanse/src/node.rs:248
+         `self.aux_word() & POP0_MASKS[level as usize]`
+   0.016 (0.014 of all)                      add    0x20(%r15,%r13,8),%rax        expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ library/core/src/ptr/mod.rs:1939
+   0.015 (0.014 of all)                      mov    (%r15,%r13,4),%eax            expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate.rs:747
+         `bump_pop0(self.edges[i], self.levels[i], delta);`
+   0.014 (0.012 of all)                      movdqa 0x10(%r15),%xmm1              expanse_trie::mutate_map::map_insert_with_path_flat::<true> @ crates/expanse/src/mutate.rs:764
+         `self.leaf = core::ptr::null_mut();`
+   0.011 (0.010 of all)                      movups (%rdx),%xmm0                  expanse_trie::mutate::upgrade_b_to_u::<false> @ crates/expanse/src/mutate.rs:2467
+         `u.edges[dig] = *src;`
+
+## run 2 phase_judy_4m misp S: 0.149 events/op (1240 samples, 15.7% annotated)
+    32.7% 0x000000000001057c
+    11.8% 0x0000000000010646
+     6.8% malloc
+     4.0% j__udyLCreateBranchU
+   0.333 (0.052 of all)                      je     a50b7 <__libc_malloc@@GLIBC_2 
+   0.195 (0.031 of all)                      ret                                  
+   0.103 (0.016 of all)                      test   %cx,%cx                       
+   0.077 (0.012 of all)                      je     3a73 <j__udyLCascade2@@Base+0 
+   0.077 (0.012 of all)                      ret                                  
+   0.077 (0.012 of all)                      test   $0x1,%dl                      
+   0.051 (0.008 of all)                      jne    8aae <j__udyLCreateBranchU@@B 
+   0.021 (0.003 of all)                      jne    89e8 <j__udyLCreateBranchU@@B 
+
+## run 2 phase_judy_4m l1miss S: 2.033 events/op (16949 samples, 6.3% annotated)
+    12.8% 0x000000000001055b
+    11.2% 0x0000000000012eed
+    10.9% 0x0000000000012ef0
+     9.1% 0x00000000000110ff
+   0.274 (0.017 of all)                      mov    -0x8(%rdi),%rax               
+   0.256 (0.016 of all)                      mov    (%rdi,%rax,1),%rdx            
+   0.158 (0.010 of all)                      mov    0x8(%rdi,%rax,1),%rdx         
+   0.050 (0.003 of all)                      xor    (%rax),%rsi                   
+   0.025 (0.002 of all)                      mov    (%rsi),%rcx                   
+   0.021 (0.001 of all)                      jmp    *0x24d132(%rip)        # 24fe 
+   0.015 (0.001 of all)                      mov    -0x8(%rsi),%rcx               
+   0.015 (0.001 of all)                      cmpb   $0x0,0x17c472(%rip)        #  
+
+stability: {"phase_sm_default misp": false, "phase_sm_default l1miss": true, "phase_sm_big misp": true, "phase_sm_big l1miss": true, "phase_judy_4m misp": false, "phase_judy_4m l1miss": false}
+UNSTABLE: at least one shape and kind changes its top constructs between runs; nothing is read from it

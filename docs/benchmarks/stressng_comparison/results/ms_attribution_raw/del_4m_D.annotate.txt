@@ -1,0 +1,3337 @@
+ Percent |	Source code & Disassembly of libexpanse.so.1.0.0 for cpu_core/frontend_retired.ms_flows/upp (5504 samples, percent: local period)
+-------------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     000000000005a940 <expanse_trie::mutate_map::map_remove::<false, false>>:
+    0.00 :   5a940:  push   %rbp
+    0.00 :   5a941:  push   %r15
+    0.00 :   5a943:  push   %r14
+    0.00 :   5a945:  push   %r13
+    0.00 :   5a947:  push   %r12
+    0.00 :   5a949:  push   %rbx
+    0.00 :   5a94a:  sub    $0x4a8,%rsp
+    0.00 :   5a951:  mov    %ecx,%r10d
+    0.00 :   5a954:  mov    %rdx,%r13
+    0.00 :   5a957:  movzbl 0xf(%rsi),%r9d
+    0.00 :   5a95c:  movzwl %r9w,%eax
+    0.00 :   5a960:  cmp    $0xd,%r9w
+    0.00 :   5a965:  jae    5aade <expanse_trie::mutate_map::map_remove::<false, false>+0x19e>
+    0.00 :   5a96b:  mov    %eax,%ecx
+    0.00 :   5a96d:  lea    -0x4b15c(%rip),%rdx        # f818 <std::thread::current::id::ID+0xf738>
+    0.00 :   5a974:  movslq (%rdx,%rcx,4),%rcx
+    0.00 :   5a978:  add    %rdx,%rcx
+    0.00 :   5a97b:  jmp    *%rcx
+    0.00 :   5a97d:  mov    (%rsi),%r14
+    0.00 :   5a980:  movzbl 0x5(%r14),%r12d
+    0.00 :   5a985:  cmp    %r12b,%r10b
+    0.00 :   5a988:  jbe    5a9c7 <expanse_trie::mutate_map::map_remove::<false, false>+0x87>
+    0.00 :   5a98a:  mov    %rdi,%rdx
+    0.00 :   5a98d:  sub    %r12b,%r10b
+    0.00 :   5a990:  movzbl %r10b,%edi
+    0.00 :   5a994:  cmp    $0x8,%dil
+    0.00 :   5a998:  jae    5d284 <expanse_trie::mutate_map::map_remove::<false, false>+0x2944>
+    0.00 :   5a99e:  lea    -0x45115(%rip),%rax        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5a9a5:  mov    (%rax,%rdi,8),%rax
+    0.00 :   5a9a9:  lea    0x0(,%r12,8),%ecx
+    0.00 :   5a9b1:  shl    %cl,%rax
+    0.00 :   5a9b4:  mov    0x8(%rsi),%rcx
+    0.00 :   5a9b8:  xor    %r13,%rcx
+    0.00 :   5a9bb:  test   %rax,%rcx
+    0.00 :   5a9be:  mov    %rdx,%rdi
+    0.00 :   5a9c1:  jne    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5a9c7:  lea    -0x1(%r12),%ebp
+    0.00 :   5a9cc:  lea    0x0(,%rbp,8),%ecx
+    0.00 :   5a9d3:  mov    %r13,%rax
+    0.00 :   5a9d6:  shr    %cl,%rax
+    0.00 :   5a9d9:  mov    %eax,%ecx
+    0.00 :   5a9db:  and    $0xf,%cl
+    0.00 :   5a9de:  mov    $0x1,%edx
+    0.00 :   5a9e3:  shl    %cl,%edx
+    0.00 :   5a9e5:  and    0x6(%r14),%dx
+    0.00 :   5a9ea:  cmp    $0x1,%r9b
+    0.00 :   5a9ee:  jne    5b03a <expanse_trie::mutate_map::map_remove::<false, false>+0x6fa>
+    0.00 :   5a9f4:  test   %dx,%dx
+    0.00 :   5a9f7:  je     5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5a9fd:  mov    %r9d,0x18(%rsp)
+    0.00 :   5aa02:  mov    %rdi,0x8(%rsp)
+    0.00 :   5aa07:  mov    %rsi,0x10(%rsp)
+    0.00 :   5aa0c:  movzbl 0x4(%r14),%esi
+    0.00 :   5aa11:  lea    0x8(%r14),%rbx
+    0.00 :   5aa15:  movzbl %al,%edx
+    0.00 :   5aa18:  mov    %rbx,%rdi
+    0.00 :   5aa1b:  call   b7d70 <expanse_trie::bits::find_byte_8>
+    0.00 :   5aa20:  cmp    $0x1,%rax
+    0.00 :   5aa24:  jne    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5aa2a:  cmp    $0x2,%rdx
+    0.00 :   5aa2e:  ja     5d314 <expanse_trie::mutate_map::map_remove::<false, false>+0x29d4>
+    0.00 :   5aa34:  mov    %rdx,0x20(%rsp)
+    0.00 :   5aa39:  mov    %rdx,%rax
+    0.00 :   5aa3c:  shl    $0x4,%rax
+    0.00 :   5aa40:  lea    (%r14,%rax,1),%r15
+    0.00 :   5aa44:  add    $0x10,%r15
+    0.00 :   5aa48:  movzbl %bpl,%ecx
+    0.00 :   5aa4c:  mov    0x8(%rsp),%rdi
+    0.00 :   5aa51:  mov    %r15,%rsi
+    0.00 :   5aa54:  mov    %r13,%rdx
+    0.00 :   5aa57:  call   5a940 <expanse_trie::mutate_map::map_remove::<false, false>>
+    0.00 :   5aa5c:  mov    %rdx,%r9
+    0.00 :   5aa5f:  cmp    $0x1,%rax
+    0.00 :   5aa63:  jne    5b601 <expanse_trie::mutate_map::map_remove::<false, false>+0xcc1>
+    0.00 :   5aa69:  cmpb   $0x0,0xf(%r15)
+    0.00 :   5aa6e:  mov    0x10(%rsp),%rdi
+    0.00 :   5aa73:  jne    5b60e <expanse_trie::mutate_map::map_remove::<false, false>+0xcce>
+    0.00 :   5aa79:  mov    %r9,%r15
+    0.00 :   5aa7c:  lea    0x10(%r14),%rsi
+    0.00 :   5aa80:  movzbl 0x4(%r14),%ecx
+    0.00 :   5aa85:  mov    $0x3,%edx
+    0.00 :   5aa8a:  mov    %rbx,%rdi
+    0.00 :   5aa8d:  mov    0x20(%rsp),%r8
+    0.00 :   5aa92:  call   b9030 <expanse_trie::mutate::linear_remove_slot>
+    0.00 :   5aa97:  movzbl 0x4(%r14),%eax
+    0.00 :   5aa9c:  mov    %eax,%edx
+    0.00 :   5aa9e:  dec    %dl
+    0.00 :   5aaa0:  mov    %dl,0x4(%r14)
+    0.00 :   5aaa4:  je     5bfc2 <expanse_trie::mutate_map::map_remove::<false, false>+0x1682>
+    0.00 :   5aaaa:  add    $0xf6,%al
+    0.00 :   5aaac:  cmp    $0xf8,%al
+    0.00 :   5aaae:  jb     5d38d <expanse_trie::mutate_map::map_remove::<false, false>+0x2a4d>
+    0.00 :   5aab4:  movzbl (%rbx),%ecx
+    0.00 :   5aab7:  and    $0xf,%cl
+    0.00 :   5aaba:  mov    $0x1,%eax
+    0.00 :   5aabf:  shl    %cl,%eax
+    0.00 :   5aac1:  cmp    $0x1,%dl
+    0.00 :   5aac4:  mov    0x10(%rsp),%r8
+    0.00 :   5aac9:  mov    0x8(%rsp),%rdi
+    0.00 :   5aace:  mov    0x18(%rsp),%r9d
+    0.00 :   5aad3:  jne    5b11f <expanse_trie::mutate_map::map_remove::<false, false>+0x7df>
+    0.00 :   5aad9:  jmp    5bfd3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1693>
+    0.00 :   5aade:  cmp    $0x7f,%eax
+    0.00 :   5aae1:  je     5a96b <expanse_trie::mutate_map::map_remove::<false, false>+0x2b>
+    0.00 :   5aae7:  mov    %eax,%edx
+    0.00 :   5aae9:  shr    $0x4,%edx
+    0.00 :   5aaec:  and    $0xf,%eax
+    0.00 :   5aaef:  mov    %rax,0x20(%rsp)
+    0.00 :   5aaf4:  lea    0x1(%rax),%ecx
+    0.00 :   5aaf7:  mov    %ecx,%eax
+    0.00 :   5aaf9:  mul    %dl
+    0.00 :   5aafb:  test   %r9b,%r9b
+    0.00 :   5aafe:  js     5d2e9 <expanse_trie::mutate_map::map_remove::<false, false>+0x29a9>
+    0.00 :   5ab04:  test   %dl,%dl
+    0.00 :   5ab06:  je     5d2e9 <expanse_trie::mutate_map::map_remove::<false, false>+0x29a9>
+    0.00 :   5ab0c:  cmp    $0x10,%al
+    0.00 :   5ab0e:  jae    5d2e9 <expanse_trie::mutate_map::map_remove::<false, false>+0x29a9>
+    0.00 :   5ab14:  movzwl %cx,%eax
+    0.00 :   5ab17:  shl    $0x8,%eax
+    0.00 :   5ab1a:  movzwl %dx,%r15d
+    0.00 :   5ab1e:  or     %eax,%r15d
+    0.00 :   5ab21:  mov    %r15d,%r12d
+    0.00 :   5ab24:  shr    $0x8,%r12d
+    0.00 :   5ab28:  lea    0x0(,%r15,8),%ecx
+    0.00 :   5ab30:  mov    $0xffffffffffffffff,%rax
+    0.00 :   5ab37:  shl    %cl,%rax
+    0.00 :   5ab3a:  not    %rax
+    0.00 :   5ab3d:  and    %rax,%r13
+    0.00 :   5ab40:  lea    0x8(%rsi),%rbp
+    0.00 :   5ab44:  cmp    $0x1,%r12d
+    0.00 :   5ab48:  jne    5b478 <expanse_trie::mutate_map::map_remove::<false, false>+0xb38>
+    0.00 :   5ab4e:  dec    %edx
+    0.00 :   5ab50:  cmp    $0x6,%edx
+    0.00 :   5ab53:  ja     5bdc5 <expanse_trie::mutate_map::map_remove::<false, false>+0x1485>
+    0.00 :   5ab59:  lea    -0x4b12c(%rip),%rax        # fa34 <std::thread::current::id::ID+0xf954>
+    0.00 :   5ab60:  movslq (%rax,%rdx,4),%rcx
+    0.00 :   5ab64:  add    %rax,%rcx
+    0.00 :   5ab67:  jmp    *%rcx
+    0.00 :   5ab69:  movzbl 0x0(%rbp),%eax
+    0.00 :   5ab6d:  jmp    5be75 <expanse_trie::mutate_map::map_remove::<false, false>+0x1535>
+    0.00 :   5ab72:  mov    $0x4,%bpl
+    0.00 :   5ab75:  mov    %r10d,%eax
+    0.00 :   5ab78:  sub    %bpl,%al
+    0.00 :   5ab7b:  jbe    5ac60 <expanse_trie::mutate_map::map_remove::<false, false>+0x320>
+    0.00 :   5ab81:  mov    %rdi,%r8
+    0.00 :   5ab84:  movzbl %al,%edi
+    0.00 :   5ab87:  cmp    $0x7,%dil
+    0.00 :   5ab8b:  ja     5d284 <expanse_trie::mutate_map::map_remove::<false, false>+0x2944>
+    0.00 :   5ab91:  lea    -0x45308(%rip),%rax        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5ab98:  mov    (%rax,%rdi,8),%rax
+    0.00 :   5ab9c:  lea    0x0(,%rbp,8),%ecx
+    0.00 :   5aba3:  shl    %cl,%rax
+    0.00 :   5aba6:  mov    0x8(%rsi),%r15
+    0.00 :   5abaa:  mov    %r15,%rdx
+    0.00 :   5abad:  xor    %r13,%rdx
+    0.00 :   5abb0:  test   %rax,%rdx
+    0.00 :   5abb3:  jne    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5abb9:  movzbl %cl,%r12d
+    0.00 :   5abbd:  mov    %r8,%rdi
+    0.00 :   5abc0:  jmp    5ac6f <expanse_trie::mutate_map::map_remove::<false, false>+0x32f>
+    0.00 :   5abc5:  mov    %r10,%rbp
+    0.00 :   5abc8:  lea    -0x1(%r10),%eax
+    0.00 :   5abcc:  lea    0x0(,%rax,8),%ecx
+    0.00 :   5abd3:  mov    %r13,%rdx
+    0.00 :   5abd6:  shr    %cl,%rdx
+    0.00 :   5abd9:  mov    %rsi,%r15
+    0.00 :   5abdc:  mov    (%rsi),%rbx
+    0.00 :   5abdf:  movzbl %dl,%ecx
+    0.00 :   5abe2:  shl    $0x4,%ecx
+    0.00 :   5abe5:  lea    (%rbx,%rcx,1),%r14
+    0.00 :   5abe9:  add    $0x40,%r14
+    0.00 :   5abed:  movzbl %al,%ecx
+    0.00 :   5abf0:  mov    %rdi,%r12
+    0.00 :   5abf3:  mov    %r14,%rsi
+    0.00 :   5abf6:  mov    %r13,%rdx
+    0.00 :   5abf9:  call   5a940 <expanse_trie::mutate_map::map_remove::<false, false>>
+    0.00 :   5abfe:  test   $0x1,%al
+    0.00 :   5ac00:  je     5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5ac06:  mov    %rdx,%r9
+    0.00 :   5ac09:  cmpb   $0x0,0xf(%r14)
+    0.00 :   5ac0e:  je     5b647 <expanse_trie::mutate_map::map_remove::<false, false>+0xd07>
+    0.00 :   5ac14:  mov    $0x1,%eax
+    0.00 :   5ac19:  cmp    $0x7,%bpl
+    0.00 :   5ac1d:  ja     5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5ac23:  mov    0x8(%r15),%rcx
+    0.00 :   5ac27:  movzbl %bpl,%edx
+    0.00 :   5ac2b:  lea    -0x453a2(%rip),%rsi        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5ac32:  mov    (%rsi,%rdx,8),%rdx
+    0.00 :   5ac36:  mov    %rdx,%rsi
+    0.00 :   5ac39:  and    %rcx,%rsi
+    0.00 :   5ac3c:  dec    %rsi
+    0.00 :   5ac3f:  xor    %rcx,%rsi
+    0.00 :   5ac42:  and    %rdx,%rsi
+    0.00 :   5ac45:  xor    %rcx,%rsi
+    0.00 :   5ac48:  mov    %rsi,0x8(%r15)
+    0.00 :   5ac4c:  jmp    5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5ac51:  mov    $0x7,%bpl
+    0.00 :   5ac54:  mov    %r10d,%eax
+    0.00 :   5ac57:  sub    %bpl,%al
+    0.00 :   5ac5a:  ja     5ab81 <expanse_trie::mutate_map::map_remove::<false, false>+0x241>
+    0.00 :   5ac60:  mov    0x8(%rsi),%r15
+    0.00 :   5ac64:  lea    0x0(,%rbp,8),%eax
+    0.00 :   5ac6b:  movzbl %al,%r12d
+    0.00 :   5ac6f:  mov    %r10,0x28(%rsp)
+    0.00 :   5ac74:  movzbl %bpl,%r14d
+    0.00 :   5ac78:  lea    -0x453ef(%rip),%rax        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5ac7f:  mov    (%rax,%r14,8),%rax
+    0.00 :   5ac83:  mov    %rax,0x40(%rsp)
+    0.00 :   5ac88:  and    %rax,%r15
+    0.00 :   5ac8b:  lea    0x1(%r15),%rbx
+    0.00 :   5ac8f:  mov    $0xffffffffffffffff,%rax
+    0.00 :   5ac96:  mov    %r12d,%ecx
+    0.00 :   5ac99:  shl    %cl,%rax
+    0.00 :   5ac9c:  not    %rax
+    0.00 :   5ac9f:  and    %rax,%r13
+    0.00 :   5aca2:  mov    (%rsi),%rcx
+    0.00 :   5aca5:  mov    %rbx,%rax
+    0.00 :   5aca8:  cmp    $0x3,%rbx
+    0.00 :   5acac:  jb     5acd7 <expanse_trie::mutate_map::map_remove::<false, false>+0x397>
+    0.00 :   5acae:  cmp    $0x11,%rbx
+    0.00 :   5acb2:  jae    5acc1 <expanse_trie::mutate_map::map_remove::<false, false>+0x381>
+    0.00 :   5acb4:  mov    %r15,%rax
+    0.00 :   5acb7:  and    $0xfffffffffffffffc,%rax
+    0.00 :   5acbb:  add    $0x4,%rax
+    0.00 :   5acbf:  jmp    5acd7 <expanse_trie::mutate_map::map_remove::<false, false>+0x397>
+    0.00 :   5acc1:  mov    $0x18,%eax
+    0.00 :   5acc6:  cmp    $0x19,%rbx
+    0.00 :   5acca:  jb     5acd7 <expanse_trie::mutate_map::map_remove::<false, false>+0x397>
+    0.00 :   5accc:  mov    $0x20,%eax
+    0.00 :   5acd1:  cmp    $0x21,%rbx
+    0.00 :   5acd5:  jae    5acb4 <expanse_trie::mutate_map::map_remove::<false, false>+0x374>
+    0.00 :   5acd7:  mov    %r9d,0x18(%rsp)
+    0.00 :   5acdc:  mov    %rdi,0x8(%rsp)
+    0.00 :   5ace1:  mov    %rsi,0x10(%rsp)
+    0.00 :   5ace6:  mov    %rcx,0x20(%rsp)
+    0.00 :   5aceb:  lea    (%rcx,%rax,8),%rdi
+    0.00 :   5acef:  mov    %rbx,%rsi
+    0.00 :   5acf2:  mov    %r14d,%edx
+    0.00 :   5acf5:  mov    %r13,%rcx
+    0.00 :   5acf8:  call   b7f50 <expanse_trie::leaf::locate>
+    0.00 :   5acfd:  test   $0x1,%al
+    0.00 :   5acff:  je     5ad18 <expanse_trie::mutate_map::map_remove::<false, false>+0x3d8>
+    0.00 :   5ad01:  xor    %eax,%eax
+    0.00 :   5ad03:  mov    %r9,%rdx
+    0.00 :   5ad06:  add    $0x4a8,%rsp
+    0.00 :   5ad0d:  pop    %rbx
+    0.00 :   5ad0e:  pop    %r12
+    0.00 :   5ad10:  pop    %r13
+    0.00 :   5ad12:  pop    %r14
+    0.00 :   5ad14:  pop    %r15
+    0.00 :   5ad16:  pop    %rbp
+    0.00 :   5ad17:  ret
+    0.00 :   5ad18:  mov    0x28(%rsp),%rdi
+    0.00 :   5ad1d:  test   %dil,%dil
+    0.00 :   5ad20:  je     5d2c5 <expanse_trie::mutate_map::map_remove::<false, false>+0x2985>
+    0.00 :   5ad26:  mov    0x20(%rsp),%r8
+    0.00 :   5ad2b:  mov    (%r8,%rdx,8),%r9
+    0.00 :   5ad2f:  mov    $0x7,%al
+    0.00 :   5ad31:  movzbl %al,%eax
+    0.00 :   5ad34:  div    %dil
+    0.00 :   5ad37:  movzbl %al,%eax
+    0.00 :   5ad3a:  cmp    %rax,%rbx
+    0.00 :   5ad3d:  mov    0x10(%rsp),%rcx
+    0.00 :   5ad42:  mov    0x8(%rsp),%rsi
+    0.00 :   5ad47:  jbe    5ad77 <expanse_trie::mutate_map::map_remove::<false, false>+0x437>
+    0.00 :   5ad49:  cmp    $0x3,%r15
+    0.00 :   5ad4d:  jae    5b1a7 <expanse_trie::mutate_map::map_remove::<false, false>+0x867>
+    0.00 :   5ad53:  mov    $0x2,%eax
+    0.00 :   5ad58:  cmp    $0x3,%rbx
+    0.00 :   5ad5c:  jae    5b9cd <expanse_trie::mutate_map::map_remove::<false, false>+0x108d>
+    0.00 :   5ad62:  mov    $0x1,%r12d
+    0.00 :   5ad68:  cmp    $0x2,%rbx
+    0.00 :   5ad6c:  je     5ba14 <expanse_trie::mutate_map::map_remove::<false, false>+0x10d4>
+    0.00 :   5ad72:  jmp    5ba98 <expanse_trie::mutate_map::map_remove::<false, false>+0x1158>
+    0.00 :   5ad77:  cmp    $0x3,%rbx
+    0.00 :   5ad7b:  jae    5b1c7 <expanse_trie::mutate_map::map_remove::<false, false>+0x887>
+    0.00 :   5ad81:  lea    0x8(%r14),%r13
+    0.00 :   5ad85:  imul   %rbx,%r13
+    0.00 :   5ad89:  test   %r15,%r15
+    0.00 :   5ad8c:  je     5baa3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1163>
+    0.00 :   5ad92:  cmp    %bpl,%dil
+    0.00 :   5ad95:  mov    %r9,0x30(%rsp)
+    0.00 :   5ad9a:  jbe    5b1e4 <expanse_trie::mutate_map::map_remove::<false, false>+0x8a4>
+    0.00 :   5ada0:  movzbl %dil,%eax
+    0.00 :   5ada4:  mov    %rcx,%rdi
+    0.00 :   5ada7:  mov    %r14d,%esi
+    0.00 :   5adaa:  mov    %rdx,%rbp
+    0.00 :   5adad:  mov    %eax,%edx
+    0.00 :   5adaf:  call   *0x2283e3(%rip)        # 283198 <_DYNAMIC+0x440>
+    0.00 :   5adb5:  mov    %rbp,%rdx
+    0.00 :   5adb8:  jmp    5b1e6 <expanse_trie::mutate_map::map_remove::<false, false>+0x8a6>
+    0.00 :   5adbd:  mov    $0x2,%bpl
+    0.00 :   5adc0:  mov    %r10d,%eax
+    0.00 :   5adc3:  sub    %bpl,%al
+    0.00 :   5adc6:  ja     5ab81 <expanse_trie::mutate_map::map_remove::<false, false>+0x241>
+    0.00 :   5adcc:  jmp    5ac60 <expanse_trie::mutate_map::map_remove::<false, false>+0x320>
+    0.00 :   5add1:  mov    %rdi,%r8
+    0.00 :   5add4:  mov    (%rsi),%r14
+    0.00 :   5add7:  movzbl 0x74(%r14),%r12d
+    0.00 :   5addc:  cmp    %r12b,%r10b
+    0.00 :   5addf:  jbe    5ae18 <expanse_trie::mutate_map::map_remove::<false, false>+0x4d8>
+    0.00 :   5ade1:  sub    %r12b,%r10b
+    0.00 :   5ade4:  movzbl %r10b,%edi
+    0.00 :   5ade8:  cmp    $0x8,%dil
+    0.00 :   5adec:  jae    5d284 <expanse_trie::mutate_map::map_remove::<false, false>+0x2944>
+    0.00 :   5adf2:  lea    -0x45569(%rip),%rax        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5adf9:  mov    (%rax,%rdi,8),%rax
+    0.00 :   5adfd:  lea    0x0(,%r12,8),%ecx
+    0.00 :   5ae05:  shl    %cl,%rax
+    0.00 :   5ae08:  mov    0x8(%rsi),%rcx
+    0.00 :   5ae0c:  xor    %r13,%rcx
+    0.00 :   5ae0f:  test   %rax,%rcx
+    0.00 :   5ae12:  jne    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5ae18:  mov    %rsi,%rdi
+    0.00 :   5ae1b:  lea    -0x1(%r12),%eax
+    0.00 :   5ae20:  lea    0x0(,%rax,8),%ecx
+    0.00 :   5ae27:  mov    %r13,%rbp
+    0.00 :   5ae2a:  shr    %cl,%rbp
+    0.00 :   5ae2d:  mov    %ebp,%ebx
+    0.00 :   5ae2f:  shr    $0x5,%ebx
+    0.00 :   5ae32:  and    $0x7,%ebx
+    0.00 :   5ae35:  mov    (%r14,%rbx,4),%edx
+    0.00 :   5ae39:  mov    $0x1,%esi
+    0.00 :   5ae3e:  mov    %ebp,%ecx
+    0.00 :   5ae40:  shl    %cl,%esi
+    0.00 :   5ae42:  bt     %ebp,%edx
+    0.00 :   5ae45:  jae    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5ae4b:  mov    %rdi,0x10(%rsp)
+    0.00 :   5ae50:  dec    %esi
+    0.00 :   5ae52:  and    %esi,%edx
+    0.00 :   5ae54:  mov    %edx,%ecx
+    0.00 :   5ae56:  shr    %ecx
+    0.00 :   5ae58:  and    $0x55555555,%ecx
+    0.00 :   5ae5e:  sub    %ecx,%edx
+    0.00 :   5ae60:  mov    %edx,%ecx
+    0.00 :   5ae62:  and    $0x33333333,%ecx
+    0.00 :   5ae68:  shr    $0x2,%edx
+    0.00 :   5ae6b:  and    $0x33333333,%edx
+    0.00 :   5ae71:  add    %ecx,%edx
+    0.00 :   5ae73:  mov    %edx,%ecx
+    0.00 :   5ae75:  shr    $0x4,%ecx
+    0.00 :   5ae78:  add    %edx,%ecx
+    0.00 :   5ae7a:  and    $0xf0f0f0f,%ecx
+    0.00 :   5ae80:  imul   $0x1010101,%ecx,%r15d
+    0.00 :   5ae87:  shr    $0x18,%r15d
+    0.00 :   5ae8b:  mov    %r15d,%esi
+    0.00 :   5ae8e:  shl    $0x4,%esi
+    0.00 :   5ae91:  add    0x20(%r14,%rbx,8),%rsi
+    0.00 :   5ae96:  movzbl %al,%ecx
+    0.00 :   5ae99:  mov    %r8,%rdi
+    0.00 :   5ae9c:  mov    %r8,0x8(%rsp)
+    0.00 :   5aea1:  mov    %r13,%rdx
+    0.00 :   5aea4:  call   5a940 <expanse_trie::mutate_map::map_remove::<false, false>>
+    0.00 :   5aea9:  cmp    $0x1,%rax
+    0.00 :   5aead:  jne    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5aeb3:  mov    %rdx,%r9
+    0.00 :   5aeb6:  mov    0x20(%r14,%rbx,8),%r10
+    0.00 :   5aebb:  mov    %r15d,%edi
+    0.00 :   5aebe:  shl    $0x4,%edi
+    0.00 :   5aec1:  cmpb   $0x0,0xf(%r10,%rdi,1)
+    0.00 :   5aec7:  mov    0x10(%rsp),%rsi
+    0.00 :   5aecc:  je     5b980 <expanse_trie::mutate_map::map_remove::<false, false>+0x1040>
+    0.00 :   5aed2:  mov    $0x1,%eax
+    0.00 :   5aed7:  cmp    $0x7,%r12b
+    0.00 :   5aedb:  ja     5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5aee1:  mov    0x8(%rsi),%rcx
+    0.00 :   5aee5:  lea    -0x4565c(%rip),%rdx        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5aeec:  mov    (%rdx,%r12,8),%rdx
+    0.00 :   5aef0:  mov    %rdx,%rdi
+    0.00 :   5aef3:  and    %rcx,%rdi
+    0.00 :   5aef6:  dec    %rdi
+    0.00 :   5aef9:  xor    %rcx,%rdi
+    0.00 :   5aefc:  and    %rdx,%rdi
+    0.00 :   5aeff:  xor    %rcx,%rdi
+    0.00 :   5af02:  mov    %rdi,0x8(%rsi)
+    0.00 :   5af06:  jmp    5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5af0b:  cmp    $0x1,%r10b
+    0.00 :   5af0f:  jbe    5af47 <expanse_trie::mutate_map::map_remove::<false, false>+0x607>
+    0.00 :   5af11:  mov    %rdi,%rdx
+    0.00 :   5af14:  lea    -0x1(%r10),%eax
+    0.00 :   5af18:  movzbl %al,%edi
+    0.00 :   5af1b:  cmp    $0x8,%r10b
+    0.00 :   5af1f:  ja     5d284 <expanse_trie::mutate_map::map_remove::<false, false>+0x2944>
+    0.00 :   5af25:  lea    -0x4569c(%rip),%rax        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5af2c:  mov    (%rax,%rdi,8),%rax
+    0.00 :   5af30:  shl    $0x8,%rax
+    0.00 :   5af34:  mov    0x8(%rsi),%rcx
+    0.00 :   5af38:  xor    %r13,%rcx
+    0.00 :   5af3b:  test   %rax,%rcx
+    0.00 :   5af3e:  mov    %rdx,%rdi
+    0.00 :   5af41:  jne    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5af47:  mov    (%rsi),%r12
+    0.00 :   5af4a:  mov    %r13d,%r14d
+    0.00 :   5af4d:  shr    $0x5,%r14d
+    0.00 :   5af51:  and    $0x7,%r14d
+    0.00 :   5af55:  mov    (%r12,%r14,4),%eax
+    0.00 :   5af59:  mov    $0x1,%edx
+    0.00 :   5af5e:  mov    %r13d,%ecx
+    0.00 :   5af61:  shl    %cl,%edx
+    0.00 :   5af63:  bt     %r13d,%eax
+    0.00 :   5af67:  jae    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5af6d:  dec    %edx
+    0.00 :   5af6f:  and    %eax,%edx
+    0.00 :   5af71:  mov    %edx,%ecx
+    0.00 :   5af73:  shr    %ecx
+    0.00 :   5af75:  and    $0x55555555,%ecx
+    0.00 :   5af7b:  sub    %ecx,%edx
+    0.00 :   5af7d:  mov    %edx,%ecx
+    0.00 :   5af7f:  and    $0x33333333,%ecx
+    0.00 :   5af85:  shr    $0x2,%edx
+    0.00 :   5af88:  and    $0x33333333,%edx
+    0.00 :   5af8e:  add    %ecx,%edx
+    0.00 :   5af90:  mov    %edx,%ecx
+    0.00 :   5af92:  shr    $0x4,%ecx
+    0.00 :   5af95:  add    %edx,%ecx
+    0.00 :   5af97:  and    $0xf0f0f0f,%ecx
+    0.00 :   5af9d:  imul   $0x1010101,%ecx,%r11d
+    0.00 :   5afa4:  shr    $0x18,%r11d
+    0.00 :   5afa8:  mov    0x20(%r12,%r14,8),%r8
+    0.00 :   5afad:  mov    (%r8,%r11,8),%r9
+    0.00 :   5afb1:  lea    -0x1(%rax),%ecx
+    0.00 :   5afb4:  mov    %eax,%edx
+    0.00 :   5afb6:  xor    %ecx,%edx
+    0.00 :   5afb8:  cmp    %ecx,%edx
+    0.00 :   5afba:  jbe    5b5a8 <expanse_trie::mutate_map::map_remove::<false, false>+0xc68>
+    0.00 :   5afc0:  movq   $0x0,0x20(%r12,%r14,8)
+    0.00 :   5afc9:  lock subq $0x10,0x200(%rdi)
+    0.00 :   5afd2:  lock decq 0x208(%rdi)
+    0.00 :   5afda:  mov    0x40(%rdi),%rax
+    0.00 :   5afde:  mov    %rax,(%r8)
+    0.00 :   5afe1:  mov    %r8,0x40(%rdi)
+    0.00 :   5afe5:  jmp    5c385 <expanse_trie::mutate_map::map_remove::<false, false>+0x1a45>
+    0.00 :   5afea:  mov    $0x1,%bpl
+    0.00 :   5afed:  mov    %r10d,%eax
+    0.00 :   5aff0:  sub    %bpl,%al
+    0.00 :   5aff3:  ja     5ab81 <expanse_trie::mutate_map::map_remove::<false, false>+0x241>
+    0.00 :   5aff9:  jmp    5ac60 <expanse_trie::mutate_map::map_remove::<false, false>+0x320>
+    0.00 :   5affe:  mov    $0x5,%bpl
+    0.00 :   5b001:  mov    %r10d,%eax
+    0.00 :   5b004:  sub    %bpl,%al
+    0.00 :   5b007:  ja     5ab81 <expanse_trie::mutate_map::map_remove::<false, false>+0x241>
+    0.00 :   5b00d:  jmp    5ac60 <expanse_trie::mutate_map::map_remove::<false, false>+0x320>
+    0.00 :   5b012:  mov    $0x3,%bpl
+    0.00 :   5b015:  mov    %r10d,%eax
+    0.00 :   5b018:  sub    %bpl,%al
+    0.00 :   5b01b:  jbe    5ac60 <expanse_trie::mutate_map::map_remove::<false, false>+0x320>
+    0.00 :   5b021:  jmp    5ab81 <expanse_trie::mutate_map::map_remove::<false, false>+0x241>
+    0.00 :   5b026:  mov    $0x6,%bpl
+    0.00 :   5b029:  mov    %r10d,%eax
+    0.00 :   5b02c:  sub    %bpl,%al
+    0.00 :   5b02f:  ja     5ab81 <expanse_trie::mutate_map::map_remove::<false, false>+0x241>
+    0.00 :   5b035:  jmp    5ac60 <expanse_trie::mutate_map::map_remove::<false, false>+0x320>
+    0.00 :   5b03a:  test   %dx,%dx
+    0.00 :   5b03d:  je     5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5b043:  mov    %r9d,0x18(%rsp)
+    0.00 :   5b048:  mov    %rdi,0x8(%rsp)
+    0.00 :   5b04d:  mov    %rsi,0x10(%rsp)
+    0.00 :   5b052:  movzbl 0x4(%r14),%esi
+    0.00 :   5b057:  lea    0x8(%r14),%rbx
+    0.00 :   5b05b:  movzbl %al,%edx
+    0.00 :   5b05e:  mov    %rbx,%rdi
+    0.00 :   5b061:  call   b7d70 <expanse_trie::bits::find_byte_8>
+    0.00 :   5b066:  cmp    $0x1,%rax
+    0.00 :   5b06a:  jne    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5b070:  cmp    $0x6,%rdx
+    0.00 :   5b074:  ja     5d32c <expanse_trie::mutate_map::map_remove::<false, false>+0x29ec>
+    0.00 :   5b07a:  mov    %rdx,0x20(%rsp)
+    0.00 :   5b07f:  mov    %rdx,%rax
+    0.00 :   5b082:  shl    $0x4,%rax
+    0.00 :   5b086:  lea    (%r14,%rax,1),%r15
+    0.00 :   5b08a:  add    $0x10,%r15
+    0.00 :   5b08e:  movzbl %bpl,%ecx
+    0.00 :   5b092:  mov    0x8(%rsp),%rdi
+    0.00 :   5b097:  mov    %r15,%rsi
+    0.00 :   5b09a:  mov    %r13,%rdx
+    0.00 :   5b09d:  call   5a940 <expanse_trie::mutate_map::map_remove::<false, false>>
+    0.00 :   5b0a2:  mov    %rdx,%r9
+    0.00 :   5b0a5:  cmp    $0x1,%rax
+    0.00 :   5b0a9:  jne    5b601 <expanse_trie::mutate_map::map_remove::<false, false>+0xcc1>
+    0.00 :   5b0af:  cmpb   $0x0,0xf(%r15)
+    0.00 :   5b0b4:  mov    0x10(%rsp),%rdi
+    0.00 :   5b0b9:  jne    5b60e <expanse_trie::mutate_map::map_remove::<false, false>+0xcce>
+    0.00 :   5b0bf:  mov    %r9,%r15
+    0.00 :   5b0c2:  lea    0x10(%r14),%rsi
+    0.00 :   5b0c6:  movzbl 0x4(%r14),%ecx
+    0.00 :   5b0cb:  mov    $0x7,%edx
+    0.00 :   5b0d0:  mov    %rbx,%rdi
+    0.00 :   5b0d3:  mov    0x20(%rsp),%r8
+    0.00 :   5b0d8:  call   b9030 <expanse_trie::mutate::linear_remove_slot>
+    0.00 :   5b0dd:  movzbl 0x4(%r14),%eax
+    0.00 :   5b0e2:  mov    %eax,%edx
+    0.00 :   5b0e4:  dec    %dl
+    0.00 :   5b0e6:  mov    %dl,0x4(%r14)
+    0.00 :   5b0ea:  je     5bfc2 <expanse_trie::mutate_map::map_remove::<false, false>+0x1682>
+    0.00 :   5b0f0:  add    $0xf6,%al
+    0.00 :   5b0f2:  cmp    $0xf8,%al
+    0.00 :   5b0f4:  mov    0x18(%rsp),%r9d
+    0.00 :   5b0f9:  jb     5d38d <expanse_trie::mutate_map::map_remove::<false, false>+0x2a4d>
+    0.00 :   5b0ff:  movzbl (%rbx),%ecx
+    0.00 :   5b102:  and    $0xf,%cl
+    0.00 :   5b105:  mov    $0x1,%eax
+    0.00 :   5b10a:  shl    %cl,%eax
+    0.00 :   5b10c:  cmp    $0x1,%dl
+    0.00 :   5b10f:  mov    0x10(%rsp),%r8
+    0.00 :   5b114:  mov    0x8(%rsp),%rdi
+    0.00 :   5b119:  je     5bfd3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1693>
+    0.00 :   5b11f:  movzbl 0x9(%r14),%ecx
+    0.00 :   5b124:  and    $0xf,%cl
+    0.00 :   5b127:  bts    %ecx,%eax
+    0.00 :   5b12a:  cmp    $0x2,%dl
+    0.00 :   5b12d:  je     5bfd3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1693>
+    0.00 :   5b133:  movzbl 0xa(%r14),%ecx
+    0.00 :   5b138:  and    $0xf,%cl
+    0.00 :   5b13b:  bts    %ecx,%eax
+    0.00 :   5b13e:  cmp    $0x3,%dl
+    0.00 :   5b141:  je     5bfd3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1693>
+    0.00 :   5b147:  movzbl 0xb(%r14),%ecx
+    0.00 :   5b14c:  and    $0xf,%cl
+    0.00 :   5b14f:  bts    %ecx,%eax
+    0.00 :   5b152:  cmp    $0x4,%dl
+    0.00 :   5b155:  je     5bfd3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1693>
+    0.00 :   5b15b:  movzbl 0xc(%r14),%ecx
+    0.00 :   5b160:  and    $0xf,%cl
+    0.00 :   5b163:  bts    %ecx,%eax
+    0.00 :   5b166:  cmp    $0x5,%dl
+    0.00 :   5b169:  je     5bfd3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1693>
+    0.00 :   5b16f:  movzbl 0xd(%r14),%ecx
+    0.00 :   5b174:  and    $0xf,%cl
+    0.00 :   5b177:  bts    %ecx,%eax
+    0.00 :   5b17a:  cmp    $0x6,%dl
+    0.00 :   5b17d:  je     5bfc4 <expanse_trie::mutate_map::map_remove::<false, false>+0x1684>
+    0.00 :   5b183:  movzbl 0xe(%r14),%ecx
+    0.00 :   5b188:  and    $0xf,%cl
+    0.00 :   5b18b:  bts    %ecx,%eax
+    0.00 :   5b18e:  cmp    $0x7,%dl
+    0.00 :   5b191:  je     5bfc4 <expanse_trie::mutate_map::map_remove::<false, false>+0x1684>
+    0.00 :   5b197:  movzbl 0xf(%r14),%ecx
+    0.00 :   5b19c:  and    $0xf,%cl
+    0.00 :   5b19f:  bts    %ecx,%eax
+    0.00 :   5b1a2:  jmp    5bfc4 <expanse_trie::mutate_map::map_remove::<false, false>+0x1684>
+    0.00 :   5b1a7:  cmp    $0x11,%r15
+    0.00 :   5b1ab:  jae    5b589 <expanse_trie::mutate_map::map_remove::<false, false>+0xc49>
+    0.00 :   5b1b1:  cmp    $0x11,%rbx
+    0.00 :   5b1b5:  jae    5ba0c <expanse_trie::mutate_map::map_remove::<false, false>+0x10cc>
+    0.00 :   5b1bb:  lea    0x3(%r15),%eax
+    0.00 :   5b1bf:  and    $0x3c,%eax
+    0.00 :   5b1c2:  jmp    5b9cd <expanse_trie::mutate_map::map_remove::<false, false>+0x108d>
+    0.00 :   5b1c7:  lea    0x4(%r15),%eax
+    0.00 :   5b1cb:  and    $0x3c,%eax
+    0.00 :   5b1ce:  lea    0x8(%r14),%r13
+    0.00 :   5b1d2:  imul   %rax,%r13
+    0.00 :   5b1d6:  cmp    %bpl,%dil
+    0.00 :   5b1d9:  mov    %r9,0x30(%rsp)
+    0.00 :   5b1de:  ja     5ada0 <expanse_trie::mutate_map::map_remove::<false, false>+0x460>
+    0.00 :   5b1e4:  xor    %eax,%eax
+    0.00 :   5b1e6:  movabs $0x1ffffffffffffffc,%rsi
+    0.00 :   5b1f0:  and    %r15,%rsi
+    0.00 :   5b1f3:  mov    %r12d,%ecx
+    0.00 :   5b1f6:  shl    %cl,%rax
+    0.00 :   5b1f9:  mov    %rax,0x40(%rsp)
+    0.00 :   5b1fe:  add    $0x4,%rsi
+    0.00 :   5b202:  cmp    $0x3,%rbx
+    0.00 :   5b206:  pxor   %xmm0,%xmm0
+    0.00 :   5b20a:  movdqa %xmm0,0x100(%rsp)
+    0.00 :   5b213:  movdqa %xmm0,0xf0(%rsp)
+    0.00 :   5b21c:  movdqa %xmm0,0xe0(%rsp)
+    0.00 :   5b225:  movdqa %xmm0,0xd0(%rsp)
+    0.00 :   5b22e:  movdqa %xmm0,0xc0(%rsp)
+    0.00 :   5b237:  movdqa %xmm0,0xb0(%rsp)
+    0.00 :   5b240:  movdqa %xmm0,0xa0(%rsp)
+    0.00 :   5b249:  cmovb  %rbx,%rsi
+    0.00 :   5b24d:  movdqa %xmm0,0x90(%rsp)
+    0.00 :   5b256:  lea    -0x1(,%rsi,8),%rcx
+    0.00 :   5b25e:  lea    -0x1(,%rsi,4),%rdi
+    0.00 :   5b266:  lea    -0x1(,%rsi,2),%rsi
+    0.00 :   5b26e:  movq   $0x0,0x18(%rsp)
+    0.00 :   5b277:  dec    %r14d
+    0.00 :   5b27a:  xor    %eax,%eax
+    0.00 :   5b27c:  mov    %rdi,0x48(%rsp)
+    0.00 :   5b281:  mov    %rsi,0x58(%rsp)
+    0.00 :   5b286:  lea    (%rcx,%rax,1),%r11
+    0.00 :   5b28a:  lea    -0x1(%rax),%r10
+    0.00 :   5b28e:  lea    (%rdi,%rax,1),%r12
+    0.00 :   5b292:  lea    (%rax,%rax,2),%rdi
+    0.00 :   5b296:  lea    (%rcx,%rdi,1),%rbp
+    0.00 :   5b29a:  add    %rax,%rsi
+    0.00 :   5b29d:  lea    (%rax,%rax,4),%r9
+    0.00 :   5b2a1:  add    %rcx,%r9
+    0.00 :   5b2a4:  lea    (%rcx,%rdi,2),%r8
+    0.00 :   5b2a8:  dec    %r8
+    0.00 :   5b2ab:  lea    (%rcx,%rax,8),%rdi
+    0.00 :   5b2af:  sub    %rax,%rdi
+    0.00 :   5b2b2:  data16 data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    0.00 :   5b2c0:  inc    %r10
+    0.00 :   5b2c3:  cmp    %rbx,%r10
+    0.00 :   5b2c6:  jae    5b3db <expanse_trie::mutate_map::map_remove::<false, false>+0xa9b>
+    0.00 :   5b2cc:  inc    %r11
+    0.00 :   5b2cf:  inc    %r12
+    0.00 :   5b2d2:  add    $0x3,%rbp
+    0.00 :   5b2d6:  inc    %rsi
+    0.00 :   5b2d9:  add    $0x5,%r9
+    0.00 :   5b2dd:  add    $0x6,%r8
+    0.00 :   5b2e1:  add    $0x7,%rdi
+    0.00 :   5b2e5:  cmp    %r10,%rdx
+    0.00 :   5b2e8:  je     5b2c0 <expanse_trie::mutate_map::map_remove::<false, false>+0x980>
+    0.00 :   5b2ea:  mov    %r13,0x50(%rsp)
+    0.00 :   5b2ef:  lea    -0x4b8de(%rip),%r13        # fa18 <std::thread::current::id::ID+0xf938>
+    0.00 :   5b2f6:  movslq 0x0(%r13,%r14,4),%rax
+    0.00 :   5b2fb:  add    %r13,%rax
+    0.00 :   5b2fe:  jmp    *%rax
+    0.00 :   5b300:  mov    0x20(%rsp),%rax
+    0.00 :   5b305:  movzbl (%rax,%r11,1),%esi
+    0.00 :   5b30a:  mov    %rax,%r11
+    0.00 :   5b30d:  jmp    5b38a <expanse_trie::mutate_map::map_remove::<false, false>+0xa4a>
+    0.00 :   5b30f:  mov    0x20(%rsp),%r11
+    0.00 :   5b314:  mov    -0x4(%r11,%r9,1),%eax
+    0.00 :   5b319:  movzbl (%r11,%r9,1),%esi
+    0.00 :   5b31e:  jmp    5b35e <expanse_trie::mutate_map::map_remove::<false, false>+0xa1e>
+    0.00 :   5b320:  mov    0x20(%rsp),%r11
+    0.00 :   5b325:  movzwl -0x2(%r11,%rbp,1),%eax
+    0.00 :   5b32b:  movzbl (%r11,%rbp,1),%esi
+    0.00 :   5b330:  shl    $0x10,%esi
+    0.00 :   5b333:  or     %rax,%rsi
+    0.00 :   5b336:  jmp    5b38a <expanse_trie::mutate_map::map_remove::<false, false>+0xa4a>
+    0.00 :   5b338:  mov    0x20(%rsp),%r11
+    0.00 :   5b33d:  mov    (%r11,%rsi,4),%esi
+    0.00 :   5b341:  jmp    5b38a <expanse_trie::mutate_map::map_remove::<false, false>+0xa4a>
+    0.00 :   5b343:  mov    0x20(%rsp),%r11
+    0.00 :   5b348:  movzwl (%r11,%r12,2),%esi
+    0.00 :   5b34d:  jmp    5b38a <expanse_trie::mutate_map::map_remove::<false, false>+0xa4a>
+    0.00 :   5b34f:  mov    0x20(%rsp),%r11
+    0.00 :   5b354:  mov    -0x4(%r11,%r8,1),%eax
+    0.00 :   5b359:  movzwl (%r11,%r8,1),%esi
+    0.00 :   5b35e:  shl    $0x20,%rsi
+    0.00 :   5b362:  or     %rax,%rsi
+    0.00 :   5b365:  jmp    5b38a <expanse_trie::mutate_map::map_remove::<false, false>+0xa4a>
+    0.00 :   5b367:  mov    0x20(%rsp),%r11
+    0.00 :   5b36c:  mov    -0x6(%r11,%rdi,1),%eax
+    0.00 :   5b371:  movzwl -0x2(%r11,%rdi,1),%r8d
+    0.00 :   5b377:  movzbl (%r11,%rdi,1),%esi
+    0.00 :   5b37c:  shl    $0x20,%r8
+    0.00 :   5b380:  or     %rax,%r8
+    0.00 :   5b383:  shl    $0x30,%rsi
+    0.00 :   5b387:  or     %r8,%rsi
+    0.00 :   5b38a:  mov    0x18(%rsp),%r8
+    0.00 :   5b38f:  cmp    $0x8,%r8
+    0.00 :   5b393:  mov    0x50(%rsp),%r13
+    0.00 :   5b398:  je     5d2d2 <expanse_trie::mutate_map::map_remove::<false, false>+0x2992>
+    0.00 :   5b39e:  mov    (%r11,%r10,8),%rax
+    0.00 :   5b3a2:  inc    %r10
+    0.00 :   5b3a5:  or     0x40(%rsp),%rsi
+    0.00 :   5b3aa:  mov    %r8,%rdi
+    0.00 :   5b3ad:  shl    $0x4,%rdi
+    0.00 :   5b3b1:  mov    %rsi,0x90(%rsp,%rdi,1)
+    0.00 :   5b3b9:  mov    %rax,0x98(%rsp,%rdi,1)
+    0.00 :   5b3c1:  inc    %r8
+    0.00 :   5b3c4:  mov    %r8,0x18(%rsp)
+    0.00 :   5b3c9:  mov    %r10,%rax
+    0.00 :   5b3cc:  mov    0x48(%rsp),%rdi
+    0.00 :   5b3d1:  mov    0x58(%rsp),%rsi
+    0.00 :   5b3d6:  jmp    5b286 <expanse_trie::mutate_map::map_remove::<false, false>+0x946>
+    0.00 :   5b3db:  cmp    $0x9,%r15
+    0.00 :   5b3df:  jae    5ce4b <expanse_trie::mutate_map::map_remove::<false, false>+0x250b>
+    0.00 :   5b3e5:  movzbl 0x28(%rsp),%edx
+    0.00 :   5b3ea:  lea    0x90(%rsp),%rcx
+    0.00 :   5b3f2:  mov    0x8(%rsp),%rbx
+    0.00 :   5b3f7:  mov    %rbx,%rdi
+    0.00 :   5b3fa:  mov    0x10(%rsp),%rsi
+    0.00 :   5b3ff:  mov    %r15,%r8
+    0.00 :   5b402:  call   5e790 <expanse_trie::mutate_map::write_map_immed::<false>>
+    0.00 :   5b407:  mov    0x20(%rsp),%rcx
+    0.00 :   5b40c:  test   %rcx,%rcx
+    0.00 :   5b40f:  je     5d0ea <expanse_trie::mutate_map::map_remove::<false, false>+0x27aa>
+    0.00 :   5b415:  lea    0xf(%r13),%rax
+    0.00 :   5b419:  and    $0xfffffffffffffff0,%rax
+    0.00 :   5b41d:  lock sub %rax,0x200(%rbx)
+    0.00 :   5b425:  lock decq 0x208(%rbx)
+    0.00 :   5b42d:  cmp    $0x177,%r13
+    0.00 :   5b434:  ja     5b468 <expanse_trie::mutate_map::map_remove::<false, false>+0xb28>
+    0.00 :   5b436:  lea    -0x459f0(%rip),%rax        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5b43d:  movzbl 0x0(%r13,%rax,1),%edi
+    0.00 :   5b443:  cmp    $0xff,%rdi
+    0.00 :   5b44a:  je     5b468 <expanse_trie::mutate_map::map_remove::<false, false>+0xb28>
+    0.00 :   5b44c:  cmp    $0x3e,%dil
+    0.00 :   5b450:  jae    5d302 <expanse_trie::mutate_map::map_remove::<false, false>+0x29c2>
+    0.00 :   5b456:  mov    0x10(%rbx,%rdi,8),%rax
+    0.00 :   5b45b:  mov    %rax,(%rcx)
+    0.00 :   5b45e:  mov    %rcx,0x10(%rbx,%rdi,8)
+    0.00 :   5b463:  jmp    5bd8f <expanse_trie::mutate_map::map_remove::<false, false>+0x144f>
+    0.00 :   5b468:  mov    $0x10,%edx
+    0.00 :   5b46d:  mov    %rcx,%rdi
+    0.00 :   5b470:  mov    %r13,%rsi
+    0.00 :   5b473:  jmp    5bd89 <expanse_trie::mutate_map::map_remove::<false, false>+0x1449>
+    0.00 :   5b478:  mov    %r9d,0x18(%rsp)
+    0.00 :   5b47d:  mov    %rdi,0x8(%rsp)
+    0.00 :   5b482:  mov    %rsi,0x10(%rsp)
+    0.00 :   5b487:  movzbl %dl,%edx
+    0.00 :   5b48a:  mov    %rbp,%rdi
+    0.00 :   5b48d:  mov    %r12,%rsi
+    0.00 :   5b490:  mov    %r13,%rcx
+    0.00 :   5b493:  call   b7f50 <expanse_trie::leaf::locate>
+    0.00 :   5b498:  test   $0x1,%al
+    0.00 :   5b49a:  jne    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5b4a0:  mov    %rdx,%r13
+    0.00 :   5b4a3:  mov    0x10(%rsp),%rax
+    0.00 :   5b4a8:  mov    (%rax),%rdx
+    0.00 :   5b4ab:  mov    (%rdx,%r13,8),%r8
+    0.00 :   5b4af:  cmp    $0x2,%r12d
+    0.00 :   5b4b3:  jne    5b834 <expanse_trie::mutate_map::map_remove::<false, false>+0xef4>
+    0.00 :   5b4b9:  mov    $0x1,%esi
+    0.00 :   5b4be:  sub    %r13,%rsi
+    0.00 :   5b4c1:  mov    (%rdx,%rsi,8),%rbx
+    0.00 :   5b4c5:  movl   $0x0,0x7b(%rsp)
+    0.00 :   5b4cd:  movl   $0x0,0x78(%rsp)
+    0.00 :   5b4d5:  and    $0xf,%r15d
+    0.00 :   5b4d9:  cmp    $0x8,%r15d
+    0.00 :   5b4dd:  jae    5d141 <expanse_trie::mutate_map::map_remove::<false, false>+0x2801>
+    0.00 :   5b4e3:  imul   %r15,%rsi
+    0.00 :   5b4e7:  mov    $0x2,%eax
+    0.00 :   5b4ec:  sub    %r13,%rax
+    0.00 :   5b4ef:  imul   %r15,%rax
+    0.00 :   5b4f3:  mov    %rax,%rcx
+    0.00 :   5b4f6:  sub    %rsi,%rcx
+    0.00 :   5b4f9:  jb     5d158 <expanse_trie::mutate_map::map_remove::<false, false>+0x2818>
+    0.00 :   5b4ff:  cmp    $0x8,%rax
+    0.00 :   5b503:  jae    5d158 <expanse_trie::mutate_map::map_remove::<false, false>+0x2818>
+    0.00 :   5b509:  cmp    %r15,%rcx
+    0.00 :   5b50c:  jne    5d1cc <expanse_trie::mutate_map::map_remove::<false, false>+0x288c>
+    0.00 :   5b512:  mov    %rdx,%r12
+    0.00 :   5b515:  mov    %r8,%r14
+    0.00 :   5b518:  add    %rbp,%rsi
+    0.00 :   5b51b:  lea    0x78(%rsp),%rdi
+    0.00 :   5b520:  mov    %r15,%rdx
+    0.00 :   5b523:  call   *0x227adf(%rip)        # 283008 <memcpy@GLIBC_2.14>
+    0.00 :   5b529:  mov    0x18(%rsp),%esi
+    0.00 :   5b52d:  test   %sil,%sil
+    0.00 :   5b530:  js     5d128 <expanse_trie::mutate_map::map_remove::<false, false>+0x27e8>
+    0.00 :   5b536:  mov    0x10(%rsp),%rdx
+    0.00 :   5b53b:  mov    %rbx,(%rdx)
+    0.00 :   5b53e:  mov    0x78(%rsp),%eax
+    0.00 :   5b542:  mov    0x7b(%rsp),%ecx
+    0.00 :   5b546:  mov    %ecx,0x3(%rbp)
+    0.00 :   5b549:  mov    %eax,0x0(%rbp)
+    0.00 :   5b54c:  and    $0x70,%sil
+    0.00 :   5b550:  mov    %sil,0xf(%rdx)
+    0.00 :   5b554:  mov    0x8(%rsp),%rcx
+    0.00 :   5b559:  lock subq $0x10,0x200(%rcx)
+    0.00 :   5b562:  lock decq 0x208(%rcx)
+    0.00 :   5b56a:  mov    0x80(%rcx),%rax
+    0.00 :   5b571:  mov    %rax,(%r12)
+    0.00 :   5b575:  mov    %r12,0x80(%rcx)
+    0.00 :   5b57c:  mov    $0x1,%eax
+    0.00 :   5b581:  mov    %r14,%r9
+    0.00 :   5b584:  jmp    5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5b589:  cmp    $0x19,%r15
+    0.00 :   5b58d:  jae    5b810 <expanse_trie::mutate_map::map_remove::<false, false>+0xed0>
+    0.00 :   5b593:  mov    $0x18,%r12d
+    0.00 :   5b599:  cmp    $0x19,%rbx
+    0.00 :   5b59d:  jae    5ba14 <expanse_trie::mutate_map::map_remove::<false, false>+0x10d4>
+    0.00 :   5b5a3:  jmp    5bb60 <expanse_trie::mutate_map::map_remove::<false, false>+0x1220>
+    0.00 :   5b5a8:  mov    %eax,%ecx
+    0.00 :   5b5aa:  shr    %ecx
+    0.00 :   5b5ac:  and    $0x55555555,%ecx
+    0.00 :   5b5b2:  sub    %ecx,%eax
+    0.00 :   5b5b4:  mov    %eax,%ecx
+    0.00 :   5b5b6:  and    $0x33333333,%ecx
+    0.00 :   5b5bc:  shr    $0x2,%eax
+    0.00 :   5b5bf:  and    $0x33333333,%eax
+    0.00 :   5b5c4:  add    %ecx,%eax
+    0.00 :   5b5c6:  mov    %eax,%ecx
+    0.00 :   5b5c8:  shr    $0x4,%ecx
+    0.00 :   5b5cb:  add    %eax,%ecx
+    0.00 :   5b5cd:  and    $0xf0f0f0f,%ecx
+    0.00 :   5b5d3:  imul   $0x1010101,%ecx,%ebp
+    0.00 :   5b5d9:  shr    $0x18,%ebp
+    0.00 :   5b5dc:  lea    -0x1(%rbp),%rdx
+    0.00 :   5b5e0:  mov    %rdx,%rax
+    0.00 :   5b5e3:  cmp    $0x3,%rdx
+    0.00 :   5b5e7:  jb     5bea3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1563>
+    0.00 :   5b5ed:  cmp    $0x11,%edx
+    0.00 :   5b5f0:  jae    5be8e <expanse_trie::mutate_map::map_remove::<false, false>+0x154e>
+    0.00 :   5b5f6:  lea    0x2(%rbp),%eax
+    0.00 :   5b5f9:  and    $0x3c,%eax
+    0.00 :   5b5fc:  jmp    5bea3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1563>
+    0.00 :   5b601:  mov    0x10(%rsp),%rdi
+    0.00 :   5b606:  test   $0x1,%al
+    0.00 :   5b608:  je     5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5b60e:  mov    $0x1,%eax
+    0.00 :   5b613:  cmp    $0x7,%r12b
+    0.00 :   5b617:  ja     5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5b61d:  mov    0x8(%rdi),%rcx
+    0.00 :   5b621:  lea    -0x45d98(%rip),%rdx        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5b628:  mov    (%rdx,%r12,8),%rdx
+    0.00 :   5b62c:  mov    %rdx,%rsi
+    0.00 :   5b62f:  and    %rcx,%rsi
+    0.00 :   5b632:  dec    %rsi
+    0.00 :   5b635:  xor    %rcx,%rsi
+    0.00 :   5b638:  and    %rdx,%rsi
+    0.00 :   5b63b:  xor    %rcx,%rsi
+    0.00 :   5b63e:  mov    %rsi,0x8(%rdi)
+    0.00 :   5b642:  jmp    5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5b647:  mov    0x4(%rbx),%ecx
+    0.00 :   5b64a:  cmp    $0x1,%rcx
+    0.00 :   5b64e:  adc    $0xffffffffffffffff,%rcx
+    0.00 :   5b652:  cmp    $0xa0,%rcx
+    0.00 :   5b659:  mov    %r15,%r8
+    0.00 :   5b65c:  mov    %r12,%rdi
+    0.00 :   5b65f:  mov    %rbp,%r10
+    0.00 :   5b662:  ja     5b7b5 <expanse_trie::mutate_map::map_remove::<false, false>+0xe75>
+    0.00 :   5b668:  mov    $0x13f,%eax
+    0.00 :   5b66d:  xor    %ecx,%ecx
+    0.00 :   5b66f:  pxor   %xmm0,%xmm0
+    0.00 :   5b673:  cmp    $0x113f,%rax
+    0.00 :   5b679:  je     5bf21 <expanse_trie::mutate_map::map_remove::<false, false>+0x15e1>
+    0.00 :   5b67f:  movzbl (%rbx,%rax,1),%edx
+    0.00 :   5b683:  movd   %edx,%xmm1
+    0.00 :   5b687:  movzbl -0x10(%rbx,%rax,1),%edx
+    0.00 :   5b68c:  movd   %edx,%xmm2
+    0.00 :   5b690:  punpcklbw %xmm1,%xmm2
+    0.00 :   5b694:  movzbl -0x20(%rbx,%rax,1),%edx
+    0.00 :   5b699:  movd   %edx,%xmm1
+    0.00 :   5b69d:  movzbl -0x30(%rbx,%rax,1),%edx
+    0.00 :   5b6a2:  movd   %edx,%xmm3
+    0.00 :   5b6a6:  punpcklbw %xmm1,%xmm3
+    0.00 :   5b6aa:  punpcklwd %xmm2,%xmm3
+    0.00 :   5b6ae:  movzbl -0x40(%rbx,%rax,1),%edx
+    0.00 :   5b6b3:  movd   %edx,%xmm1
+    0.00 :   5b6b7:  movzbl -0x50(%rbx,%rax,1),%edx
+    0.00 :   5b6bc:  movd   %edx,%xmm2
+    0.00 :   5b6c0:  punpcklbw %xmm1,%xmm2
+    0.00 :   5b6c4:  movzbl -0x60(%rbx,%rax,1),%edx
+    0.00 :   5b6c9:  movd   %edx,%xmm4
+    0.00 :   5b6cd:  movzbl -0x70(%rbx,%rax,1),%edx
+    0.00 :   5b6d2:  movd   %edx,%xmm1
+    0.00 :   5b6d6:  punpcklbw %xmm4,%xmm1
+    0.00 :   5b6da:  punpcklwd %xmm2,%xmm1
+    0.00 :   5b6de:  punpckldq %xmm3,%xmm1
+    0.00 :   5b6e2:  movzbl -0x80(%rbx,%rax,1),%edx
+    0.00 :   5b6e7:  movd   %edx,%xmm2
+    0.00 :   5b6eb:  movzbl -0x90(%rbx,%rax,1),%edx
+    0.00 :   5b6f3:  movd   %edx,%xmm3
+    0.00 :   5b6f7:  punpcklbw %xmm2,%xmm3
+    0.00 :   5b6fb:  movzbl -0xa0(%rbx,%rax,1),%edx
+    0.00 :   5b703:  movd   %edx,%xmm2
+    0.00 :   5b707:  movzbl -0xb0(%rbx,%rax,1),%edx
+    0.00 :   5b70f:  movd   %edx,%xmm4
+    0.00 :   5b713:  punpcklbw %xmm2,%xmm4
+    0.00 :   5b717:  punpcklwd %xmm3,%xmm4
+    0.00 :   5b71b:  movzbl -0xc0(%rbx,%rax,1),%edx
+    0.00 :   5b723:  movd   %edx,%xmm2
+    0.00 :   5b727:  movzbl -0xd0(%rbx,%rax,1),%edx
+    0.00 :   5b72f:  movd   %edx,%xmm3
+    0.00 :   5b733:  punpcklbw %xmm2,%xmm3
+    0.00 :   5b737:  movzbl -0xe0(%rbx,%rax,1),%edx
+    0.00 :   5b73f:  movd   %edx,%xmm2
+    0.00 :   5b743:  movzbl -0xf0(%rbx,%rax,1),%edx
+    0.00 :   5b74b:  movd   %edx,%xmm5
+    0.00 :   5b74f:  punpcklbw %xmm2,%xmm5
+    0.00 :   5b753:  punpcklwd %xmm3,%xmm5
+    0.00 :   5b757:  punpckldq %xmm4,%xmm5
+    0.00 :   5b75b:  punpcklqdq %xmm1,%xmm5
+    0.00 :   5b75f:  pcmpeqb %xmm0,%xmm5
+    0.00 :   5b763:  pmovmskb %xmm5,%edx
+    0.00 :   5b767:  not    %edx
+    0.00 :   5b769:  mov    %edx,%esi
+    0.00 :   5b76b:  shr    %esi
+    0.00 :   5b76d:  and    $0x5555,%esi
+    0.00 :   5b773:  sub    %esi,%edx
+    0.00 :   5b775:  mov    %edx,%esi
+    0.00 :   5b777:  and    $0x3333,%esi
+    0.00 :   5b77d:  shr    $0x2,%edx
+    0.00 :   5b780:  and    $0x3333,%edx
+    0.00 :   5b786:  add    %esi,%edx
+    0.00 :   5b788:  mov    %edx,%esi
+    0.00 :   5b78a:  shr    $0x4,%esi
+    0.00 :   5b78d:  add    %edx,%esi
+    0.00 :   5b78f:  and    $0xf0f,%esi
+    0.00 :   5b795:  mov    %esi,%edx
+    0.00 :   5b797:  shr    $0x8,%edx
+    0.00 :   5b79a:  add    %esi,%edx
+    0.00 :   5b79c:  movzbl %dl,%edx
+    0.00 :   5b79f:  add    %rdx,%rcx
+    0.00 :   5b7a2:  add    $0x100,%rax
+    0.00 :   5b7a8:  cmp    $0xa1,%rcx
+    0.00 :   5b7af:  jb     5b673 <expanse_trie::mutate_map::map_remove::<false, false>+0xd33>
+    0.00 :   5b7b5:  mov    %ecx,0x4(%rbx)
+    0.00 :   5b7b8:  cmp    $0x7,%r10b
+    0.00 :   5b7bc:  ja     5b7e7 <expanse_trie::mutate_map::map_remove::<false, false>+0xea7>
+    0.00 :   5b7be:  mov    0x8(%r8),%rax
+    0.00 :   5b7c2:  movzbl %r10b,%edx
+    0.00 :   5b7c6:  lea    -0x45f3d(%rip),%rsi        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5b7cd:  mov    (%rsi,%rdx,8),%rdx
+    0.00 :   5b7d1:  mov    %rdx,%rsi
+    0.00 :   5b7d4:  and    %rax,%rsi
+    0.00 :   5b7d7:  dec    %rsi
+    0.00 :   5b7da:  xor    %rax,%rsi
+    0.00 :   5b7dd:  and    %rdx,%rsi
+    0.00 :   5b7e0:  xor    %rax,%rsi
+    0.00 :   5b7e3:  mov    %rsi,0x8(%r8)
+    0.00 :   5b7e7:  mov    $0x1,%eax
+    0.00 :   5b7ec:  cmp    $0xa0,%rcx
+    0.00 :   5b7f3:  ja     5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5b7f9:  movzbl %r10b,%edx
+    0.00 :   5b7fd:  mov    %r8,%rsi
+    0.00 :   5b800:  mov    %r9,%rbx
+    0.00 :   5b803:  call   9d950 <expanse_trie::mutate::downgrade_u_to_b::<false>>
+    0.00 :   5b808:  mov    %rbx,%r9
+    0.00 :   5b80b:  jmp    5c408 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ac8>
+    0.00 :   5b810:  cmp    $0x21,%r15
+    0.00 :   5b814:  jae    5b9c5 <expanse_trie::mutate_map::map_remove::<false, false>+0x1085>
+    0.00 :   5b81a:  mov    $0x20,%eax
+    0.00 :   5b81f:  mov    $0x20,%r12d
+    0.00 :   5b825:  cmp    $0x21,%rbx
+    0.00 :   5b829:  jae    5b9cd <expanse_trie::mutate_map::map_remove::<false, false>+0x108d>
+    0.00 :   5b82f:  jmp    5bb60 <expanse_trie::mutate_map::map_remove::<false, false>+0x1220>
+    0.00 :   5b834:  mov    %rdx,0x28(%rsp)
+    0.00 :   5b839:  and    $0xf,%r15d
+    0.00 :   5b83d:  lea    -0x1(%r12),%rbx
+    0.00 :   5b842:  lea    0x2(%r12),%ecx
+    0.00 :   5b847:  and    $0xfffffffc,%ecx
+    0.00 :   5b84a:  mov    0x20(%rsp),%rax
+    0.00 :   5b84f:  cmp    $0x3,%al
+    0.00 :   5b851:  cmovb  %rbx,%rcx
+    0.00 :   5b855:  lea    0x3(%r12),%edx
+    0.00 :   5b85a:  and    $0xfffffffc,%edx
+    0.00 :   5b85d:  cmp    $0x2,%al
+    0.00 :   5b85f:  cmovb  %r12,%rdx
+    0.00 :   5b863:  cmp    %edx,%ecx
+    0.00 :   5b865:  mov    0x8(%rsp),%rsi
+    0.00 :   5b86a:  mov    %r8,0x30(%rsp)
+    0.00 :   5b86f:  jne    5bdcc <expanse_trie::mutate_map::map_remove::<false, false>+0x148c>
+    0.00 :   5b875:  mov    0x0(%rbp),%eax
+    0.00 :   5b878:  mov    0x3(%rbp),%ecx
+    0.00 :   5b87b:  mov    %ecx,0x63(%rsp)
+    0.00 :   5b87f:  mov    %eax,0x60(%rsp)
+    0.00 :   5b883:  mov    %r12,%rsi
+    0.00 :   5b886:  imul   %r15,%rsi
+    0.00 :   5b88a:  cmp    $0x8,%rsi
+    0.00 :   5b88e:  jae    5d1b8 <expanse_trie::mutate_map::map_remove::<false, false>+0x2878>
+    0.00 :   5b894:  lea    0x1(%r13),%rdi
+    0.00 :   5b898:  imul   %r15,%rdi
+    0.00 :   5b89c:  mov    %rsi,%rdx
+    0.00 :   5b89f:  sub    %rdi,%rdx
+    0.00 :   5b8a2:  jb     5d1ef <expanse_trie::mutate_map::map_remove::<false, false>+0x28af>
+    0.00 :   5b8a8:  mov    %r13,%rax
+    0.00 :   5b8ab:  imul   %r15,%rax
+    0.00 :   5b8af:  mov    $0x7,%ecx
+    0.00 :   5b8b4:  sub    %rdx,%rcx
+    0.00 :   5b8b7:  cmp    %rcx,%rax
+    0.00 :   5b8ba:  ja     5d216 <expanse_trie::mutate_map::map_remove::<false, false>+0x28d6>
+    0.00 :   5b8c0:  lea    (%rsp,%rdi,1),%rsi
+    0.00 :   5b8c4:  add    $0x60,%rsi
+    0.00 :   5b8c8:  lea    (%rsp,%rax,1),%rdi
+    0.00 :   5b8cc:  add    $0x60,%rdi
+    0.00 :   5b8d0:  call   *0x227742(%rip)        # 283018 <memmove@GLIBC_2.2.5>
+    0.00 :   5b8d6:  mov    %rbx,%rdi
+    0.00 :   5b8d9:  imul   %r15,%rdi
+    0.00 :   5b8dd:  cmp    $0x7,%rdi
+    0.00 :   5b8e1:  ja     5d248 <expanse_trie::mutate_map::map_remove::<false, false>+0x2908>
+    0.00 :   5b8e7:  mov    %rbx,%r14
+    0.00 :   5b8ea:  mov    $0x7,%edx
+    0.00 :   5b8ef:  sub    %rdi,%rdx
+    0.00 :   5b8f2:  add    %rsp,%rdi
+    0.00 :   5b8f5:  add    $0x60,%rdi
+    0.00 :   5b8f9:  xor    %esi,%esi
+    0.00 :   5b8fb:  call   *0x2276ef(%rip)        # 282ff0 <memset@GLIBC_2.2.5>
+    0.00 :   5b901:  mov    0x18(%rsp),%esi
+    0.00 :   5b905:  test   %sil,%sil
+    0.00 :   5b908:  setns  %cl
+    0.00 :   5b90b:  test   %rbx,%rbx
+    0.00 :   5b90e:  setne  %dl
+    0.00 :   5b911:  imul   %r14d,%r15d
+    0.00 :   5b915:  cmp    $0x10,%r15d
+    0.00 :   5b919:  setb   %al
+    0.00 :   5b91c:  test   %dl,%cl
+    0.00 :   5b91e:  je     5d170 <expanse_trie::mutate_map::map_remove::<false, false>+0x2830>
+    0.00 :   5b924:  test   %al,%al
+    0.00 :   5b926:  mov    0x10(%rsp),%rdx
+    0.00 :   5b92b:  je     5d17f <expanse_trie::mutate_map::map_remove::<false, false>+0x283f>
+    0.00 :   5b931:  lea    0x1(%r13),%rcx
+    0.00 :   5b935:  cmp    %r12,%rcx
+    0.00 :   5b938:  jae    5b960 <expanse_trie::mutate_map::map_remove::<false, false>+0x1020>
+    0.00 :   5b93a:  mov    0x28(%rsp),%rax
+    0.00 :   5b93f:  lea    (%rax,%r13,8),%rdi
+    0.00 :   5b943:  lea    (%rax,%rcx,8),%rsi
+    0.00 :   5b947:  mov    %rbx,%rdx
+    0.00 :   5b94a:  sub    %r13,%rdx
+    0.00 :   5b94d:  shl    $0x3,%rdx
+    0.00 :   5b951:  call   *0x2276c1(%rip)        # 283018 <memmove@GLIBC_2.2.5>
+    0.00 :   5b957:  mov    0x18(%rsp),%esi
+    0.00 :   5b95b:  mov    0x10(%rsp),%rdx
+    0.00 :   5b960:  mov    0x60(%rsp),%eax
+    0.00 :   5b964:  mov    0x63(%rsp),%ecx
+    0.00 :   5b968:  mov    %ecx,0x3(%rbp)
+    0.00 :   5b96b:  mov    %eax,0x0(%rbp)
+    0.00 :   5b96e:  and    $0x70,%sil
+    0.00 :   5b972:  lea    -0x1(%rbx),%eax
+    0.00 :   5b975:  or     %sil,%al
+    0.00 :   5b978:  mov    %al,0xf(%rdx)
+    0.00 :   5b97b:  jmp    5bd8f <expanse_trie::mutate_map::map_remove::<false, false>+0x144f>
+    0.00 :   5b980:  movzwl 0x60(%r14,%rbx,2),%r13d
+    0.00 :   5b986:  cmp    $0x1,%r13
+    0.00 :   5b98a:  jne    5bf6a <expanse_trie::mutate_map::map_remove::<false, false>+0x162a>
+    0.00 :   5b990:  movq   $0x0,0x20(%r14,%rbx,8)
+    0.00 :   5b999:  mov    0x8(%rsp),%r8
+    2.56 :   5b99e:  lock subq $0x10,0x200(%r8)
+    2.13 :   5b9a7:  lock decq 0x208(%r8)
+    0.00 :   5b9af:  mov    0x80(%r8),%rax
+    0.00 :   5b9b6:  mov    %rax,(%r10)
+    0.00 :   5b9b9:  mov    %r10,0x80(%r8)
+    0.00 :   5b9c0:  jmp    5cf8c <expanse_trie::mutate_map::map_remove::<false, false>+0x264c>
+    0.00 :   5b9c5:  lea    0x3(%r15),%rax
+    0.00 :   5b9c9:  and    $0xfffffffffffffffc,%rax
+    0.00 :   5b9cd:  mov    %r15,%r12
+    0.00 :   5b9d0:  and    $0xfffffffffffffffc,%r12
+    0.00 :   5b9d4:  add    $0x4,%r12
+    0.00 :   5b9d8:  cmp    %r12,%rax
+    0.00 :   5b9db:  jne    5b9ef <expanse_trie::mutate_map::map_remove::<false, false>+0x10af>
+    0.00 :   5b9dd:  cmp    $0x3,%rbx
+    0.00 :   5b9e1:  jae    5bb52 <expanse_trie::mutate_map::map_remove::<false, false>+0x1212>
+    0.00 :   5b9e7:  mov    %rbx,%r12
+    0.00 :   5b9ea:  jmp    5bb60 <expanse_trie::mutate_map::map_remove::<false, false>+0x1220>
+    0.00 :   5b9ef:  cmp    $0x1,%rbx
+    0.00 :   5b9f3:  jbe    5ba98 <expanse_trie::mutate_map::map_remove::<false, false>+0x1158>
+    0.00 :   5b9f9:  mov    %r15,%r12
+    0.00 :   5b9fc:  cmp    $0x3,%r15
+    0.00 :   5ba00:  jb     5ba14 <expanse_trie::mutate_map::map_remove::<false, false>+0x10d4>
+    0.00 :   5ba02:  cmp    $0x11,%r15
+    0.00 :   5ba06:  jae    5bf95 <expanse_trie::mutate_map::map_remove::<false, false>+0x1655>
+    0.00 :   5ba0c:  lea    0x3(%r15),%r12d
+    0.00 :   5ba10:  and    $0x3c,%r12d
+    0.00 :   5ba14:  lea    0x8(%r14),%rcx
+    0.00 :   5ba18:  imul   %rcx,%r12
+    0.00 :   5ba1c:  lea    0xf(%r12),%rbp
+    0.00 :   5ba21:  and    $0xfffffffffffffff0,%rbp
+    0.00 :   5ba25:  lock add %rbp,0x200(%rsi)
+    0.00 :   5ba2d:  lock incq 0x208(%rsi)
+    0.00 :   5ba35:  lock incq 0x218(%rsi)
+    0.00 :   5ba3d:  cmp    $0x177,%r12
+    0.00 :   5ba44:  mov    %rdx,0x70(%rsp)
+    0.00 :   5ba49:  mov    %r9,0x30(%rsp)
+    0.00 :   5ba4e:  mov    %rcx,0x28(%rsp)
+    0.00 :   5ba53:  ja     5baf5 <expanse_trie::mutate_map::map_remove::<false, false>+0x11b5>
+    0.00 :   5ba59:  lea    -0x46013(%rip),%rax        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5ba60:  movzbl (%r12,%rax,1),%edi
+    0.00 :   5ba65:  cmp    $0xff,%rdi
+    0.00 :   5ba6c:  je     5bb08 <expanse_trie::mutate_map::map_remove::<false, false>+0x11c8>
+    0.00 :   5ba72:  cmp    $0x3d,%dil
+    0.00 :   5ba76:  ja     5d344 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a04>
+    0.00 :   5ba7c:  mov    0x10(%rsi,%rdi,8),%r13
+    0.00 :   5ba81:  test   %r13,%r13
+    0.00 :   5ba84:  je     5bbd9 <expanse_trie::mutate_map::map_remove::<false, false>+0x1299>
+    0.00 :   5ba8a:  mov    0x0(%r13),%rax
+    0.00 :   5ba8e:  mov    %rax,0x10(%rsi,%rdi,8)
+    0.00 :   5ba93:  jmp    5bc76 <expanse_trie::mutate_map::map_remove::<false, false>+0x1336>
+    0.00 :   5ba98:  lea    0x8(%r14),%rax
+    0.00 :   5ba9c:  imul   %rax,%rbx
+    0.00 :   5baa0:  mov    %rbx,%r13
+    0.00 :   5baa3:  pxor   %xmm0,%xmm0
+    0.00 :   5baa7:  movdqu %xmm0,(%rcx)
+    0.00 :   5baab:  lea    0xf(%r13),%rax
+    0.00 :   5baaf:  and    $0xfffffffffffffff0,%rax
+    0.00 :   5bab3:  lock sub %rax,0x200(%rsi)
+    0.00 :   5babb:  lock decq 0x208(%rsi)
+    0.00 :   5bac3:  lea    -0x4607d(%rip),%rax        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5baca:  movzbl 0x0(%r13,%rax,1),%edi
+    0.00 :   5bad0:  cmp    $0xff,%rdi
+    0.00 :   5bad7:  je     5bb36 <expanse_trie::mutate_map::map_remove::<false, false>+0x11f6>
+    0.00 :   5bad9:  cmp    $0x3e,%dil
+    0.00 :   5badd:  jae    5d302 <expanse_trie::mutate_map::map_remove::<false, false>+0x29c2>
+    0.00 :   5bae3:  mov    0x10(%rsi,%rdi,8),%rax
+    0.00 :   5bae8:  mov    %rax,(%r8)
+    0.00 :   5baeb:  mov    %r8,0x10(%rsi,%rdi,8)
+    0.00 :   5baf0:  jmp    5c408 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ac8>
+    0.00 :   5baf5:  movabs $0x7ffffffffffffff0,%rax
+    0.00 :   5baff:  cmp    %rax,%r12
+    0.00 :   5bb02:  ja     5d103 <expanse_trie::mutate_map::map_remove::<false, false>+0x27c3>
+    0.00 :   5bb08:  call   *0x2274ea(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   5bb0e:  mov    $0x10,%esi
+    0.00 :   5bb13:  mov    %r12,%rdi
+    0.00 :   5bb16:  call   *0x2274f4(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   5bb1c:  mov    %rax,%r13
+    0.00 :   5bb1f:  test   %rax,%rax
+    0.00 :   5bb22:  jne    5bc84 <expanse_trie::mutate_map::map_remove::<false, false>+0x1344>
+    0.00 :   5bb28:  mov    $0x10,%edi
+    0.00 :   5bb2d:  mov    %r12,%rsi
+    0.00 :   5bb30:  call   *0x2274ea(%rip)        # 283020 <_DYNAMIC+0x2c8>
+    0.00 :   5bb36:  mov    $0x10,%edx
+    0.00 :   5bb3b:  mov    %r8,%rdi
+    0.00 :   5bb3e:  mov    %r13,%rsi
+    0.00 :   5bb41:  mov    %r9,%rbx
+    0.00 :   5bb44:  call   *0x22747e(%rip)        # 282fc8 <_DYNAMIC+0x270>
+    0.00 :   5bb4a:  mov    %rbx,%r9
+    0.00 :   5bb4d:  jmp    5c408 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ac8>
+    0.00 :   5bb52:  cmp    $0x10,%rbx
+    0.00 :   5bb56:  ja     5bb60 <expanse_trie::mutate_map::map_remove::<false, false>+0x1220>
+    0.00 :   5bb58:  lea    0x4(%r15),%r12d
+    0.00 :   5bb5c:  and    $0x3c,%r12d
+    0.00 :   5bb60:  lea    (%r8,%rdx,8),%rdi
+    0.00 :   5bb64:  lea    (%r8,%r12,8),%rbp
+    0.00 :   5bb68:  lea    0x1(%rdx),%rbx
+    0.00 :   5bb6c:  lea    (%r8,%rdx,8),%rsi
+    0.00 :   5bb70:  add    $0x8,%rsi
+    0.00 :   5bb74:  mov    %r15,%r12
+    0.00 :   5bb77:  sub    %rdx,%r12
+    0.00 :   5bb7a:  lea    0x0(,%r12,8),%rax
+    0.00 :   5bb82:  mov    %rdx,%r13
+    0.00 :   5bb85:  mov    %rax,%rdx
+    0.00 :   5bb88:  mov    %r9,0x30(%rsp)
+    0.00 :   5bb8d:  call   *0x227485(%rip)        # 283018 <memmove@GLIBC_2.2.5>
+    0.00 :   5bb93:  imul   %r14,%rbx
+    0.00 :   5bb97:  add    %rbp,%rbx
+    0.00 :   5bb9a:  imul   %r14,%r13
+    0.00 :   5bb9e:  add    %rbp,%r13
+    0.00 :   5bba1:  imul   %r14,%r12
+    0.00 :   5bba5:  mov    %r13,%rdi
+    0.00 :   5bba8:  mov    %rbx,%rsi
+    0.00 :   5bbab:  mov    %r12,%rdx
+    0.00 :   5bbae:  call   *0x227464(%rip)        # 283018 <memmove@GLIBC_2.2.5>
+    0.00 :   5bbb4:  mov    0x30(%rsp),%r9
+    0.00 :   5bbb9:  dec    %r15
+    0.00 :   5bbbc:  mov    0x10(%rsp),%rcx
+    0.00 :   5bbc1:  mov    0x8(%rcx),%rax
+    0.00 :   5bbc5:  xor    %rax,%r15
+    0.00 :   5bbc8:  and    0x40(%rsp),%r15
+    0.00 :   5bbcd:  xor    %rax,%r15
+    0.00 :   5bbd0:  mov    %r15,0x8(%rcx)
+    0.00 :   5bbd4:  jmp    5c408 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ac8>
+    0.00 :   5bbd9:  cmp    $0x101,%r12
+    0.00 :   5bbe0:  jae    5bb08 <expanse_trie::mutate_map::map_remove::<false, false>+0x11c8>
+    0.00 :   5bbe6:  mov    %rdi,0x48(%rsp)
+    0.00 :   5bbeb:  call   *0x227407(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   5bbf1:  mov    $0x1000,%edi
+    0.00 :   5bbf6:  mov    $0x40,%esi
+    0.00 :   5bbfb:  call   *0x22740f(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   5bc01:  test   %rax,%rax
+    0.00 :   5bc04:  je     5d1df <expanse_trie::mutate_map::map_remove::<false, false>+0x289f>
+    0.00 :   5bc0a:  mov    %rax,%r13
+    0.00 :   5bc0d:  mov    0x8(%rsp),%rdi
+    0.00 :   5bc12:  mov    0x220(%rdi),%rax
+    0.00 :   5bc19:  mov    %rax,0x0(%r13)
+    0.00 :   5bc1d:  mov    0x48(%rsp),%r8
+    0.00 :   5bc22:  mov    %r8,0x8(%r13)
+    0.00 :   5bc26:  mov    %r13,0x220(%rdi)
+    0.00 :   5bc2d:  test   %rbp,%rbp
+    0.00 :   5bc30:  je     5d356 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a16>
+    0.00 :   5bc36:  cmp    $0x7e0,%rbp
+    0.00 :   5bc3d:  ja     5bc72 <expanse_trie::mutate_map::map_remove::<false, false>+0x1332>
+    0.00 :   5bc3f:  mov    $0xfc0,%ax
+    0.00 :   5bc43:  xor    %edx,%edx
+    0.00 :   5bc45:  div    %bp
+    0.00 :   5bc48:  movzwl %ax,%eax
+    0.00 :   5bc4b:  dec    %rax
+    0.00 :   5bc4e:  mov    %rax,%rcx
+    0.00 :   5bc51:  imul   %rbp,%rcx
+    0.00 :   5bc55:  lea    (%rcx,%r13,1),%rdx
+    0.00 :   5bc59:  add    $0x40,%rdx
+    0.00 :   5bc5d:  mov    0x10(%rdi,%r8,8),%rsi
+    0.00 :   5bc62:  mov    %rsi,0x40(%r13,%rcx,1)
+    0.00 :   5bc67:  mov    %rdx,0x10(%rdi,%r8,8)
+    0.00 :   5bc6c:  cmp    $0x1,%rax
+    0.00 :   5bc70:  ja     5bc4b <expanse_trie::mutate_map::map_remove::<false, false>+0x130b>
+    0.00 :   5bc72:  add    $0x40,%r13
+    0.00 :   5bc76:  mov    %r13,%rdi
+    0.00 :   5bc79:  xor    %esi,%esi
+    0.00 :   5bc7b:  mov    %r12,%rdx
+    0.00 :   5bc7e:  call   *0x22736c(%rip)        # 282ff0 <memset@GLIBC_2.2.5>
+    0.00 :   5bc84:  mov    0x20(%rsp),%rdi
+    0.00 :   5bc89:  mov    %r13,%rsi
+    0.00 :   5bc8c:  mov    %r14d,%edx
+    0.00 :   5bc8f:  mov    %rbx,%rcx
+    0.00 :   5bc92:  mov    0x70(%rsp),%r8
+    0.00 :   5bc97:  call   b7e00 <expanse_trie::leaf::map_realloc_remove>
+    0.00 :   5bc9c:  mov    0x10(%rsp),%rdx
+    0.00 :   5bca1:  mov    0x18(%rsp),%eax
+    0.00 :   5bca5:  mov    %al,0xf(%rdx)
+    0.00 :   5bca8:  lea    -0x1(%r15),%rax
+    0.00 :   5bcac:  mov    0x8(%rdx),%rcx
+    0.00 :   5bcb0:  xor    %rcx,%rax
+    0.00 :   5bcb3:  and    0x40(%rsp),%rax
+    0.00 :   5bcb8:  xor    %rcx,%rax
+    0.00 :   5bcbb:  mov    %r13,(%rdx)
+    0.00 :   5bcbe:  mov    %rax,0x8(%rdx)
+    0.00 :   5bcc2:  cmp    $0x3,%rbx
+    0.00 :   5bcc6:  jae    5bcd7 <expanse_trie::mutate_map::map_remove::<false, false>+0x1397>
+    0.00 :   5bcc8:  mov    %rbx,%rsi
+    0.00 :   5bccb:  mov    0x8(%rsp),%rcx
+    0.00 :   5bcd0:  mov    0x20(%rsp),%r8
+    0.00 :   5bcd5:  jmp    5bd1a <expanse_trie::mutate_map::map_remove::<false, false>+0x13da>
+    0.00 :   5bcd7:  cmp    $0x11,%rbx
+    0.00 :   5bcdb:  mov    0x8(%rsp),%rcx
+    0.00 :   5bce0:  jae    5bcf4 <expanse_trie::mutate_map::map_remove::<false, false>+0x13b4>
+    0.00 :   5bce2:  add    $0x4,%r15d
+    0.00 :   5bce6:  and    $0x3c,%r15d
+    0.00 :   5bcea:  mov    %r15,%rsi
+    0.00 :   5bced:  mov    0x20(%rsp),%r8
+    0.00 :   5bcf2:  jmp    5bd1a <expanse_trie::mutate_map::map_remove::<false, false>+0x13da>
+    0.00 :   5bcf4:  mov    $0x18,%esi
+    0.00 :   5bcf9:  cmp    $0x19,%rbx
+    0.00 :   5bcfd:  mov    0x20(%rsp),%r8
+    0.00 :   5bd02:  jb     5bd1a <expanse_trie::mutate_map::map_remove::<false, false>+0x13da>
+    0.00 :   5bd04:  mov    $0x20,%esi
+    0.00 :   5bd09:  cmp    $0x21,%rbx
+    0.00 :   5bd0d:  jb     5bd1a <expanse_trie::mutate_map::map_remove::<false, false>+0x13da>
+    0.00 :   5bd0f:  and    $0xfffffffffffffffc,%r15
+    0.00 :   5bd13:  add    $0x4,%r15
+    0.00 :   5bd17:  mov    %r15,%rsi
+    0.00 :   5bd1a:  imul   0x28(%rsp),%rsi
+    0.00 :   5bd20:  lea    0xf(%rsi),%rax
+    0.00 :   5bd24:  and    $0xfffffffffffffff0,%rax
+    0.00 :   5bd28:  lock sub %rax,0x200(%rcx)
+    0.00 :   5bd30:  lock decq 0x208(%rcx)
+    0.00 :   5bd38:  cmp    $0x177,%rsi
+    0.00 :   5bd3f:  ja     5bd6e <expanse_trie::mutate_map::map_remove::<false, false>+0x142e>
+    0.00 :   5bd41:  lea    -0x462fb(%rip),%rax        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5bd48:  movzbl (%rsi,%rax,1),%edi
+    0.00 :   5bd4c:  cmp    $0xff,%rdi
+    0.00 :   5bd53:  je     5bd81 <expanse_trie::mutate_map::map_remove::<false, false>+0x1441>
+    0.00 :   5bd55:  cmp    $0x3e,%dil
+    0.00 :   5bd59:  jae    5d302 <expanse_trie::mutate_map::map_remove::<false, false>+0x29c2>
+    0.00 :   5bd5f:  mov    0x10(%rcx,%rdi,8),%rax
+    0.00 :   5bd64:  mov    %rax,(%r8)
+    0.00 :   5bd67:  mov    %r8,0x10(%rcx,%rdi,8)
+    0.00 :   5bd6c:  jmp    5bd8f <expanse_trie::mutate_map::map_remove::<false, false>+0x144f>
+    0.00 :   5bd6e:  movabs $0x7ffffffffffffff0,%rax
+    0.00 :   5bd78:  cmp    %rax,%rsi
+    0.00 :   5bd7b:  ja     5d103 <expanse_trie::mutate_map::map_remove::<false, false>+0x27c3>
+    0.00 :   5bd81:  mov    $0x10,%edx
+    0.00 :   5bd86:  mov    %r8,%rdi
+    0.00 :   5bd89:  call   *0x227239(%rip)        # 282fc8 <_DYNAMIC+0x270>
+    0.00 :   5bd8f:  mov    $0x1,%eax
+    0.00 :   5bd94:  mov    0x30(%rsp),%r9
+    0.00 :   5bd99:  jmp    5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5bd9e:  mov    0x8(%rsi),%ecx
+    0.00 :   5bda1:  movzbl 0xc(%rsi),%eax
+    0.00 :   5bda5:  jmp    5be53 <expanse_trie::mutate_map::map_remove::<false, false>+0x1513>
+    0.00 :   5bdaa:  movzwl 0x8(%rsi),%ecx
+    0.00 :   5bdae:  movzbl 0xa(%rsi),%eax
+    0.00 :   5bdb2:  shl    $0x10,%eax
+    0.00 :   5bdb5:  or     %rcx,%rax
+    0.00 :   5bdb8:  jmp    5be75 <expanse_trie::mutate_map::map_remove::<false, false>+0x1535>
+    0.00 :   5bdbd:  mov    0x0(%rbp),%eax
+    0.00 :   5bdc0:  jmp    5be75 <expanse_trie::mutate_map::map_remove::<false, false>+0x1535>
+    0.00 :   5bdc5:  xor    %eax,%eax
+    0.00 :   5bdc7:  jmp    5be75 <expanse_trie::mutate_map::map_remove::<false, false>+0x1535>
+    0.00 :   5bdcc:  mov    %rbp,0x40(%rsp)
+    0.00 :   5bdd1:  lea    0x2(%r12),%ecx
+    0.00 :   5bdd6:  and    $0xfffffffc,%ecx
+    0.00 :   5bdd9:  cmp    $0x3,%al
+    0.00 :   5bddb:  cmovb  %rbx,%rcx
+    0.00 :   5bddf:  lea    0x0(,%rcx,8),%rdx
+    0.00 :   5bde7:  lea    0xf(%rdx),%ebp
+    0.00 :   5bdea:  and    $0x1ff0,%ebp
+    0.00 :   5bdf0:  lock add %rbp,0x200(%rsi)
+    0.00 :   5bdf8:  lock incq 0x208(%rsi)
+    0.00 :   5be00:  lock incq 0x218(%rsi)
+    0.00 :   5be08:  lea    -0x463c2(%rip),%rax        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5be0f:  movzbl (%rax,%rcx,8),%r14d
+    0.00 :   5be14:  cmp    $0xff,%r14
+    0.00 :   5be1b:  je     5c958 <expanse_trie::mutate_map::map_remove::<false, false>+0x2018>
+    0.00 :   5be21:  cmp    $0x3d,%r14b
+    0.00 :   5be25:  ja     5d3a4 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a64>
+    0.00 :   5be2b:  mov    0x10(%rsi,%r14,8),%rbx
+    0.00 :   5be30:  test   %rbx,%rbx
+    0.00 :   5be33:  je     5c98e <expanse_trie::mutate_map::map_remove::<false, false>+0x204e>
+    0.00 :   5be39:  mov    (%rbx),%rax
+    0.00 :   5be3c:  mov    %rax,0x10(%rsi,%r14,8)
+    0.00 :   5be41:  jmp    5ca14 <expanse_trie::mutate_map::map_remove::<false, false>+0x20d4>
+    0.00 :   5be46:  movzwl 0x0(%rbp),%eax
+    0.00 :   5be4a:  jmp    5be75 <expanse_trie::mutate_map::map_remove::<false, false>+0x1535>
+    0.00 :   5be4c:  mov    0x8(%rsi),%ecx
+    0.00 :   5be4f:  movzwl 0xc(%rsi),%eax
+    0.00 :   5be53:  shl    $0x20,%rax
+    0.00 :   5be57:  or     %rcx,%rax
+    0.00 :   5be5a:  jmp    5be75 <expanse_trie::mutate_map::map_remove::<false, false>+0x1535>
+    0.00 :   5be5c:  mov    0x8(%rsi),%ecx
+    0.00 :   5be5f:  movzwl 0xc(%rsi),%edx
+    0.00 :   5be63:  movzbl 0xe(%rsi),%eax
+    0.00 :   5be67:  shl    $0x20,%rdx
+    0.00 :   5be6b:  or     %rcx,%rdx
+    0.00 :   5be6e:  shl    $0x30,%rax
+    0.00 :   5be72:  or     %rdx,%rax
+    0.00 :   5be75:  cmp    %r13,%rax
+    0.00 :   5be78:  jne    5ad01 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c1>
+    0.00 :   5be7e:  mov    (%rsi),%r9
+    0.00 :   5be81:  pxor   %xmm0,%xmm0
+    0.00 :   5be85:  movdqu %xmm0,(%rsi)
+    0.00 :   5be89:  jmp    5c408 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ac8>
+    0.00 :   5be8e:  mov    $0x18,%eax
+    0.00 :   5be93:  cmp    $0x19,%edx
+    0.00 :   5be96:  jb     5bea3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1563>
+    0.00 :   5be98:  xor    %eax,%eax
+    0.00 :   5be9a:  cmp    $0x21,%edx
+    0.00 :   5be9d:  setb   %al
+    0.00 :   5bea0:  shl    $0x5,%eax
+    0.00 :   5bea3:  mov    %rbp,%rcx
+    0.00 :   5bea6:  cmp    $0x3,%ebp
+    0.00 :   5bea9:  jb     5bec8 <expanse_trie::mutate_map::map_remove::<false, false>+0x1588>
+    0.00 :   5beab:  cmp    $0x11,%ebp
+    0.00 :   5beae:  jae    5beb8 <expanse_trie::mutate_map::map_remove::<false, false>+0x1578>
+    0.00 :   5beb0:  lea    0x3(%rbp),%ecx
+    0.00 :   5beb3:  and    $0x3c,%ecx
+    0.00 :   5beb6:  jmp    5bec8 <expanse_trie::mutate_map::map_remove::<false, false>+0x1588>
+    0.00 :   5beb8:  xor    %ecx,%ecx
+    0.00 :   5beba:  cmp    $0x19,%ebp
+    0.00 :   5bebd:  setae  %cl
+    0.00 :   5bec0:  lea    0x18(,%rcx,8),%rcx
+    0.00 :   5bec8:  lea    (%r8,%r11,8),%r15
+    0.00 :   5becc:  cmp    %ecx,%eax
+    0.00 :   5bece:  jne    5bf01 <expanse_trie::mutate_map::map_remove::<false, false>+0x15c1>
+    0.00 :   5bed0:  mov    %rsi,%rbx
+    0.00 :   5bed3:  lea    0x8(%r15),%rsi
+    0.00 :   5bed7:  sub    %r11,%rdx
+    0.00 :   5beda:  shl    $0x3,%rdx
+    0.00 :   5bede:  mov    %rdi,%r14
+    0.00 :   5bee1:  mov    %r15,%rdi
+    0.00 :   5bee4:  mov    %r9,%r15
+    0.00 :   5bee7:  mov    %r10,%rbp
+    0.00 :   5beea:  call   *0x227128(%rip)        # 283018 <memmove@GLIBC_2.2.5>
+    0.00 :   5bef0:  mov    %rbp,%r10
+    0.00 :   5bef3:  mov    %r15,%r9
+    0.00 :   5bef6:  mov    %r14,%rdi
+    0.00 :   5bef9:  mov    %rbx,%rsi
+    0.00 :   5befc:  jmp    5c385 <expanse_trie::mutate_map::map_remove::<false, false>+0x1a45>
+    0.00 :   5bf01:  mov    %rdx,%rax
+    0.00 :   5bf04:  cmp    $0x3,%edx
+    0.00 :   5bf07:  jb     5c062 <expanse_trie::mutate_map::map_remove::<false, false>+0x1722>
+    0.00 :   5bf0d:  cmp    $0x11,%edx
+    0.00 :   5bf10:  jae    5c04d <expanse_trie::mutate_map::map_remove::<false, false>+0x170d>
+    0.00 :   5bf16:  lea    0x2(%rbp),%eax
+    0.00 :   5bf19:  and    $0x3c,%eax
+    0.00 :   5bf1c:  jmp    5c062 <expanse_trie::mutate_map::map_remove::<false, false>+0x1722>
+    0.00 :   5bf21:  mov    %ecx,0x4(%rbx)
+    0.00 :   5bf24:  test   %rcx,%rcx
+    0.00 :   5bf27:  jne    5b7b8 <expanse_trie::mutate_map::map_remove::<false, false>+0xe78>
+    0.00 :   5bf2d:  lock subq $0x1040,0x200(%rdi)
+    0.00 :   5bf39:  lock decq 0x208(%rdi)
+    0.00 :   5bf41:  mov    $0x1040,%esi
+    0.00 :   5bf46:  mov    $0x40,%edx
+    0.00 :   5bf4b:  mov    %rbx,%rdi
+    0.00 :   5bf4e:  mov    %r8,%rbx
+    0.00 :   5bf51:  mov    %r9,%r14
+    0.00 :   5bf54:  call   *0x22706e(%rip)        # 282fc8 <_DYNAMIC+0x270>
+    0.00 :   5bf5a:  mov    %r14,%r9
+    0.00 :   5bf5d:  pxor   %xmm0,%xmm0
+    0.00 :   5bf61:  movdqu %xmm0,(%rbx)
+    0.00 :   5bf65:  jmp    5c408 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ac8>
+    0.00 :   5bf6a:  lea    -0x1(%r13),%rdx
+    0.00 :   5bf6e:  mov    %rdx,%rax
+    0.00 :   5bf71:  cmp    $0x3,%rdx
+    0.00 :   5bf75:  mov    0x8(%rsp),%rsi
+    0.00 :   5bf7a:  jb     5cbd5 <expanse_trie::mutate_map::map_remove::<false, false>+0x2295>
+    0.00 :   5bf80:  cmp    $0x11,%edx
+    0.00 :   5bf83:  jae    5cbba <expanse_trie::mutate_map::map_remove::<false, false>+0x227a>
+    0.00 :   5bf89:  lea    0x2(%r13),%eax
+    0.00 :   5bf8d:  and    $0x3c,%eax
+    0.00 :   5bf90:  jmp    5cbd5 <expanse_trie::mutate_map::map_remove::<false, false>+0x2295>
+    0.00 :   5bf95:  mov    $0x18,%r12d
+    0.00 :   5bf9b:  cmp    $0x19,%r15
+    0.00 :   5bf9f:  jb     5ba14 <expanse_trie::mutate_map::map_remove::<false, false>+0x10d4>
+    0.00 :   5bfa5:  mov    $0x20,%r12d
+    0.00 :   5bfab:  cmp    $0x21,%r15
+    0.00 :   5bfaf:  jb     5ba14 <expanse_trie::mutate_map::map_remove::<false, false>+0x10d4>
+    0.00 :   5bfb5:  lea    0x3(%r15),%r12
+    0.00 :   5bfb9:  and    $0xfffffffffffffffc,%r12
+    0.00 :   5bfbd:  jmp    5ba14 <expanse_trie::mutate_map::map_remove::<false, false>+0x10d4>
+    0.00 :   5bfc2:  xor    %eax,%eax
+    0.00 :   5bfc4:  mov    0x10(%rsp),%r8
+    0.00 :   5bfc9:  mov    0x8(%rsp),%rdi
+    0.00 :   5bfce:  mov    0x18(%rsp),%r9d
+    0.00 :   5bfd3:  mov    %ax,0x6(%r14)
+    0.00 :   5bfd8:  mov    (%r8),%rsi
+    0.00 :   5bfdb:  movzbl 0x4(%rsi),%eax
+    0.00 :   5bfdf:  test   %al,%al
+    0.00 :   5bfe1:  je     5c02f <expanse_trie::mutate_map::map_remove::<false, false>+0x16ef>
+    0.00 :   5bfe3:  cmp    $0x7,%r12b
+    0.00 :   5bfe7:  ja     5c00e <expanse_trie::mutate_map::map_remove::<false, false>+0x16ce>
+    0.00 :   5bfe9:  mov    0x8(%r8),%rcx
+    0.00 :   5bfed:  lea    -0x46764(%rip),%rdx        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5bff4:  mov    (%rdx,%r12,8),%rdx
+    0.00 :   5bff8:  mov    %rdx,%rsi
+    0.00 :   5bffb:  and    %rcx,%rsi
+    0.00 :   5bffe:  dec    %rsi
+    0.00 :   5c001:  xor    %rcx,%rsi
+    0.00 :   5c004:  and    %rdx,%rsi
+    0.00 :   5c007:  xor    %rcx,%rsi
+    0.00 :   5c00a:  mov    %rsi,0x8(%r8)
+    0.00 :   5c00e:  cmp    $0x1,%r9b
+    0.00 :   5c012:  sete   %cl
+    0.00 :   5c015:  cmp    $0x3,%al
+    0.00 :   5c017:  setae  %al
+    0.00 :   5c01a:  or     %cl,%al
+    0.00 :   5c01c:  mov    $0x1,%eax
+    0.00 :   5c021:  je     5c943 <expanse_trie::mutate_map::map_remove::<false, false>+0x2003>
+    0.00 :   5c027:  mov    %r15,%r9
+    0.00 :   5c02a:  jmp    5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5c02f:  xor    %edx,%edx
+    0.00 :   5c031:  cmp    $0x1,%r9b
+    0.00 :   5c035:  sete   %dl
+    0.00 :   5c038:  mov    %r8,%rbx
+    0.00 :   5c03b:  call   9df80 <expanse_trie::mutate::free_branch_node::<false>>
+    0.00 :   5c040:  pxor   %xmm0,%xmm0
+    0.00 :   5c044:  movdqu %xmm0,(%rbx)
+    0.00 :   5c048:  jmp    5c94b <expanse_trie::mutate_map::map_remove::<false, false>+0x200b>
+    0.00 :   5c04d:  mov    $0x18,%eax
+    0.00 :   5c052:  cmp    $0x19,%edx
+    0.00 :   5c055:  jb     5c062 <expanse_trie::mutate_map::map_remove::<false, false>+0x1722>
+    0.00 :   5c057:  xor    %eax,%eax
+    0.00 :   5c059:  cmp    $0x21,%edx
+    0.00 :   5c05c:  setb   %al
+    0.00 :   5c05f:  shl    $0x5,%eax
+    0.00 :   5c062:  mov    %r15,0x50(%rsp)
+    0.00 :   5c067:  mov    %rdx,0x58(%rsp)
+    0.00 :   5c06c:  lea    0xf(,%rax,8),%r15
+    0.00 :   5c074:  mov    %r15,0x70(%rsp)
+    0.00 :   5c079:  and    $0x3f0,%r15d
+    0.00 :   5c080:  lock add %r15,0x200(%rdi)
+    0.00 :   5c088:  lock incq 0x208(%rdi)
+    0.00 :   5c090:  lock incq 0x218(%rdi)
+    0.00 :   5c098:  lea    0x0(,%rax,8),%rdx
+    0.00 :   5c0a0:  lea    -0x4665a(%rip),%rcx        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5c0a7:  movzbl (%rcx,%rax,8),%ebx
+    0.00 :   5c0ab:  cmp    $0xff,%rbx
+    0.00 :   5c0b2:  mov    %rsi,0x10(%rsp)
+    0.00 :   5c0b7:  mov    %rdi,0x8(%rsp)
+    0.00 :   5c0bc:  mov    %r9,0x30(%rsp)
+    0.00 :   5c0c1:  mov    %r10,0x28(%rsp)
+    0.00 :   5c0c6:  mov    %r8,0x18(%rsp)
+    0.00 :   5c0cb:  mov    %rbp,0x40(%rsp)
+    0.00 :   5c0d0:  mov    %r11,0x48(%rsp)
+    0.00 :   5c0d5:  je     5c0fa <expanse_trie::mutate_map::map_remove::<false, false>+0x17ba>
+    0.00 :   5c0d7:  cmp    $0x3d,%bl
+    0.00 :   5c0da:  ja     5d363 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a23>
+    0.00 :   5c0e0:  mov    0x10(%rdi,%rbx,8),%rcx
+    0.00 :   5c0e5:  test   %rcx,%rcx
+    0.00 :   5c0e8:  je     5c12b <expanse_trie::mutate_map::map_remove::<false, false>+0x17eb>
+    0.00 :   5c0ea:  mov    (%rcx),%rax
+    0.00 :   5c0ed:  mov    %rax,0x10(%rdi,%rbx,8)
+    0.00 :   5c0f2:  mov    %rcx,%rbp
+    0.00 :   5c0f5:  jmp    5c28a <expanse_trie::mutate_map::map_remove::<false, false>+0x194a>
+    0.00 :   5c0fa:  mov    %rdx,%rbx
+    0.00 :   5c0fd:  call   *0x226ef5(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   5c103:  mov    $0x10,%esi
+    0.00 :   5c108:  mov    %rbx,%rdi
+    0.00 :   5c10b:  call   *0x226eff(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   5c111:  mov    %rax,%rbp
+    0.00 :   5c114:  test   %rax,%rax
+    0.00 :   5c117:  jne    5c295 <expanse_trie::mutate_map::map_remove::<false, false>+0x1955>
+    0.00 :   5c11d:  mov    $0x10,%edi
+    0.00 :   5c122:  mov    %rbx,%rsi
+    0.00 :   5c125:  call   *0x226ef5(%rip)        # 283020 <_DYNAMIC+0x2c8>
+    0.00 :   5c12b:  mov    %rdx,0x88(%rsp)
+    0.00 :   5c133:  call   *0x226ebf(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   5c139:  mov    $0x1000,%edi
+    0.00 :   5c13e:  mov    $0x40,%esi
+    0.00 :   5c143:  call   *0x226ec7(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   5c149:  test   %rax,%rax
+    0.00 :   5c14c:  je     5d1df <expanse_trie::mutate_map::map_remove::<false, false>+0x289f>
+    0.00 :   5c152:  mov    %rax,%rbp
+    0.00 :   5c155:  mov    0x8(%rsp),%r9
+    0.00 :   5c15a:  mov    0x220(%r9),%rax
+    0.00 :   5c161:  mov    %rax,0x0(%rbp)
+    0.00 :   5c165:  mov    %rbx,0x8(%rbp)
+    0.00 :   5c169:  mov    %rbp,0x220(%r9)
+    0.00 :   5c170:  test   %r15,%r15
+    0.00 :   5c173:  je     5d356 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a16>
+    0.00 :   5c179:  mov    $0xfc0,%ax
+    0.00 :   5c17d:  xor    %edx,%edx
+    0.00 :   5c17f:  div    %r15w
+    0.00 :   5c183:  movzwl %ax,%ecx
+    0.00 :   5c186:  mov    %ecx,%edx
+    0.00 :   5c188:  and    $0x3,%edx
+    0.00 :   5c18b:  mov    %rcx,%rax
+    0.00 :   5c18e:  cmp    $0x1,%edx
+    0.00 :   5c191:  je     5c1c3 <expanse_trie::mutate_map::map_remove::<false, false>+0x1883>
+    0.00 :   5c193:  mov    %ecx,%edx
+    0.00 :   5c195:  dec    %edx
+    0.00 :   5c197:  and    $0x3,%edx
+    0.00 :   5c19a:  mov    %rcx,%rax
+    0.00 :   5c19d:  dec    %rax
+    0.00 :   5c1a0:  mov    %rax,%rsi
+    0.00 :   5c1a3:  imul   %r15,%rsi
+    0.00 :   5c1a7:  lea    (%rsi,%rbp,1),%rdi
+    0.00 :   5c1ab:  add    $0x40,%rdi
+    0.00 :   5c1af:  mov    0x10(%r9,%rbx,8),%r8
+    0.00 :   5c1b4:  mov    %r8,0x40(%rbp,%rsi,1)
+    0.00 :   5c1b9:  mov    %rdi,0x10(%r9,%rbx,8)
+    0.00 :   5c1be:  dec    %rdx
+    0.00 :   5c1c1:  jne    5c19d <expanse_trie::mutate_map::map_remove::<false, false>+0x185d>
+    0.00 :   5c1c3:  add    $0xfffffffe,%ecx
+    0.00 :   5c1c6:  cmp    $0x3,%cx
+    0.00 :   5c1ca:  jb     5c27e <expanse_trie::mutate_map::map_remove::<false, false>+0x193e>
+    0.00 :   5c1d0:  mov    %r9,%r15
+    0.00 :   5c1d3:  mov    0x70(%rsp),%r9
+    0.00 :   5c1d8:  shr    $0x4,%r9
+    0.00 :   5c1dc:  lea    -0x4(%rax),%rcx
+    0.00 :   5c1e0:  imul   %r9,%rcx
+    0.00 :   5c1e4:  shl    $0x4,%rcx
+    0.00 :   5c1e8:  add    $0x40,%rcx
+    0.00 :   5c1ec:  mov    %r9,%rdx
+    0.00 :   5c1ef:  shl    $0x6,%rdx
+    0.00 :   5c1f3:  neg    %rdx
+    0.00 :   5c1f6:  lea    -0x3(%rax),%rsi
+    0.00 :   5c1fa:  imul   %r9,%rsi
+    0.00 :   5c1fe:  shl    $0x4,%rsi
+    0.00 :   5c202:  add    $0x40,%rsi
+    0.00 :   5c206:  lea    -0x2(%rax),%rdi
+    0.00 :   5c20a:  imul   %r9,%rdi
+    0.00 :   5c20e:  shl    $0x4,%rdi
+    0.00 :   5c212:  add    $0x40,%rdi
+    0.00 :   5c216:  lea    -0x1(%rax),%r8
+    0.00 :   5c21a:  imul   %r9,%r8
+    0.00 :   5c21e:  shl    $0x4,%r8
+    0.00 :   5c222:  add    $0x40,%r8
+    0.00 :   5c226:  mov    %rbp,%r9
+    0.00 :   5c229:  lea    (%r9,%r8,1),%r10
+    0.00 :   5c22d:  mov    0x10(%r15,%rbx,8),%r11
+    0.00 :   5c232:  mov    %r11,(%r9,%r8,1)
+    0.00 :   5c236:  mov    %r10,0x10(%r15,%rbx,8)
+    0.00 :   5c23b:  lea    (%r9,%rdi,1),%r10
+    0.00 :   5c23f:  mov    0x10(%r15,%rbx,8),%r11
+    0.00 :   5c244:  mov    %r11,(%r9,%rdi,1)
+    0.00 :   5c248:  mov    %r10,0x10(%r15,%rbx,8)
+    0.00 :   5c24d:  lea    (%r9,%rsi,1),%r10
+    0.00 :   5c251:  mov    0x10(%r15,%rbx,8),%r11
+    0.00 :   5c256:  mov    %r11,(%r9,%rsi,1)
+    0.00 :   5c25a:  mov    %r10,0x10(%r15,%rbx,8)
+    0.00 :   5c25f:  add    $0xfffffffffffffffc,%rax
+    0.00 :   5c263:  lea    (%r9,%rcx,1),%r10
+    0.00 :   5c267:  mov    0x10(%r15,%rbx,8),%r11
+    0.00 :   5c26c:  mov    %r11,(%r9,%rcx,1)
+    0.00 :   5c270:  mov    %r10,0x10(%r15,%rbx,8)
+    0.00 :   5c275:  add    %rdx,%r9
+    0.00 :   5c278:  cmp    $0x1,%rax
+    0.00 :   5c27c:  ja     5c229 <expanse_trie::mutate_map::map_remove::<false, false>+0x18e9>
+    0.00 :   5c27e:  add    $0x40,%rbp
+    0.00 :   5c282:  mov    0x88(%rsp),%rdx
+    0.00 :   5c28a:  mov    %rbp,%rdi
+    0.00 :   5c28d:  xor    %esi,%esi
+    0.00 :   5c28f:  call   *0x226d5b(%rip)        # 282ff0 <memset@GLIBC_2.2.5>
+    0.00 :   5c295:  mov    0x48(%rsp),%r15
+    0.00 :   5c29a:  lea    0x0(,%r15,8),%ebx
+    0.00 :   5c2a2:  mov    %rbp,%rdi
+    0.00 :   5c2a5:  mov    0x18(%rsp),%rsi
+    0.00 :   5c2aa:  mov    %rbx,%rdx
+    0.00 :   5c2ad:  call   *0x226d55(%rip)        # 283008 <memcpy@GLIBC_2.14>
+    0.00 :   5c2b3:  add    %rbp,%rbx
+    0.00 :   5c2b6:  mov    0x50(%rsp),%rsi
+    0.00 :   5c2bb:  add    $0x8,%rsi
+    0.00 :   5c2bf:  mov    0x58(%rsp),%rdx
+    0.00 :   5c2c4:  sub    %r15,%rdx
+    0.00 :   5c2c7:  shl    $0x3,%rdx
+    0.00 :   5c2cb:  mov    %rbx,%rdi
+    0.00 :   5c2ce:  call   *0x226d34(%rip)        # 283008 <memcpy@GLIBC_2.14>
+    0.00 :   5c2d4:  mov    %rbp,0x20(%r12,%r14,8)
+    0.00 :   5c2d9:  mov    0x40(%rsp),%rsi
+    0.00 :   5c2de:  cmp    $0x3,%esi
+    0.00 :   5c2e1:  jae    5c2ea <expanse_trie::mutate_map::map_remove::<false, false>+0x19aa>
+    0.00 :   5c2e3:  mov    0x8(%rsp),%rcx
+    0.00 :   5c2e8:  jmp    5c30c <expanse_trie::mutate_map::map_remove::<false, false>+0x19cc>
+    0.00 :   5c2ea:  cmp    $0x11,%esi
+    0.00 :   5c2ed:  mov    0x8(%rsp),%rcx
+    0.00 :   5c2f2:  jae    5c2fc <expanse_trie::mutate_map::map_remove::<false, false>+0x19bc>
+    0.00 :   5c2f4:  add    $0x3,%esi
+    0.00 :   5c2f7:  and    $0x3c,%esi
+    0.00 :   5c2fa:  jmp    5c30c <expanse_trie::mutate_map::map_remove::<false, false>+0x19cc>
+    0.00 :   5c2fc:  xor    %eax,%eax
+    0.00 :   5c2fe:  cmp    $0x19,%esi
+    0.00 :   5c301:  setae  %al
+    0.00 :   5c304:  lea    0x18(,%rax,8),%rsi
+    0.00 :   5c30c:  mov    0x18(%rsp),%r8
+    0.00 :   5c311:  shl    $0x3,%esi
+    0.00 :   5c314:  lea    0xf(%rsi),%rax
+    0.00 :   5c318:  and    $0xfffffffffffffff0,%rax
+    0.00 :   5c31c:  lock sub %rax,0x200(%rcx)
+    0.00 :   5c324:  mov    %rcx,%rax
+    0.00 :   5c327:  lock decq 0x208(%rcx)
+    0.00 :   5c32f:  lea    -0x468e9(%rip),%rcx        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5c336:  movzbl (%rsi,%rcx,1),%edi
+    0.00 :   5c33a:  cmp    $0xff,%rdi
+    0.00 :   5c341:  je     5c362 <expanse_trie::mutate_map::map_remove::<false, false>+0x1a22>
+    0.00 :   5c343:  cmp    $0x3d,%dil
+    0.00 :   5c347:  ja     5d302 <expanse_trie::mutate_map::map_remove::<false, false>+0x29c2>
+    0.00 :   5c34d:  mov    %rax,%rcx
+    0.00 :   5c350:  mov    0x10(%rax,%rdi,8),%rax
+    0.00 :   5c355:  mov    %rax,(%r8)
+    0.00 :   5c358:  mov    %r8,0x10(%rcx,%rdi,8)
+    0.00 :   5c35d:  mov    %rcx,%rdi
+    0.00 :   5c360:  jmp    5c376 <expanse_trie::mutate_map::map_remove::<false, false>+0x1a36>
+    0.00 :   5c362:  mov    $0x10,%edx
+    0.00 :   5c367:  mov    %r8,%rdi
+    0.00 :   5c36a:  mov    %rax,%rbx
+    0.00 :   5c36d:  call   *0x226c55(%rip)        # 282fc8 <_DYNAMIC+0x270>
+    0.00 :   5c373:  mov    %rbx,%rdi
+    0.00 :   5c376:  mov    0x10(%rsp),%rsi
+    0.00 :   5c37b:  mov    0x30(%rsp),%r9
+    0.00 :   5c380:  mov    0x28(%rsp),%r10
+    0.00 :   5c385:  mov    %r13d,%eax
+    0.00 :   5c388:  shr    $0x3,%eax
+    0.00 :   5c38b:  mov    $0xfffffffffffffffe,%rdx
+    0.00 :   5c392:  mov    %r13d,%ecx
+    0.00 :   5c395:  rol    %cl,%rdx
+    0.00 :   5c398:  and    $0x18,%eax
+    0.00 :   5c39b:  and    %rdx,(%r12,%rax,1)
+    0.00 :   5c39f:  lea    0x8(%rsi),%rax
+    0.00 :   5c3a3:  mov    0x8(%rsi),%rcx
+    0.00 :   5c3a7:  movzbl %cl,%edx
+    0.00 :   5c3aa:  cmp    $0x15,%rdx
+    0.00 :   5c3ae:  jae    5c3f8 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ab8>
+    0.00 :   5c3b0:  mov    (%rax),%ecx
+    0.00 :   5c3b2:  mov    0x3(%rax),%eax
+    0.00 :   5c3b5:  mov    %eax,0x83(%rsp)
+    0.00 :   5c3bc:  mov    %ecx,0x80(%rsp)
+    0.00 :   5c3c3:  cmp    $0x2,%r10b
+    0.00 :   5c3c7:  mov    %rdi,0x8(%rsp)
+    0.00 :   5c3cc:  mov    %r9,0x30(%rsp)
+    0.00 :   5c3d1:  mov    %r10,0x28(%rsp)
+    0.00 :   5c3d6:  jb     5c412 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ad2>
+    0.00 :   5c3d8:  movzbl %r10b,%edx
+    0.00 :   5c3dc:  mov    %rsi,%rbx
+    0.00 :   5c3df:  mov    %rsi,%rdi
+    0.00 :   5c3e2:  mov    $0x1,%esi
+    0.00 :   5c3e7:  call   *0x226dab(%rip)        # 283198 <_DYNAMIC+0x440>
+    0.00 :   5c3ed:  shl    $0x8,%rax
+    0.00 :   5c3f1:  mov    %rax,0x18(%rsp)
+    0.00 :   5c3f6:  jmp    5c41e <expanse_trie::mutate_map::map_remove::<false, false>+0x1ade>
+    0.00 :   5c3f8:  dec    %rdx
+    0.00 :   5c3fb:  and    $0xffffffffffffff00,%rcx
+    0.00 :   5c402:  or     %rdx,%rcx
+    0.00 :   5c405:  mov    %rcx,(%rax)
+    0.00 :   5c408:  mov    $0x1,%eax
+    0.00 :   5c40d:  jmp    5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5c412:  mov    %rsi,%rbx
+    0.00 :   5c415:  movq   $0x0,0x18(%rsp)
+    0.00 :   5c41e:  lea    0x90(%rsp),%rdi
+    0.00 :   5c426:  xor    %ebp,%ebp
+    0.00 :   5c428:  mov    $0x208,%edx
+    0.00 :   5c42d:  xor    %esi,%esi
+    0.00 :   5c42f:  call   *0x226bbb(%rip)        # 282ff0 <memset@GLIBC_2.2.5>
+    0.00 :   5c435:  mov    (%r12),%rax
+    0.00 :   5c439:  test   %rax,%rax
+    0.00 :   5c43c:  jne    5c469 <expanse_trie::mutate_map::map_remove::<false, false>+0x1b29>
+    0.00 :   5c43e:  mov    0x8(%r12),%rax
+    0.00 :   5c443:  mov    $0x40,%bpl
+    0.00 :   5c446:  test   %rax,%rax
+    0.00 :   5c449:  jne    5c469 <expanse_trie::mutate_map::map_remove::<false, false>+0x1b29>
+    0.00 :   5c44b:  mov    0x10(%r12),%rax
+    0.00 :   5c450:  mov    $0x80,%bpl
+    0.00 :   5c453:  test   %rax,%rax
+    0.00 :   5c456:  jne    5c469 <expanse_trie::mutate_map::map_remove::<false, false>+0x1b29>
+    0.00 :   5c458:  mov    0x18(%r12),%rax
+    0.00 :   5c45d:  mov    $0xc0,%bpl
+    0.00 :   5c460:  test   %rax,%rax
+    0.00 :   5c463:  je     5c5a2 <expanse_trie::mutate_map::map_remove::<false, false>+0x1c62>
+    0.00 :   5c469:  tzcnt  %rax,%rax
+    0.00 :   5c46e:  or     %bpl,%al
+    0.00 :   5c471:  mov    0x290(%rsp),%rdi
+    0.00 :   5c479:  xor    %edx,%edx
+    0.00 :   5c47b:  jmp    5c4a5 <expanse_trie::mutate_map::map_remove::<false, false>+0x1b65>
+    0.00 :   5c47d:  mov    0x20(%r12,%rsi,8),%r8
+    0.00 :   5c482:  or     $0x4,%rsi
+    0.00 :   5c486:  mov    %rsi,%rax
+    0.00 :   5c489:  mov    %eax,%edx
+    0.00 :   5c48b:  inc    %rdi
+    0.00 :   5c48e:  shl    $0x6,%dl
+    0.00 :   5c491:  tzcnt  %r8,%rax
+    0.00 :   5c496:  or     %dl,%al
+    0.00 :   5c498:  mov    %rdi,%rdx
+    0.00 :   5c49b:  cmp    $0x20,%rdi
+    0.00 :   5c49f:  jae    5d296 <expanse_trie::mutate_map::map_remove::<false, false>+0x2956>
+    0.00 :   5c4a5:  movzbl %al,%ecx
+    0.00 :   5c4a8:  mov    %ecx,%esi
+    0.00 :   5c4aa:  shr    $0x5,%sil
+    0.00 :   5c4ae:  mov    $0xffffffff,%r8d
+    0.00 :   5c4b4:  shl    %cl,%r8d
+    0.00 :   5c4b7:  not    %r8d
+    0.00 :   5c4ba:  movzbl %sil,%esi
+    0.00 :   5c4be:  and    (%r12,%rsi,4),%r8d
+    0.00 :   5c4c2:  mov    %r8d,%r9d
+    0.00 :   5c4c5:  shr    %r9d
+    0.00 :   5c4c8:  and    $0x15555555,%r9d
+    0.00 :   5c4cf:  sub    %r9d,%r8d
+    0.00 :   5c4d2:  mov    %r8d,%r9d
+    0.00 :   5c4d5:  and    $0x33333333,%r9d
+    0.00 :   5c4dc:  shr    $0x2,%r8d
+    0.00 :   5c4e0:  and    $0x33333333,%r8d
+    0.00 :   5c4e7:  add    %r9d,%r8d
+    0.00 :   5c4ea:  mov    %r8d,%r9d
+    0.00 :   5c4ed:  shr    $0x4,%r9d
+    0.00 :   5c4f1:  add    %r8d,%r9d
+    0.00 :   5c4f4:  and    $0xf0f0f0f,%r9d
+    0.00 :   5c4fb:  imul   $0x1010101,%r9d,%r8d
+    0.00 :   5c502:  mov    0x20(%r12,%rsi,8),%rsi
+    0.00 :   5c507:  shr    $0x18,%r8d
+    0.00 :   5c50b:  mov    (%rsi,%r8,8),%rsi
+    0.00 :   5c50f:  shl    $0x4,%rdx
+    0.00 :   5c513:  mov    %rcx,0x90(%rsp,%rdx,1)
+    0.00 :   5c51b:  mov    %rsi,0x98(%rsp,%rdx,1)
+    0.00 :   5c523:  cmp    $0xff,%cl
+    0.00 :   5c526:  je     5c597 <expanse_trie::mutate_map::map_remove::<false, false>+0x1c57>
+    0.00 :   5c528:  inc    %al
+    0.00 :   5c52a:  mov    %eax,%edx
+    0.00 :   5c52c:  shr    $0x6,%dl
+    0.00 :   5c52f:  movzbl %dl,%esi
+    0.00 :   5c532:  mov    (%r12,%rsi,8),%r8
+    0.00 :   5c536:  mov    %eax,%ecx
+    0.00 :   5c538:  shr    %cl,%r8
+    0.00 :   5c53b:  shl    %cl,%r8
+    0.00 :   5c53e:  test   %r8,%r8
+    0.00 :   5c541:  jne    5c48b <expanse_trie::mutate_map::map_remove::<false, false>+0x1b4b>
+    0.00 :   5c547:  lea    0x1(%rsi),%rax
+    0.00 :   5c54b:  cmp    $0x4,%rax
+    0.00 :   5c54f:  je     5c597 <expanse_trie::mutate_map::map_remove::<false, false>+0x1c57>
+    0.00 :   5c551:  mov    0x8(%r12,%rsi,8),%r8
+    0.00 :   5c556:  test   %r8,%r8
+    0.00 :   5c559:  jne    5c489 <expanse_trie::mutate_map::map_remove::<false, false>+0x1b49>
+    0.00 :   5c55f:  lea    0x2(%rsi),%rax
+    0.00 :   5c563:  cmp    $0x4,%rax
+    0.00 :   5c567:  je     5c597 <expanse_trie::mutate_map::map_remove::<false, false>+0x1c57>
+    0.00 :   5c569:  mov    0x10(%r12,%rsi,8),%r8
+    0.00 :   5c56e:  test   %r8,%r8
+    0.00 :   5c571:  jne    5c489 <expanse_trie::mutate_map::map_remove::<false, false>+0x1b49>
+    0.00 :   5c577:  lea    0x3(%rsi),%rax
+    0.00 :   5c57b:  cmp    $0x4,%rax
+    0.00 :   5c57f:  je     5c597 <expanse_trie::mutate_map::map_remove::<false, false>+0x1c57>
+    0.00 :   5c581:  mov    0x18(%r12,%rsi,8),%r8
+    0.00 :   5c586:  test   %r8,%r8
+    0.00 :   5c589:  jne    5c489 <expanse_trie::mutate_map::map_remove::<false, false>+0x1b49>
+    0.00 :   5c58f:  test   %dl,%dl
+    0.00 :   5c591:  jne    5c47d <expanse_trie::mutate_map::map_remove::<false, false>+0x1b3d>
+    0.00 :   5c597:  inc    %rdi
+    0.00 :   5c59a:  mov    %rdi,0x290(%rsp)
+    0.00 :   5c5a2:  movabs $0x7fffffff0,%r13
+    0.00 :   5c5ac:  lea    0x2a0(%rsp),%rdi
+    0.00 :   5c5b4:  lea    0x90(%rsp),%rsi
+    0.00 :   5c5bc:  mov    $0x208,%edx
+    0.00 :   5c5c1:  call   *0x226a41(%rip)        # 283008 <memcpy@GLIBC_2.14>
+    0.00 :   5c5c7:  mov    $0x4,%r15d
+    0.00 :   5c5cd:  lea    -0x46b87(%rip),%rdx        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5c5d4:  mov    0x8(%rsp),%rbp
+    0.00 :   5c5d9:  mov    0x28(%rsp),%r10
+    0.00 :   5c5de:  mov    %r12,0x20(%rsp)
+    0.00 :   5c5e3:  jmp    5c60e <expanse_trie::mutate_map::map_remove::<false, false>+0x1cce>
+    0.00 :   5c5e5:  mov    %rdx,%r12
+    0.00 :   5c5e8:  mov    $0x10,%edx
+    0.00 :   5c5ed:  mov    %r10,%r14
+    0.00 :   5c5f0:  call   *0x2269d2(%rip)        # 282fc8 <_DYNAMIC+0x270>
+    0.00 :   5c5f6:  mov    %r12,%rdx
+    0.00 :   5c5f9:  mov    0x20(%rsp),%r12
+    0.00 :   5c5fe:  mov    %r14,%r10
+    0.00 :   5c601:  inc    %r15
+    0.00 :   5c604:  cmp    $0xc,%r15
+    0.00 :   5c608:  je     5c6c5 <expanse_trie::mutate_map::map_remove::<false, false>+0x1d85>
+    0.00 :   5c60e:  mov    -0x10(%r12,%r15,4),%eax
+    0.00 :   5c613:  test   %eax,%eax
+    0.00 :   5c615:  je     5c601 <expanse_trie::mutate_map::map_remove::<false, false>+0x1cc1>
+    0.00 :   5c617:  mov    (%r12,%r15,8),%rdi
+    0.00 :   5c61b:  test   %rdi,%rdi
+    0.00 :   5c61e:  je     5cde5 <expanse_trie::mutate_map::map_remove::<false, false>+0x24a5>
+    0.00 :   5c624:  mov    %eax,%ecx
+    0.00 :   5c626:  shr    %ecx
+    0.00 :   5c628:  and    $0x55555555,%ecx
+    0.00 :   5c62e:  sub    %ecx,%eax
+    0.00 :   5c630:  mov    %eax,%ecx
+    0.00 :   5c632:  and    $0x33333333,%ecx
+    0.00 :   5c638:  shr    $0x2,%eax
+    0.00 :   5c63b:  and    $0x33333333,%eax
+    0.00 :   5c640:  add    %ecx,%eax
+    0.00 :   5c642:  mov    %eax,%ecx
+    0.00 :   5c644:  shr    $0x4,%ecx
+    0.00 :   5c647:  add    %eax,%ecx
+    0.00 :   5c649:  and    $0xf0f0f0f,%ecx
+    0.00 :   5c64f:  imul   $0x1010101,%ecx,%eax
+    0.00 :   5c655:  shr    $0x18,%eax
+    0.00 :   5c658:  cmp    $0x3,%eax
+    0.00 :   5c65b:  jb     5c67a <expanse_trie::mutate_map::map_remove::<false, false>+0x1d3a>
+    0.00 :   5c65d:  cmp    $0x11,%eax
+    0.00 :   5c660:  jae    5c66a <expanse_trie::mutate_map::map_remove::<false, false>+0x1d2a>
+    0.00 :   5c662:  add    $0x3,%eax
+    0.00 :   5c665:  and    $0x3c,%eax
+    0.00 :   5c668:  jmp    5c67a <expanse_trie::mutate_map::map_remove::<false, false>+0x1d3a>
+    0.00 :   5c66a:  xor    %ecx,%ecx
+    0.00 :   5c66c:  cmp    $0x19,%eax
+    0.00 :   5c66f:  setae  %cl
+    0.00 :   5c672:  lea    0x18(,%rcx,8),%rax
+    0.00 :   5c67a:  lea    0xf(,%rax,8),%ecx
+    0.00 :   5c681:  and    %r13d,%ecx
+    0.00 :   5c684:  lock sub %rcx,0x200(%rbp)
+    0.00 :   5c68c:  lock decq 0x208(%rbp)
+    0.00 :   5c694:  lea    0x0(,%rax,8),%esi
+    0.00 :   5c69b:  movzbl (%rsi,%rdx,1),%eax
+    0.00 :   5c69f:  cmp    $0xff,%rax
+    0.00 :   5c6a5:  je     5c5e5 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ca5>
+    0.00 :   5c6ab:  cmp    $0x3d,%al
+    0.00 :   5c6ad:  ja     5d2b0 <expanse_trie::mutate_map::map_remove::<false, false>+0x2970>
+    0.00 :   5c6b3:  mov    0x10(%rbp,%rax,8),%rcx
+    0.00 :   5c6b8:  mov    %rcx,(%rdi)
+    0.00 :   5c6bb:  mov    %rdi,0x10(%rbp,%rax,8)
+    0.00 :   5c6c0:  jmp    5c601 <expanse_trie::mutate_map::map_remove::<false, false>+0x1cc1>
+    0.00 :   5c6c5:  lock subq $0x80,0x200(%rbp)
+    0.00 :   5c6d1:  lock decq 0x208(%rbp)
+    0.00 :   5c6d9:  mov    0x28(%rbp),%rax
+    0.00 :   5c6dd:  mov    %rax,(%r12)
+    0.00 :   5c6e1:  mov    %r12,0x28(%rbp)
+    0.00 :   5c6e5:  test   %r10b,%r10b
+    0.00 :   5c6e8:  je     5d2c5 <expanse_trie::mutate_map::map_remove::<false, false>+0x2985>
+    0.00 :   5c6ee:  mov    0x4a0(%rsp),%r15
+    0.00 :   5c6f6:  mov    $0x7,%al
+    0.00 :   5c6f8:  movzbl %al,%eax
+    0.00 :   5c6fb:  div    %r10b
+    0.00 :   5c6fe:  movzbl %al,%eax
+    0.00 :   5c701:  cmp    %rax,%r15
+    0.00 :   5c704:  mov    %r10,%r13
+    0.00 :   5c707:  jae    5c788 <expanse_trie::mutate_map::map_remove::<false, false>+0x1e48>
+    0.00 :   5c709:  lea    0x90(%rsp),%rdi
+    0.00 :   5c711:  xor    %r14d,%r14d
+    0.00 :   5c714:  mov    $0x208,%edx
+    0.00 :   5c719:  xor    %esi,%esi
+    0.00 :   5c71b:  call   *0x2268cf(%rip)        # 282ff0 <memset@GLIBC_2.2.5>
+    0.00 :   5c721:  test   %r15,%r15
+    0.00 :   5c724:  je     5c767 <expanse_trie::mutate_map::map_remove::<false, false>+0x1e27>
+    0.00 :   5c726:  mov    0x2a0(%rsp),%rax
+    0.00 :   5c72e:  mov    0x18(%rsp),%r8
+    0.00 :   5c733:  or     %r8,%rax
+    0.00 :   5c736:  mov    0x2a8(%rsp),%rcx
+    0.00 :   5c73e:  mov    %rax,0x90(%rsp)
+    0.00 :   5c746:  mov    %rcx,0x98(%rsp)
+    0.00 :   5c74e:  mov    0x290(%rsp),%r14
+    0.00 :   5c756:  inc    %r14
+    0.00 :   5c759:  mov    %r14,0x290(%rsp)
+    0.00 :   5c761:  cmp    $0x1,%r15
+    0.00 :   5c765:  jne    5c7c2 <expanse_trie::mutate_map::map_remove::<false, false>+0x1e82>
+    0.00 :   5c767:  mov    %r13,%rdx
+    0.00 :   5c76a:  movzbl %dl,%edx
+    0.00 :   5c76d:  lea    0x90(%rsp),%rcx
+    0.00 :   5c775:  mov    %rbp,%rdi
+    0.00 :   5c778:  mov    %rbx,%rsi
+    0.00 :   5c77b:  mov    %r14,%r8
+    0.00 :   5c77e:  call   5e790 <expanse_trie::mutate_map::write_map_immed::<false>>
+    0.00 :   5c783:  jmp    5bd8f <expanse_trie::mutate_map::map_remove::<false, false>+0x144f>
+    0.00 :   5c788:  lea    0x2a0(%rsp),%rcx
+    0.00 :   5c790:  mov    %rbp,%rdi
+    0.00 :   5c793:  mov    %rbx,%rsi
+    0.00 :   5c796:  mov    $0x1,%edx
+    0.00 :   5c79b:  mov    %r15,%r8
+    0.00 :   5c79e:  call   5d3d0 <expanse_trie::mutate_map::build_map_leaf::<false>>
+    0.00 :   5c7a3:  movzbl %r13b,%edx
+    0.00 :   5c7a7:  lea    0x80(%rsp),%rcx
+    0.00 :   5c7af:  mov    %rbx,%rdi
+    0.00 :   5c7b2:  mov    $0x1,%esi
+    0.00 :   5c7b7:  call   *0x226a53(%rip)        # 283210 <_DYNAMIC+0x4b8>
+    0.00 :   5c7bd:  jmp    5bd8f <expanse_trie::mutate_map::map_remove::<false, false>+0x144f>
+    0.00 :   5c7c2:  cmp    $0x1f,%r14
+    0.00 :   5c7c6:  ja     5d378 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a38>
+    0.00 :   5c7cc:  mov    0x2b0(%rsp),%rax
+    0.00 :   5c7d4:  or     %r8,%rax
+    0.00 :   5c7d7:  mov    0x2b8(%rsp),%rcx
+    0.00 :   5c7df:  shl    $0x4,%r14
+    0.00 :   5c7e3:  mov    %rax,0x90(%rsp,%r14,1)
+    0.00 :   5c7eb:  mov    %rcx,0x98(%rsp,%r14,1)
+    0.00 :   5c7f3:  mov    0x290(%rsp),%r14
+    0.00 :   5c7fb:  inc    %r14
+    0.00 :   5c7fe:  mov    %r14,0x290(%rsp)
+    0.00 :   5c806:  cmp    $0x2,%r15
+    0.00 :   5c80a:  mov    %r13,%rdx
+    0.00 :   5c80d:  je     5c76a <expanse_trie::mutate_map::map_remove::<false, false>+0x1e2a>
+    0.00 :   5c813:  cmp    $0x1f,%r14
+    0.00 :   5c817:  ja     5d378 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a38>
+    0.00 :   5c81d:  mov    0x2c0(%rsp),%rax
+    0.00 :   5c825:  or     %r8,%rax
+    0.00 :   5c828:  mov    0x2c8(%rsp),%rcx
+    0.00 :   5c830:  shl    $0x4,%r14
+    0.00 :   5c834:  mov    %rax,0x90(%rsp,%r14,1)
+    0.00 :   5c83c:  mov    %rcx,0x98(%rsp,%r14,1)
+    0.00 :   5c844:  mov    0x290(%rsp),%r14
+    0.00 :   5c84c:  inc    %r14
+    0.00 :   5c84f:  mov    %r14,0x290(%rsp)
+    0.00 :   5c857:  cmp    $0x3,%r15
+    0.00 :   5c85b:  je     5c76a <expanse_trie::mutate_map::map_remove::<false, false>+0x1e2a>
+    0.00 :   5c861:  cmp    $0x1f,%r14
+    0.00 :   5c865:  ja     5d378 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a38>
+    0.00 :   5c86b:  mov    0x2d0(%rsp),%rax
+    0.00 :   5c873:  or     %r8,%rax
+    0.00 :   5c876:  mov    0x2d8(%rsp),%rcx
+    0.00 :   5c87e:  shl    $0x4,%r14
+    0.00 :   5c882:  mov    %rax,0x90(%rsp,%r14,1)
+    0.00 :   5c88a:  mov    %rcx,0x98(%rsp,%r14,1)
+    0.00 :   5c892:  mov    0x290(%rsp),%r14
+    0.00 :   5c89a:  inc    %r14
+    0.00 :   5c89d:  mov    %r14,0x290(%rsp)
+    0.00 :   5c8a5:  cmp    $0x4,%r15
+    0.00 :   5c8a9:  je     5c76a <expanse_trie::mutate_map::map_remove::<false, false>+0x1e2a>
+    0.00 :   5c8af:  cmp    $0x1f,%r14
+    0.00 :   5c8b3:  ja     5d378 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a38>
+    0.00 :   5c8b9:  mov    0x2e0(%rsp),%rax
+    0.00 :   5c8c1:  or     %r8,%rax
+    0.00 :   5c8c4:  mov    0x2e8(%rsp),%rcx
+    0.00 :   5c8cc:  shl    $0x4,%r14
+    0.00 :   5c8d0:  mov    %rax,0x90(%rsp,%r14,1)
+    0.00 :   5c8d8:  mov    %rcx,0x98(%rsp,%r14,1)
+    0.00 :   5c8e0:  mov    0x290(%rsp),%r14
+    0.00 :   5c8e8:  inc    %r14
+    0.00 :   5c8eb:  mov    %r14,0x290(%rsp)
+    0.00 :   5c8f3:  cmp    $0x5,%r15
+    0.00 :   5c8f7:  je     5c76a <expanse_trie::mutate_map::map_remove::<false, false>+0x1e2a>
+    0.00 :   5c8fd:  cmp    $0x1f,%r14
+    0.00 :   5c901:  ja     5d378 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a38>
+    0.00 :   5c907:  or     0x2f0(%rsp),%r8
+    0.00 :   5c90f:  mov    0x2f8(%rsp),%rax
+    0.00 :   5c917:  shl    $0x4,%r14
+    0.00 :   5c91b:  mov    %r8,0x90(%rsp,%r14,1)
+    0.00 :   5c923:  mov    %rax,0x98(%rsp,%r14,1)
+    0.00 :   5c92b:  mov    0x290(%rsp),%r14
+    0.00 :   5c933:  inc    %r14
+    0.00 :   5c936:  mov    %r14,0x290(%rsp)
+    0.00 :   5c93e:  jmp    5c76a <expanse_trie::mutate_map::map_remove::<false, false>+0x1e2a>
+    0.00 :   5c943:  mov    %r8,%rsi
+    0.00 :   5c946:  call   9ef80 <expanse_trie::mutate::downgrade_l7_to_l3::<false>>
+    0.00 :   5c94b:  mov    $0x1,%eax
+    0.00 :   5c950:  mov    %r15,%r9
+    0.00 :   5c953:  jmp    5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5c958:  mov    %rdx,%r14
+    0.00 :   5c95b:  call   *0x226697(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   5c961:  mov    $0x10,%esi
+    0.00 :   5c966:  mov    %r14,%rdi
+    0.00 :   5c969:  call   *0x2266a1(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   5c96f:  mov    %rax,%rbx
+    0.00 :   5c972:  test   %rax,%rax
+    0.00 :   5c975:  mov    0x40(%rsp),%rbp
+    0.00 :   5c97a:  jne    5ca24 <expanse_trie::mutate_map::map_remove::<false, false>+0x20e4>
+    0.00 :   5c980:  mov    $0x10,%edi
+    0.00 :   5c985:  mov    %r14,%rsi
+    0.00 :   5c988:  call   *0x226692(%rip)        # 283020 <_DYNAMIC+0x2c8>
+    0.00 :   5c98e:  mov    %rdx,0x48(%rsp)
+    0.00 :   5c993:  call   *0x22665f(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   5c999:  mov    $0x1000,%edi
+    0.00 :   5c99e:  mov    $0x40,%esi
+    0.00 :   5c9a3:  call   *0x226667(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   5c9a9:  test   %rax,%rax
+    0.00 :   5c9ac:  je     5d1df <expanse_trie::mutate_map::map_remove::<false, false>+0x289f>
+    0.00 :   5c9b2:  mov    %rax,%rbx
+    0.00 :   5c9b5:  mov    0x8(%rsp),%rdi
+    0.00 :   5c9ba:  mov    0x220(%rdi),%rax
+    0.00 :   5c9c1:  mov    %rax,(%rbx)
+    0.00 :   5c9c4:  mov    %r14,0x8(%rbx)
+    0.00 :   5c9c8:  mov    %rbx,0x220(%rdi)
+    0.00 :   5c9cf:  test   %rbp,%rbp
+    0.00 :   5c9d2:  je     5d356 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a16>
+    0.00 :   5c9d8:  mov    $0xfc0,%ax
+    0.00 :   5c9dc:  xor    %edx,%edx
+    0.00 :   5c9de:  div    %bp
+    0.00 :   5c9e1:  movzwl %ax,%eax
+    0.00 :   5c9e4:  mov    0x48(%rsp),%rdx
+    0.00 :   5c9e9:  dec    %rax
+    0.00 :   5c9ec:  mov    %rax,%rcx
+    0.00 :   5c9ef:  imul   %rbp,%rcx
+    0.00 :   5c9f3:  lea    (%rbx,%rcx,1),%r8
+    0.00 :   5c9f7:  add    $0x40,%r8
+    0.00 :   5c9fb:  mov    0x10(%rdi,%r14,8),%rsi
+    0.00 :   5ca00:  mov    %rsi,0x40(%rbx,%rcx,1)
+    0.00 :   5ca05:  mov    %r8,0x10(%rdi,%r14,8)
+    0.00 :   5ca0a:  cmp    $0x1,%rax
+    0.00 :   5ca0e:  ja     5c9e9 <expanse_trie::mutate_map::map_remove::<false, false>+0x20a9>
+    0.00 :   5ca10:  add    $0x40,%rbx
+    0.00 :   5ca14:  mov    %rbx,%rdi
+    0.00 :   5ca17:  xor    %esi,%esi
+    0.00 :   5ca19:  call   *0x2265d1(%rip)        # 282ff0 <memset@GLIBC_2.2.5>
+    0.00 :   5ca1f:  mov    0x40(%rsp),%rbp
+    0.00 :   5ca24:  test   %r13,%r13
+    0.00 :   5ca27:  je     5ca3f <expanse_trie::mutate_map::map_remove::<false, false>+0x20ff>
+    0.00 :   5ca29:  lea    0x0(,%r13,8),%rdx
+    0.00 :   5ca31:  mov    %rbx,%rdi
+    0.00 :   5ca34:  mov    0x28(%rsp),%rsi
+    0.00 :   5ca39:  call   *0x2265c9(%rip)        # 283008 <memcpy@GLIBC_2.14>
+    0.00 :   5ca3f:  lea    0x1(%r13),%r14
+    0.00 :   5ca43:  cmp    %r12,%r14
+    0.00 :   5ca46:  jae    5ca67 <expanse_trie::mutate_map::map_remove::<false, false>+0x2127>
+    0.00 :   5ca48:  mov    0x28(%rsp),%rax
+    0.00 :   5ca4d:  lea    (%rax,%r14,8),%rsi
+    0.00 :   5ca51:  lea    (%rbx,%r13,8),%rdi
+    0.00 :   5ca55:  lea    -0x1(%r12),%rdx
+    0.00 :   5ca5a:  sub    %r13,%rdx
+    0.00 :   5ca5d:  shl    $0x3,%rdx
+    0.00 :   5ca61:  call   *0x2265a1(%rip)        # 283008 <memcpy@GLIBC_2.14>
+    0.00 :   5ca67:  mov    0x0(%rbp),%eax
+    0.00 :   5ca6a:  mov    0x3(%rbp),%ecx
+    0.00 :   5ca6d:  mov    %ecx,0x6b(%rsp)
+    0.00 :   5ca71:  mov    %eax,0x68(%rsp)
+    0.00 :   5ca75:  mov    %r12,%rsi
+    0.00 :   5ca78:  imul   %r15,%rsi
+    0.00 :   5ca7c:  cmp    $0x8,%rsi
+    0.00 :   5ca80:  jae    5d1b8 <expanse_trie::mutate_map::map_remove::<false, false>+0x2878>
+    0.00 :   5ca86:  imul   %r15,%r14
+    0.00 :   5ca8a:  mov    %rsi,%rdx
+    0.00 :   5ca8d:  sub    %r14,%rdx
+    0.00 :   5ca90:  jb     5d201 <expanse_trie::mutate_map::map_remove::<false, false>+0x28c1>
+    0.00 :   5ca96:  imul   %r15,%r13
+    0.00 :   5ca9a:  mov    $0x7,%eax
+    0.00 :   5ca9f:  sub    %rdx,%rax
+    0.00 :   5caa2:  cmp    %rax,%r13
+    0.00 :   5caa5:  ja     5d22f <expanse_trie::mutate_map::map_remove::<false, false>+0x28ef>
+    0.00 :   5caab:  lea    (%rsp,%r14,1),%rsi
+    0.00 :   5caaf:  add    $0x68,%rsi
+    0.00 :   5cab3:  lea    (%rsp,%r13,1),%rdi
+    0.00 :   5cab7:  add    $0x68,%rdi
+    0.00 :   5cabb:  call   *0x226557(%rip)        # 283018 <memmove@GLIBC_2.2.5>
+    0.00 :   5cac1:  lea    -0x1(%r12),%r14
+    0.00 :   5cac6:  mov    %r14,%rdi
+    0.00 :   5cac9:  imul   %r15,%rdi
+    0.00 :   5cacd:  cmp    $0x7,%rdi
+    0.00 :   5cad1:  ja     5d25f <expanse_trie::mutate_map::map_remove::<false, false>+0x291f>
+    0.00 :   5cad7:  mov    $0x7,%edx
+    0.00 :   5cadc:  sub    %rdi,%rdx
+    0.00 :   5cadf:  add    %rsp,%rdi
+    0.00 :   5cae2:  add    $0x68,%rdi
+    0.00 :   5cae6:  xor    %esi,%esi
+    0.00 :   5cae8:  call   *0x226502(%rip)        # 282ff0 <memset@GLIBC_2.2.5>
+    0.00 :   5caee:  mov    0x18(%rsp),%edi
+    0.00 :   5caf2:  test   %dil,%dil
+    0.00 :   5caf5:  setns  %cl
+    0.00 :   5caf8:  test   %r14,%r14
+    0.00 :   5cafb:  setne  %dl
+    0.00 :   5cafe:  imul   %r14d,%r15d
+    0.00 :   5cb02:  cmp    $0x10,%r15d
+    0.00 :   5cb06:  setb   %al
+    0.00 :   5cb09:  test   %dl,%cl
+    0.00 :   5cb0b:  je     5d198 <expanse_trie::mutate_map::map_remove::<false, false>+0x2858>
+    0.00 :   5cb11:  test   %al,%al
+    0.00 :   5cb13:  mov    0x20(%rsp),%rax
+    0.00 :   5cb18:  mov    0x10(%rsp),%rsi
+    0.00 :   5cb1d:  mov    0x8(%rsp),%r8
+    0.00 :   5cb22:  je     5d19f <expanse_trie::mutate_map::map_remove::<false, false>+0x285f>
+    0.00 :   5cb28:  and    $0x70,%dil
+    0.00 :   5cb2c:  dec    %r14b
+    0.00 :   5cb2f:  or     %dil,%r14b
+    0.00 :   5cb32:  lea    0x3(%r12),%ecx
+    0.00 :   5cb37:  and    $0xfffffffc,%ecx
+    0.00 :   5cb3a:  cmp    $0x2,%al
+    0.00 :   5cb3c:  mov    %rbx,(%rsi)
+    0.00 :   5cb3f:  mov    0x68(%rsp),%eax
+    0.00 :   5cb43:  mov    0x6b(%rsp),%edx
+    0.00 :   5cb47:  mov    %edx,0x3(%rbp)
+    0.00 :   5cb4a:  mov    %eax,0x0(%rbp)
+    0.00 :   5cb4d:  mov    %r14b,0xf(%rsi)
+    0.00 :   5cb51:  cmovb  %r12d,%ecx
+    0.00 :   5cb55:  lea    0xf(,%rcx,8),%eax
+    0.00 :   5cb5c:  and    $0xfffffff0,%eax
+    0.00 :   5cb5f:  lock sub %rax,0x200(%r8)
+    0.00 :   5cb67:  lock decq 0x208(%r8)
+    0.00 :   5cb6f:  lea    0x0(,%rcx,8),%esi
+    0.00 :   5cb76:  lea    -0x47130(%rip),%rax        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5cb7d:  movzbl (%rsi,%rax,1),%edi
+    0.00 :   5cb81:  cmp    $0xff,%rdi
+    0.00 :   5cb88:  je     5cbab <expanse_trie::mutate_map::map_remove::<false, false>+0x226b>
+    0.00 :   5cb8a:  cmp    $0x3e,%dil
+    0.00 :   5cb8e:  jae    5d302 <expanse_trie::mutate_map::map_remove::<false, false>+0x29c2>
+    0.00 :   5cb94:  mov    0x10(%r8,%rdi,8),%rax
+    0.00 :   5cb99:  mov    0x28(%rsp),%rcx
+    0.00 :   5cb9e:  mov    %rax,(%rcx)
+    0.00 :   5cba1:  mov    %rcx,0x10(%r8,%rdi,8)
+    0.00 :   5cba6:  jmp    5bd8f <expanse_trie::mutate_map::map_remove::<false, false>+0x144f>
+    0.00 :   5cbab:  mov    $0x10,%edx
+    0.00 :   5cbb0:  mov    0x28(%rsp),%rdi
+    0.00 :   5cbb5:  jmp    5bd89 <expanse_trie::mutate_map::map_remove::<false, false>+0x1449>
+    0.00 :   5cbba:  mov    $0x18,%eax
+    0.00 :   5cbbf:  cmp    $0x19,%edx
+    0.00 :   5cbc2:  jb     5cbd5 <expanse_trie::mutate_map::map_remove::<false, false>+0x2295>
+    0.00 :   5cbc4:  mov    $0x20,%eax
+    0.00 :   5cbc9:  cmp    $0x21,%edx
+    0.00 :   5cbcc:  jb     5cbd5 <expanse_trie::mutate_map::map_remove::<false, false>+0x2295>
+    0.00 :   5cbce:  lea    0x2(%r13),%eax
+    0.00 :   5cbd2:  and    $0xfffffffc,%eax
+    0.00 :   5cbd5:  mov    %r13,%rcx
+    0.00 :   5cbd8:  cmp    $0x3,%r13w
+    0.00 :   5cbdd:  jb     5cc0e <expanse_trie::mutate_map::map_remove::<false, false>+0x22ce>
+    0.00 :   5cbdf:  cmp    $0x11,%r13w
+    0.00 :   5cbe4:  jae    5cbef <expanse_trie::mutate_map::map_remove::<false, false>+0x22af>
+    0.00 :   5cbe6:  lea    0x3(%r13),%ecx
+    0.00 :   5cbea:  and    $0x3c,%ecx
+    0.00 :   5cbed:  jmp    5cc0e <expanse_trie::mutate_map::map_remove::<false, false>+0x22ce>
+    0.00 :   5cbef:  mov    $0x18,%ecx
+    0.00 :   5cbf4:  cmp    $0x19,%r13w
+    0.00 :   5cbf9:  jb     5cc0e <expanse_trie::mutate_map::map_remove::<false, false>+0x22ce>
+    0.00 :   5cbfb:  mov    $0x20,%ecx
+    0.00 :   5cc00:  cmp    $0x21,%r13w
+    0.00 :   5cc05:  jb     5cc0e <expanse_trie::mutate_map::map_remove::<false, false>+0x22ce>
+    0.00 :   5cc07:  lea    0x3(%r13),%ecx
+    0.00 :   5cc0b:  and    $0xfffffffc,%ecx
+    0.00 :   5cc0e:  add    %r10,%rdi
+    0.00 :   5cc11:  cmp    %ecx,%eax
+    0.00 :   5cc13:  jne    5cc3b <expanse_trie::mutate_map::map_remove::<false, false>+0x22fb>
+    0.00 :   5cc15:  lea    0x10(%rdi),%rsi
+    0.00 :   5cc19:  sub    %r15,%rdx
+    0.00 :   5cc1c:  shl    $0x4,%rdx
+    0.00 :   5cc20:  mov    %r9,%r15
+    0.00 :   5cc23:  call   *0x2263ef(%rip)        # 283018 <memmove@GLIBC_2.2.5>
+    0.00 :   5cc29:  mov    %r15,%r9
+    0.00 :   5cc2c:  mov    0x8(%rsp),%r8
+    0.00 :   5cc31:  mov    0x10(%rsp),%rsi
+    0.00 :   5cc36:  jmp    5cf8c <expanse_trie::mutate_map::map_remove::<false, false>+0x264c>
+    0.00 :   5cc3b:  mov    %rdx,%rcx
+    0.00 :   5cc3e:  cmp    $0x3,%edx
+    0.00 :   5cc41:  mov    %r9,0x30(%rsp)
+    0.00 :   5cc46:  mov    %r13,0x18(%rsp)
+    0.00 :   5cc4b:  mov    %r10,0x20(%rsp)
+    0.00 :   5cc50:  mov    %rdi,0x40(%rsp)
+    0.00 :   5cc55:  mov    %rdx,0x48(%rsp)
+    0.00 :   5cc5a:  jb     5cc6c <expanse_trie::mutate_map::map_remove::<false, false>+0x232c>
+    0.00 :   5cc5c:  cmp    $0x11,%edx
+    0.00 :   5cc5f:  jae    5cceb <expanse_trie::mutate_map::map_remove::<false, false>+0x23ab>
+    0.00 :   5cc65:  lea    0x2(%r13),%ecx
+    0.00 :   5cc69:  and    $0x3c,%ecx
+    0.00 :   5cc6c:  mov    %rcx,%r11
+    0.00 :   5cc6f:  shl    $0x4,%r11
+   16.22 :   5cc73:  lock add %r11,0x200(%rsi)
+    0.00 :   5cc7b:  lea    0x200(%rsi),%rax
+    0.00 :   5cc82:  mov    %rax,0x58(%rsp)
+   16.01 :   5cc87:  lock incq 0x208(%rsi)
+    0.00 :   5cc8f:  lea    0x208(%rsi),%r8
+   16.06 :   5cc96:  lock incq 0x218(%rsi)
+    0.00 :   5cc9e:  lea    -0x47258(%rip),%rax        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5cca5:  movzbl (%r11,%rax,1),%r13d
+    0.00 :   5ccaa:  cmp    $0xff,%r13
+    0.00 :   5ccb1:  mov    %r8,0x50(%rsp)
+    0.00 :   5ccb6:  je     5cce1 <expanse_trie::mutate_map::map_remove::<false, false>+0x23a1>
+    0.00 :   5ccb8:  mov    %rcx,0x70(%rsp)
+    0.00 :   5ccbd:  cmp    $0x3d,%r13b
+    0.00 :   5ccc1:  ja     5d3b9 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a79>
+    0.00 :   5ccc7:  mov    0x10(%rsi,%r13,8),%rcx
+    0.00 :   5cccc:  test   %rcx,%rcx
+    0.00 :   5cccf:  je     5cd3d <expanse_trie::mutate_map::map_remove::<false, false>+0x23fd>
+    0.00 :   5ccd1:  mov    (%rcx),%rax
+    0.00 :   5ccd4:  mov    %rax,0x10(%rsi,%r13,8)
+    0.00 :   5ccd9:  mov    %rcx,%rdi
+    0.00 :   5ccdc:  jmp    5cdcf <expanse_trie::mutate_map::map_remove::<false, false>+0x248f>
+    0.00 :   5cce1:  mov    %r11,0x28(%rsp)
+    0.00 :   5cce6:  jmp    5ce67 <expanse_trie::mutate_map::map_remove::<false, false>+0x2527>
+    0.00 :   5cceb:  mov    $0x180,%eax
+    0.00 :   5ccf0:  cmp    $0x19,%edx
+    0.00 :   5ccf3:  jb     5cd03 <expanse_trie::mutate_map::map_remove::<false, false>+0x23c3>
+    0.00 :   5ccf5:  mov    $0x200,%eax
+    0.00 :   5ccfa:  cmp    $0x21,%edx
+    0.00 :   5ccfd:  jae    5cdfe <expanse_trie::mutate_map::map_remove::<false, false>+0x24be>
+    0.00 :   5cd03:  mov    %rax,0x28(%rsp)
+    3.09 :   5cd08:  lock add %rax,0x200(%rsi)
+    0.00 :   5cd10:  lea    0x200(%rsi),%rax
+    0.00 :   5cd17:  mov    %rax,0x58(%rsp)
+    2.93 :   5cd1c:  lock incq 0x208(%rsi)
+    0.00 :   5cd24:  lea    0x208(%rsi),%rax
+    0.00 :   5cd2b:  mov    %rax,0x50(%rsp)
+    2.87 :   5cd30:  lock incq 0x218(%rsi)
+    0.00 :   5cd38:  jmp    5ce67 <expanse_trie::mutate_map::map_remove::<false, false>+0x2527>
+    0.00 :   5cd3d:  cmpl   $0x11,0x70(%rsp)
+    0.00 :   5cd42:  mov    %r11,0x28(%rsp)
+    0.00 :   5cd47:  jae    5ce67 <expanse_trie::mutate_map::map_remove::<false, false>+0x2527>
+    0.00 :   5cd4d:  call   *0x2262a5(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   5cd53:  mov    $0x1000,%edi
+    0.00 :   5cd58:  mov    $0x40,%esi
+    0.00 :   5cd5d:  call   *0x2262ad(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   5cd63:  test   %rax,%rax
+    0.00 :   5cd66:  je     5d1df <expanse_trie::mutate_map::map_remove::<false, false>+0x289f>
+    0.00 :   5cd6c:  mov    %rax,%rdi
+    0.00 :   5cd6f:  mov    0x8(%rsp),%r8
+    0.00 :   5cd74:  mov    0x220(%r8),%rax
+    0.00 :   5cd7b:  mov    %rax,(%rdi)
+    0.00 :   5cd7e:  mov    %r13,0x8(%rdi)
+    0.00 :   5cd82:  mov    %rdi,0x220(%r8)
+    0.00 :   5cd89:  cmpq   $0x0,0x70(%rsp)
+    0.00 :   5cd8f:  mov    0x28(%rsp),%r11
+    0.00 :   5cd94:  je     5d356 <expanse_trie::mutate_map::map_remove::<false, false>+0x2a16>
+    0.00 :   5cd9a:  mov    $0xfc0,%eax
+    0.00 :   5cd9f:  xor    %edx,%edx
+    0.00 :   5cda1:  div    %r11d
+    0.00 :   5cda4:  dec    %rax
+    0.00 :   5cda7:  mov    %rax,%rcx
+    0.00 :   5cdaa:  imul   %r11,%rcx
+    0.00 :   5cdae:  lea    (%rdi,%rcx,1),%rdx
+    0.00 :   5cdb2:  add    $0x40,%rdx
+    0.00 :   5cdb6:  mov    0x10(%r8,%r13,8),%rsi
+    0.00 :   5cdbb:  mov    %rsi,0x40(%rdi,%rcx,1)
+    0.00 :   5cdc0:  mov    %rdx,0x10(%r8,%r13,8)
+    0.00 :   5cdc5:  cmp    $0x1,%rax
+    0.00 :   5cdc9:  ja     5cda4 <expanse_trie::mutate_map::map_remove::<false, false>+0x2464>
+    0.00 :   5cdcb:  add    $0x40,%rdi
+    0.00 :   5cdcf:  xor    %esi,%esi
+    0.00 :   5cdd1:  mov    %r11,%rdx
+    0.00 :   5cdd4:  mov    %rdi,%r13
+    0.00 :   5cdd7:  call   *0x226213(%rip)        # 282ff0 <memset@GLIBC_2.2.5>
+    0.00 :   5cddd:  mov    %r13,%rdi
+    0.00 :   5cde0:  jmp    5ce8c <expanse_trie::mutate_map::map_remove::<false, false>+0x254c>
+    0.00 :   5cde5:  lea    -0x4751c(%rip),%rdi        # 158d0 <std::thread::current::id::ID+0x157f0>
+    0.00 :   5cdec:  lea    0x22077d(%rip),%rdx        # 27d570 <__frame_dummy_init_array_entry+0x2a8>
+    0.00 :   5cdf3:  mov    $0x6,%esi
+    0.00 :   5cdf8:  call   *0x22627a(%rip)        # 283078 <_DYNAMIC+0x320>
+    0.00 :   5cdfe:  lea    0x2(%r13),%ecx
+    0.00 :   5ce02:  and    $0xfffffffc,%ecx
+    0.00 :   5ce05:  mov    %ecx,%eax
+    0.00 :   5ce07:  shl    $0x4,%eax
+    0.00 :   5ce0a:  lea    0x200(%rsi),%r8
+    0.00 :   5ce11:  mov    %r8,0x58(%rsp)
+    0.00 :   5ce16:  mov    %rax,0x28(%rsp)
+    0.00 :   5ce1b:  lock add %rax,0x200(%rsi)
+    0.00 :   5ce23:  lea    0x208(%rsi),%r8
+    0.00 :   5ce2a:  lock incq 0x208(%rsi)
+    0.00 :   5ce32:  lock incq 0x218(%rsi)
+    0.00 :   5ce3a:  cmp    $0x15,%r13w
+    0.00 :   5ce3f:  ja     5ce62 <expanse_trie::mutate_map::map_remove::<false, false>+0x2522>
+    0.00 :   5ce41:  mov    0x28(%rsp),%r11
+    0.00 :   5ce46:  jmp    5cc9e <expanse_trie::mutate_map::map_remove::<false, false>+0x235e>
+    0.00 :   5ce4b:  lea    0x2206be(%rip),%rcx        # 27d510 <__frame_dummy_init_array_entry+0x248>
+    0.00 :   5ce52:  mov    $0x8,%edx
+    0.00 :   5ce57:  xor    %edi,%edi
+    0.00 :   5ce59:  mov    %r15,%rsi
+    0.00 :   5ce5c:  call   *0x22626e(%rip)        # 2830d0 <_DYNAMIC+0x378>
+    0.00 :   5ce62:  mov    %r8,0x50(%rsp)
+    0.00 :   5ce67:  call   *0x22618b(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   5ce6d:  mov    $0x10,%esi
+    0.00 :   5ce72:  mov    0x28(%rsp),%r13
+    0.00 :   5ce77:  mov    %r13,%rdi
+    0.00 :   5ce7a:  call   *0x226190(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   5ce80:  mov    %rax,%rdi
+    0.00 :   5ce83:  test   %rax,%rax
+    0.00 :   5ce86:  je     5d276 <expanse_trie::mutate_map::map_remove::<false, false>+0x2936>
+    0.00 :   5ce8c:  mov    %rdi,0x28(%rsp)
+    0.00 :   5ce91:  mov    %r15d,%r13d
+    0.00 :   5ce94:  shl    $0x4,%r13d
+    0.00 :   5ce98:  mov    0x20(%rsp),%rsi
+    0.00 :   5ce9d:  mov    %r13,%rdx
+    0.00 :   5cea0:  call   *0x226162(%rip)        # 283008 <memcpy@GLIBC_2.14>
+    0.00 :   5cea6:  add    0x28(%rsp),%r13
+    0.00 :   5ceab:  mov    0x40(%rsp),%rsi
+    0.00 :   5ceb0:  add    $0x10,%rsi
+    0.00 :   5ceb4:  mov    0x48(%rsp),%rdx
+    0.00 :   5ceb9:  sub    %r15,%rdx
+    0.00 :   5cebc:  shl    $0x4,%rdx
+    0.00 :   5cec0:  mov    %r13,%rdi
+    0.00 :   5cec3:  call   *0x22613f(%rip)        # 283008 <memcpy@GLIBC_2.14>
+    0.00 :   5cec9:  mov    0x28(%rsp),%rax
+    0.00 :   5cece:  mov    %rax,0x20(%r14,%rbx,8)
+    0.00 :   5ced3:  mov    0x18(%rsp),%r13
+    0.00 :   5ced8:  mov    %r13,%rsi
+    0.00 :   5cedb:  cmp    $0x3,%r13w
+    0.00 :   5cee0:  mov    0x58(%rsp),%rax
+    0.00 :   5cee5:  mov    0x50(%rsp),%rcx
+    0.00 :   5ceea:  jb     5cefa <expanse_trie::mutate_map::map_remove::<false, false>+0x25ba>
+    0.00 :   5ceec:  cmp    $0x11,%r13w
+    0.00 :   5cef1:  jae    5cf41 <expanse_trie::mutate_map::map_remove::<false, false>+0x2601>
+    0.00 :   5cef3:  lea    0x3(%r13),%esi
+    0.00 :   5cef7:  and    $0x3c,%esi
+    0.00 :   5cefa:  shl    $0x4,%esi
+   13.17 :   5cefd:  lock sub %rsi,(%rax)
+   13.06 :   5cf01:  lock decq (%rcx)
+    0.00 :   5cf05:  lea    -0x474bf(%rip),%rax        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   5cf0c:  movzbl (%rsi,%rax,1),%edi
+    0.00 :   5cf10:  cmp    $0xff,%rdi
+    0.00 :   5cf17:  je     5cf6d <expanse_trie::mutate_map::map_remove::<false, false>+0x262d>
+    0.00 :   5cf19:  cmp    $0x3e,%dil
+    0.00 :   5cf1d:  mov    0x8(%rsp),%r8
+    0.00 :   5cf22:  jae    5d302 <expanse_trie::mutate_map::map_remove::<false, false>+0x29c2>
+    0.00 :   5cf28:  mov    0x10(%r8,%rdi,8),%rax
+    0.00 :   5cf2d:  mov    0x20(%rsp),%rcx
+    0.00 :   5cf32:  mov    %rax,(%rcx)
+    0.00 :   5cf35:  mov    %rcx,0x10(%r8,%rdi,8)
+    0.00 :   5cf3a:  mov    0x10(%rsp),%rsi
+    0.00 :   5cf3f:  jmp    5cf87 <expanse_trie::mutate_map::map_remove::<false, false>+0x2647>
+    0.00 :   5cf41:  mov    $0x180,%esi
+    0.00 :   5cf46:  cmp    $0x19,%r13w
+    0.00 :   5cf4b:  jb     5cf65 <expanse_trie::mutate_map::map_remove::<false, false>+0x2625>
+    0.00 :   5cf4d:  mov    $0x200,%esi
+    0.00 :   5cf52:  cmp    $0x21,%r13w
+    0.00 :   5cf57:  jb     5cf65 <expanse_trie::mutate_map::map_remove::<false, false>+0x2625>
+    0.00 :   5cf59:  mov    %r13d,%esi
+    0.00 :   5cf5c:  shl    $0x4,%esi
+    0.00 :   5cf5f:  add    $0x30,%esi
+    0.00 :   5cf62:  and    $0xffffffc0,%esi
+    5.96 :   5cf65:  lock sub %rsi,(%rax)
+    5.94 :   5cf69:  lock decq (%rcx)
+    0.00 :   5cf6d:  mov    $0x10,%edx
+    0.00 :   5cf72:  mov    0x20(%rsp),%rdi
+    0.00 :   5cf77:  call   *0x22604b(%rip)        # 282fc8 <_DYNAMIC+0x270>
+    0.00 :   5cf7d:  mov    0x10(%rsp),%rsi
+    0.00 :   5cf82:  mov    0x8(%rsp),%r8
+    0.00 :   5cf87:  mov    0x30(%rsp),%r9
+    0.00 :   5cf8c:  dec    %r13d
+    0.00 :   5cf8f:  mov    %r13w,0x60(%r14,%rbx,2)
+    0.00 :   5cf95:  mov    %ebp,%eax
+    0.00 :   5cf97:  shr    $0x3,%eax
+    0.00 :   5cf9a:  mov    $0xfffffffffffffffe,%rdx
+    0.00 :   5cfa1:  mov    %ebp,%ecx
+    0.00 :   5cfa3:  rol    %cl,%rdx
+    0.00 :   5cfa6:  and    $0x18,%eax
+    0.00 :   5cfa9:  and    %rdx,(%r14,%rax,1)
+    0.00 :   5cfad:  movdqu (%r14),%xmm0
+    0.00 :   5cfb2:  movdqu 0x10(%r14),%xmm1
+    0.00 :   5cfb8:  movdqa %xmm1,%xmm2
+    0.00 :   5cfbc:  psrlw  $0x1,%xmm2
+    0.00 :   5cfc1:  movdqa -0x4e289(%rip),%xmm3        # ed40 <std::thread::current::id::ID+0xec60>
+    0.00 :   5cfc9:  pand   %xmm3,%xmm2
+    0.00 :   5cfcd:  psubb  %xmm2,%xmm1
+    0.00 :   5cfd1:  movdqa -0x4e1a9(%rip),%xmm2        # ee30 <std::thread::current::id::ID+0xed50>
+    0.00 :   5cfd9:  movdqa %xmm1,%xmm4
+    0.00 :   5cfdd:  pand   %xmm2,%xmm4
+    0.00 :   5cfe1:  psrlw  $0x2,%xmm1
+    0.00 :   5cfe6:  pand   %xmm2,%xmm1
+    0.00 :   5cfea:  paddb  %xmm4,%xmm1
+    0.00 :   5cfee:  movdqa %xmm1,%xmm4
+    0.00 :   5cff2:  psrlw  $0x4,%xmm4
+    0.00 :   5cff7:  paddb  %xmm1,%xmm4
+    0.00 :   5cffb:  movdqa -0x4e2f3(%rip),%xmm1        # ed10 <std::thread::current::id::ID+0xec30>
+    0.00 :   5d003:  pand   %xmm1,%xmm4
+    0.00 :   5d007:  movdqa %xmm0,%xmm5
+    0.00 :   5d00b:  psrlw  $0x1,%xmm5
+    0.00 :   5d010:  pand   %xmm3,%xmm5
+    0.00 :   5d014:  psubb  %xmm5,%xmm0
+    0.00 :   5d018:  movdqa %xmm0,%xmm3
+    0.00 :   5d01c:  pand   %xmm2,%xmm3
+    0.00 :   5d020:  psrlw  $0x2,%xmm0
+    0.00 :   5d025:  pand   %xmm2,%xmm0
+    0.00 :   5d029:  paddb  %xmm3,%xmm0
+    0.00 :   5d02d:  movdqa %xmm0,%xmm2
+    0.00 :   5d031:  psrlw  $0x4,%xmm2
+    0.00 :   5d036:  paddb  %xmm0,%xmm2
+    0.00 :   5d03a:  pand   %xmm1,%xmm2
+    0.00 :   5d03e:  paddb  %xmm4,%xmm2
+    0.00 :   5d042:  pxor   %xmm0,%xmm0
+    0.00 :   5d046:  psadbw %xmm0,%xmm2
+    0.00 :   5d04a:  pshufd $0xee,%xmm2,%xmm1
+    0.00 :   5d04f:  paddq  %xmm2,%xmm1
+    0.00 :   5d053:  movq   %xmm1,%rcx
+    0.00 :   5d058:  test   %rcx,%rcx
+    0.00 :   5d05b:  je     5d0a9 <expanse_trie::mutate_map::map_remove::<false, false>+0x2769>
+    0.00 :   5d05d:  cmp    $0x7,%r12b
+    0.00 :   5d061:  ja     5d088 <expanse_trie::mutate_map::map_remove::<false, false>+0x2748>
+    0.00 :   5d063:  mov    0x8(%rsi),%rax
+    0.00 :   5d067:  lea    -0x477de(%rip),%rdx        # 15890 <std::thread::current::id::ID+0x157b0>
+    0.00 :   5d06e:  mov    (%rdx,%r12,8),%rdx
+    0.00 :   5d072:  mov    %rdx,%rdi
+    0.00 :   5d075:  and    %rax,%rdi
+    0.00 :   5d078:  dec    %rdi
+    0.00 :   5d07b:  xor    %rax,%rdi
+    0.00 :   5d07e:  and    %rdx,%rdi
+    0.00 :   5d081:  xor    %rax,%rdi
+    0.00 :   5d084:  mov    %rdi,0x8(%rsi)
+    0.00 :   5d088:  mov    $0x1,%eax
+    0.00 :   5d08d:  cmp    $0x6,%ecx
+    0.00 :   5d090:  ja     5ad03 <expanse_trie::mutate_map::map_remove::<false, false>+0x3c3>
+    0.00 :   5d096:  mov    %r8,%rdi
+    0.00 :   5d099:  mov    %r9,%rbx
+    0.00 :   5d09c:  call   9e900 <expanse_trie::mutate::downgrade_b_to_l7::<false>>
+    0.00 :   5d0a1:  mov    %rbx,%r9
+    0.00 :   5d0a4:  jmp    5c408 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ac8>
+    0.00 :   5d0a9:  lock subq $0x80,0x200(%r8)
+    0.00 :   5d0b5:  lock decq 0x208(%r8)
+    0.00 :   5d0bd:  mov    0x28(%r8),%rax
+    0.00 :   5d0c1:  mov    %rax,(%r14)
+    0.00 :   5d0c4:  mov    %r14,0x28(%r8)
+    0.00 :   5d0c8:  movdqu %xmm0,(%rsi)
+    0.00 :   5d0cc:  jmp    5c408 <expanse_trie::mutate_map::map_remove::<false, false>+0x1ac8>
+    0.00 :   5d0d1:  lea    -0x47802(%rip),%rdi        # 158d6 <std::thread::current::id::ID+0x157f6>
+    0.00 :   5d0d8:  lea    0x2204a9(%rip),%rdx        # 27d588 <__frame_dummy_init_array_entry+0x2c0>
+    0.00 :   5d0df:  mov    $0xa1,%esi
+    0.00 :   5d0e4:  call   *0x225f76(%rip)        # 283060 <_DYNAMIC+0x308>
+    0.00 :   5d0ea:  lea    -0x4795d(%rip),%rdi        # 15794 <std::thread::current::id::ID+0x156b4>
+    0.00 :   5d0f1:  lea    0x220400(%rip),%rdx        # 27d4f8 <__frame_dummy_init_array_entry+0x230>
+    0.00 :   5d0f8:  mov    $0x4,%esi
+    0.00 :   5d0fd:  call   *0x225f75(%rip)        # 283078 <_DYNAMIC+0x320>
+    0.00 :   5d103:  lea    -0x4790a(%rip),%rdi        # 15800 <std::thread::current::id::ID+0x15720>
+    0.00 :   5d10a:  lea    0x22110f(%rip),%rcx        # 27e220 <__frame_dummy_init_array_entry+0xf58>
+    0.00 :   5d111:  lea    0x220248(%rip),%r8        # 27d360 <__frame_dummy_init_array_entry+0x98>
+    0.00 :   5d118:  lea    0x3f(%rsp),%rdx
+    0.00 :   5d11d:  mov    $0x11,%esi
+    0.00 :   5d122:  call   *0x225e98(%rip)        # 282fc0 <_DYNAMIC+0x268>
+    0.00 :   5d128:  lea    -0x47809(%rip),%rdi        # 15926 <std::thread::current::id::ID+0x15846>
+    0.00 :   5d12f:  lea    0x220482(%rip),%rdx        # 27d5b8 <__frame_dummy_init_array_entry+0x2f0>
+    0.00 :   5d136:  mov    $0x12,%esi
+    0.00 :   5d13b:  call   *0x225f37(%rip)        # 283078 <_DYNAMIC+0x320>
+    0.00 :   5d141:  lea    0x2204a0(%rip),%rcx        # 27d5e8 <__frame_dummy_init_array_entry+0x320>
+    0.00 :   5d148:  mov    $0x7,%edx
+    0.00 :   5d14d:  xor    %edi,%edi
+    0.00 :   5d14f:  mov    %r15,%rsi
+    0.00 :   5d152:  call   *0x225f78(%rip)        # 2830d0 <_DYNAMIC+0x378>
+    0.00 :   5d158:  lea    0x220471(%rip),%rcx        # 27d5d0 <__frame_dummy_init_array_entry+0x308>
+    0.00 :   5d15f:  mov    $0x7,%edx
+    0.00 :   5d164:  mov    %rsi,%rdi
+    0.00 :   5d167:  mov    %rax,%rsi
+    0.00 :   5d16a:  call   *0x225f60(%rip)        # 2830d0 <_DYNAMIC+0x378>
+    0.00 :   5d170:  xor    %eax,%eax
+    0.00 :   5d172:  test   %al,%al
+    0.00 :   5d174:  mov    0x10(%rsp),%rdx
+    0.00 :   5d179:  jne    5b931 <expanse_trie::mutate_map::map_remove::<false, false>+0xff1>
+    0.00 :   5d17f:  lea    -0x47860(%rip),%rdi        # 15926 <std::thread::current::id::ID+0x15846>
+    0.00 :   5d186:  lea    0x2204d3(%rip),%rdx        # 27d660 <__frame_dummy_init_array_entry+0x398>
+    0.00 :   5d18d:  mov    $0x12,%esi
+    0.00 :   5d192:  call   *0x225ee0(%rip)        # 283078 <_DYNAMIC+0x320>
+    0.00 :   5d198:  xor    %eax,%eax
+    0.00 :   5d19a:  jmp    5cb11 <expanse_trie::mutate_map::map_remove::<false, false>+0x21d1>
+    0.00 :   5d19f:  lea    -0x47880(%rip),%rdi        # 15926 <std::thread::current::id::ID+0x15846>
+    0.00 :   5d1a6:  lea    0x22046b(%rip),%rdx        # 27d618 <__frame_dummy_init_array_entry+0x350>
+    0.00 :   5d1ad:  mov    $0x12,%esi
+    0.00 :   5d1b2:  call   *0x225ec0(%rip)        # 283078 <_DYNAMIC+0x320>
+    0.00 :   5d1b8:  lea    0x221801(%rip),%rcx        # 27e9c0 <__frame_dummy_init_array_entry+0x16f8>
+    0.00 :   5d1bf:  mov    $0x7,%edx
+    0.00 :   5d1c4:  xor    %edi,%edi
+    0.00 :   5d1c6:  call   *0x225f04(%rip)        # 2830d0 <_DYNAMIC+0x378>
+    0.00 :   5d1cc:  lea    0x2203cd(%rip),%rdx        # 27d5a0 <__frame_dummy_init_array_entry+0x2d8>
+    0.00 :   5d1d3:  mov    %r15,%rdi
+    0.00 :   5d1d6:  mov    %rcx,%rsi
+    0.00 :   5d1d9:  call   *0x226039(%rip)        # 283218 <_DYNAMIC+0x4c0>
+    0.00 :   5d1df:  mov    $0x40,%edi
+    0.00 :   5d1e4:  mov    $0x1000,%esi
+    0.00 :   5d1e9:  call   *0x225e31(%rip)        # 283020 <_DYNAMIC+0x2c8>
+    0.00 :   5d1ef:  lea    0x2217e2(%rip),%rcx        # 27e9d8 <__frame_dummy_init_array_entry+0x1710>
+    0.00 :   5d1f6:  mov    $0x7,%edx
+    0.00 :   5d1fb:  call   *0x225ecf(%rip)        # 2830d0 <_DYNAMIC+0x378>
+    0.00 :   5d201:  lea    0x2217d0(%rip),%rcx        # 27e9d8 <__frame_dummy_init_array_entry+0x1710>
+    0.00 :   5d208:  mov    $0x7,%edx
+    0.00 :   5d20d:  mov    %r14,%rdi
+    0.00 :   5d210:  call   *0x225eba(%rip)        # 2830d0 <_DYNAMIC+0x378>
+    0.00 :   5d216:  lea    -0x4968d(%rip),%rdi        # 13b90 <std::thread::current::id::ID+0x13ab0>
+    0.00 :   5d21d:  lea    0x220424(%rip),%rdx        # 27d648 <__frame_dummy_init_array_entry+0x380>
+    0.00 :   5d224:  mov    $0x2b,%esi
+    0.00 :   5d229:  call   *0x225e31(%rip)        # 283060 <_DYNAMIC+0x308>
+    0.00 :   5d22f:  lea    -0x496a6(%rip),%rdi        # 13b90 <std::thread::current::id::ID+0x13ab0>
+    0.00 :   5d236:  lea    0x2203c3(%rip),%rdx        # 27d600 <__frame_dummy_init_array_entry+0x338>
+    0.00 :   5d23d:  mov    $0x2b,%esi
+    0.00 :   5d242:  call   *0x225e18(%rip)        # 283060 <_DYNAMIC+0x308>
+    0.00 :   5d248:  lea    0x220429(%rip),%rcx        # 27d678 <__frame_dummy_init_array_entry+0x3b0>
+    0.00 :   5d24f:  mov    $0x7,%esi
+    0.00 :   5d254:  mov    $0x7,%edx
+    0.00 :   5d259:  call   *0x225e71(%rip)        # 2830d0 <_DYNAMIC+0x378>
+    0.00 :   5d25f:  lea    0x2203ca(%rip),%rcx        # 27d630 <__frame_dummy_init_array_entry+0x368>
+    0.00 :   5d266:  mov    $0x7,%esi
+    0.00 :   5d26b:  mov    $0x7,%edx
+    0.00 :   5d270:  call   *0x225e5a(%rip)        # 2830d0 <_DYNAMIC+0x378>
+    0.00 :   5d276:  mov    $0x10,%edi
+    0.00 :   5d27b:  mov    %r13,%rsi
+    0.00 :   5d27e:  call   *0x225d9c(%rip)        # 283020 <_DYNAMIC+0x2c8>
+    0.00 :   5d284:  lea    0x2201dd(%rip),%rdx        # 27d468 <__frame_dummy_init_array_entry+0x1a0>
+    0.00 :   5d28b:  mov    $0x8,%esi
+    0.00 :   5d290:  call   *0x225d3a(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d296:  mov    %rdi,0x290(%rsp)
+    0.00 :   5d29e:  lea    0x2202b3(%rip),%rdx        # 27d558 <__frame_dummy_init_array_entry+0x290>
+    0.00 :   5d2a5:  mov    $0x20,%esi
+    0.00 :   5d2aa:  call   *0x225d20(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d2b0:  lea    0x220091(%rip),%rdx        # 27d348 <__frame_dummy_init_array_entry+0x80>
+    0.00 :   5d2b7:  mov    $0x3e,%esi
+    0.00 :   5d2bc:  mov    %rax,%rdi
+    0.00 :   5d2bf:  call   *0x225d0b(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d2c5:  lea    0x220214(%rip),%rdi        # 27d4e0 <__frame_dummy_init_array_entry+0x218>
+    0.00 :   5d2cc:  call   *0x225d56(%rip)        # 283028 <_DYNAMIC+0x2d0>
+    0.00 :   5d2d2:  lea    0x22024f(%rip),%rdx        # 27d528 <__frame_dummy_init_array_entry+0x260>
+    0.00 :   5d2d9:  mov    $0x8,%edi
+    0.00 :   5d2de:  mov    $0x8,%esi
+    0.00 :   5d2e3:  call   *0x225ce7(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d2e9:  lea    -0x47a6f(%rip),%rdi        # 15881 <std::thread::current::id::ID+0x157a1>
+    0.00 :   5d2f0:  lea    0x220159(%rip),%rdx        # 27d450 <__frame_dummy_init_array_entry+0x188>
+    0.00 :   5d2f7:  mov    $0xe,%esi
+    0.00 :   5d2fc:  call   *0x225d76(%rip)        # 283078 <_DYNAMIC+0x320>
+    0.00 :   5d302:  lea    0x22003f(%rip),%rdx        # 27d348 <__frame_dummy_init_array_entry+0x80>
+    0.00 :   5d309:  mov    $0x3e,%esi
+    0.00 :   5d30e:  call   *0x225cbc(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d314:  lea    0x220195(%rip),%rax        # 27d4b0 <__frame_dummy_init_array_entry+0x1e8>
+    0.00 :   5d31b:  mov    $0x3,%esi
+    0.00 :   5d320:  mov    %rdx,%rdi
+    0.00 :   5d323:  mov    %rax,%rdx
+    0.00 :   5d326:  call   *0x225ca4(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d32c:  lea    0x22014d(%rip),%rax        # 27d480 <__frame_dummy_init_array_entry+0x1b8>
+    0.00 :   5d333:  mov    $0x7,%esi
+    0.00 :   5d338:  mov    %rdx,%rdi
+    0.00 :   5d33b:  mov    %rax,%rdx
+    0.00 :   5d33e:  call   *0x225c8c(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d344:  lea    0x22002d(%rip),%rdx        # 27d378 <__frame_dummy_init_array_entry+0xb0>
+    0.00 :   5d34b:  mov    $0x3e,%esi
+    0.00 :   5d350:  call   *0x225c7a(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d356:  lea    0x22001b(%rip),%rdi        # 27d378 <__frame_dummy_init_array_entry+0xb0>
+    0.00 :   5d35d:  call   *0x225cc5(%rip)        # 283028 <_DYNAMIC+0x2d0>
+    0.00 :   5d363:  lea    0x22000e(%rip),%rdx        # 27d378 <__frame_dummy_init_array_entry+0xb0>
+    0.00 :   5d36a:  mov    $0x3e,%esi
+    0.00 :   5d36f:  mov    %rbx,%rdi
+    0.00 :   5d372:  call   *0x225c58(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d378:  lea    0x2201d9(%rip),%rdx        # 27d558 <__frame_dummy_init_array_entry+0x290>
+    0.00 :   5d37f:  mov    $0x20,%esi
+    0.00 :   5d384:  mov    %r14,%rdi
+    0.00 :   5d387:  call   *0x225c43(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d38d:  lea    0x220104(%rip),%rdx        # 27d498 <__frame_dummy_init_array_entry+0x1d0>
+    0.00 :   5d394:  mov    $0x8,%edi
+    0.00 :   5d399:  mov    $0x8,%esi
+    0.00 :   5d39e:  call   *0x225c2c(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d3a4:  lea    0x21ffcd(%rip),%rdx        # 27d378 <__frame_dummy_init_array_entry+0xb0>
+    0.00 :   5d3ab:  mov    $0x3e,%esi
+    0.00 :   5d3b0:  mov    %r14,%rdi
+    0.00 :   5d3b3:  call   *0x225c17(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d3b9:  lea    0x21ffb8(%rip),%rdx        # 27d378 <__frame_dummy_init_array_entry+0xb0>
+    0.00 :   5d3c0:  mov    $0x3e,%esi
+    0.00 :   5d3c5:  mov    %r13,%rdi
+    0.00 :   5d3c8:  call   *0x225c02(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   5d3ce:  ud2
+ Percent |	Source code & Disassembly of libexpanse.so.1.0.0 for cpu_core/frontend_retired.ms_flows/upp (649 samples, percent: local period)
+------------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     000000000009d950 <expanse_trie::mutate::downgrade_u_to_b::<false>>:
+    0.00 :   9d950:  push   %rbp
+    0.00 :   9d951:  push   %r15
+    0.00 :   9d953:  push   %r14
+    0.00 :   9d955:  push   %r13
+    0.00 :   9d957:  push   %r12
+    0.00 :   9d959:  push   %rbx
+    0.00 :   9d95a:  sub    $0x58,%rsp
+    0.00 :   9d95e:  mov    %rdi,%r14
+    5.55 :   9d961:  lock addq $0x80,0x200(%rdi)
+    4.62 :   9d96d:  lock incq 0x208(%rdi)
+    6.01 :   9d975:  lock incq 0x218(%rdi)
+    0.00 :   9d97d:  mov    %rsi,%r12
+    0.00 :   9d980:  mov    0x28(%rdi),%r15
+    0.00 :   9d984:  test   %r15,%r15
+    0.00 :   9d987:  je     9d995 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x45>
+    0.00 :   9d989:  mov    (%r15),%rax
+    0.00 :   9d98c:  mov    %rax,0x28(%r14)
+    0.00 :   9d990:  jmp    9dc6c <expanse_trie::mutate::downgrade_u_to_b::<false>+0x31c>
+    0.00 :   9d995:  mov    %edx,%ebx
+    0.00 :   9d997:  call   *0x1e565b(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   9d99d:  mov    $0x1000,%edi
+    0.00 :   9d9a2:  mov    $0x40,%esi
+    0.00 :   9d9a7:  call   *0x1e5663(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   9d9ad:  test   %rax,%rax
+    0.00 :   9d9b0:  je     9df48 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x5f8>
+    0.00 :   9d9b6:  mov    %rax,%r15
+    0.00 :   9d9b9:  mov    0x220(%r14),%rax
+    0.00 :   9d9c0:  mov    %rax,(%r15)
+    0.00 :   9d9c3:  movq   $0x3,0x8(%r15)
+    0.00 :   9d9cb:  mov    %r15,0x220(%r14)
+    0.00 :   9d9d2:  lea    0xf40(%r15),%rax
+    0.00 :   9d9d9:  mov    0x28(%r14),%rcx
+    0.00 :   9d9dd:  mov    %rcx,0xf40(%r15)
+    0.00 :   9d9e4:  mov    %rax,0x28(%r14)
+    0.00 :   9d9e8:  lea    0xec0(%r15),%rax
+    0.00 :   9d9ef:  mov    0x28(%r14),%rcx
+    0.00 :   9d9f3:  mov    %rcx,0xec0(%r15)
+    0.00 :   9d9fa:  mov    %rax,0x28(%r14)
+    0.00 :   9d9fe:  lea    0xe40(%r15),%rax
+    0.00 :   9da05:  mov    0x28(%r14),%rcx
+    0.00 :   9da09:  mov    %rcx,0xe40(%r15)
+    0.00 :   9da10:  mov    %rax,0x28(%r14)
+    0.00 :   9da14:  lea    0xdc0(%r15),%rax
+    0.00 :   9da1b:  mov    0x28(%r14),%rcx
+    0.00 :   9da1f:  mov    %rcx,0xdc0(%r15)
+    0.00 :   9da26:  mov    %rax,0x28(%r14)
+    0.00 :   9da2a:  lea    0xd40(%r15),%rax
+    0.00 :   9da31:  mov    0x28(%r14),%rcx
+    0.00 :   9da35:  mov    %rcx,0xd40(%r15)
+    0.00 :   9da3c:  mov    %rax,0x28(%r14)
+    0.00 :   9da40:  lea    0xcc0(%r15),%rax
+    0.00 :   9da47:  mov    0x28(%r14),%rcx
+    0.00 :   9da4b:  mov    %rcx,0xcc0(%r15)
+    0.00 :   9da52:  mov    %rax,0x28(%r14)
+    0.00 :   9da56:  lea    0xc40(%r15),%rax
+    0.00 :   9da5d:  mov    0x28(%r14),%rcx
+    0.00 :   9da61:  mov    %rcx,0xc40(%r15)
+    0.00 :   9da68:  mov    %rax,0x28(%r14)
+    0.00 :   9da6c:  lea    0xbc0(%r15),%rax
+    0.00 :   9da73:  mov    0x28(%r14),%rcx
+    0.00 :   9da77:  mov    %rcx,0xbc0(%r15)
+    0.00 :   9da7e:  mov    %rax,0x28(%r14)
+    0.00 :   9da82:  lea    0xb40(%r15),%rax
+    0.00 :   9da89:  mov    0x28(%r14),%rcx
+    0.00 :   9da8d:  mov    %rcx,0xb40(%r15)
+    0.00 :   9da94:  mov    %rax,0x28(%r14)
+    0.00 :   9da98:  lea    0xac0(%r15),%rax
+    0.00 :   9da9f:  mov    0x28(%r14),%rcx
+    0.00 :   9daa3:  mov    %rcx,0xac0(%r15)
+    0.00 :   9daaa:  mov    %rax,0x28(%r14)
+    0.00 :   9daae:  lea    0xa40(%r15),%rax
+    0.00 :   9dab5:  mov    0x28(%r14),%rcx
+    0.00 :   9dab9:  mov    %rcx,0xa40(%r15)
+    0.00 :   9dac0:  mov    %rax,0x28(%r14)
+    0.00 :   9dac4:  lea    0x9c0(%r15),%rax
+    0.00 :   9dacb:  mov    0x28(%r14),%rcx
+    0.00 :   9dacf:  mov    %rcx,0x9c0(%r15)
+    0.00 :   9dad6:  mov    %rax,0x28(%r14)
+    0.00 :   9dada:  lea    0x940(%r15),%rax
+    0.00 :   9dae1:  mov    0x28(%r14),%rcx
+    0.00 :   9dae5:  mov    %rcx,0x940(%r15)
+    0.00 :   9daec:  mov    %rax,0x28(%r14)
+    0.00 :   9daf0:  lea    0x8c0(%r15),%rax
+    0.00 :   9daf7:  mov    0x28(%r14),%rcx
+    0.00 :   9dafb:  mov    %rcx,0x8c0(%r15)
+    0.00 :   9db02:  mov    %rax,0x28(%r14)
+    0.00 :   9db06:  lea    0x840(%r15),%rax
+    0.00 :   9db0d:  mov    0x28(%r14),%rcx
+    0.00 :   9db11:  mov    %rcx,0x840(%r15)
+    0.00 :   9db18:  mov    %rax,0x28(%r14)
+    0.00 :   9db1c:  lea    0x7c0(%r15),%rax
+    0.00 :   9db23:  mov    0x28(%r14),%rcx
+    0.00 :   9db27:  mov    %rcx,0x7c0(%r15)
+    0.00 :   9db2e:  mov    %rax,0x28(%r14)
+    0.00 :   9db32:  lea    0x740(%r15),%rax
+    0.00 :   9db39:  mov    0x28(%r14),%rcx
+    0.00 :   9db3d:  mov    %rcx,0x740(%r15)
+    0.00 :   9db44:  mov    %rax,0x28(%r14)
+    0.00 :   9db48:  lea    0x6c0(%r15),%rax
+    0.00 :   9db4f:  mov    0x28(%r14),%rcx
+    0.00 :   9db53:  mov    %rcx,0x6c0(%r15)
+    0.00 :   9db5a:  mov    %rax,0x28(%r14)
+    0.00 :   9db5e:  lea    0x640(%r15),%rax
+    0.00 :   9db65:  mov    0x28(%r14),%rcx
+    0.00 :   9db69:  mov    %rcx,0x640(%r15)
+    0.00 :   9db70:  mov    %rax,0x28(%r14)
+    0.00 :   9db74:  lea    0x5c0(%r15),%rax
+    0.00 :   9db7b:  mov    0x28(%r14),%rcx
+    0.00 :   9db7f:  mov    %rcx,0x5c0(%r15)
+    0.00 :   9db86:  mov    %rax,0x28(%r14)
+    0.00 :   9db8a:  lea    0x540(%r15),%rax
+    0.00 :   9db91:  mov    0x28(%r14),%rcx
+    0.00 :   9db95:  mov    %rcx,0x540(%r15)
+    0.00 :   9db9c:  mov    %rax,0x28(%r14)
+    0.00 :   9dba0:  lea    0x4c0(%r15),%rax
+    0.00 :   9dba7:  mov    0x28(%r14),%rcx
+    0.00 :   9dbab:  mov    %rcx,0x4c0(%r15)
+    0.00 :   9dbb2:  mov    %rax,0x28(%r14)
+    0.00 :   9dbb6:  lea    0x440(%r15),%rax
+    0.00 :   9dbbd:  mov    0x28(%r14),%rcx
+    0.00 :   9dbc1:  mov    %rcx,0x440(%r15)
+    0.00 :   9dbc8:  mov    %rax,0x28(%r14)
+    0.00 :   9dbcc:  lea    0x3c0(%r15),%rax
+    0.00 :   9dbd3:  mov    0x28(%r14),%rcx
+    0.00 :   9dbd7:  mov    %rcx,0x3c0(%r15)
+    0.00 :   9dbde:  mov    %rax,0x28(%r14)
+    0.00 :   9dbe2:  lea    0x340(%r15),%rax
+    0.00 :   9dbe9:  mov    0x28(%r14),%rcx
+    0.00 :   9dbed:  mov    %rcx,0x340(%r15)
+    0.00 :   9dbf4:  mov    %rax,0x28(%r14)
+    0.00 :   9dbf8:  lea    0x2c0(%r15),%rax
+    0.00 :   9dbff:  mov    0x28(%r14),%rcx
+    0.00 :   9dc03:  mov    %rcx,0x2c0(%r15)
+    0.00 :   9dc0a:  mov    %rax,0x28(%r14)
+    0.00 :   9dc0e:  lea    0x240(%r15),%rax
+    0.00 :   9dc15:  mov    0x28(%r14),%rcx
+    0.00 :   9dc19:  mov    %rcx,0x240(%r15)
+    0.00 :   9dc20:  mov    %rax,0x28(%r14)
+    0.00 :   9dc24:  lea    0x1c0(%r15),%rax
+    0.00 :   9dc2b:  mov    0x28(%r14),%rcx
+    0.00 :   9dc2f:  mov    %rcx,0x1c0(%r15)
+    0.00 :   9dc36:  mov    %rax,0x28(%r14)
+    0.00 :   9dc3a:  lea    0x140(%r15),%rax
+    0.00 :   9dc41:  mov    0x28(%r14),%rcx
+    0.00 :   9dc45:  mov    %rcx,0x140(%r15)
+    0.00 :   9dc4c:  mov    %rax,0x28(%r14)
+    0.00 :   9dc50:  lea    0xc0(%r15),%rax
+    0.00 :   9dc57:  mov    0x28(%r14),%rcx
+    0.00 :   9dc5b:  mov    %rcx,0xc0(%r15)
+    0.00 :   9dc62:  mov    %rax,0x28(%r14)
+    0.00 :   9dc66:  add    $0x40,%r15
+    0.00 :   9dc6a:  mov    %ebx,%edx
+    0.00 :   9dc6c:  xorps  %xmm0,%xmm0
+    0.00 :   9dc6f:  movups %xmm0,0x70(%r15)
+    0.00 :   9dc74:  movups %xmm0,0x60(%r15)
+    0.00 :   9dc79:  movups %xmm0,0x50(%r15)
+    0.00 :   9dc7e:  movups %xmm0,0x40(%r15)
+    0.00 :   9dc83:  movups %xmm0,0x30(%r15)
+    0.00 :   9dc88:  movups %xmm0,0x20(%r15)
+    0.00 :   9dc8d:  movups %xmm0,0x10(%r15)
+    0.00 :   9dc92:  movups %xmm0,(%r15)
+    0.00 :   9dc96:  mov    (%r12),%rbp
+    0.00 :   9dc9a:  mov    %dl,0x74(%r15)
+    0.00 :   9dc9e:  mov    $0x4f,%eax
+    0.00 :   9dca3:  xor    %ecx,%ecx
+    0.00 :   9dca5:  jmp    9dcbf <expanse_trie::mutate::downgrade_u_to_b::<false>+0x36f>
+    0.00 :   9dca7:  nopw   0x0(%rax,%rax,1)
+    0.00 :   9dcb0:  add    $0x10,%rax
+    0.00 :   9dcb4:  inc    %rcx
+    0.00 :   9dcb7:  cmp    $0x104f,%rax
+    0.00 :   9dcbd:  je     9dce8 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x398>
+    0.00 :   9dcbf:  cmpb   $0x0,0x0(%rbp,%rax,1)
+    0.00 :   9dcc4:  je     9dcb0 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x360>
+    0.00 :   9dcc6:  mov    %rcx,%rdx
+    0.00 :   9dcc9:  shr    $0x5,%rdx
+    0.00 :   9dccd:  incw   0x60(%r15,%rdx,2)
+    0.00 :   9dcd3:  mov    $0x1,%edx
+    0.00 :   9dcd8:  shl    %cl,%rdx
+    0.00 :   9dcdb:  mov    %rcx,%rsi
+    0.00 :   9dcde:  shr    $0x6,%rsi
+    0.00 :   9dce2:  or     %rdx,(%r15,%rsi,8)
+    0.00 :   9dce6:  jmp    9dcb0 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x360>
+    0.00 :   9dce8:  mov    %r12,0x8(%rsp)
+    0.00 :   9dced:  xor    %r12d,%r12d
+    0.00 :   9dcf0:  mov    %rbp,(%rsp)
+    0.00 :   9dcf4:  jmp    9dd36 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x3e6>
+    0.00 :   9dcf6:  cs nopw 0x0(%rax,%rax,1)
+    0.00 :   9dd00:  mov    (%rsp),%rbp
+    0.00 :   9dd04:  call   *0x1e52ee(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   9dd0a:  mov    $0x10,%esi
+    0.00 :   9dd0f:  mov    %r13,%rdi
+    0.00 :   9dd12:  call   *0x1e52f8(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   9dd18:  mov    %rax,%rbx
+    0.00 :   9dd1b:  test   %rax,%rax
+    0.00 :   9dd1e:  je     9df3a <expanse_trie::mutate::downgrade_u_to_b::<false>+0x5ea>
+    0.00 :   9dd24:  mov    %rbx,0x20(%r15,%r12,8)
+    0.00 :   9dd29:  inc    %r12
+    0.00 :   9dd2c:  cmp    $0x8,%r12
+    0.00 :   9dd30:  je     9de82 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x532>
+    0.00 :   9dd36:  movzwl 0x60(%r15,%r12,2),%eax
+    0.00 :   9dd3c:  test   %rax,%rax
+    0.00 :   9dd3f:  je     9dd29 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x3d9>
+    0.00 :   9dd41:  cmp    $0x3,%ax
+    0.00 :   9dd45:  jb     9dd53 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x403>
+    0.00 :   9dd47:  cmp    $0x11,%ax
+    0.00 :   9dd4b:  jae    9ddad <expanse_trie::mutate::downgrade_u_to_b::<false>+0x45d>
+    0.00 :   9dd4d:  add    $0x3,%eax
+    0.00 :   9dd50:  and    $0x3c,%eax
+    0.00 :   9dd53:  mov    %eax,%r13d
+    0.00 :   9dd56:  shl    $0x4,%r13d
+    0.00 :   9dd5a:  lock add %r13,0x200(%r14)
+    0.00 :   9dd62:  lock incq 0x208(%r14)
+    0.00 :   9dd6a:  lock incq 0x218(%r14)
+    0.00 :   9dd72:  lea    -0x8832c(%rip),%rcx        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   9dd79:  movzbl 0x0(%r13,%rcx,1),%ebp
+    0.00 :   9dd7f:  cmp    $0xff,%rbp
+    0.00 :   9dd86:  je     9dd00 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x3b0>
+    0.00 :   9dd8c:  cmp    $0x3d,%bpl
+    0.00 :   9dd90:  ja     9df65 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x615>
+    0.00 :   9dd96:  mov    0x10(%r14,%rbp,8),%rbx
+    0.00 :   9dd9b:  test   %rbx,%rbx
+    0.00 :   9dd9e:  je     9ddee <expanse_trie::mutate::downgrade_u_to_b::<false>+0x49e>
+    0.00 :   9dda0:  mov    (%rbx),%rax
+    0.00 :   9dda3:  mov    %rax,0x10(%r14,%rbp,8)
+    0.00 :   9dda8:  jmp    9de6b <expanse_trie::mutate::downgrade_u_to_b::<false>+0x51b>
+    0.00 :   9ddad:  mov    $0x180,%r13d
+    0.00 :   9ddb3:  cmp    $0x19,%ax
+    0.00 :   9ddb7:  jb     9ddd1 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x481>
+    0.00 :   9ddb9:  mov    $0x200,%r13d
+    0.00 :   9ddbf:  cmp    $0x21,%ax
+    0.00 :   9ddc3:  jb     9ddd1 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x481>
+    0.00 :   9ddc5:  shl    $0x4,%eax
+    0.00 :   9ddc8:  add    $0x30,%eax
+    0.00 :   9ddcb:  and    $0xffffffc0,%eax
+    0.00 :   9ddce:  mov    %rax,%r13
+   22.50 :   9ddd1:  lock add %r13,0x200(%r14)
+   22.65 :   9ddd9:  lock incq 0x208(%r14)
+   29.28 :   9dde1:  lock incq 0x218(%r14)
+    0.00 :   9dde9:  jmp    9dd04 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x3b4>
+    0.00 :   9ddee:  cmp    $0x11,%eax
+    0.00 :   9ddf1:  jae    9dd00 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x3b0>
+    0.00 :   9ddf7:  call   *0x1e51fb(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   9ddfd:  mov    $0x1000,%edi
+    0.00 :   9de02:  mov    $0x40,%esi
+    0.00 :   9de07:  call   *0x1e5203(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   9de0d:  test   %rax,%rax
+    0.00 :   9de10:  je     9df48 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x5f8>
+    0.00 :   9de16:  mov    %rax,%rbx
+    0.00 :   9de19:  mov    0x220(%r14),%rax
+    0.00 :   9de20:  mov    %rax,(%rbx)
+    0.00 :   9de23:  mov    %rbp,0x8(%rbx)
+    0.00 :   9de27:  mov    %rbx,0x220(%r14)
+    0.00 :   9de2e:  mov    $0xfc0,%ax
+    0.00 :   9de32:  xor    %edx,%edx
+    0.00 :   9de34:  div    %r13w
+    0.00 :   9de38:  movzwl %ax,%eax
+    0.00 :   9de3b:  nopl   0x0(%rax,%rax,1)
+    0.00 :   9de40:  dec    %rax
+    0.00 :   9de43:  mov    %rax,%rcx
+    0.00 :   9de46:  imul   %r13,%rcx
+    0.00 :   9de4a:  lea    (%rbx,%rcx,1),%rdx
+    0.00 :   9de4e:  add    $0x40,%rdx
+    0.00 :   9de52:  mov    0x10(%r14,%rbp,8),%rsi
+    0.00 :   9de57:  mov    %rsi,0x40(%rbx,%rcx,1)
+    0.00 :   9de5c:  mov    %rdx,0x10(%r14,%rbp,8)
+    0.00 :   9de61:  cmp    $0x1,%rax
+    0.00 :   9de65:  ja     9de40 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x4f0>
+    0.00 :   9de67:  add    $0x40,%rbx
+    0.00 :   9de6b:  mov    %rbx,%rdi
+    0.00 :   9de6e:  xor    %esi,%esi
+    0.00 :   9de70:  mov    %r13,%rdx
+    0.00 :   9de73:  call   *0x1e5177(%rip)        # 282ff0 <memset@GLIBC_2.2.5>
+    0.00 :   9de79:  mov    (%rsp),%rbp
+    0.00 :   9de7d:  jmp    9dd24 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x3d4>
+    0.00 :   9de82:  xorps  %xmm0,%xmm0
+    0.00 :   9de85:  movaps %xmm0,0x40(%rsp)
+    0.00 :   9de8a:  movaps %xmm0,0x30(%rsp)
+    0.00 :   9de8f:  movaps %xmm0,0x20(%rsp)
+    0.00 :   9de94:  movaps %xmm0,0x10(%rsp)
+    0.00 :   9de99:  mov    $0x4f,%eax
+    0.00 :   9de9e:  xor    %ecx,%ecx
+    0.00 :   9dea0:  mov    0x8(%rsp),%rbx
+    0.00 :   9dea5:  jmp    9debf <expanse_trie::mutate::downgrade_u_to_b::<false>+0x56f>
+    0.00 :   9dea7:  nopw   0x0(%rax,%rax,1)
+    0.00 :   9deb0:  add    $0x10,%rax
+    0.00 :   9deb4:  inc    %rcx
+    0.00 :   9deb7:  cmp    $0x104f,%rax
+    0.00 :   9debd:  je     9def8 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x5a8>
+    0.00 :   9debf:  cmpb   $0x0,0x0(%rbp,%rax,1)
+    0.00 :   9dec4:  je     9deb0 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x560>
+    0.00 :   9dec6:  lea    (%rax,%rbp,1),%rdx
+    0.00 :   9deca:  add    $0xfffffffffffffff1,%rdx
+    0.00 :   9dece:  mov    %rcx,%rsi
+    0.00 :   9ded1:  shr    $0x5,%rsi
+    0.00 :   9ded5:  mov    0x20(%r15,%rsi,8),%rdi
+    0.00 :   9deda:  mov    0x10(%rsp,%rsi,8),%r8
+    0.00 :   9dedf:  mov    %r8,%r9
+    0.00 :   9dee2:  shl    $0x4,%r9
+    0.00 :   9dee6:  movups (%rdx),%xmm0
+    0.00 :   9dee9:  movups %xmm0,(%rdi,%r9,1)
+    0.00 :   9deee:  inc    %r8
+    0.00 :   9def1:  mov    %r8,0x10(%rsp,%rsi,8)
+    0.00 :   9def6:  jmp    9deb0 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x560>
+    0.00 :   9def8:  test   %rbp,%rbp
+    0.00 :   9defb:  je     9df58 <expanse_trie::mutate::downgrade_u_to_b::<false>+0x608>
+    3.54 :   9defd:  lock subq $0x1040,0x200(%r14)
+    5.86 :   9df09:  lock decq 0x208(%r14)
+    0.00 :   9df11:  mov    $0x1040,%esi
+    0.00 :   9df16:  mov    $0x40,%edx
+    0.00 :   9df1b:  mov    %rbp,%rdi
+    0.00 :   9df1e:  call   *0x1e50a4(%rip)        # 282fc8 <_DYNAMIC+0x270>
+    0.00 :   9df24:  mov    %r15,(%rbx)
+    0.00 :   9df27:  movb   $0x3,0xf(%rbx)
+    0.00 :   9df2b:  add    $0x58,%rsp
+    0.00 :   9df2f:  pop    %rbx
+    0.00 :   9df30:  pop    %r12
+    0.00 :   9df32:  pop    %r13
+    0.00 :   9df34:  pop    %r14
+    0.00 :   9df36:  pop    %r15
+    0.00 :   9df38:  pop    %rbp
+    0.00 :   9df39:  ret
+    0.00 :   9df3a:  mov    $0x10,%edi
+    0.00 :   9df3f:  mov    %r13,%rsi
+    0.00 :   9df42:  call   *0x1e50d8(%rip)        # 283020 <_DYNAMIC+0x2c8>
+    0.00 :   9df48:  mov    $0x40,%edi
+    0.00 :   9df4d:  mov    $0x1000,%esi
+    0.00 :   9df52:  call   *0x1e50c8(%rip)        # 283020 <_DYNAMIC+0x2c8>
+    0.00 :   9df58:  lea    0x1dfeb1(%rip),%rdi        # 27de10 <__frame_dummy_init_array_entry+0xb48>
+    0.00 :   9df5f:  call   *0x1e5353(%rip)        # 2832b8 <_DYNAMIC+0x560>
+    0.00 :   9df65:  lea    0x1df40c(%rip),%rdx        # 27d378 <__frame_dummy_init_array_entry+0xb0>
+    0.00 :   9df6c:  mov    $0x3e,%esi
+    0.00 :   9df71:  mov    %rbp,%rdi
+    0.00 :   9df74:  call   *0x1e5056(%rip)        # 282fd0 <_DYNAMIC+0x278>
+ Percent |	Source code & Disassembly of libexpanse.so.1.0.0 for cpu_core/frontend_retired.ms_flows/upp (227 samples, percent: local period)
+------------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     000000000009e900 <expanse_trie::mutate::downgrade_b_to_l7::<false>>:
+    0.00 :   9e900:  push   %rbp
+    0.00 :   9e901:  push   %r15
+    0.00 :   9e903:  push   %r14
+    0.00 :   9e905:  push   %r13
+    0.00 :   9e907:  push   %r12
+    0.00 :   9e909:  push   %rbx
+    0.00 :   9e90a:  sub    $0x18,%rsp
+    0.00 :   9e90e:  mov    %rdi,%r14
+    0.00 :   9e911:  mov    (%rsi),%r12
+    0.00 :   9e914:  movzbl 0x74(%r12),%ebp
+   13.66 :   9e91a:  lock addq $0x80,0x200(%rdi)
+   14.98 :   9e926:  lock incq 0x208(%rdi)
+   12.78 :   9e92e:  lock incq 0x218(%rdi)
+    0.00 :   9e936:  mov    0x28(%rdi),%r15
+    0.00 :   9e93a:  test   %r15,%r15
+    0.00 :   9e93d:  je     9e94b <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x4b>
+    0.00 :   9e93f:  mov    (%r15),%rax
+    0.00 :   9e942:  mov    %rax,0x28(%r14)
+    0.00 :   9e946:  jmp    9ec24 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x324>
+    0.00 :   9e94b:  mov    %rsi,%rbx
+    0.00 :   9e94e:  call   *0x1e46a4(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   9e954:  mov    $0x1000,%edi
+    0.00 :   9e959:  mov    $0x40,%esi
+    0.00 :   9e95e:  call   *0x1e46ac(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   9e964:  test   %rax,%rax
+    0.00 :   9e967:  je     9ef2c <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x62c>
+    0.00 :   9e96d:  mov    %rax,%r15
+    0.00 :   9e970:  mov    0x220(%r14),%rax
+    0.00 :   9e977:  mov    %rax,(%r15)
+    0.00 :   9e97a:  movq   $0x3,0x8(%r15)
+    0.00 :   9e982:  mov    %r15,0x220(%r14)
+    0.00 :   9e989:  lea    0xf40(%r15),%rax
+    0.00 :   9e990:  mov    0x28(%r14),%rcx
+    0.00 :   9e994:  mov    %rcx,0xf40(%r15)
+    0.00 :   9e99b:  mov    %rax,0x28(%r14)
+    0.00 :   9e99f:  lea    0xec0(%r15),%rax
+    0.00 :   9e9a6:  mov    0x28(%r14),%rcx
+    0.00 :   9e9aa:  mov    %rcx,0xec0(%r15)
+    0.00 :   9e9b1:  mov    %rax,0x28(%r14)
+    0.00 :   9e9b5:  lea    0xe40(%r15),%rax
+    0.00 :   9e9bc:  mov    0x28(%r14),%rcx
+    0.00 :   9e9c0:  mov    %rcx,0xe40(%r15)
+    0.00 :   9e9c7:  mov    %rax,0x28(%r14)
+    0.00 :   9e9cb:  lea    0xdc0(%r15),%rax
+    0.00 :   9e9d2:  mov    0x28(%r14),%rcx
+    0.00 :   9e9d6:  mov    %rcx,0xdc0(%r15)
+    0.00 :   9e9dd:  mov    %rax,0x28(%r14)
+    0.00 :   9e9e1:  lea    0xd40(%r15),%rax
+    0.00 :   9e9e8:  mov    0x28(%r14),%rcx
+    0.00 :   9e9ec:  mov    %rcx,0xd40(%r15)
+    0.00 :   9e9f3:  mov    %rax,0x28(%r14)
+    0.00 :   9e9f7:  lea    0xcc0(%r15),%rax
+    0.00 :   9e9fe:  mov    0x28(%r14),%rcx
+    0.00 :   9ea02:  mov    %rcx,0xcc0(%r15)
+    0.00 :   9ea09:  mov    %rax,0x28(%r14)
+    0.00 :   9ea0d:  lea    0xc40(%r15),%rax
+    0.00 :   9ea14:  mov    0x28(%r14),%rcx
+    0.00 :   9ea18:  mov    %rcx,0xc40(%r15)
+    0.00 :   9ea1f:  mov    %rax,0x28(%r14)
+    0.00 :   9ea23:  lea    0xbc0(%r15),%rax
+    0.00 :   9ea2a:  mov    0x28(%r14),%rcx
+    0.00 :   9ea2e:  mov    %rcx,0xbc0(%r15)
+    0.00 :   9ea35:  mov    %rax,0x28(%r14)
+    0.00 :   9ea39:  lea    0xb40(%r15),%rax
+    0.00 :   9ea40:  mov    0x28(%r14),%rcx
+    0.00 :   9ea44:  mov    %rcx,0xb40(%r15)
+    0.00 :   9ea4b:  mov    %rax,0x28(%r14)
+    0.00 :   9ea4f:  lea    0xac0(%r15),%rax
+    0.00 :   9ea56:  mov    0x28(%r14),%rcx
+    0.00 :   9ea5a:  mov    %rcx,0xac0(%r15)
+    0.00 :   9ea61:  mov    %rax,0x28(%r14)
+    0.00 :   9ea65:  lea    0xa40(%r15),%rax
+    0.00 :   9ea6c:  mov    0x28(%r14),%rcx
+    0.00 :   9ea70:  mov    %rcx,0xa40(%r15)
+    0.00 :   9ea77:  mov    %rax,0x28(%r14)
+    0.00 :   9ea7b:  lea    0x9c0(%r15),%rax
+    0.00 :   9ea82:  mov    0x28(%r14),%rcx
+    0.00 :   9ea86:  mov    %rcx,0x9c0(%r15)
+    0.00 :   9ea8d:  mov    %rax,0x28(%r14)
+    0.00 :   9ea91:  lea    0x940(%r15),%rax
+    0.00 :   9ea98:  mov    0x28(%r14),%rcx
+    0.00 :   9ea9c:  mov    %rcx,0x940(%r15)
+    0.00 :   9eaa3:  mov    %rax,0x28(%r14)
+    0.00 :   9eaa7:  lea    0x8c0(%r15),%rax
+    0.00 :   9eaae:  mov    0x28(%r14),%rcx
+    0.00 :   9eab2:  mov    %rcx,0x8c0(%r15)
+    0.00 :   9eab9:  mov    %rax,0x28(%r14)
+    0.00 :   9eabd:  lea    0x840(%r15),%rax
+    0.00 :   9eac4:  mov    0x28(%r14),%rcx
+    0.00 :   9eac8:  mov    %rcx,0x840(%r15)
+    0.00 :   9eacf:  mov    %rax,0x28(%r14)
+    0.00 :   9ead3:  lea    0x7c0(%r15),%rax
+    0.00 :   9eada:  mov    0x28(%r14),%rcx
+    0.00 :   9eade:  mov    %rcx,0x7c0(%r15)
+    0.00 :   9eae5:  mov    %rax,0x28(%r14)
+    0.00 :   9eae9:  lea    0x740(%r15),%rax
+    0.00 :   9eaf0:  mov    0x28(%r14),%rcx
+    0.00 :   9eaf4:  mov    %rcx,0x740(%r15)
+    0.00 :   9eafb:  mov    %rax,0x28(%r14)
+    0.00 :   9eaff:  lea    0x6c0(%r15),%rax
+    0.00 :   9eb06:  mov    0x28(%r14),%rcx
+    0.00 :   9eb0a:  mov    %rcx,0x6c0(%r15)
+    0.00 :   9eb11:  mov    %rax,0x28(%r14)
+    0.00 :   9eb15:  lea    0x640(%r15),%rax
+    0.00 :   9eb1c:  mov    0x28(%r14),%rcx
+    0.00 :   9eb20:  mov    %rcx,0x640(%r15)
+    0.00 :   9eb27:  mov    %rax,0x28(%r14)
+    0.00 :   9eb2b:  lea    0x5c0(%r15),%rax
+    0.00 :   9eb32:  mov    0x28(%r14),%rcx
+    0.00 :   9eb36:  mov    %rcx,0x5c0(%r15)
+    0.00 :   9eb3d:  mov    %rax,0x28(%r14)
+    0.00 :   9eb41:  lea    0x540(%r15),%rax
+    0.00 :   9eb48:  mov    0x28(%r14),%rcx
+    0.00 :   9eb4c:  mov    %rcx,0x540(%r15)
+    0.00 :   9eb53:  mov    %rax,0x28(%r14)
+    0.00 :   9eb57:  lea    0x4c0(%r15),%rax
+    0.00 :   9eb5e:  mov    0x28(%r14),%rcx
+    0.00 :   9eb62:  mov    %rcx,0x4c0(%r15)
+    0.00 :   9eb69:  mov    %rax,0x28(%r14)
+    0.00 :   9eb6d:  lea    0x440(%r15),%rax
+    0.00 :   9eb74:  mov    0x28(%r14),%rcx
+    0.00 :   9eb78:  mov    %rcx,0x440(%r15)
+    0.00 :   9eb7f:  mov    %rax,0x28(%r14)
+    0.00 :   9eb83:  lea    0x3c0(%r15),%rax
+    0.00 :   9eb8a:  mov    0x28(%r14),%rcx
+    0.00 :   9eb8e:  mov    %rcx,0x3c0(%r15)
+    0.00 :   9eb95:  mov    %rax,0x28(%r14)
+    0.00 :   9eb99:  lea    0x340(%r15),%rax
+    0.00 :   9eba0:  mov    0x28(%r14),%rcx
+    0.00 :   9eba4:  mov    %rcx,0x340(%r15)
+    0.00 :   9ebab:  mov    %rax,0x28(%r14)
+    0.00 :   9ebaf:  lea    0x2c0(%r15),%rax
+    0.00 :   9ebb6:  mov    0x28(%r14),%rcx
+    0.00 :   9ebba:  mov    %rcx,0x2c0(%r15)
+    0.00 :   9ebc1:  mov    %rax,0x28(%r14)
+    0.00 :   9ebc5:  lea    0x240(%r15),%rax
+    0.00 :   9ebcc:  mov    0x28(%r14),%rcx
+    0.00 :   9ebd0:  mov    %rcx,0x240(%r15)
+    0.00 :   9ebd7:  mov    %rax,0x28(%r14)
+    0.00 :   9ebdb:  lea    0x1c0(%r15),%rax
+    0.00 :   9ebe2:  mov    0x28(%r14),%rcx
+    0.00 :   9ebe6:  mov    %rcx,0x1c0(%r15)
+    0.00 :   9ebed:  mov    %rax,0x28(%r14)
+    0.00 :   9ebf1:  lea    0x140(%r15),%rax
+    0.00 :   9ebf8:  mov    0x28(%r14),%rcx
+    0.00 :   9ebfc:  mov    %rcx,0x140(%r15)
+    0.00 :   9ec03:  mov    %rax,0x28(%r14)
+    0.00 :   9ec07:  lea    0xc0(%r15),%rax
+    0.00 :   9ec0e:  mov    0x28(%r14),%rcx
+    0.00 :   9ec12:  mov    %rcx,0xc0(%r15)
+    0.00 :   9ec19:  mov    %rax,0x28(%r14)
+    0.00 :   9ec1d:  add    $0x40,%r15
+    0.00 :   9ec21:  mov    %rbx,%rsi
+    0.00 :   9ec24:  xorps  %xmm0,%xmm0
+    0.00 :   9ec27:  movups %xmm0,(%r15)
+    0.00 :   9ec2b:  movups %xmm0,0x70(%r15)
+    0.00 :   9ec30:  movups %xmm0,0x60(%r15)
+    0.00 :   9ec35:  movups %xmm0,0x50(%r15)
+    0.00 :   9ec3a:  movups %xmm0,0x40(%r15)
+    0.00 :   9ec3f:  movups %xmm0,0x30(%r15)
+    0.00 :   9ec44:  movups %xmm0,0x20(%r15)
+    0.00 :   9ec49:  movups %xmm0,0x10(%r15)
+    0.00 :   9ec4e:  mov    %bpl,0x5(%r15)
+    0.00 :   9ec52:  mov    (%r12),%rcx
+    0.00 :   9ec56:  test   %rcx,%rcx
+    0.00 :   9ec59:  mov    %rsi,0x10(%rsp)
+    0.00 :   9ec5e:  je     9ec64 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x364>
+    0.00 :   9ec60:  xor    %eax,%eax
+    0.00 :   9ec62:  jmp    9ec8c <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x38c>
+    0.00 :   9ec64:  mov    0x8(%r12),%rcx
+    0.00 :   9ec69:  mov    $0x40,%al
+    0.00 :   9ec6b:  test   %rcx,%rcx
+    0.00 :   9ec6e:  jne    9ec8c <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x38c>
+    0.00 :   9ec70:  mov    0x10(%r12),%rcx
+    0.00 :   9ec75:  mov    $0x80,%al
+    0.00 :   9ec77:  test   %rcx,%rcx
+    0.00 :   9ec7a:  jne    9ec8c <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x38c>
+    0.00 :   9ec7c:  mov    0x18(%r12),%rcx
+    0.00 :   9ec81:  mov    $0xc0,%al
+    0.00 :   9ec83:  test   %rcx,%rcx
+    0.00 :   9ec86:  je     9ede6 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x4e6>
+    0.00 :   9ec8c:  movzbl 0x4(%r15),%edi
+    0.00 :   9ec91:  cmp    $0x7,%rdi
+    0.00 :   9ec95:  ja     9ef53 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x653>
+    0.00 :   9ec9b:  tzcnt  %rcx,%rcx
+    0.00 :   9eca0:  or     %cl,%al
+    0.00 :   9eca2:  mov    %edi,%ecx
+    0.00 :   9eca4:  shl    $0x4,%ecx
+    0.00 :   9eca7:  lea    (%rcx,%r15,1),%rdx
+    0.00 :   9ecab:  add    $0x10,%rdx
+    0.00 :   9ecaf:  jmp    9ece0 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x3e0>
+    0.00 :   9ecb1:  mov    0x20(%r12,%r8,8),%r9
+    0.00 :   9ecb6:  or     $0x4,%r8
+    0.00 :   9ecba:  mov    %r8,%rax
+    0.00 :   9ecbd:  nopl   (%rax)
+    0.00 :   9ecc0:  mov    %eax,%esi
+    0.00 :   9ecc2:  shl    $0x6,%sil
+    0.00 :   9ecc6:  tzcnt  %r9,%rax
+    0.00 :   9eccb:  or     %sil,%al
+    0.00 :   9ecce:  lea    -0x1(%rdi),%rcx
+    0.00 :   9ecd2:  add    $0x10,%rdx
+    0.00 :   9ecd6:  cmp    $0x7,%rcx
+    0.00 :   9ecda:  jae    9ef53 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x653>
+    0.00 :   9ece0:  mov    %eax,%ecx
+    0.00 :   9ece2:  shr    $0x5,%cl
+    0.00 :   9ece5:  movzbl %cl,%ecx
+    0.00 :   9ece8:  mov    (%r12,%rcx,4),%r8d
+    0.00 :   9ecec:  mov    %al,0x8(%r15,%rdi,1)
+    0.00 :   9ecf1:  cmp    $0x7,%rdi
+    0.00 :   9ecf5:  je     9ef3c <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x63c>
+    0.00 :   9ecfb:  mov    0x20(%r12,%rcx,8),%rsi
+    0.00 :   9ed00:  mov    $0xffffffff,%r9d
+    0.00 :   9ed06:  mov    %eax,%ecx
+    0.00 :   9ed08:  shl    %cl,%r9d
+    0.00 :   9ed0b:  not    %r9d
+    0.00 :   9ed0e:  and    %r9d,%r8d
+    0.00 :   9ed11:  mov    %r8d,%ecx
+    0.00 :   9ed14:  shr    %ecx
+    0.00 :   9ed16:  and    $0x15555555,%ecx
+    0.00 :   9ed1c:  sub    %ecx,%r8d
+    0.00 :   9ed1f:  mov    %r8d,%ecx
+    0.00 :   9ed22:  and    $0x33333333,%ecx
+    0.00 :   9ed28:  shr    $0x2,%r8d
+    0.00 :   9ed2c:  and    $0x33333333,%r8d
+    0.00 :   9ed33:  add    %ecx,%r8d
+    0.00 :   9ed36:  mov    %r8d,%ecx
+    0.00 :   9ed39:  shr    $0x4,%ecx
+    0.00 :   9ed3c:  add    %r8d,%ecx
+    0.00 :   9ed3f:  and    $0xf0f0f0f,%ecx
+    0.00 :   9ed45:  imul   $0x1010101,%ecx,%ecx
+    0.00 :   9ed4b:  shr    $0x14,%ecx
+    0.00 :   9ed4e:  and    $0xfffffff0,%ecx
+    0.00 :   9ed51:  movups (%rsi,%rcx,1),%xmm0
+    0.00 :   9ed55:  movups %xmm0,(%rdx)
+    0.00 :   9ed58:  inc    %rdi
+    0.00 :   9ed5b:  mov    %dil,0x4(%r15)
+    0.00 :   9ed5f:  mov    %eax,%ecx
+    0.00 :   9ed61:  and    $0xf,%cl
+    0.00 :   9ed64:  mov    $0x1,%esi
+    0.00 :   9ed69:  shl    %cl,%esi
+    0.00 :   9ed6b:  or     %si,0x6(%r15)
+    0.00 :   9ed70:  cmp    $0xff,%al
+    0.00 :   9ed72:  je     9ede6 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x4e6>
+    0.00 :   9ed74:  inc    %al
+    0.00 :   9ed76:  mov    %eax,%esi
+    0.00 :   9ed78:  shr    $0x6,%sil
+    0.00 :   9ed7c:  movzbl %sil,%r8d
+    0.00 :   9ed80:  mov    (%r12,%r8,8),%r9
+    0.00 :   9ed84:  mov    %eax,%ecx
+    0.00 :   9ed86:  shr    %cl,%r9
+    0.00 :   9ed89:  shl    %cl,%r9
+    0.00 :   9ed8c:  test   %r9,%r9
+    0.00 :   9ed8f:  jne    9ecc2 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x3c2>
+    0.00 :   9ed95:  lea    0x1(%r8),%rax
+    0.00 :   9ed99:  cmp    $0x4,%rax
+    0.00 :   9ed9d:  je     9ede6 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x4e6>
+    0.00 :   9ed9f:  mov    0x8(%r12,%r8,8),%r9
+    0.00 :   9eda4:  test   %r9,%r9
+    0.00 :   9eda7:  jne    9ecc0 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x3c0>
+    0.00 :   9edad:  lea    0x2(%r8),%rax
+    0.00 :   9edb1:  cmp    $0x4,%rax
+    0.00 :   9edb5:  je     9ede6 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x4e6>
+    0.00 :   9edb7:  mov    0x10(%r12,%r8,8),%r9
+    0.00 :   9edbc:  test   %r9,%r9
+    0.00 :   9edbf:  jne    9ecc0 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x3c0>
+    0.00 :   9edc5:  lea    0x3(%r8),%rax
+    0.00 :   9edc9:  cmp    $0x4,%rax
+    0.00 :   9edcd:  je     9ede6 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x4e6>
+    0.00 :   9edcf:  mov    0x18(%r12,%r8,8),%r9
+    0.00 :   9edd4:  test   %r9,%r9
+    0.00 :   9edd7:  jne    9ecc0 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x3c0>
+    0.00 :   9eddd:  test   %sil,%sil
+    0.00 :   9ede0:  jne    9ecb1 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x3b1>
+    0.00 :   9ede6:  mov    $0xfffffffffffffff0,%r13
+    0.00 :   9eded:  lea    -0x893a7(%rip),%rbp        # 15a4d <std::thread::current::id::ID+0x1596d>
+    0.00 :   9edf4:  mov    0x1e41cd(%rip),%rbx        # 282fc8 <_DYNAMIC+0x270>
+    0.00 :   9edfb:  jmp    9ee21 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x521>
+    0.00 :   9edfd:  lock sub %rax,0x200(%r14)
+    0.00 :   9ee05:  lock decq 0x208(%r14)
+    0.00 :   9ee0d:  mov    %rax,%rsi
+    0.00 :   9ee10:  mov    $0x10,%edx
+    0.00 :   9ee15:  call   *%rbx
+    0.00 :   9ee17:  add    $0x2,%r13
+    0.00 :   9ee1b:  je     9eeb1 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x5b1>
+    0.00 :   9ee21:  movzwl 0x70(%r12,%r13,1),%esi
+    0.00 :   9ee27:  test   %rsi,%rsi
+    0.00 :   9ee2a:  je     9ee17 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x517>
+    0.00 :   9ee2c:  mov    0x60(%r12,%r13,4),%rdi
+    0.00 :   9ee31:  test   %rdi,%rdi
+    0.00 :   9ee34:  je     9ef12 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x612>
+    0.00 :   9ee3a:  cmp    $0x3,%si
+    0.00 :   9ee3e:  jb     9ee4c <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x54c>
+    0.00 :   9ee40:  cmp    $0x11,%si
+    0.00 :   9ee44:  jae    9ee82 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x582>
+    0.00 :   9ee46:  add    $0x3,%esi
+    0.00 :   9ee49:  and    $0x3c,%esi
+    0.00 :   9ee4c:  shl    $0x4,%esi
+   14.10 :   9ee4f:  lock sub %rsi,0x200(%r14)
+   14.10 :   9ee57:  lock decq 0x208(%r14)
+    0.00 :   9ee5f:  movzbl (%rsi,%rbp,1),%eax
+    0.00 :   9ee63:  cmp    $0xff,%rax
+    0.00 :   9ee69:  je     9ee10 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x510>
+    0.00 :   9ee6b:  cmp    $0x3e,%al
+    0.00 :   9ee6d:  jae    9ef65 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x665>
+    0.00 :   9ee73:  mov    0x10(%r14,%rax,8),%rcx
+    0.00 :   9ee78:  mov    %rcx,(%rdi)
+    0.00 :   9ee7b:  mov    %rdi,0x10(%r14,%rax,8)
+    0.00 :   9ee80:  jmp    9ee17 <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x517>
+    0.00 :   9ee82:  mov    $0x180,%eax
+    0.00 :   9ee87:  cmp    $0x19,%si
+    0.00 :   9ee8b:  jb     9edfd <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x4fd>
+    0.00 :   9ee91:  mov    $0x200,%eax
+    0.00 :   9ee96:  cmp    $0x21,%si
+    0.00 :   9ee9a:  jb     9edfd <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x4fd>
+    0.00 :   9eea0:  shl    $0x4,%esi
+    0.00 :   9eea3:  add    $0x30,%esi
+    0.00 :   9eea6:  and    $0xffffffc0,%esi
+    0.00 :   9eea9:  mov    %rsi,%rax
+    0.00 :   9eeac:  jmp    9edfd <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x4fd>
+    0.00 :   9eeb1:  mov    0x10(%rsp),%rsi
+    0.00 :   9eeb6:  mov    0x8(%rsi),%eax
+    0.00 :   9eeb9:  mov    0xb(%rsi),%ecx
+    0.00 :   9eebc:  mov    %ecx,0xb(%rsp)
+    0.00 :   9eec0:  mov    %eax,0x8(%rsp)
+    0.00 :   9eec4:  mov    (%rsi),%rax
+    0.00 :   9eec7:  test   %rax,%rax
+    0.00 :   9eeca:  je     9ef1f <expanse_trie::mutate::downgrade_b_to_l7::<false>+0x61f>
+    0.00 :   9eecc:  lea    0x8(%rsi),%rcx
+   15.42 :   9eed0:  lock subq $0x80,0x200(%r14)
+   14.98 :   9eedc:  lock decq 0x208(%r14)
+    0.00 :   9eee4:  mov    0x28(%r14),%rdx
+    0.00 :   9eee8:  mov    %rdx,(%rax)
+    0.00 :   9eeeb:  mov    %rax,0x28(%r14)
+    0.00 :   9eeef:  mov    %r15,(%rsi)
+    0.00 :   9eef2:  movb   $0x2,0xf(%rsi)
+    0.00 :   9eef6:  mov    0x8(%rsp),%eax
+    0.00 :   9eefa:  mov    0xb(%rsp),%edx
+    0.00 :   9eefe:  mov    %edx,0x3(%rcx)
+    0.00 :   9ef01:  mov    %eax,(%rcx)
+    0.00 :   9ef03:  add    $0x18,%rsp
+    0.00 :   9ef07:  pop    %rbx
+    0.00 :   9ef08:  pop    %r12
+    0.00 :   9ef0a:  pop    %r13
+    0.00 :   9ef0c:  pop    %r14
+    0.00 :   9ef0e:  pop    %r15
+    0.00 :   9ef10:  pop    %rbp
+    0.00 :   9ef11:  ret
+    0.00 :   9ef12:  lea    0x1def9f(%rip),%rdi        # 27deb8 <__frame_dummy_init_array_entry+0xbf0>
+    0.00 :   9ef19:  call   *0x1e4399(%rip)        # 2832b8 <_DYNAMIC+0x560>
+    0.00 :   9ef1f:  lea    0x1def7a(%rip),%rdi        # 27dea0 <__frame_dummy_init_array_entry+0xbd8>
+    0.00 :   9ef26:  call   *0x1e438c(%rip)        # 2832b8 <_DYNAMIC+0x560>
+    0.00 :   9ef2c:  mov    $0x40,%edi
+    0.00 :   9ef31:  mov    $0x1000,%esi
+    0.00 :   9ef36:  call   *0x1e40e4(%rip)        # 283020 <_DYNAMIC+0x2c8>
+    0.00 :   9ef3c:  lea    0x1def45(%rip),%rdx        # 27de88 <__frame_dummy_init_array_entry+0xbc0>
+    0.00 :   9ef43:  mov    $0x7,%edi
+    0.00 :   9ef48:  mov    $0x7,%esi
+    0.00 :   9ef4d:  call   *0x1e407d(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   9ef53:  lea    0x1def16(%rip),%rdx        # 27de70 <__frame_dummy_init_array_entry+0xba8>
+    0.00 :   9ef5a:  mov    $0x8,%esi
+    0.00 :   9ef5f:  call   *0x1e406b(%rip)        # 282fd0 <_DYNAMIC+0x278>
+    0.00 :   9ef65:  lea    0x1de3dc(%rip),%rdx        # 27d348 <__frame_dummy_init_array_entry+0x80>
+    0.00 :   9ef6c:  mov    $0x3e,%esi
+    0.00 :   9ef71:  mov    %rax,%rdi
+    0.00 :   9ef74:  call   *0x1e4056(%rip)        # 282fd0 <_DYNAMIC+0x278>
+ Percent |	Source code & Disassembly of libexpanse.so.1.0.0 for cpu_core/frontend_retired.ms_flows/upp (171 samples, percent: local period)
+------------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     000000000009ef80 <expanse_trie::mutate::downgrade_l7_to_l3::<false>>:
+    0.00 :   9ef80:  push   %r15
+    0.00 :   9ef82:  push   %r14
+    0.00 :   9ef84:  push   %rbx
+    0.00 :   9ef85:  sub    $0x10,%rsp
+    0.00 :   9ef89:  mov    (%rsi),%rbx
+   19.30 :   9ef8c:  lock addq $0x40,0x200(%rdi)
+   20.47 :   9ef95:  lock incq 0x208(%rdi)
+   19.88 :   9ef9d:  lock incq 0x218(%rdi)
+    0.00 :   9efa5:  mov    0x18(%rdi),%rax
+    0.00 :   9efa9:  test   %rax,%rax
+    0.00 :   9efac:  je     9efba <expanse_trie::mutate::downgrade_l7_to_l3::<false>+0x3a>
+    0.00 :   9efae:  mov    (%rax),%rcx
+    0.00 :   9efb1:  mov    %rcx,0x18(%rdi)
+    0.00 :   9efb5:  jmp    9f040 <expanse_trie::mutate::downgrade_l7_to_l3::<false>+0xc0>
+    0.00 :   9efba:  mov    %rdi,%r15
+    0.00 :   9efbd:  mov    %rsi,%r14
+    0.00 :   9efc0:  call   *0x1e4032(%rip)        # 282ff8 <_DYNAMIC+0x2a0>
+    0.00 :   9efc6:  mov    $0x1000,%edi
+    0.00 :   9efcb:  mov    $0x40,%esi
+    0.00 :   9efd0:  call   *0x1e403a(%rip)        # 283010 <_DYNAMIC+0x2b8>
+    0.00 :   9efd6:  test   %rax,%rax
+    0.00 :   9efd9:  je     9f0bc <expanse_trie::mutate::downgrade_l7_to_l3::<false>+0x13c>
+    0.00 :   9efdf:  mov    %r15,%rdi
+    0.00 :   9efe2:  mov    0x220(%r15),%rcx
+    0.00 :   9efe9:  mov    %rcx,(%rax)
+    0.00 :   9efec:  movq   $0x1,0x8(%rax)
+    0.00 :   9eff4:  mov    %rax,0x220(%r15)
+    0.00 :   9effb:  lea    0xfc0(%rax),%rcx
+    0.00 :   9f002:  mov    $0x41,%edx
+    0.00 :   9f007:  nopw   0x0(%rax,%rax,1)
+    0.00 :   9f010:  mov    0x18(%rdi),%rsi
+    0.00 :   9f014:  mov    %rsi,(%rcx)
+    0.00 :   9f017:  mov    %rcx,0x18(%rdi)
+    0.00 :   9f01b:  lea    -0x40(%rcx),%rsi
+    0.00 :   9f01f:  mov    0x18(%rdi),%r8
+    0.00 :   9f023:  mov    %r8,-0x40(%rcx)
+    0.00 :   9f027:  mov    %rsi,0x18(%rdi)
+    0.00 :   9f02b:  add    $0xffffffffffffff80,%rcx
+    0.00 :   9f02f:  add    $0xfffffffffffffffe,%rdx
+    0.00 :   9f033:  cmp    $0x3,%rdx
+    0.00 :   9f037:  jg     9f010 <expanse_trie::mutate::downgrade_l7_to_l3::<false>+0x90>
+    0.00 :   9f039:  add    $0x40,%rax
+    0.00 :   9f03d:  mov    %r14,%rsi
+    0.00 :   9f040:  xorps  %xmm0,%xmm0
+    0.00 :   9f043:  movups %xmm0,0x30(%rax)
+    0.00 :   9f047:  movups %xmm0,0x20(%rax)
+    0.00 :   9f04b:  movups %xmm0,0x10(%rax)
+    0.00 :   9f04f:  movups %xmm0,(%rax)
+    0.00 :   9f052:  movaps (%rbx),%xmm0
+    0.00 :   9f055:  movaps %xmm0,(%rax)
+    0.00 :   9f058:  movups 0x10(%rbx),%xmm0
+    0.00 :   9f05c:  movups 0x20(%rbx),%xmm1
+    0.00 :   9f060:  movups 0x30(%rbx),%xmm2
+    0.00 :   9f064:  movups %xmm0,0x10(%rax)
+    0.00 :   9f068:  movups %xmm1,0x20(%rax)
+    0.00 :   9f06c:  movups %xmm2,0x30(%rax)
+    0.00 :   9f070:  mov    0x8(%rsi),%ecx
+    0.00 :   9f073:  mov    0xb(%rsi),%edx
+    0.00 :   9f076:  mov    %edx,0xb(%rsp)
+    0.00 :   9f07a:  mov    %ecx,0x8(%rsp)
+   18.71 :   9f07e:  lock subq $0x80,0x200(%rdi)
+   21.64 :   9f08a:  lock decq 0x208(%rdi)
+    0.00 :   9f092:  mov    0x28(%rdi),%rcx
+    0.00 :   9f096:  mov    %rcx,(%rbx)
+    0.00 :   9f099:  mov    %rbx,0x28(%rdi)
+    0.00 :   9f09d:  mov    %rax,(%rsi)
+    0.00 :   9f0a0:  movb   $0x1,0xf(%rsi)
+    0.00 :   9f0a4:  mov    0x8(%rsp),%eax
+    0.00 :   9f0a8:  mov    0xb(%rsp),%ecx
+    0.00 :   9f0ac:  mov    %eax,0x8(%rsi)
+    0.00 :   9f0af:  mov    %ecx,0xb(%rsi)
+    0.00 :   9f0b2:  add    $0x10,%rsp
+    0.00 :   9f0b6:  pop    %rbx
+    0.00 :   9f0b7:  pop    %r14
+    0.00 :   9f0b9:  pop    %r15
+    0.00 :   9f0bb:  ret
+    0.00 :   9f0bc:  mov    $0x40,%edi
+    0.00 :   9f0c1:  mov    $0x1000,%esi
+    0.00 :   9f0c6:  call   *0x1e3f54(%rip)        # 283020 <_DYNAMIC+0x2c8>
+ Percent |	Source code & Disassembly of libexpanse.so.1.0.0 for cpu_core/frontend_retired.ms_flows/upp (66 samples, percent: local period)
+-----------------------------------------------------------------------------------------------------------------------------------------------
+         :
+         :
+         :
+         : 3     Disassembly of section .text:
+         :
+         : 5     000000000009df80 <expanse_trie::mutate::free_branch_node::<false>>:
+    0.00 :   9df80:  push   %rax
+    0.00 :   9df81:  test   %edx,%edx
+    0.00 :   9df83:  je     9df96 <expanse_trie::mutate::free_branch_node::<false>+0x16>
+    0.00 :   9df85:  test   %rsi,%rsi
+    0.00 :   9df88:  je     9dfc2 <expanse_trie::mutate::free_branch_node::<false>+0x42>
+    0.00 :   9df8a:  mov    $0x18,%eax
+    0.00 :   9df8f:  mov    $0x40,%ecx
+    0.00 :   9df94:  jmp    9dfa5 <expanse_trie::mutate::free_branch_node::<false>+0x25>
+    0.00 :   9df96:  test   %rsi,%rsi
+    0.00 :   9df99:  je     9dfcf <expanse_trie::mutate::free_branch_node::<false>+0x4f>
+    0.00 :   9df9b:  mov    $0x28,%eax
+    0.00 :   9dfa0:  mov    $0x80,%ecx
+   51.52 :   9dfa5:  lock sub %rcx,0x200(%rdi)
+   48.48 :   9dfad:  lock decq 0x208(%rdi)
+    0.00 :   9dfb5:  mov    (%rdi,%rax,1),%rcx
+    0.00 :   9dfb9:  mov    %rcx,(%rsi)
+    0.00 :   9dfbc:  mov    %rsi,(%rdi,%rax,1)
+    0.00 :   9dfc0:  pop    %rax
+    0.00 :   9dfc1:  ret
+    0.00 :   9dfc2:  lea    0x1dfe77(%rip),%rdi        # 27de40 <__frame_dummy_init_array_entry+0xb78>
+    0.00 :   9dfc9:  call   *0x1e52e9(%rip)        # 2832b8 <_DYNAMIC+0x560>
+    0.00 :   9dfcf:  lea    0x1dfe52(%rip),%rdi        # 27de28 <__frame_dummy_init_array_entry+0xb60>
+    0.00 :   9dfd6:  call   *0x1e52dc(%rip)        # 2832b8 <_DYNAMIC+0x560>

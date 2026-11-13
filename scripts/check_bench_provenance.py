@@ -22,9 +22,11 @@ arms measured against them, the `ordered_readers_*`, `count_cells_*` and `branch
 `provenance.estimators`, load snapshots with a busy-CPU delta and per-cell
 `rounds_raw`, **unless it is grandfathered below**.
 
-Four repository-root artifacts are governed as well, under a relative path
-prefixed `results/`: `results/baseline_comparative.json` and the `compare`
-suite's pair `results/baseline_compare.json` / `results/baseline_compare_run2.json`,
+Six repository-root artifacts are governed as well, under a relative path
+prefixed `results/`: `results/baseline_comparative.json`, the `compare`
+suite's pair `results/baseline_compare.json` / `results/baseline_compare_run2.json`
+and its trie-adversarial pair `results/baseline_compare_adversarial.json` /
+`results/baseline_compare_adversarial_run2.json` (#1693),
 the criterion harvests `scripts/bench_baseline.py` writes, and
 `results/baseline_vs_libjudy.json`, the paired-ratio series of
 `bench_vs_libjudy` (#1214). Their cells are not under
@@ -129,7 +131,8 @@ RESULTS = REPO_ROOT / "results"
 # Callgrind counts, fuel counts and pin-exposure diagnostics, which have no
 # load window to carry. The relative path a finding names is `results/<name>`.
 ROOT_ARTIFACTS = ("baseline_comparative.json", "baseline_compare.json",
-                  "baseline_compare_run2.json", "baseline_vs_libjudy.json")
+                  "baseline_compare_run2.json", "baseline_compare_adversarial.json",
+                  "baseline_compare_adversarial_run2.json", "baseline_vs_libjudy.json")
 ROOT_PREFIX = "results/"
 
 # The cell lists of a root artifact, and the raw rows each cell carries in
@@ -189,6 +192,14 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py",
     "docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py",
     "docs/benchmarks/set_algebra/scripts/harvest_domain.py",
+    # The stress-ng x Judy comparison (#1666 item 4): per-cell two-sample E/S
+    # intervals over a run's rounds, each recorded with its `ci_method`.
+    "docs/benchmarks/stressng_comparison/scripts/analyze.py",
+    "docs/benchmarks/stressng_comparison/scripts/diag_lib_ab_analyze.py",
+    "docs/benchmarks/stressng_comparison/scripts/diag_find_counters_analyze.py",
+    "docs/benchmarks/stressng_comparison/scripts/diag_layout_analyze.py",
+    "docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py",
+    "docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py",
     "scripts/bench_baseline.py",
     "scripts/bench_counters.py",
     "scripts/esp32_bench_harvest.py",
@@ -348,6 +359,15 @@ NO_ROUNDS = {
     "hot_comparison/results/baseline_string_memory_run2.json",
     "masstree_comparison/results/baseline_memory_run2.json",
     "masstree_comparison/results/baseline_string_memory_run2.json",
+    # Where one `perf record` per (shape, arm) placed its samples: shares of a
+    # single recording, published with no interval and no ratio between runs,
+    # so there are no rounds to keep. The verbatim perf text sits beside it in
+    # `ms_attribution_raw/`.
+    "stressng_comparison/results/diagnostic_ms_attribution_ref.json",
+    # The same census for the #1680 shapes: one `perf record` per (shape, arm,
+    # kind) and run, events per operation and sample shares with no interval.
+    # The perf text sits beside it in `misp_attribution_raw/`.
+    "stressng_comparison/results/diagnostic_misp_attribution_ref.json",
 }
 
 # The comparative suites this gate governs: the ones whose runners drive an
@@ -367,6 +387,9 @@ SUITES = (
     # Expanse vs patricia_tree / fast_radix_trie / qp-trie; its first artifacts
     # land with the suite, so they are judged from the first commit.
     "patricia_comparison",
+    # stress-ng as a libJudy consumer, stock vs Expanse by library swap (#1666
+    # item 4): the pre-registered pair and the old-vs-new library diagnostic.
+    "stressng_comparison",
 )
 
 # The artifact filename families this gate governs, in a suite's `results/`

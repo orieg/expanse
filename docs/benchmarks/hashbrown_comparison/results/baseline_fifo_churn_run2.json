@@ -1,0 +1,3005 @@
+{
+  "rounds": 9,
+  "cells": [
+    {
+      "batch": 128,
+      "distribution": "random",
+      "population": 100000,
+      "timed_pairs": 1048576,
+      "exact": {
+        "expanse": {
+          "bytes_per_key_built": 30.49464,
+          "bytes_per_key_churned": 32.97512
+        },
+        "hashbrown": {
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464
+        },
+        "btree": {
+          "bytes_per_key_built": 27.1776,
+          "bytes_per_key_churned": 28.4784
+        }
+      },
+      "ns_per_pair": {
+        "expanse": 81.03990936279297,
+        "hashbrown": 9.045516967773438,
+        "btree": 167.2997728983561
+      },
+      "rounds_raw": [
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 30.49464,
+          "bytes_per_key_churned": 32.97512,
+          "ns_per_pair": 81.33274459838867,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 9.009088516235352,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.1776,
+          "bytes_per_key_churned": 28.4784,
+          "ns_per_pair": 166.98608589172363,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 30.49464,
+          "bytes_per_key_churned": 32.97512,
+          "ns_per_pair": 80.8764877319336,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 9.173605918884277,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.1776,
+          "bytes_per_key_churned": 28.4784,
+          "ns_per_pair": 167.29998779296875,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 30.49464,
+          "bytes_per_key_churned": 32.97512,
+          "ns_per_pair": 81.76406383514404,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 9.027216911315918,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.1776,
+          "bytes_per_key_churned": 28.4784,
+          "ns_per_pair": 167.45110702514648,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 30.49464,
+          "bytes_per_key_churned": 32.97512,
+          "ns_per_pair": 81.49366569519043,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 8.907859802246094,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.1776,
+          "bytes_per_key_churned": 28.4784,
+          "ns_per_pair": 167.0342674255371,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 30.49464,
+          "bytes_per_key_churned": 32.97512,
+          "ns_per_pair": 80.71911144256592,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 9.144587516784668,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.1776,
+          "bytes_per_key_churned": 28.4784,
+          "ns_per_pair": 167.47465705871582,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 30.49464,
+          "bytes_per_key_churned": 32.97512,
+          "ns_per_pair": 80.71869087219238,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 8.94614028930664,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.1776,
+          "bytes_per_key_churned": 28.4784,
+          "ns_per_pair": 166.75566482543945,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 30.49464,
+          "bytes_per_key_churned": 32.97512,
+          "ns_per_pair": 81.04075813293457,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 8.948095321655273,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.1776,
+          "bytes_per_key_churned": 28.4784,
+          "ns_per_pair": 167.04059219360352,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 30.49464,
+          "bytes_per_key_churned": 32.97512,
+          "ns_per_pair": 80.62123203277588,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 9.284357070922852,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.1776,
+          "bytes_per_key_churned": 28.4784,
+          "ns_per_pair": 168.46227836608887,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 30.49464,
+          "bytes_per_key_churned": 32.97512,
+          "ns_per_pair": 80.79242992401123,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 8.968701362609863,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.1776,
+          "bytes_per_key_churned": 28.4784,
+          "ns_per_pair": 167.19331550598145,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "intervals": {
+        "ns_per_pair": {
+          "expanse": {
+            "point": 81.03990936279297,
+            "ci_lower": 80.83501296573215,
+            "ci_upper": 81.3325498369005,
+            "ci_method": "bca"
+          },
+          "hashbrown": {
+            "point": 9.045516967773438,
+            "ci_lower": 8.979402754041883,
+            "ci_upper": 9.140242364671495,
+            "ci_method": "bca"
+          },
+          "btree": {
+            "point": 167.2997728983561,
+            "ci_lower": 167.0806246863471,
+            "ci_upper": 167.72614161173502,
+            "ci_method": "bca"
+          }
+        }
+      },
+      "ratio_over_expanse": {
+        "ns_per_pair": {
+          "hashbrown": {
+            "point": 0.11162365815802956,
+            "ci_lower": 0.11061882469076637,
+            "ci_upper": 0.11293511884295176,
+            "ci_method": "bca"
+          },
+          "btree": {
+            "point": 2.0644644485336126,
+            "ci_lower": 2.0570363904378612,
+            "ci_upper": 2.0730777156444713,
+            "ci_method": "bca"
+          }
+        }
+      }
+    },
+    {
+      "batch": 128,
+      "distribution": "random",
+      "population": 4194304,
+      "timed_pairs": 1048576,
+      "exact": {
+        "expanse": {
+          "bytes_per_key_built": 28.747848510742188,
+          "bytes_per_key_churned": 30.249526977539062
+        },
+        "hashbrown": {
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266
+        },
+        "btree": {
+          "bytes_per_key_built": 27.116912841796875,
+          "bytes_per_key_churned": 28.387184143066406
+        }
+      },
+      "ns_per_pair": {
+        "expanse": 214.75724845462375,
+        "hashbrown": 31.882078382703995,
+        "btree": 530.1606651941935
+      },
+      "rounds_raw": [
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 28.747848510742188,
+          "bytes_per_key_churned": 30.249526977539062,
+          "ns_per_pair": 214.10788822174072,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 32.03336524963379,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.116912841796875,
+          "bytes_per_key_churned": 28.387184143066406,
+          "ns_per_pair": 531.8344850540161,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 28.747848510742188,
+          "bytes_per_key_churned": 30.249526977539062,
+          "ns_per_pair": 215.74898529052734,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.893670082092285,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.116912841796875,
+          "bytes_per_key_churned": 28.387184143066406,
+          "ns_per_pair": 528.6917333602905,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 28.747848510742188,
+          "bytes_per_key_churned": 30.249526977539062,
+          "ns_per_pair": 215.78632640838623,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.738956451416016,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.116912841796875,
+          "bytes_per_key_churned": 28.387184143066406,
+          "ns_per_pair": 530.3070993423462,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 28.747848510742188,
+          "bytes_per_key_churned": 30.249526977539062,
+          "ns_per_pair": 214.26883792877197,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.80847072601318,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.116912841796875,
+          "bytes_per_key_churned": 28.387184143066406,
+          "ns_per_pair": 530.4252214431763,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 28.747848510742188,
+          "bytes_per_key_churned": 30.249526977539062,
+          "ns_per_pair": 214.90715503692627,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.935177803039554,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.116912841796875,
+          "bytes_per_key_churned": 28.387184143066406,
+          "ns_per_pair": 529.10573387146,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 28.747848510742188,
+          "bytes_per_key_churned": 30.249526977539062,
+          "ns_per_pair": 214.0859603881836,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.780210494995114,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.116912841796875,
+          "bytes_per_key_churned": 28.387184143066406,
+          "ns_per_pair": 528.071213722229,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 28.747848510742188,
+          "bytes_per_key_churned": 30.249526977539062,
+          "ns_per_pair": 214.1131410598755,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.978355407714844,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.116912841796875,
+          "bytes_per_key_churned": 28.387184143066406,
+          "ns_per_pair": 530.1630554199219,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 28.747848510742188,
+          "bytes_per_key_churned": 30.249526977539062,
+          "ns_per_pair": 214.30811405181885,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.94905281066894,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.116912841796875,
+          "bytes_per_key_churned": 28.387184143066406,
+          "ns_per_pair": 532.6945753097534,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 28.747848510742188,
+          "bytes_per_key_churned": 30.249526977539062,
+          "ns_per_pair": 215.4888277053833,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.821446418762203,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 27.116912841796875,
+          "bytes_per_key_churned": 28.387184143066406,
+          "ns_per_pair": 530.1528692245483,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "intervals": {
+        "ns_per_pair": {
+          "expanse": {
+            "point": 214.75724845462375,
+            "ci_lower": 214.3469771279229,
+            "ci_upper": 215.2899628745185,
+            "ci_method": "bca"
+          },
+          "hashbrown": {
+            "point": 31.882078382703995,
+            "ci_lower": 31.82547728220622,
+            "ci_upper": 31.946517096625435,
+            "ci_method": "bca"
+          },
+          "btree": {
+            "point": 530.1606651941935,
+            "ci_lower": 529.3511248694526,
+            "ci_upper": 531.0962319903904,
+            "ci_method": "bca"
+          }
+        }
+      },
+      "ratio_over_expanse": {
+        "ns_per_pair": {
+          "hashbrown": {
+            "point": 0.14845852147863098,
+            "ci_lower": 0.14793743033583887,
+            "ci_upper": 0.14893896842231447,
+            "ci_method": "bca"
+          },
+          "btree": {
+            "point": 2.4686823817542396,
+            "ci_lower": 2.461067360483385,
+            "ci_upper": 2.476328381548935,
+            "ci_method": "bca"
+          }
+        }
+      }
+    },
+    {
+      "batch": 128,
+      "distribution": "sequential",
+      "population": 100000,
+      "timed_pairs": 1048576,
+      "exact": {
+        "expanse": {
+          "bytes_per_key_built": 9.29088,
+          "bytes_per_key_churned": 9.29344
+        },
+        "hashbrown": {
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464
+        },
+        "btree": {
+          "bytes_per_key_built": 34.28352,
+          "bytes_per_key_churned": 34.27584
+        }
+      },
+      "ns_per_pair": {
+        "expanse": 32.853851318359375,
+        "hashbrown": 9.055193371242947,
+        "btree": 57.7502326965332
+      },
+      "rounds_raw": [
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 9.29088,
+          "bytes_per_key_churned": 9.29344,
+          "ns_per_pair": 32.91644287109375,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 8.993168830871582,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.28352,
+          "bytes_per_key_churned": 34.27584,
+          "ns_per_pair": 57.771095275878906,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 9.29088,
+          "bytes_per_key_churned": 9.29344,
+          "ns_per_pair": 32.72527313232422,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 8.893157958984375,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.28352,
+          "bytes_per_key_churned": 34.27584,
+          "ns_per_pair": 57.93878173828125,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 9.29088,
+          "bytes_per_key_churned": 9.29344,
+          "ns_per_pair": 32.75641632080078,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 9.175660133361816,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.28352,
+          "bytes_per_key_churned": 34.27584,
+          "ns_per_pair": 57.67871952056885,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 9.29088,
+          "bytes_per_key_churned": 9.29344,
+          "ns_per_pair": 32.69365215301514,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 8.502263069152832,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.28352,
+          "bytes_per_key_churned": 34.27584,
+          "ns_per_pair": 57.80951690673828,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 9.29088,
+          "bytes_per_key_churned": 9.29344,
+          "ns_per_pair": 33.17026329040527,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 8.956459999084473,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.28352,
+          "bytes_per_key_churned": 34.27584,
+          "ns_per_pair": 57.78770446777344,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 9.29088,
+          "bytes_per_key_churned": 9.29344,
+          "ns_per_pair": 33.220364570617676,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 8.770181655883789,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.28352,
+          "bytes_per_key_churned": 34.27584,
+          "ns_per_pair": 57.8495397567749,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 9.29088,
+          "bytes_per_key_churned": 9.29344,
+          "ns_per_pair": 32.81180953979492,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 9.311972618103027,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.28352,
+          "bytes_per_key_churned": 34.27584,
+          "ns_per_pair": 57.701653480529785,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 9.29088,
+          "bytes_per_key_churned": 9.29344,
+          "ns_per_pair": 32.659095764160156,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 10.302229881286621,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.28352,
+          "bytes_per_key_churned": 34.27584,
+          "ns_per_pair": 57.477261543273926,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 9.29088,
+          "bytes_per_key_churned": 9.29344,
+          "ns_per_pair": 32.73134422302246,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 22.2824,
+          "bytes_per_key_churned": 44.56464,
+          "ns_per_pair": 8.591646194458008,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.28352,
+          "bytes_per_key_churned": 34.27584,
+          "ns_per_pair": 57.73782157897949,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "intervals": {
+        "ns_per_pair": {
+          "expanse": {
+            "point": 32.853851318359375,
+            "ci_lower": 32.75535562303331,
+            "ci_upper": 33.02614826626248,
+            "ci_method": "bca"
+          },
+          "hashbrown": {
+            "point": 9.055193371242947,
+            "ci_lower": 8.809429062737358,
+            "ci_upper": 9.479195382859972,
+            "ci_method": "bca"
+          },
+          "btree": {
+            "point": 57.7502326965332,
+            "ci_lower": 57.65388933817545,
+            "ci_upper": 57.81446732415093,
+            "ci_method": "bca"
+          }
+        }
+      },
+      "ratio_over_expanse": {
+        "ns_per_pair": {
+          "hashbrown": {
+            "point": 0.27565468864472265,
+            "ci_lower": 0.26792026560127435,
+            "ci_upper": 0.2893211043457992,
+            "ci_method": "bca"
+          },
+          "btree": {
+            "point": 1.7578457481105705,
+            "ci_lower": 1.7504504104161023,
+            "ci_upper": 1.7634203492948766,
+            "ci_method": "bca"
+          }
+        }
+      }
+    },
+    {
+      "batch": 128,
+      "distribution": "sequential",
+      "population": 4194304,
+      "timed_pairs": 1048576,
+      "exact": {
+        "expanse": {
+          "bytes_per_key_built": 8.596923828125,
+          "bytes_per_key_churned": 8.596923828125
+        },
+        "hashbrown": {
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266
+        },
+        "btree": {
+          "bytes_per_key_built": 34.285606384277344,
+          "bytes_per_key_churned": 34.28533172607422
+        }
+      },
+      "ns_per_pair": {
+        "expanse": 37.091033299764,
+        "hashbrown": 32.266961415608726,
+        "btree": 69.09210628933377
+      },
+      "rounds_raw": [
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 8.596923828125,
+          "bytes_per_key_churned": 8.596923828125,
+          "ns_per_pair": 39.57154846191406,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 33.11308479309082,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.285606384277344,
+          "bytes_per_key_churned": 34.28533172607422,
+          "ns_per_pair": 69.04240703582764,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=0",
+            "wall_s": 7.762,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 8.596923828125,
+          "bytes_per_key_churned": 8.596923828125,
+          "ns_per_pair": 36.02021884918213,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.979926109313965,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.285606384277344,
+          "bytes_per_key_churned": 34.28533172607422,
+          "ns_per_pair": 69.18819999694824,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=1",
+            "wall_s": 7.7,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 8.596923828125,
+          "bytes_per_key_churned": 8.596923828125,
+          "ns_per_pair": 36.05820560455322,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 32.08078098297119,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.285606384277344,
+          "bytes_per_key_churned": 34.28533172607422,
+          "ns_per_pair": 69.11346912384033,
+          "round": 2,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=2",
+            "wall_s": 7.707,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 8.596923828125,
+          "bytes_per_key_churned": 8.596923828125,
+          "ns_per_pair": 36.170668601989746,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.418161392211914,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.285606384277344,
+          "bytes_per_key_churned": 34.28533172607422,
+          "ns_per_pair": 68.96573829650879,
+          "round": 3,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=3",
+            "wall_s": 7.724,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 8.596923828125,
+          "bytes_per_key_churned": 8.596923828125,
+          "ns_per_pair": 40.73746871948242,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 33.568857192993164,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.285606384277344,
+          "bytes_per_key_churned": 34.28533172607422,
+          "ns_per_pair": 69.4135627746582,
+          "round": 4,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=4",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 8.596923828125,
+          "bytes_per_key_churned": 8.596923828125,
+          "ns_per_pair": 36.91541862487793,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.811119079589844,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.285606384277344,
+          "bytes_per_key_churned": 34.28533172607422,
+          "ns_per_pair": 68.93968296051025,
+          "round": 5,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=5",
+            "wall_s": 7.701,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 8.596923828125,
+          "bytes_per_key_churned": 8.596923828125,
+          "ns_per_pair": 36.17695426940918,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 32.47533893585205,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.285606384277344,
+          "bytes_per_key_churned": 34.28533172607422,
+          "ns_per_pair": 68.90832901000977,
+          "round": 6,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=6",
+            "wall_s": 7.73,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 8.596923828125,
+          "bytes_per_key_churned": 8.596923828125,
+          "ns_per_pair": 35.984540939331055,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 32.26789951324463,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.285606384277344,
+          "bytes_per_key_churned": 34.28533172607422,
+          "ns_per_pair": 69.23420143127441,
+          "round": 7,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=7",
+            "wall_s": 7.711,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "bytes_per_key_built": 8.596923828125,
+          "bytes_per_key_churned": 8.596923828125,
+          "ns_per_pair": 36.18427562713623,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "bytes_per_key_built": 34.000003814697266,
+          "bytes_per_key_churned": 34.000003814697266,
+          "ns_per_pair": 31.687484741210938,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "btree",
+          "bytes_per_key_built": 34.285606384277344,
+          "bytes_per_key_churned": 34.28533172607422,
+          "ns_per_pair": 69.02336597442627,
+          "round": 8,
+          "load": {
+            "since": "cell:hashbrown_fifo_churn/round=8",
+            "wall_s": 7.699,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "intervals": {
+        "ns_per_pair": {
+          "expanse": {
+            "point": 37.091033299764,
+            "ci_lower": 36.2341611650255,
+            "ci_upper": 38.706335597568085,
+            "ci_method": "bca"
+          },
+          "hashbrown": {
+            "point": 32.266961415608726,
+            "ci_lower": 31.938874668545193,
+            "ci_upper": 32.768120447794594,
+            "ci_method": "bca"
+          },
+          "btree": {
+            "point": 69.09210628933377,
+            "ci_lower": 69.00811661614313,
+            "ci_upper": 69.20412169562445,
+            "ci_method": "bca"
+          }
+        }
+      },
+      "ratio_over_expanse": {
+        "ns_per_pair": {
+          "hashbrown": {
+            "point": 0.8709784547363739,
+            "ci_lower": 0.8495637640525601,
+            "ci_upper": 0.8839471369169282,
+            "ci_method": "bca"
+          },
+          "btree": {
+            "point": 1.866299472649342,
+            "ci_lower": 1.7846899952881192,
+            "ci_upper": 1.9041677620002235,
+            "ci_method": "bca"
+          }
+        }
+      }
+    }
+  ],
+  "provenance": {
+    "suite": "hashbrown_comparison",
+    "commit": "cc70a809",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "performance",
+      "scaling_governor_by_cpu": {
+        "0": "performance",
+        "1": "performance",
+        "2": "performance",
+        "3": "performance",
+        "4": "performance",
+        "5": "performance",
+        "6": "performance",
+        "7": "performance",
+        "8": "performance",
+        "9": "performance",
+        "10": "performance",
+        "11": "performance",
+        "12": "performance",
+        "13": "performance",
+        "14": "performance",
+        "15": "performance"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "paired per round: for throughput (`ratios`), Expanse over the named competitor, above 1 = Expanse faster; for tail latency (`ratio_over_expanse`), the competitor over Expanse, above 1 = Expanse lower. The point is the mean of the per-round quotients with its BCa 95% interval, which is not the quotient of the two per-arm means",
+      "columns": "each published per-arm figure (mops, ns_per_op, mops_items, insert_mops, lookup_mops, lookup_shuffled_mops, lookup_miss_mops, and the tail-latency percentiles) is the mean over the cell's rounds of that round's value; `intervals` holds the same mean with its BCa 95% interval. The memory census publishes exact live-heap bytes per key, one count per cell",
+      "raw": "every timed cell carries rounds_raw, the per-round rows verbatim; the memory census (under `memory`) has no rounds"
+    },
+    "core_pin": "0-15",
+    "quick": false,
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 0.61,
+        "load5": 0.61,
+        "load15": 0.48,
+        "at": "2026-11-12T02:54:54Z",
+        "stat_busy_jiffies": 61358297,
+        "stat_total_jiffies": 5601710006,
+        "child_cpu_s": 0.001,
+        "monotonic_s": 2334920.541,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "cell:hashbrown_native_suite/round=0",
+        "since": "start",
+        "load1": 2.17,
+        "load5": 1.0,
+        "load15": 0.61,
+        "at": "2026-11-12T02:55:15Z",
+        "stat_busy_jiffies": 61367637,
+        "stat_total_jiffies": 5601759982,
+        "child_cpu_s": 92.616,
+        "monotonic_s": 2334941.395,
+        "busy_cpus_since_prev": 4.49,
+        "own_busy_cpus_since_prev": 4.44,
+        "foreign_busy_cpus_since_prev": 0.05
+      },
+      {
+        "label": "cell:hashbrown_native_suite/round=1",
+        "since": "cell:hashbrown_native_suite/round=0",
+        "load1": 2.17,
+        "load5": 1.0,
+        "load15": 0.61,
+        "at": "2026-11-12T02:55:16Z",
+        "stat_busy_jiffies": 61367708,
+        "stat_total_jiffies": 5601761569,
+        "child_cpu_s": 93.277,
+        "monotonic_s": 2334942.056,
+        "busy_cpus_since_prev": 1.07,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.07
+      },
+      {
+        "label": "cell:hashbrown_native_suite/round=2",
+        "since": "cell:hashbrown_native_suite/round=1",
+        "load1": 2.07,
+        "load5": 1.0,
+        "load15": 0.61,
+        "at": "2026-11-12T02:55:16Z",
+        "stat_busy_jiffies": 61367776,
+        "stat_total_jiffies": 5601763184,
+        "child_cpu_s": 93.951,
+        "monotonic_s": 2334942.729,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:hashbrown_native_suite/round=3",
+        "since": "cell:hashbrown_native_suite/round=2",
+        "load1": 2.07,
+        "load5": 1.0,
+        "load15": 0.61,
+        "at": "2026-11-12T02:55:17Z",
+        "stat_busy_jiffies": 61367843,
+        "stat_total_jiffies": 5601764765,
+        "child_cpu_s": 94.61,
+        "monotonic_s": 2334943.388,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_native_suite/round=4",
+        "since": "cell:hashbrown_native_suite/round=3",
+        "load1": 2.07,
+        "load5": 1.0,
+        "load15": 0.61,
+        "at": "2026-11-12T02:55:18Z",
+        "stat_busy_jiffies": 61367911,
+        "stat_total_jiffies": 5601766351,
+        "child_cpu_s": 95.272,
+        "monotonic_s": 2334944.05,
+        "busy_cpus_since_prev": 1.03,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "cell:hashbrown_native_suite/round=5",
+        "since": "cell:hashbrown_native_suite/round=4",
+        "load1": 2.07,
+        "load5": 1.0,
+        "load15": 0.61,
+        "at": "2026-11-12T02:55:18Z",
+        "stat_busy_jiffies": 61367979,
+        "stat_total_jiffies": 5601767961,
+        "child_cpu_s": 95.943,
+        "monotonic_s": 2334944.721,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:hashbrown_native_suite/round=6",
+        "since": "cell:hashbrown_native_suite/round=5",
+        "load1": 2.07,
+        "load5": 1.0,
+        "load15": 0.61,
+        "at": "2026-11-12T02:55:19Z",
+        "stat_busy_jiffies": 61368045,
+        "stat_total_jiffies": 5601769539,
+        "child_cpu_s": 96.602,
+        "monotonic_s": 2334945.379,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:hashbrown_native_suite/round=7",
+        "since": "cell:hashbrown_native_suite/round=6",
+        "load1": 2.07,
+        "load5": 1.0,
+        "load15": 0.61,
+        "at": "2026-11-12T02:55:20Z",
+        "stat_busy_jiffies": 61368114,
+        "stat_total_jiffies": 5601771120,
+        "child_cpu_s": 97.262,
+        "monotonic_s": 2334946.038,
+        "busy_cpus_since_prev": 1.05,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.05
+      },
+      {
+        "label": "cell:hashbrown_native_suite/round=8",
+        "since": "cell:hashbrown_native_suite/round=7",
+        "load1": 2.07,
+        "load5": 1.0,
+        "load15": 0.61,
+        "at": "2026-11-12T02:55:20Z",
+        "stat_busy_jiffies": 61368183,
+        "stat_total_jiffies": 5601772741,
+        "child_cpu_s": 97.938,
+        "monotonic_s": 2334946.714,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_tail_latency/round=0",
+        "since": "cell:hashbrown_native_suite/round=8",
+        "load1": 1.99,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:24Z",
+        "stat_busy_jiffies": 61368799,
+        "stat_total_jiffies": 5601780802,
+        "child_cpu_s": 103.681,
+        "monotonic_s": 2334950.076,
+        "busy_cpus_since_prev": 1.83,
+        "own_busy_cpus_since_prev": 1.71,
+        "foreign_busy_cpus_since_prev": 0.12
+      },
+      {
+        "label": "cell:hashbrown_tail_latency/round=1",
+        "since": "cell:hashbrown_tail_latency/round=0",
+        "load1": 1.99,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:24Z",
+        "stat_busy_jiffies": 61368841,
+        "stat_total_jiffies": 5601781742,
+        "child_cpu_s": 104.073,
+        "monotonic_s": 2334950.468,
+        "busy_cpus_since_prev": 1.07,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.07
+      },
+      {
+        "label": "cell:hashbrown_tail_latency/round=2",
+        "since": "cell:hashbrown_tail_latency/round=1",
+        "load1": 1.99,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:24Z",
+        "stat_busy_jiffies": 61368880,
+        "stat_total_jiffies": 5601782676,
+        "child_cpu_s": 104.463,
+        "monotonic_s": 2334950.857,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:hashbrown_tail_latency/round=3",
+        "since": "cell:hashbrown_tail_latency/round=2",
+        "load1": 1.99,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:25Z",
+        "stat_busy_jiffies": 61368919,
+        "stat_total_jiffies": 5601783614,
+        "child_cpu_s": 104.855,
+        "monotonic_s": 2334951.248,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:hashbrown_tail_latency/round=4",
+        "since": "cell:hashbrown_tail_latency/round=3",
+        "load1": 1.99,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:25Z",
+        "stat_busy_jiffies": 61368958,
+        "stat_total_jiffies": 5601784552,
+        "child_cpu_s": 105.247,
+        "monotonic_s": 2334951.639,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:hashbrown_tail_latency/round=5",
+        "since": "cell:hashbrown_tail_latency/round=4",
+        "load1": 1.99,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:26Z",
+        "stat_busy_jiffies": 61369001,
+        "stat_total_jiffies": 5601785496,
+        "child_cpu_s": 105.641,
+        "monotonic_s": 2334952.033,
+        "busy_cpus_since_prev": 1.09,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.09
+      },
+      {
+        "label": "cell:hashbrown_tail_latency/round=6",
+        "since": "cell:hashbrown_tail_latency/round=5",
+        "load1": 1.91,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:26Z",
+        "stat_busy_jiffies": 61369041,
+        "stat_total_jiffies": 5601786435,
+        "child_cpu_s": 106.032,
+        "monotonic_s": 2334952.424,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_tail_latency/round=7",
+        "since": "cell:hashbrown_tail_latency/round=6",
+        "load1": 1.91,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:26Z",
+        "stat_busy_jiffies": 61369080,
+        "stat_total_jiffies": 5601787369,
+        "child_cpu_s": 106.422,
+        "monotonic_s": 2334952.814,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:hashbrown_tail_latency/round=8",
+        "since": "cell:hashbrown_tail_latency/round=7",
+        "load1": 1.91,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:27Z",
+        "stat_busy_jiffies": 61369119,
+        "stat_total_jiffies": 5601788302,
+        "child_cpu_s": 106.811,
+        "monotonic_s": 2334953.203,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:hashbrown_container_dists/round=0",
+        "since": "cell:hashbrown_tail_latency/round=8",
+        "load1": 1.91,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:30Z",
+        "stat_busy_jiffies": 61369706,
+        "stat_total_jiffies": 5601795509,
+        "child_cpu_s": 112.388,
+        "monotonic_s": 2334956.209,
+        "busy_cpus_since_prev": 1.95,
+        "own_busy_cpus_since_prev": 1.86,
+        "foreign_busy_cpus_since_prev": 0.09
+      },
+      {
+        "label": "cell:hashbrown_container_dists/round=1",
+        "since": "cell:hashbrown_container_dists/round=0",
+        "load1": 1.83,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:32Z",
+        "stat_busy_jiffies": 61369956,
+        "stat_total_jiffies": 5601801401,
+        "child_cpu_s": 114.844,
+        "monotonic_s": 2334958.664,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_container_dists/round=2",
+        "since": "cell:hashbrown_container_dists/round=1",
+        "load1": 1.83,
+        "load5": 1.0,
+        "load15": 0.62,
+        "at": "2026-11-12T02:55:35Z",
+        "stat_busy_jiffies": 61370203,
+        "stat_total_jiffies": 5601807236,
+        "child_cpu_s": 117.275,
+        "monotonic_s": 2334961.096,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_container_dists/round=3",
+        "since": "cell:hashbrown_container_dists/round=2",
+        "load1": 1.85,
+        "load5": 1.02,
+        "load15": 0.63,
+        "at": "2026-11-12T02:55:37Z",
+        "stat_busy_jiffies": 61370457,
+        "stat_total_jiffies": 5601813254,
+        "child_cpu_s": 119.783,
+        "monotonic_s": 2334963.604,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:hashbrown_container_dists/round=4",
+        "since": "cell:hashbrown_container_dists/round=3",
+        "load1": 1.85,
+        "load5": 1.02,
+        "load15": 0.63,
+        "at": "2026-11-12T02:55:40Z",
+        "stat_busy_jiffies": 61370709,
+        "stat_total_jiffies": 5601819152,
+        "child_cpu_s": 122.242,
+        "monotonic_s": 2334966.062,
+        "busy_cpus_since_prev": 1.03,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "cell:hashbrown_container_dists/round=5",
+        "since": "cell:hashbrown_container_dists/round=4",
+        "load1": 1.78,
+        "load5": 1.02,
+        "load15": 0.63,
+        "at": "2026-11-12T02:55:42Z",
+        "stat_busy_jiffies": 61370958,
+        "stat_total_jiffies": 5601824982,
+        "child_cpu_s": 124.672,
+        "monotonic_s": 2334968.492,
+        "busy_cpus_since_prev": 1.03,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "cell:hashbrown_container_dists/round=6",
+        "since": "cell:hashbrown_container_dists/round=5",
+        "load1": 1.78,
+        "load5": 1.02,
+        "load15": 0.63,
+        "at": "2026-11-12T02:55:45Z",
+        "stat_busy_jiffies": 61371211,
+        "stat_total_jiffies": 5601830999,
+        "child_cpu_s": 127.18,
+        "monotonic_s": 2334971.0,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:hashbrown_container_dists/round=7",
+        "since": "cell:hashbrown_container_dists/round=6",
+        "load1": 1.72,
+        "load5": 1.02,
+        "load15": 0.63,
+        "at": "2026-11-12T02:55:47Z",
+        "stat_busy_jiffies": 61371461,
+        "stat_total_jiffies": 5601836891,
+        "child_cpu_s": 129.635,
+        "monotonic_s": 2334973.455,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_container_dists/round=8",
+        "since": "cell:hashbrown_container_dists/round=7",
+        "load1": 1.72,
+        "load5": 1.02,
+        "load15": 0.63,
+        "at": "2026-11-12T02:55:49Z",
+        "stat_busy_jiffies": 61371708,
+        "stat_total_jiffies": 5601842729,
+        "child_cpu_s": 132.069,
+        "monotonic_s": 2334975.888,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_memory_alloc",
+        "since": "cell:hashbrown_container_dists/round=8",
+        "load1": 1.66,
+        "load5": 1.02,
+        "load15": 0.64,
+        "at": "2026-11-12T02:55:55Z",
+        "stat_busy_jiffies": 61372536,
+        "stat_total_jiffies": 5601856560,
+        "child_cpu_s": 139.248,
+        "monotonic_s": 2334981.654,
+        "busy_cpus_since_prev": 1.44,
+        "own_busy_cpus_since_prev": 1.25,
+        "foreign_busy_cpus_since_prev": 0.19
+      },
+      {
+        "label": "cell:hashbrown_pop_sweep/round=0",
+        "since": "cell:hashbrown_memory_alloc",
+        "load1": 1.61,
+        "load5": 1.01,
+        "load15": 0.64,
+        "at": "2026-11-12T02:55:58Z",
+        "stat_busy_jiffies": 61373075,
+        "stat_total_jiffies": 5601862986,
+        "child_cpu_s": 144.585,
+        "monotonic_s": 2334984.333,
+        "busy_cpus_since_prev": 2.01,
+        "own_busy_cpus_since_prev": 1.99,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_pop_sweep/round=1",
+        "since": "cell:hashbrown_pop_sweep/round=0",
+        "load1": 1.5,
+        "load5": 1.03,
+        "load15": 0.65,
+        "at": "2026-11-12T02:56:17Z",
+        "stat_busy_jiffies": 61375004,
+        "stat_total_jiffies": 5601908513,
+        "child_cpu_s": 163.557,
+        "monotonic_s": 2335003.306,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_pop_sweep/round=2",
+        "since": "cell:hashbrown_pop_sweep/round=1",
+        "load1": 1.35,
+        "load5": 1.03,
+        "load15": 0.66,
+        "at": "2026-11-12T02:56:36Z",
+        "stat_busy_jiffies": 61376926,
+        "stat_total_jiffies": 5601953963,
+        "child_cpu_s": 182.496,
+        "monotonic_s": 2335022.247,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:hashbrown_pop_sweep/round=3",
+        "since": "cell:hashbrown_pop_sweep/round=2",
+        "load1": 1.28,
+        "load5": 1.03,
+        "load15": 0.67,
+        "at": "2026-11-12T02:56:55Z",
+        "stat_busy_jiffies": 61378844,
+        "stat_total_jiffies": 5601999314,
+        "child_cpu_s": 201.395,
+        "monotonic_s": 2335041.148,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_pop_sweep/round=4",
+        "since": "cell:hashbrown_pop_sweep/round=3",
+        "load1": 1.2,
+        "load5": 1.02,
+        "load15": 0.67,
+        "at": "2026-11-12T02:57:14Z",
+        "stat_busy_jiffies": 61380774,
+        "stat_total_jiffies": 5602044933,
+        "child_cpu_s": 220.404,
+        "monotonic_s": 2335060.16,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_pop_sweep/round=5",
+        "since": "cell:hashbrown_pop_sweep/round=4",
+        "load1": 1.14,
+        "load5": 1.02,
+        "load15": 0.68,
+        "at": "2026-11-12T02:57:33Z",
+        "stat_busy_jiffies": 61382689,
+        "stat_total_jiffies": 5602090212,
+        "child_cpu_s": 239.273,
+        "monotonic_s": 2335079.03,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_pop_sweep/round=6",
+        "since": "cell:hashbrown_pop_sweep/round=5",
+        "load1": 1.1,
+        "load5": 1.02,
+        "load15": 0.69,
+        "at": "2026-11-12T02:57:51Z",
+        "stat_busy_jiffies": 61384611,
+        "stat_total_jiffies": 5602135669,
+        "child_cpu_s": 258.215,
+        "monotonic_s": 2335097.974,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:hashbrown_pop_sweep/round=7",
+        "since": "cell:hashbrown_pop_sweep/round=6",
+        "load1": 1.08,
+        "load5": 1.02,
+        "load15": 0.69,
+        "at": "2026-11-12T02:58:10Z",
+        "stat_busy_jiffies": 61386532,
+        "stat_total_jiffies": 5602181018,
+        "child_cpu_s": 277.112,
+        "monotonic_s": 2335116.873,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_pop_sweep/round=8",
+        "since": "cell:hashbrown_pop_sweep/round=7",
+        "load1": 1.05,
+        "load5": 1.02,
+        "load15": 0.7,
+        "at": "2026-11-12T02:58:29Z",
+        "stat_busy_jiffies": 61388441,
+        "stat_total_jiffies": 5602226245,
+        "child_cpu_s": 295.958,
+        "monotonic_s": 2335135.722,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:hashbrown_fifo_churn/round=0",
+        "since": "cell:hashbrown_pop_sweep/round=8",
+        "load1": 1.03,
+        "load5": 1.01,
+        "load15": 0.71,
+        "at": "2026-11-12T02:58:55Z",
+        "stat_busy_jiffies": 61391386,
+        "stat_total_jiffies": 5602288532,
+        "child_cpu_s": 320.47,
+        "monotonic_s": 2335161.68,
+        "busy_cpus_since_prev": 1.13,
+        "own_busy_cpus_since_prev": 0.94,
+        "foreign_busy_cpus_since_prev": 0.19
+      },
+      {
+        "label": "cell:hashbrown_fifo_churn/round=1",
+        "since": "cell:hashbrown_fifo_churn/round=0",
+        "load1": 1.03,
+        "load5": 1.01,
+        "load15": 0.72,
+        "at": "2026-11-12T02:59:03Z",
+        "stat_busy_jiffies": 61392179,
+        "stat_total_jiffies": 5602307301,
+        "child_cpu_s": 328.292,
+        "monotonic_s": 2335169.503,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:hashbrown_fifo_churn/round=2",
+        "since": "cell:hashbrown_fifo_churn/round=1",
+        "load1": 1.02,
+        "load5": 1.01,
+        "load15": 0.72,
+        "at": "2026-11-12T02:59:11Z",
+        "stat_busy_jiffies": 61392966,
+        "stat_total_jiffies": 5602325925,
+        "child_cpu_s": 336.054,
+        "monotonic_s": 2335177.264,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:hashbrown_fifo_churn/round=3",
+        "since": "cell:hashbrown_fifo_churn/round=2",
+        "load1": 1.02,
+        "load5": 1.01,
+        "load15": 0.72,
+        "at": "2026-11-12T02:59:19Z",
+        "stat_busy_jiffies": 61393754,
+        "stat_total_jiffies": 5602344568,
+        "child_cpu_s": 343.824,
+        "monotonic_s": 2335185.034,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:hashbrown_fifo_churn/round=4",
+        "since": "cell:hashbrown_fifo_churn/round=3",
+        "load1": 1.02,
+        "load5": 1.01,
+        "load15": 0.73,
+        "at": "2026-11-12T02:59:26Z",
+        "stat_busy_jiffies": 61394548,
+        "stat_total_jiffies": 5602363254,
+        "child_cpu_s": 351.609,
+        "monotonic_s": 2335192.821,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_fifo_churn/round=5",
+        "since": "cell:hashbrown_fifo_churn/round=4",
+        "load1": 1.02,
+        "load5": 1.01,
+        "load15": 0.73,
+        "at": "2026-11-12T02:59:34Z",
+        "stat_busy_jiffies": 61395339,
+        "stat_total_jiffies": 5602381949,
+        "child_cpu_s": 359.401,
+        "monotonic_s": 2335200.613,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_fifo_churn/round=6",
+        "since": "cell:hashbrown_fifo_churn/round=5",
+        "load1": 1.01,
+        "load5": 1.01,
+        "load15": 0.73,
+        "at": "2026-11-12T02:59:42Z",
+        "stat_busy_jiffies": 61396128,
+        "stat_total_jiffies": 5602400576,
+        "child_cpu_s": 367.163,
+        "monotonic_s": 2335208.375,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_fifo_churn/round=7",
+        "since": "cell:hashbrown_fifo_churn/round=6",
+        "load1": 1.09,
+        "load5": 1.03,
+        "load15": 0.74,
+        "at": "2026-11-12T02:59:50Z",
+        "stat_busy_jiffies": 61396919,
+        "stat_total_jiffies": 5602419269,
+        "child_cpu_s": 374.954,
+        "monotonic_s": 2335216.166,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:hashbrown_fifo_churn/round=8",
+        "since": "cell:hashbrown_fifo_churn/round=7",
+        "load1": 1.08,
+        "load5": 1.02,
+        "load15": 0.74,
+        "at": "2026-11-12T02:59:57Z",
+        "stat_busy_jiffies": 61397708,
+        "stat_total_jiffies": 5602437926,
+        "child_cpu_s": 382.728,
+        "monotonic_s": 2335223.941,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "end",
+        "since": "cell:hashbrown_fifo_churn/round=8",
+        "load1": 1.07,
+        "load5": 1.02,
+        "load15": 0.74,
+        "at": "2026-11-12T03:00:05Z",
+        "stat_busy_jiffies": 61398500,
+        "stat_total_jiffies": 5602456674,
+        "child_cpu_s": 390.425,
+        "monotonic_s": 2335231.755,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 0.99,
+        "foreign_busy_cpus_since_prev": 0.02
+      }
+    ],
+    "load_windows": true,
+    "windows": [
+      {
+        "id": "hashbrown_native_suite/round=0",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=0",
+          "wall_s": 0.6,
+          "busy_cpus_since_prev": 1.07,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.07
+        }
+      },
+      {
+        "id": "hashbrown_native_suite/round=1",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=1",
+          "wall_s": 0.613,
+          "busy_cpus_since_prev": 1.0,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.0
+        }
+      },
+      {
+        "id": "hashbrown_native_suite/round=2",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=2",
+          "wall_s": 0.598,
+          "busy_cpus_since_prev": 1.0,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.0
+        }
+      },
+      {
+        "id": "hashbrown_native_suite/round=3",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=3",
+          "wall_s": 0.6,
+          "busy_cpus_since_prev": 1.03,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.03
+        }
+      },
+      {
+        "id": "hashbrown_native_suite/round=4",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=4",
+          "wall_s": 0.61,
+          "busy_cpus_since_prev": 1.0,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.0
+        }
+      },
+      {
+        "id": "hashbrown_native_suite/round=5",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=5",
+          "wall_s": 0.596,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_native_suite/round=6",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=6",
+          "wall_s": 0.597,
+          "busy_cpus_since_prev": 1.04,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.04
+        }
+      },
+      {
+        "id": "hashbrown_native_suite/round=7",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=7",
+          "wall_s": 0.613,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_native_suite/round=8",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=8",
+          "wall_s": 0.599,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=0",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=0",
+          "wall_s": 0.331,
+          "busy_cpus_since_prev": 1.03,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.03
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=1",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=1",
+          "wall_s": 0.328,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=2",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=2",
+          "wall_s": 0.33,
+          "busy_cpus_since_prev": 1.0,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.0
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=3",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=3",
+          "wall_s": 0.33,
+          "busy_cpus_since_prev": 1.0,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.0
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=4",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=4",
+          "wall_s": 0.332,
+          "busy_cpus_since_prev": 1.09,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.09
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=5",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=5",
+          "wall_s": 0.331,
+          "busy_cpus_since_prev": 1.03,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.03
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=6",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=6",
+          "wall_s": 0.329,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=7",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=7",
+          "wall_s": 0.328,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=8",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=8",
+          "wall_s": 0.33,
+          "busy_cpus_since_prev": 1.0,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.0
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=0",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=0",
+          "wall_s": 2.394,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=1",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=1",
+          "wall_s": 2.369,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=2",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=2",
+          "wall_s": 2.446,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=3",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=3",
+          "wall_s": 2.397,
+          "busy_cpus_since_prev": 1.03,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.03
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=4",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=4",
+          "wall_s": 2.367,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=5",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=5",
+          "wall_s": 2.446,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=6",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=6",
+          "wall_s": 2.394,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=7",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=7",
+          "wall_s": 2.372,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=8",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=8",
+          "wall_s": 2.441,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_memory_alloc",
+        "load": {
+          "since": "cell:hashbrown_memory_alloc",
+          "wall_s": 0.163,
+          "busy_cpus_since_prev": 0.98,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": -0.02
+        }
+      },
+      {
+        "id": "hashbrown_pop_sweep/round=0",
+        "load": {
+          "since": "cell:hashbrown_pop_sweep/round=0",
+          "wall_s": 18.912,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_pop_sweep/round=1",
+        "load": {
+          "since": "cell:hashbrown_pop_sweep/round=1",
+          "wall_s": 18.879,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_pop_sweep/round=2",
+        "load": {
+          "since": "cell:hashbrown_pop_sweep/round=2",
+          "wall_s": 18.837,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_pop_sweep/round=3",
+        "load": {
+          "since": "cell:hashbrown_pop_sweep/round=3",
+          "wall_s": 18.95,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_pop_sweep/round=4",
+        "load": {
+          "since": "cell:hashbrown_pop_sweep/round=4",
+          "wall_s": 18.809,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_pop_sweep/round=5",
+        "load": {
+          "since": "cell:hashbrown_pop_sweep/round=5",
+          "wall_s": 18.882,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_pop_sweep/round=6",
+        "load": {
+          "since": "cell:hashbrown_pop_sweep/round=6",
+          "wall_s": 18.837,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_pop_sweep/round=7",
+        "load": {
+          "since": "cell:hashbrown_pop_sweep/round=7",
+          "wall_s": 18.787,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_pop_sweep/round=8",
+        "load": {
+          "since": "cell:hashbrown_pop_sweep/round=8",
+          "wall_s": 18.772,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_fifo_churn/round=0",
+        "load": {
+          "since": "cell:hashbrown_fifo_churn/round=0",
+          "wall_s": 7.762,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_fifo_churn/round=1",
+        "load": {
+          "since": "cell:hashbrown_fifo_churn/round=1",
+          "wall_s": 7.7,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_fifo_churn/round=2",
+        "load": {
+          "since": "cell:hashbrown_fifo_churn/round=2",
+          "wall_s": 7.707,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_fifo_churn/round=3",
+        "load": {
+          "since": "cell:hashbrown_fifo_churn/round=3",
+          "wall_s": 7.724,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_fifo_churn/round=4",
+        "load": {
+          "since": "cell:hashbrown_fifo_churn/round=4",
+          "wall_s": 7.73,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_fifo_churn/round=5",
+        "load": {
+          "since": "cell:hashbrown_fifo_churn/round=5",
+          "wall_s": 7.701,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_fifo_churn/round=6",
+        "load": {
+          "since": "cell:hashbrown_fifo_churn/round=6",
+          "wall_s": 7.73,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_fifo_churn/round=7",
+        "load": {
+          "since": "cell:hashbrown_fifo_churn/round=7",
+          "wall_s": 7.711,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_fifo_churn/round=8",
+        "load": {
+          "since": "cell:hashbrown_fifo_churn/round=8",
+          "wall_s": 7.699,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      }
+    ]
+  }
+}
