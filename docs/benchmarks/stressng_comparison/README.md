@@ -1371,6 +1371,22 @@ On `sm_default` the table removes 0.13–0.14 mispredicts per get, and M's `cap_
 
 **Not run.** The verdict was FAIL before them, so the `compare` pairings, the second host and the `concurrency` report were not run for this change.
 
+## Diagnostic: the 4 Mi phases on main
+
+**A diagnostic, not a pre-registered result** (#1679, #1680). The 4 Mi inserts and deletes stay below stock on main (#1679's criterion on main, and #1721's 4 Mi insert cells). The last phase counters on these shapes measured `6ec29a656`. Those runs also show something no reading has addressed: E's L1D-miss loads per insert range over 2.29–5.22 between processes on the same keys, while stock's stay at 2.08–2.81 (`results/diagnostic_phase_counters_ref_run{1,2}.json`, `phase_judy_4m`). This re-takes the counters on main before any attribution.
+
+**Design, fixed before the run** (`scripts/diag_phase_counters.py` with `SNG_PHASE_SET=big_main`, `run.sh <run> <host> phase_big_main`):
+- **Arms.** N, main's library at the commit `SNG_MAIN` names, built by `scripts/build_layout_lib.sh` and hash-recorded; E, the published comparison's library (`da5814a7…`); S, stock (`76f121a8…`).
+- **Shapes.** `judy_4m` (4,194,304 inserts of `gen_index(i)`) and `del_4m` (the same keys, inserted and then deleted in reverse order, the deletes measured), one repetition each.
+- **Counters.** The phase-counter diagnostic's groups (`mem`, `stall`, `l3`, `fe`), each in its own process beside the fixed `cycles` and `instructions`. 12 rounds per run over the six arm orders. Two runs on the reference host under the host bench lock and the comparison's pin.
+
+**Reading rule:**
+- Per shape and counter, N/S and N/E as that diagnostic computes them (BCa 95% on the ratio of means), and the events per operation.
+- **Spread:** per arm, the range of each process's L1D-miss loads and cycles per operation. N's spread *persists* if, in both runs, N's L1D-miss range is wider than twice S's.
+- No verdict and no engine change. If N's spread persists, the next diagnostic records, per process, what could vary between processes with identical keys and code (huge-page backing of the allocator's pages and their alignment). It is designed and committed before it runs.
+
+**Expected** (projected): N/S cycles per insert above 1 on `judy_4m`, as on E. Whether the spread persists on main is not predicted.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

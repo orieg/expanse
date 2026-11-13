@@ -2,7 +2,7 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution|misp_increment|sm_main|increment]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution|misp_increment|phase_big_main|sm_main|increment]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
@@ -119,6 +119,9 @@ case "${MODE}" in
                 "${SNG_D}/results/diag_promote2_${HOST_LABEL}_run${RUN}" ;;
   sm_main)    SNG_DELETE_SET=sm_main python3 "${SCRIPT_DIR}/scripts/diag_delete.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_sm_main_${HOST_LABEL}_run${RUN}" ;;
+  # The 4 Mi insert and delete phases on main (SNG_MAIN; library built first).
+  phase_big_main) SNG_PHASE_SET=big_main python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_big_main_${SNG_MAIN:?}_${HOST_LABEL}_run${RUN}" ;;
   ms_attribution) SNG_PHASE_SET=delete_ms python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_ms_attribution_${HOST_LABEL}_run${RUN}" ;;
   misp_attribution) SNG_ATTR=misp SNG_PHASE_SET=gets_main python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \
