@@ -40,6 +40,14 @@
  * `layout anonhuge_kb` (AnonHugePages from /proc/self/smaps_rollup), and one
  * `layout map <start> <end> <name>` per [heap] mapping and per anonymous
  * mapping of at least 1 MiB (/proc/self/maps). Without it nothing changes.
+ * With SNG_LAYOUT=2 they also walk the [heap] pages through /proc/self/pagemap
+ * and print aggregates of their physical frames, never a frame number:
+ * `layout pfn_pages` (present pages), `layout pfn_zero` (present pages whose
+ * frame reads 0, which is what an unprivileged reader sees),
+ * `layout pfn_runs` and `layout pfn_longest` (maximal runs of virtually
+ * consecutive pages on consecutive frames, and the longest), and
+ * `layout l2_colour` (32 counts of frame mod 32, the L2 page colour: 2,048
+ * sets of 64-byte lines span 128 KiB, 32 pages).
  *
  * The draws come from splitmix64, not stress-ng's mwc32, so the keys follow
  * the stressor's distribution and not its exact sequence. Every arm draws
@@ -140,12 +148,63 @@ static int sparsematrix(uint64_t items, uint64_t size, long repeats)
 	return hits >= items * (uint64_t)repeats ? 0 : 2;
 }
 
+static void print_frames(unsigned long lo, unsigned long hi)
+{
+	unsigned long va, pages = 0, zero = 0, runs = 0, longest = 0, cur = 0;
+	unsigned long colour[32] = {0};
+	uint64_t prev = 0, e;
+	int have_prev = 0, fd, c;
+
+	fd = open("/proc/self/pagemap", O_RDONLY);
+	if (fd < 0) {
+		printf("layout pfn_error open\n");
+		return;
+	}
+	for (va = lo; va < hi; va += 4096) {
+		if (pread(fd, &e, sizeof e, (off_t)(va / 4096 * 8)) != (ssize_t)sizeof e) {
+			printf("layout pfn_error read\n");
+			close(fd);
+			return;
+		}
+		if (!(e >> 63)) {
+			have_prev = 0;
+			continue;
+		}
+		e &= (1ULL << 55) - 1;
+		pages++;
+		if (e == 0) {
+			zero++;
+			have_prev = 0;
+			continue;
+		}
+		colour[e & 31]++;
+		if (have_prev && e == prev + 1) {
+			cur++;
+		} else {
+			runs++;
+			cur = 1;
+		}
+		if (cur > longest)
+			longest = cur;
+		prev = e;
+		have_prev = 1;
+	}
+	close(fd);
+	printf("layout pfn_pages %lu\nlayout pfn_zero %lu\nlayout pfn_runs %lu\nlayout pfn_longest %lu\n",
+	       pages, zero, runs, longest);
+	printf("layout l2_colour");
+	for (c = 0; c < 32; c++)
+		printf("%c%lu", c ? ',' : ' ', colour[c]);
+	printf("\n");
+}
+
 static void print_layout(void)
 {
 	char line[512];
 	FILE *f;
+	const char *mode = getenv("SNG_LAYOUT");
 
-	if (getenv("SNG_LAYOUT") == NULL || strcmp(getenv("SNG_LAYOUT"), "1") != 0)
+	if (mode == NULL || (strcmp(mode, "1") != 0 && strcmp(mode, "2") != 0))
 		return;
 	f = fopen("/proc/self/smaps_rollup", "r");
 	if (f != NULL) {
@@ -166,6 +225,8 @@ static void print_layout(void)
 			continue;
 		if (strcmp(name, "[heap]") == 0 || (name[0] == '\0' && hi - lo >= (1UL << 20)))
 			printf("layout map %lx %lx %s\n", lo, hi, name[0] ? name : "anon");
+		if (strcmp(mode, "2") == 0 && strcmp(name, "[heap]") == 0)
+			print_frames(lo, hi);
 	}
 	fclose(f);
 }

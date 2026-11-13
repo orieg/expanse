@@ -1474,6 +1474,29 @@ Per the reading rule, the next diagnostic records per process what could differ 
 - N's delete cycles against S are 1.009 here and 1.027–1.029 in the 4 Mi phases on main, the same files on the same host: the share of processes in each state differs between those runs. A 4 Mi cell's N/S therefore depends on that share, which neither design controls.
 - With randomisation off, N's deletes ran 1.8–2.2% slower than with it on, in both runs, and NR's mean L1D-miss loads per delete (4.57, 4.71) are above N's (4.01, 4.02). This is recorded as observed; why the fixed layout leans to the high-miss state is not measured.
 
+## Diagnostic: the 4 Mi phases' physical frames
+
+**A diagnostic, not a pre-registered result** (#1679, #1680). The per-process state does not follow the virtual layout (the layout diagnostic). With the layout held fixed, a virtual-address cache model gives the same L1D misses at every layout (#1732, the simulated-cache control). This asks whether the physical frames under the array separate N's high-miss and low-miss processes.
+
+**Privilege and data handling, fixed by the owner's terms.** Frame numbers in `/proc/self/pagemap` read as 0 without `CAP_SYS_ADMIN`. Each process's single per-process command (`perf stat … phase_probe …`) runs under `sudo -n`, and nothing else is elevated. The driver checks `sudo -n true` first and stops if privilege is not available non-interactively. No host setting changes. perf writes its rows to a file the unprivileged driver opened. The probe prints only aggregates of the frames, never a frame number or physical address, and only those aggregates are recorded or published.
+
+**Design, fixed before the run** (`scripts/diag_phase_counters.py` with `SNG_PHASE_SET=big_pfn`, `run.sh <run> <host> phase_big_pfn`):
+- **Arms.** N, main's library (`SNG_MAIN`), and S, stock, as in the 4 Mi phases on main.
+- **Shapes and counters.** `judy_4m` and `del_4m`; the `mem` group beside `cycles` and `instructions`; 24 rounds per run; two runs on the reference host under the host bench lock and the comparison's pin.
+- **Frames.** With `SNG_LAYOUT=2`, the probe walks its `[heap]` mapping, where the 4 Mi array lives (the layout diagnostic), outside the counted phase and with the array populated. It prints four aggregates:
+  - present pages, and how many read frame 0 (the privilege check);
+  - contiguity: maximal runs of virtually consecutive pages on consecutive frames, and the longest run;
+  - the L2 page-colour histogram, frame mod 32. The P-core L2 has 1,310,720 / (10 × 64) = 2,048 sets of 64-byte lines, indexing 128 KiB, 32 pages, so a page's L2 sets follow its frame mod 32.
+- **Not covered.** The last-level cache's slice hash is not documented, so no LLC colour is computed. The host has one NUMA node, which is recorded, so node placement cannot differ between processes.
+
+**Reading rule:**
+1. **Privilege check.** Every process must report a non-zero count of present pages and no frame that reads 0. Otherwise nothing is read.
+2. **Spread.** In each run, N's per-process range of L1D-miss loads per operation must exceed twice S's, as in the earlier diagnostics. A run where it does not is not read.
+3. **Association.** For each property per process (contiguity, 1 − runs / present pages; the longest run; colour imbalance, the largest colour count over the mean; colour CV), Spearman's ρ with L1D-miss loads per operation over N's 24 processes per shape. A property is *associated* with the state if |ρ| ≥ 0.7 in both runs with the same sign. ρ = 0.7 at n = 24 is t = 4.60 on 22 degrees of freedom, two-sided p ≈ 1.4 × 10⁻⁴ in the t approximation, and both runs must meet it. S's ρ is reported beside it as a control.
+4. **If a property is associated,** the physical placement it summarises is associated with the state. It is reported as an association, not a cause. **If none is,** these frame aggregates do not separate the states, the cause stays unidentified, and the attribution stops here.
+
+**Expected** (projected): none predicted.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

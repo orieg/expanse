@@ -26,11 +26,12 @@ PAIRS_BY_SET = {"gets": [("N", "S"), ("N64", "S"), ("N64", "N")], "delete": [("D
                 "delete_acct": [("A", "D"), ("A", "S"), ("D", "S")],
                 "promote2": [("P", "M"), ("P", "S"), ("M", "S")],
                 "big_main": [("N", "S"), ("N", "E"), ("E", "S")],
-                "big_layout": [("N", "S"), ("NR", "SR"), ("N", "NR")]}
+                "big_layout": [("N", "S"), ("NR", "SR"), ("N", "NR")],
+                "big_pfn": [("N", "S")]}
 NAME_BY_SET = {"gets": "phase_counters", "delete": "delete_phase", "delete_fe": "delete_fe",
                "delete_ms": "delete_ms", "delete_acct": "delete_acct",
                "promote2": "promote2", "big_main": "big_main",
-               "big_layout": "big_layout"}
+               "big_layout": "big_layout", "big_pfn": "big_pfn"}
 # The delete_acct set's rule (README.md, "Diagnostic: unlocked accounting on
 # the delete phase"): the share of D's cycle excess over S that A removes, at
 # which the locked counters are said to matter.
@@ -252,6 +253,69 @@ def promote2_reading(keyed):
     return ok
 
 
+def ranks(xs):
+    order = sorted(range(len(xs)), key=lambda i: xs[i])
+    r = [0.0] * len(xs)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and xs[order[j + 1]] == xs[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            r[order[k]] = (i + j) / 2
+        i = j + 1
+    return r
+
+
+def spearman(xs, ys):
+    """Spearman's rank correlation, ties at their mean rank; None if a side is constant."""
+    rx, ry = ranks(xs), ranks(ys)
+    mx, my = sum(rx) / len(rx), sum(ry) / len(ry)
+    sxy = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    sxx = sum((a - mx) ** 2 for a in rx)
+    syy = sum((b - my) ** 2 for b in ry)
+    return None if sxx == 0 or syy == 0 else sxy / (sxx * syy) ** 0.5
+
+
+PFN_PROPS = ("contiguity", "longest_run", "colour_max_over_mean", "colour_cv")
+PFN_RHO = 0.7
+
+
+def pfn_props(rec):
+    kv = {x[0]: x[1:] for x in rec["layout"]}
+    pages, runs = int(kv["pfn_pages"][0]), int(kv["pfn_runs"][0])
+    col = [int(c) for c in kv["l2_colour"][0].split(",")]
+    m = sum(col) / len(col)
+    sd = (sum((c - m) ** 2 for c in col) / len(col)) ** 0.5
+    return {"contiguity": 1 - runs / pages, "longest_run": int(kv["pfn_longest"][0]),
+            "colour_max_over_mean": max(col) / m, "colour_cv": sd / m}
+
+
+def pfn_reading(prefixes):
+    """The big_pfn set's rule (README.md, "Diagnostic: the 4 Mi phases'
+    physical frames"): per shape and run, Spearman's rho between each frame
+    property and L1D-miss loads per operation over N's processes, S as control."""
+    rho = {}
+    for n, prefix in enumerate(prefixes, 1):
+        recs = [json.loads(ln) for ln in open(f"{prefix}.jsonl")]
+        for shape in sorted({r["cell"] for r in recs}):
+            for arm in ("N", "S"):
+                xs = [r for r in recs if r["cell"] == shape and r["arm"] == arm and valid(r)]
+                miss = [r["counters"]["mem_load_retired.l1_miss"] / r["ops"] for r in xs]
+                props = [pfn_props(r) for r in xs]
+                for p in PFN_PROPS:
+                    v = [q[p] for q in props]
+                    rho[(shape, arm, p, n)] = spearman(v, miss)
+                    print(f"  {shape} run {n} {arm} {p}: range {min(v):.4g}-{max(v):.4g}, "
+                          f"rho with L1D-miss/op {rho[(shape, arm, p, n)]}")
+    for shape in sorted({k[0] for k in rho}):
+        for p in PFN_PROPS:
+            a, b = rho[(shape, "N", p, 1)], rho[(shape, "N", p, 2)]
+            sep = (a is not None and b is not None and abs(a) >= PFN_RHO and abs(b) >= PFN_RHO
+                   and (a > 0) == (b > 0))
+            print(f"  {shape} {p}: N rho {a} / {b} -> {'ASSOCIATED' if sep else 'not associated'}")
+
+
 def layout_reading(prefixes):
     """The big_layout set's per-process rule (README.md, "Diagnostic: the 4 Mi
     phases' per-process layout"): treatment check, huge pages, collapse."""
@@ -322,6 +386,10 @@ def main():
         print("\nreading rule (README.md), A against D and S per shape:")
         for shape in sorted({k[0] for k in keyed[0]}):
             acct_reading(keyed, shape)
+        return
+    if arts[0]["provenance"].get("phase_set") == "big_pfn":
+        print("\nreading rule (README.md), per process:")
+        pfn_reading(prefixes)
         return
     if arts[0]["provenance"].get("phase_set") == "big_layout":
         # Its reading rule is per process (README.md, "Diagnostic: the 4 Mi
