@@ -24,10 +24,11 @@ MIN_VALID = 8
 PAIRS_BY_SET = {"gets": [("N", "S"), ("N64", "S"), ("N64", "N")], "delete": [("D", "S")],
                 "delete_fe": [("D", "S")], "delete_ms": [("D", "S")],
                 "delete_acct": [("A", "D"), ("A", "S"), ("D", "S")],
-                "promote2": [("P", "M"), ("P", "S"), ("M", "S")]}
+                "promote2": [("P", "M"), ("P", "S"), ("M", "S")],
+                "big_main": [("N", "S"), ("N", "E"), ("E", "S")]}
 NAME_BY_SET = {"gets": "phase_counters", "delete": "delete_phase", "delete_fe": "delete_fe",
                "delete_ms": "delete_ms", "delete_acct": "delete_acct",
-               "promote2": "promote2"}
+               "promote2": "promote2", "big_main": "big_main"}
 # The delete_acct set's rule (README.md, "Diagnostic: unlocked accounting on
 # the delete phase"): the share of D's cycle excess over S that A removes, at
 # which the locked counters are said to matter.
