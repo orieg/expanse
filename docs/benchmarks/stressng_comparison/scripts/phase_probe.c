@@ -35,6 +35,12 @@
  *               array, `repeats` times, each freed outside the phase.
  *               These four print `phase_ns` as the delete shapes do.
  *
+ * With SNG_LAYOUT=1 in the environment, the 4 Mi shapes print the process's
+ * memory layout outside the counted phase, while the array is populated:
+ * `layout anonhuge_kb` (AnonHugePages from /proc/self/smaps_rollup), and one
+ * `layout map <start> <end> <name>` per [heap] mapping and per anonymous
+ * mapping of at least 1 MiB (/proc/self/maps). Without it nothing changes.
+ *
  * The draws come from splitmix64, not stress-ng's mwc32, so the keys follow
  * the stressor's distribution and not its exact sequence. Every arm draws
  * the same keys. `repeats` repeats the measured phase on the same array, for
@@ -134,6 +140,36 @@ static int sparsematrix(uint64_t items, uint64_t size, long repeats)
 	return hits >= items * (uint64_t)repeats ? 0 : 2;
 }
 
+static void print_layout(void)
+{
+	char line[512];
+	FILE *f;
+
+	if (getenv("SNG_LAYOUT") == NULL || strcmp(getenv("SNG_LAYOUT"), "1") != 0)
+		return;
+	f = fopen("/proc/self/smaps_rollup", "r");
+	if (f != NULL) {
+		while (fgets(line, sizeof line, f) != NULL) {
+			unsigned long kb;
+			if (sscanf(line, "AnonHugePages: %lu kB", &kb) == 1)
+				printf("layout anonhuge_kb %lu\n", kb);
+		}
+		fclose(f);
+	}
+	f = fopen("/proc/self/maps", "r");
+	if (f == NULL)
+		return;
+	while (fgets(line, sizeof line, f) != NULL) {
+		unsigned long lo, hi;
+		char name[256] = "";
+		if (sscanf(line, "%lx-%lx %*s %*s %*s %*s %255s", &lo, &hi, name) < 2)
+			continue;
+		if (strcmp(name, "[heap]") == 0 || (name[0] == '\0' && hi - lo >= (1UL << 20)))
+			printf("layout map %lx %lx %s\n", lo, hi, name[0] ? name : "anon");
+	}
+	fclose(f);
+}
+
 static int judy_4m(void)
 {
 	Pvoid_t a = NULL;
@@ -149,6 +185,7 @@ static int judy_4m(void)
 		*pv = i;
 	}
 	perf_ctl("disable\n");
+	print_layout();
 	JLFA(freed, a);
 	printf("inserted %lu freed %lu\n", (unsigned long)n, (unsigned long)freed);
 	return 0;
@@ -305,6 +342,8 @@ static int judy_delete(uint64_t n, long repeats)
 				return 2;
 			*pv = i;
 		}
+		if (n == 4194304)
+			print_layout();
 		perf_ctl("enable\n");
 		clock_gettime(CLOCK_MONOTONIC, &t0);
 		for (i = n; i-- > 0;) {
