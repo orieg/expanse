@@ -125,6 +125,7 @@ chunk-geometry fields) is `CorruptedHeader`, a different error.
 ## Non-goals
 
 - **`Judy1MemUsed`/`JudyLMemUsed` byte equality.** Internal geometry differs (64-byte-line nodes, different allocator). Guarantee: same order of magnitude and monotonic behavior — not the same number. Documented in `Judy(3)` (`man/man3/Judy.3`, *Memory Accounting*); the shipped `Judy.h` declares the two functions without comment.
+- **Cycle parity on every call pattern.** On a small Judy1 key range (MariaDB OQGraph's colour map) libexpanse retires fewer instructions per call than stock and still takes more cycles, from branch mispredicts and front-end stalls; the mechanism, the measured numbers and why an instruction-neutral fix is not in hand are in `docs/ARCHITECTURE.md` §3.2, *Known cost* (#1682).
 
 ### What `Judy1MemUsed` / `JudyLMemUsed` count, and the small-array floor
 

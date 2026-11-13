@@ -1,0 +1,431 @@
+{
+ "workload_id": "capi_colour_map",
+ "measurement": "1682-a top-down attribution",
+ "estimators": "BCa 95% over paired per-run deltas, per run",
+ "runs": [
+  {
+   "source": "results/counters_colour_topdown_5e64fcf17_run1.json",
+   "commit": "5e64fcf17",
+   "populations": {
+    "10000": {
+     "per_call": {
+      "stock": {
+       "cycles": 46.60929067848869,
+       "mispredicts": 0.15450909151514142,
+       "slots_per_cycle": 5.997726589689947,
+       "topdown-retiring": 37.197803887944886,
+       "topdown-bad-spec": 5.429786405833905,
+       "topdown-fe-bound": 1.9647653859033434,
+       "topdown-be-bound": 2.053313374472237,
+       "topdown-br-mispredict": 5.314375253390681,
+       "topdown-mem-bound": 0.31839524428912985,
+       "topdown-fetch-lat": 0.7978014363582621,
+       "topdown-heavy-ops": 0.7614043230345371
+      },
+      "expanse_dl": {
+       "cycles": 52.952949117514706,
+       "mispredicts": 0.23992350127497875,
+       "slots_per_cycle": 5.994659547942012,
+       "topdown-retiring": 29.623958559240105,
+       "topdown-bad-spec": 6.847991940718498,
+       "topdown-fe-bound": 14.728241378164663,
+       "topdown-be-bound": 1.8030159841011997,
+       "topdown-br-mispredict": 6.563735440289288,
+       "topdown-mem-bound": 0.5374078099443553,
+       "topdown-fetch-lat": 3.3148510277175527,
+       "topdown-heavy-ops": 1.8463064187413167
+      }
+     },
+     "delta": {
+      "cycles": {
+       "mean": 6.343658439026015,
+       "ci_lower": 5.734051932467793,
+       "ci_upper": 6.967569707171546,
+       "ci_method": "bca"
+      },
+      "mispredicts": {
+       "mean": 0.08541440975983734,
+       "ci_lower": 0.07849869168847186,
+       "ci_upper": 0.09533341110981483,
+       "ci_method": "bca"
+      },
+      "topdown-retiring": {
+       "mean": -7.573845328704775,
+       "ci_lower": -7.731752374503597,
+       "ci_upper": -7.327518355523475,
+       "ci_method": "bca"
+      },
+      "topdown-bad-spec": {
+       "mean": 1.4182055348845928,
+       "ci_lower": 1.2636921151499887,
+       "ci_upper": 1.6351018288217773,
+       "ci_method": "bca"
+      },
+      "topdown-fe-bound": {
+       "mean": 12.763475992261323,
+       "ci_lower": 12.342213955912529,
+       "ci_upper": 13.237729698559898,
+       "ci_method": "bca"
+      },
+      "topdown-be-bound": {
+       "mean": -0.2502973903710374,
+       "ci_lower": -0.5417620780395934,
+       "ci_upper": 0.022303989903423194,
+       "ci_method": "bca"
+      },
+      "topdown-br-mispredict": {
+       "mean": 1.2493601868986066,
+       "ci_lower": 1.1234880034238948,
+       "ci_upper": 1.4734022193444034,
+       "ci_method": "bca"
+      },
+      "topdown-mem-bound": {
+       "mean": 0.21901256565522548,
+       "ci_lower": -0.06335272758260582,
+       "ci_upper": 0.4985313211573298,
+       "ci_method": "bca"
+      },
+      "topdown-fetch-lat": {
+       "mean": 2.51704959135929,
+       "ci_lower": 2.077267478637242,
+       "ci_upper": 2.90899315388677,
+       "ci_method": "bca"
+      },
+      "topdown-heavy-ops": {
+       "mean": 1.0849020957067794,
+       "ci_lower": 0.9471234650841878,
+       "ci_upper": 1.1442618797867394,
+       "ci_method": "bca"
+      }
+     },
+     "share_of_cycle_gap": {
+      "topdown-retiring": -1.193923885011003,
+      "topdown-bad-spec": 0.22356271992196658,
+      "topdown-fe-bound": 2.012005550888548,
+      "topdown-be-bound": -0.039456315748529994,
+      "topdown-br-mispredict": 0.1969463203145643,
+      "topdown-mem-bound": 0.03452464658372306,
+      "topdown-fetch-lat": 0.39678201712035266,
+      "topdown-heavy-ops": 0.17102151796706
+     },
+     "cycles_per_extra_mispredict": 14.627042327067247
+    },
+    "100000": {
+     "per_call": {
+      "stock": {
+       "cycles": 54.3847113588144,
+       "mispredicts": 0.13733027111621482,
+       "slots_per_cycle": 5.996485047963833,
+       "topdown-retiring": 45.445509547061235,
+       "topdown-bad-spec": 4.860849794380272,
+       "topdown-fe-bound": 1.4580287059934358,
+       "topdown-be-bound": 2.572755066344361,
+       "topdown-br-mispredict": 4.864428990470789,
+       "topdown-mem-bound": 0.32196828189645627,
+       "topdown-fetch-lat": 0.5133052406866165,
+       "topdown-heavy-ops": 0.8495394462322141
+      },
+      "expanse_dl": {
+       "cycles": 64.95938298436168,
+       "mispredicts": 0.3667530554115743,
+       "slots_per_cycle": 5.998586215797262,
+       "topdown-retiring": 33.43546287823591,
+       "topdown-bad-spec": 8.631585749586911,
+       "topdown-fe-bound": 21.363759511927576,
+       "topdown-be-bound": 1.5749706909272732,
+       "topdown-br-mispredict": 8.580471165582168,
+       "topdown-mem-bound": 0.30098194905908715,
+       "topdown-fetch-lat": 5.080051503852905,
+       "topdown-heavy-ops": 2.064688523604414
+      }
+     },
+     "delta": {
+      "cycles": {
+       "mean": 10.57467162554729,
+       "ci_lower": 9.810196066339888,
+       "ci_upper": 11.888740518765799,
+       "ci_method": "bca"
+      },
+      "mispredicts": {
+       "mean": 0.2294227842953595,
+       "ci_lower": 0.22711970480049198,
+       "ci_upper": 0.23311919480134202,
+       "ci_method": "bca"
+      },
+      "topdown-retiring": {
+       "mean": -12.01004666882532,
+       "ci_lower": -12.135201750021402,
+       "ci_upper": -11.87669985123236,
+       "ci_method": "bca"
+      },
+      "topdown-bad-spec": {
+       "mean": 3.77073595520664,
+       "ci_lower": 3.6782111276654774,
+       "ci_upper": 3.8731503210487817,
+       "ci_method": "bca"
+      },
+      "topdown-fe-bound": {
+       "mean": 19.90573080593414,
+       "ci_lower": 19.715543352489803,
+       "ci_upper": 20.172483630278244,
+       "ci_method": "bca"
+      },
+      "topdown-be-bound": {
+       "mean": -0.9977843754170879,
+       "ci_lower": -1.740210952667485,
+       "ci_upper": 0.26560307914600667,
+       "ci_method": "bca"
+      },
+      "topdown-br-mispredict": {
+       "mean": 3.7160421751113804,
+       "ci_lower": 3.584802187610019,
+       "ci_upper": 3.818749469379391,
+       "ci_method": "bca"
+      },
+      "topdown-mem-bound": {
+       "mean": -0.02098633283736915,
+       "ci_lower": -0.7214162862622818,
+       "ci_upper": 1.1643481579259594,
+       "ci_method": "bca"
+      },
+      "topdown-fetch-lat": {
+       "mean": 4.566746263166288,
+       "ci_lower": 4.433698328961178,
+       "ci_upper": 4.693435930418641,
+       "ci_method": "bca"
+      },
+      "topdown-heavy-ops": {
+       "mean": 1.2151490773721996,
+       "ci_lower": 1.1907900543649554,
+       "ci_upper": 1.2429199469039627,
+       "ci_method": "bca"
+      }
+     },
+     "share_of_cycle_gap": {
+      "topdown-retiring": -1.1357370795146313,
+      "topdown-bad-spec": 0.35658184847054164,
+      "topdown-fe-bound": 1.8823970626041944,
+      "topdown-be-bound": -0.09435606236760545,
+      "topdown-br-mispredict": 0.3514096992036911,
+      "topdown-mem-bound": -0.0019845848249952637,
+      "topdown-fetch-lat": 0.43185702827249134,
+      "topdown-heavy-ops": 0.11491128239259246
+     },
+     "cycles_per_extra_mispredict": 16.19735453270124
+    }
+   }
+  },
+  {
+   "source": "results/counters_colour_topdown_5e64fcf17_run2.json",
+   "commit": "5e64fcf17",
+   "populations": {
+    "10000": {
+     "per_call": {
+      "stock": {
+       "cycles": 46.34712671455476,
+       "mispredicts": 0.15128081198646692,
+       "slots_per_cycle": 5.9949321262534845,
+       "topdown-retiring": 37.24800940136904,
+       "topdown-bad-spec": 5.439062684994413,
+       "topdown-fe-bound": 1.9210312790869317,
+       "topdown-be-bound": 1.8214576676198917,
+       "topdown-br-mispredict": 5.268842218873194,
+       "topdown-mem-bound": 0.17974027353717056,
+       "topdown-fetch-lat": 0.8755788942782908,
+       "topdown-heavy-ops": 0.7721027238337792
+      },
+      "expanse_dl": {
+       "cycles": 53.909589840169325,
+       "mispredicts": 0.2488483525274579,
+       "slots_per_cycle": 5.999474282341771,
+       "topdown-retiring": 29.512154804955173,
+       "topdown-bad-spec": 6.902212336933175,
+       "topdown-fe-bound": 15.696443916060257,
+       "topdown-be-bound": 1.9017315701890756,
+       "topdown-br-mispredict": 6.745396842662477,
+       "topdown-mem-bound": 0.6335400065204395,
+       "topdown-fetch-lat": 3.8225718789286027,
+       "topdown-heavy-ops": 1.8597631422195888
+      }
+     },
+     "delta": {
+      "cycles": {
+       "mean": 7.562463125614573,
+       "ci_lower": 6.638658522357959,
+       "ci_upper": 8.285552740787654,
+       "ci_method": "bca"
+      },
+      "mispredicts": {
+       "mean": 0.09756754054099097,
+       "ci_lower": 0.08799853335777737,
+       "ci_upper": 0.10267578873685439,
+       "ci_method": "bca"
+      },
+      "topdown-retiring": {
+       "mean": -7.735854596413868,
+       "ci_lower": -7.8578179467871845,
+       "ci_upper": -7.6379400439610645,
+       "ci_method": "bca"
+      },
+      "topdown-bad-spec": {
+       "mean": 1.4631496519387621,
+       "ci_lower": 1.3199831892707201,
+       "ci_upper": 1.5910916547084146,
+       "ci_method": "bca"
+      },
+      "topdown-fe-bound": {
+       "mean": 13.775412636973325,
+       "ci_lower": 13.178702841513157,
+       "ci_upper": 14.292130024272703,
+       "ci_method": "bca"
+      },
+      "topdown-be-bound": {
+       "mean": 0.08027390256918406,
+       "ci_lower": -0.4035032308535902,
+       "ci_upper": 0.4139131919132414,
+       "ci_method": "bca"
+      },
+      "topdown-br-mispredict": {
+       "mean": 1.4765546237892835,
+       "ci_lower": 1.2802498399801248,
+       "ci_upper": 1.5937723396290542,
+       "ci_method": "bca"
+      },
+      "topdown-mem-bound": {
+       "mean": 0.4537997329832688,
+       "ci_lower": 0.020399366118105187,
+       "ci_upper": 0.7319845410142461,
+       "ci_method": "bca"
+      },
+      "topdown-fetch-lat": {
+       "mean": 2.9469929846503122,
+       "ci_lower": 2.393780936984384,
+       "ci_upper": 3.4799558606739702,
+       "ci_method": "bca"
+      },
+      "topdown-heavy-ops": {
+       "mean": 1.08766041838581,
+       "ci_lower": 0.9594027599540007,
+       "ci_upper": 1.1325284094160575,
+       "ci_method": "bca"
+      }
+     },
+     "share_of_cycle_gap": {
+      "topdown-retiring": -1.022927909587024,
+      "topdown-bad-spec": 0.19347527751678886,
+      "topdown-fe-bound": 1.8215510486676056,
+      "topdown-be-bound": 0.010614782675407821,
+      "topdown-br-mispredict": 0.1952478444209656,
+      "topdown-mem-bound": 0.060006868852850136,
+      "topdown-fetch-lat": 0.38968692285832746,
+      "topdown-heavy-ops": 0.14382356651787576
+     },
+     "cycles_per_extra_mispredict": 15.13366654116837
+    },
+    "100000": {
+     "per_call": {
+      "stock": {
+       "cycles": 54.546470005883315,
+       "mispredicts": 0.13680127199788,
+       "slots_per_cycle": 5.996273520002979,
+       "topdown-retiring": 45.40365643336336,
+       "topdown-bad-spec": 4.827262272829855,
+       "topdown-fe-bound": 1.415004670918751,
+       "topdown-be-bound": 2.8195877380627445,
+       "topdown-br-mispredict": 4.852803422820621,
+       "topdown-mem-bound": 0.6440007608444455,
+       "topdown-fetch-lat": 0.5749806058098769,
+       "topdown-heavy-ops": 0.8726475942039874
+      },
+      "expanse_dl": {
+       "cycles": 65.08708193819676,
+       "mispredicts": 0.3663119728133787,
+       "slots_per_cycle": 5.99748124683305,
+       "topdown-retiring": 33.40283640387813,
+       "topdown-bad-spec": 8.633513723640043,
+       "topdown-fe-bound": 21.18401426311619,
+       "topdown-be-bound": 1.904292383077927,
+       "topdown-br-mispredict": 8.50277377572336,
+       "topdown-mem-bound": 0.630135244091184,
+       "topdown-fetch-lat": 4.9597589434874125,
+       "topdown-heavy-ops": 2.076936704470639
+      }
+     },
+     "delta": {
+      "cycles": {
+       "mean": 10.540611932313446,
+       "ci_lower": 9.568895218507967,
+       "ci_upper": 11.354635325607791,
+       "ci_method": "bca"
+      },
+      "mispredicts": {
+       "mean": 0.22951070081549863,
+       "ci_lower": 0.22749653750577079,
+       "ci_upper": 0.2324332792778679,
+       "ci_method": "bca"
+      },
+      "topdown-retiring": {
+       "mean": -12.00082002948522,
+       "ci_lower": -12.181224997166712,
+       "ci_upper": -11.8873841094405,
+       "ci_method": "bca"
+      },
+      "topdown-bad-spec": {
+       "mean": 3.8062514508101883,
+       "ci_lower": 3.700578723149909,
+       "ci_upper": 3.972881427538121,
+       "ci_method": "bca"
+      },
+      "topdown-fe-bound": {
+       "mean": 19.76900959219744,
+       "ci_lower": 19.567463335786204,
+       "ci_upper": 19.983650185357742,
+       "ci_method": "bca"
+      },
+      "topdown-be-bound": {
+       "mean": -0.9152953549848182,
+       "ci_lower": -1.8188061985747983,
+       "ci_upper": -0.13844133129254374,
+       "ci_method": "bca"
+      },
+      "topdown-br-mispredict": {
+       "mean": 3.6499703529027414,
+       "ci_lower": 3.4826060406104644,
+       "ci_upper": 3.82111342198127,
+       "ci_method": "bca"
+      },
+      "topdown-mem-bound": {
+       "mean": -0.013865516753261326,
+       "ci_lower": -0.8892121878396507,
+       "ci_upper": 0.7469795567373497,
+       "ci_method": "bca"
+      },
+      "topdown-fetch-lat": {
+       "mean": 4.3847783376775356,
+       "ci_lower": 4.193350855859946,
+       "ci_upper": 4.521000167118606,
+       "ci_method": "bca"
+      },
+      "topdown-heavy-ops": {
+       "mean": 1.2042891102666515,
+       "ci_lower": 1.1772913164541778,
+       "ci_upper": 1.2303710582599234,
+       "ci_method": "bca"
+      }
+     },
+     "share_of_cycle_gap": {
+      "topdown-retiring": -1.1385316247812274,
+      "topdown-bad-spec": 0.3611034610942929,
+      "topdown-fe-bound": 1.8755087199058422,
+      "topdown-be-bound": -0.08683512502522515,
+      "topdown-br-mispredict": 0.34627689325259586,
+      "topdown-mem-bound": -0.001315437551661968,
+      "topdown-fetch-lat": 0.4159889734898121,
+      "topdown-heavy-ops": 0.11425229559725714
+     },
+     "cycles_per_extra_mispredict": 15.903268736201177
+    }
+   }
+  }
+ ]
+}

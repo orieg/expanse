@@ -1,0 +1,18 @@
+{
+  "workload_id": "capi_colour_map",
+  "mode": "memused",
+  "cells": [
+    {"library": "stock", "population": 60000, "array": 0, "peak_bytes": 15760, "last_bytes_before_free": 8272, "max_single_call_increase": 3976, "increases_ge_1024": [{"call": 578, "population": 129, "before": 424, "after": 1768}, {"call": 4522, "population": 1002, "before": 4264, "after": 8240}]},
+    {"library": "stock", "population": 60000, "array": 1, "peak_bytes": 15760, "last_bytes_before_free": 8272, "max_single_call_increase": 3976, "increases_ge_1024": [{"call": 2321, "population": 129, "before": 424, "after": 1768}, {"call": 17887, "population": 1003, "before": 4264, "after": 8240}]},
+    {"library": "expanse_dl", "population": 60000, "array": 0, "peak_bytes": 20040, "last_bytes_before_free": 5064, "max_single_call_increase": 728, "increases_ge_1024": []},
+    {"library": "expanse_dl", "population": 60000, "array": 1, "peak_bytes": 20040, "last_bytes_before_free": 5064, "max_single_call_increase": 728, "increases_ge_1024": []},
+    {"library": "stock", "population": 70000, "array": 0, "peak_bytes": 25200, "last_bytes_before_free": 16464, "max_single_call_increase": 7952, "increases_ge_1024": [{"call": 622, "population": 139, "before": 568, "after": 2200}, {"call": 4512, "population": 1002, "before": 4504, "after": 12456}, {"call": 10796, "population": 2379, "before": 13064, "after": 16656}]},
+    {"library": "stock", "population": 70000, "array": 1, "peak_bytes": 25200, "last_bytes_before_free": 16464, "max_single_call_increase": 7952, "increases_ge_1024": [{"call": 2499, "population": 139, "before": 568, "after": 2200}, {"call": 17827, "population": 1003, "before": 4504, "after": 12456}, {"call": 42011, "population": 2395, "before": 13064, "after": 16656}]},
+    {"library": "expanse_dl", "population": 70000, "array": 0, "peak_bytes": 23048, "last_bytes_before_free": 5576, "max_single_call_increase": 728, "increases_ge_1024": []},
+    {"library": "expanse_dl", "population": 70000, "array": 1, "peak_bytes": 23048, "last_bytes_before_free": 5576, "max_single_call_increase": 728, "increases_ge_1024": []},
+    {"library": "stock", "population": 100000, "array": 0, "peak_bytes": 28944, "last_bytes_before_free": 16464, "max_single_call_increase": 7952, "increases_ge_1024": [{"call": 820, "population": 183, "before": 664, "after": 1944}, {"call": 1886, "population": 420, "before": 3320, "after": 4600}, {"call": 4512, "population": 1002, "before": 6680, "after": 14632}, {"call": 5876, "population": 1305, "before": 14664, "after": 16464}]},
+    {"library": "stock", "population": 100000, "array": 1, "peak_bytes": 28944, "last_bytes_before_free": 16464, "max_single_call_increase": 7952, "increases_ge_1024": [{"call": 3289, "population": 183, "before": 664, "after": 1944}, {"call": 7545, "population": 420, "before": 3320, "after": 4600}, {"call": 17917, "population": 1003, "before": 6680, "after": 14632}, {"call": 23241, "population": 1305, "before": 14664, "after": 16464}]},
+    {"library": "expanse_dl", "population": 100000, "array": 0, "peak_bytes": 32328, "last_bytes_before_free": 7368, "max_single_call_increase": 728, "increases_ge_1024": []},
+    {"library": "expanse_dl", "population": 100000, "array": 1, "peak_bytes": 32328, "last_bytes_before_free": 7368, "max_single_call_increase": 728, "increases_ge_1024": []}
+  ]
+}
