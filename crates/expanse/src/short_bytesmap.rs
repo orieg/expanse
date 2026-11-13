@@ -420,6 +420,19 @@ mod tests {
         );
     }
 
+    /// #1681: the short-key path lives in this type, so the hashed map
+    /// keeps main's layout, and this type adds one pointer to it.
+    #[test]
+    #[cfg(feature = "std")]
+    fn layout_leaves_the_hashed_map_unchanged() {
+        use core::mem::size_of;
+        assert_eq!(size_of::<ExpanseBytesMap<DefaultBuildHasher>>(), 760);
+        assert_eq!(
+            size_of::<ExpanseShortBytesMap<DefaultBuildHasher>>(),
+            size_of::<ExpanseBytesMap<DefaultBuildHasher>>() + size_of::<usize>()
+        );
+    }
+
     #[test]
     fn long_keys_never_allocate_the_short_tries() {
         let mut m = ExpanseShortBytesMap::with_hasher(Det::default());
