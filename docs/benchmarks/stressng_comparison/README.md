@@ -1494,6 +1494,28 @@ Per the reading rule, the next diagnostic records per process what could differ 
    - Anything else is reported as found, with no reading.
 3. `DLmr` (simulated L2 read misses) per operation is reported, not read.
 
+### Simulated-cache result
+
+(measured: valgrind 3.22.0 Callgrind cache simulator in an Ubuntu 24.04 container on an x86-64 host, `--D1=49152,12,64 --LL=1310720,10,64 --I1=32768,8,64`, harness `60b1c70d4`; N sha256 `9b42a88b…`, S `76f121a8…`, the reference host's files; artifact `results/callgrind_1680/cachesim/cachesim.json`) (workloads: phase_judy_4m, phase_del_4m)
+
+**Rule 1, treatment check: PASS.** Each arm's 24 processes printed 24 different layouts on each shape.
+
+**Rule 2: unimodal, an exact match across layouts.** Simulated L1D read misses (`D1mr`) per operation:
+
+| Arm | `judy_4m` | `del_4m` |
+|---|---|---|
+| N | 5.3156 at every layout | 7.5238 at every layout |
+| S | 3.2622 at every layout | 3.0324 (two values, 12,718,741 and 12,718,742 in all) |
+
+As derived, a virtual-address model does not produce the state: moving the layout by whole pages leaves N's simulated L1D misses unchanged to the last miss. The per-process state seen on the hardware therefore lies outside the virtual-address cache model, which has no prefetcher and no physical addresses.
+
+**Association with the hardware states, not a reading.** N's simulated L1D read misses per insert (5.32) sit at the hardware's high state (about 5.2 per insert), and per delete (7.52) above it (5.1–5.8). Stock's simulated misses (3.26, 3.03) are above its hardware counts (2.1–3.1). So on this hardware both libraries miss L1D less than an LRU model with no prefetcher predicts, and N's low-miss processes miss much less. What the hardware does differently in those processes is not measured here.
+
+- **Simulated L2 read misses** (`DLmr`) vary with the layout, as the derivation allows, by at most 0.2%: N 0.1599–0.1600 per insert and 0.5085–0.5093 per delete, S 0.0596–0.0604 and 0.3218–0.3226.
+- **Cross-check.** N's simulated instructions per insert (645.80) agree with the hardware count in [the 4 Mi phases on main](#diagnostic-the-4-mi-phases-on-main) (645.2), so the inclusive `JudyLIns` cost is the phase.
+
+**Where this leaves the 4 Mi gap.** The state is not huge pages, not the virtual layout and not the virtual-address cache geometry. What remains are properties the model leaves out: physical page placement, and hardware behaviour such as prefetching and replacement. Measuring physical placement per process needs privileges on the reference host (reading page frame numbers), which is the owner's decision.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
