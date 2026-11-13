@@ -56,13 +56,13 @@
 //! |---|---|
 //! | `workload_id` | `capi_vs_stock` |
 //! | `group` | 1 |
-//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000`; the `judysl_*` and `judyhs_*` arms use `POP`; the `judy1_colour_*` arms (#1682) replay one breadth-first search over 10k (`n10k`) or 100k (`n100k`) vertices |
+//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000`; the `judysl_*`, `judyhs_*` and `judyhs_long_*` arms use `POP`; the `judy1_colour_*` arms (#1682) replay one breadth-first search over 10k (`n10k`) or 100k (`n100k`) vertices |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build; `judy1_colour_*` set vertex ids in breadth-first visit order |
 //! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0; `judy1_colour_*`: the search's 12n + 2 Judy1 calls, once |
-//! | `hit_rate` | 100% / mixed; `judyhs_get_*` 50% (every present key and `POP` absent ones, shuffled together); `judy1_colour_*` as the search produces it |
-//! | `miss_gen_method` | Interleaved keys; `judyhs_get_*` continues `fixed8_stream` past the population, rejected on membership |
+//! | `hit_rate` | 100% / mixed; `judyhs_get_*` and `judyhs_long_get_*` 50% (every present key and `POP` absent ones, shuffled together); `judy1_colour_*` as the search produces it |
+//! | `miss_gen_method` | Interleaved keys; `judyhs_get_*` continues `fixed8_stream` past the population, rejected on membership; `judyhs_long_get_*` continues `route_keys` past the population (an injective generator, so absent by construction) |
 //! | `value_dereference` | `*slot` dereferenced |
-//! | `key_shape` | `Word` for the `judyl_*`/`judy1_*` arms; NUL-terminated fixed-width strings for `judysl_*`, derived from the same `keys(dist)` so the three distributions carry over; 8-byte zmap response-dedup keys for `judyhs_*` (`fixed8_stream`: a 198.18.0.0/15 address and one of four ports, big-endian, status and padding zero, in a scan's pseudo-random order). Absolute counts for the string arms include `strlen` on both sides and are **not** comparable to the `Word`-keyed arms; their ratio is. |
+//! | `key_shape` | `Word` for the `judyl_*`/`judy1_*` arms; NUL-terminated fixed-width strings for `judysl_*`, derived from the same `keys(dist)` so the three distributions carry over; 8-byte zmap response-dedup keys for `judyhs_*` (`fixed8_stream`: a 198.18.0.0/15 address and one of four ports, big-endian, status and padding zero, in a scan's pseudo-random order); ~40-byte route strings (`route_keys`: `/api/v2/tenants/{:06}/resources/{:04}`, the engine's `routes` shape) for `judyhs_long_*`, every key longer than 8 bytes. Absolute counts for the string arms include `strlen` on both sides and are **not** comparable to the `Word`-keyed arms; their ratio is. |
 //! | `measured_region` | Deliberately leaks to exclude drop |
 //! | `arm_symmetry` | **Three arms**: `*_expanse` (rlib, LTO-linked), `*_expanse_dl` (dlopen'd cdylib), and `*_stock` (dlopen'd libjudy). `*_expanse_dl` vs `*_stock` is symmetric; `*_expanse` vs `*_stock` is asymmetric (LTO bias). libexpanse's JudyHS hashes with a per-process `RandomState` seed, so the `judyhs_*_expanse*` counts can move between runs |
 //! | `statistics` | iai Callgrind exact counts (simulated 8 MiB LL) |
@@ -1218,6 +1218,223 @@ fn judyhs_del_stock(built: HsBuilt) -> Word {
     hs_del(built, del)
 }
 
+// ---- JudyHS on long keys (#1681) ---------------------------------------
+//
+// The `routes` shape the engine's `bytesmap_*` arms use: ~40-byte route
+// strings with long shared prefixes. Every key is longer than 8 bytes, so
+// libexpanse's JudyHS takes the hash path after one length compare; these arms
+// measure that compare against stock on keys it does not help. Separate types
+// and loops from the `fixed8` arms, whose code stays as it was.
+
+/// `n` route-shaped keys starting at index `from`: index `i` is
+/// `/api/v2/tenants/{i / 16:06}/resources/{i % 16:04}`. The generator is
+/// injective, so indices past the population are absent keys of the same
+/// shape (§8.6).
+fn route_keys(from: usize, n: usize) -> Vec<Vec<u8>> {
+    (from..from + n)
+        .map(|i| format!("/api/v2/tenants/{:06}/resources/{:04}", i / 16, i % 16).into_bytes())
+        .collect()
+}
+
+/// Keys for a long-key JudyHS insert arm, generated in `setup`.
+struct HsLongFeed {
+    ks: Vec<Vec<u8>>,
+    api: Option<Api>,
+}
+
+// SAFETY: fn pointers into a library that is never `dlclose`d; used only on
+// the harness thread that built the struct.
+unsafe impl Send for HsLongFeed {}
+
+/// A built long-key JudyHS array plus its probe stream.
+struct HsLongBuilt {
+    arr: *mut c_void,
+    probes: Vec<Vec<u8>>,
+    api: Option<Api>,
+}
+
+// SAFETY: created and consumed on the same thread; never shared.
+unsafe impl Send for HsLongBuilt {}
+
+fn hs_long_feed_expanse(_dist: &str) -> HsLongFeed {
+    HsLongFeed {
+        ks: route_keys(0, POP),
+        api: None,
+    }
+}
+fn hs_long_feed_expanse_dl(_dist: &str) -> HsLongFeed {
+    HsLongFeed {
+        ks: route_keys(0, POP),
+        api: ours_api(),
+    }
+}
+fn hs_long_feed_stock(_dist: &str) -> HsLongFeed {
+    HsLongFeed {
+        ks: route_keys(0, POP),
+        api: stock_api(),
+    }
+}
+
+fn shuffle_long(probes: &mut [Vec<u8>], seed: u64) {
+    let mut rng = XorShift(seed);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+}
+
+/// Builds the `POP`-key long-key array through `api` (or directly, when
+/// `None`), outside the measured region. With `mixed`, the probes are every
+/// present key and `POP` absent ones, shuffled together (50% hits).
+fn build_hs_long(api: Option<Api>, mixed: bool) -> HsLongBuilt {
+    let ks = route_keys(0, POP);
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudyHS usage; each key is live for its length and the
+    // returned slot is valid until the next mutation.
+    unsafe {
+        for (i, k) in ks.iter().enumerate() {
+            let kp = k.as_ptr().cast_mut().cast();
+            let slot = match api {
+                Some(a) => (a.hs_ins)(&raw mut arr, kp, k.len() as Word, null_mut()),
+                None => expanse::JudyHSIns(&raw mut arr, kp, k.len() as Word, null_mut()),
+            }
+            .cast::<Word>();
+            *slot = i as Word + 1;
+        }
+    }
+    let mut probes = ks;
+    if mixed {
+        probes.extend(route_keys(POP, POP));
+        shuffle_long(&mut probes, 0x5851_F42D);
+    } else {
+        shuffle_long(&mut probes, 0x9E37_79B9);
+    }
+    HsLongBuilt { arr, probes, api }
+}
+fn build_hs_long_get_expanse(_dist: &str) -> HsLongBuilt {
+    build_hs_long(None, true)
+}
+fn build_hs_long_get_expanse_dl(_dist: &str) -> HsLongBuilt {
+    build_hs_long(ours_api(), true)
+}
+fn build_hs_long_get_stock(_dist: &str) -> HsLongBuilt {
+    build_hs_long(stock_api(), true)
+}
+fn build_hs_long_del_expanse(_dist: &str) -> HsLongBuilt {
+    build_hs_long(None, false)
+}
+fn build_hs_long_del_expanse_dl(_dist: &str) -> HsLongBuilt {
+    build_hs_long(ours_api(), false)
+}
+fn build_hs_long_del_stock(_dist: &str) -> HsLongBuilt {
+    build_hs_long(stock_api(), false)
+}
+
+#[inline(always)]
+fn hs_long_insert(ks: &[Vec<u8>], ins: FhsIns) -> Word {
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudyHS usage; the slot is written immediately.
+    unsafe {
+        for (i, k) in ks.iter().enumerate() {
+            let kp = black_box(k.as_ptr()).cast_mut().cast();
+            *ins(&raw mut arr, kp, k.len() as Word, null_mut()).cast::<Word>() = i as Word + 1;
+        }
+    }
+    // Not freed — teardown stays out of the measured region.
+    black_box(map_len_sentinel(arr))
+}
+
+#[inline(always)]
+fn hs_long_get(built: &HsLongBuilt, get: FhsGet) -> Word {
+    let mut sink = 0 as Word;
+    // SAFETY: the array was built in `setup`; JudyHSGet only reads.
+    unsafe {
+        for k in &built.probes {
+            let kp = black_box(k.as_ptr()).cast_mut().cast();
+            let slot = get(built.arr, kp, k.len() as Word).cast::<Word>();
+            if !slot.is_null() {
+                sink ^= *slot;
+            }
+        }
+    }
+    black_box(sink)
+}
+
+#[inline(always)]
+fn hs_long_del(mut built: HsLongBuilt, del: FhsDel) -> Word {
+    let mut removed = 0 as Word;
+    // SAFETY: the array was built in `setup` through the library `del`
+    // belongs to; every probe is a present key.
+    unsafe {
+        for k in &built.probes {
+            let kp = black_box(k.as_ptr()).cast_mut().cast();
+            removed += del(&raw mut built.arr, kp, k.len() as Word, null_mut()) as Word;
+        }
+    }
+    black_box(removed)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = hs_long_feed_expanse)]
+fn judyhs_long_insert_expanse(f: HsLongFeed) -> Word {
+    hs_long_insert(&f.ks, rlib_hs_ins)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = hs_long_feed_expanse_dl)]
+fn judyhs_long_insert_expanse_dl(f: HsLongFeed) -> Word {
+    hs_long_insert(&f.ks, f.api.expect("dl arm needs a resolved api").hs_ins)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = hs_long_feed_stock)]
+fn judyhs_long_insert_stock(f: HsLongFeed) -> Word {
+    hs_long_insert(&f.ks, f.api.expect("stock arm needs a resolved api").hs_ins)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = build_hs_long_get_expanse)]
+fn judyhs_long_get_expanse(built: HsLongBuilt) -> Word {
+    hs_long_get(&built, rlib_hs_get)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = build_hs_long_get_expanse_dl)]
+fn judyhs_long_get_expanse_dl(built: HsLongBuilt) -> Word {
+    hs_long_get(
+        &built,
+        built.api.expect("dl arm needs a resolved api").hs_get,
+    )
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = build_hs_long_get_stock)]
+fn judyhs_long_get_stock(built: HsLongBuilt) -> Word {
+    hs_long_get(
+        &built,
+        built.api.expect("stock arm needs a resolved api").hs_get,
+    )
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = build_hs_long_del_expanse)]
+fn judyhs_long_del_expanse(built: HsLongBuilt) -> Word {
+    hs_long_del(built, rlib_hs_del)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = build_hs_long_del_expanse_dl)]
+fn judyhs_long_del_expanse_dl(built: HsLongBuilt) -> Word {
+    let del = built.api.expect("dl arm needs a resolved api").hs_del;
+    hs_long_del(built, del)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = build_hs_long_del_stock)]
+fn judyhs_long_del_stock(built: HsLongBuilt) -> Word {
+    let del = built.api.expect("stock arm needs a resolved api").hs_del;
+    hs_long_del(built, del)
+}
+
 // ---- Judy1 as OQGraph's two-bit colour map (#1682) ---------------------
 //
 // One breadth-first search's Judy1 calls, recorded once in setup as a tape
@@ -1352,6 +1569,15 @@ library_benchmark_group!(
         judyhs_del_expanse,
         judyhs_del_expanse_dl,
         judyhs_del_stock,
+        judyhs_long_insert_expanse,
+        judyhs_long_insert_expanse_dl,
+        judyhs_long_insert_stock,
+        judyhs_long_get_expanse,
+        judyhs_long_get_expanse_dl,
+        judyhs_long_get_stock,
+        judyhs_long_del_expanse,
+        judyhs_long_del_expanse_dl,
+        judyhs_long_del_stock,
         judy1_colour_expanse,
         judy1_colour_expanse_dl,
         judy1_colour_stock
