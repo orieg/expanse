@@ -1439,6 +1439,41 @@ Per the reading rule, the next diagnostic records per process what could differ 
 
 **Expected** (projected): `AnonHugePages` 0 kB on every process. Whether NR collapses is not predicted.
 
+### Layout result (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, `randomize_va_space` 2, transparent huge pages `madvise`, harness `e73966f17`, N main `c386578f8` (sha256 `9b42a88b…`), S `76f121a8…`; artifacts `results/diagnostic_big_layout_ref_run{1,2}.json`, reading from `scripts/diag_phase_counters_analyze.py`) (workloads: phase_judy_4m, phase_del_4m)
+
+**Hygiene.** Run 1 ran 08:40:20–08:41:26 UTC and run 2 08:41:26–08:42:33, each under the bench lock, 192 processes each and none discarded; max load1 0.69 and 0.94 against a void limit of 12.
+
+**Rule 1, treatment check: PASS** in both runs and on both shapes. NR's 24 processes show one layout, as do SR's, and N's and S's show 24 different layouts.
+
+**Rule 2, huge pages: none.** `AnonHugePages` is 0 kB on every process of every arm, as #782 found on this host.
+
+**Rule 3, collapse: NR does not collapse**, on either shape in either run. N's spread holds in every run, so each run is read.
+
+| Shape | Run | N L1D-miss loads per op | NR | S | SR | NR range vs 2 × SR range |
+|---|---|---|---|---|---|---|
+| `judy_4m` | 1 | 2.86–5.22 | 2.51–5.22 | 2.16–2.96 | 2.08–3.05 | 2.71 vs 1.94 |
+| `judy_4m` | 2 | 2.58–5.22 | 3.35–5.22 | 2.08–2.70 | 2.20–2.86 | 1.87 vs 1.32 |
+| `del_4m` | 1 | 3.33–4.86 | 3.38–6.00 | 2.37–2.72 | 2.30–2.68 | 2.62 vs 0.74 |
+| `del_4m` | 2 | 3.32–5.10 | 3.43–5.47 | 2.31–2.77 | 2.30–2.63 | 2.04 vs 0.66 |
+
+**Rule 5 applies.** With the same virtual layout in every process, N still lands in the low-miss and the high-miss state. The state does not follow the virtual layout as `setarch -R` fixes it, and its cause remains unidentified. No mechanism is named.
+
+**Cycles per operation, BCa 95%**, reported:
+
+| Shape | Pair | Run 1 | Run 2 |
+|---|---|---|---|
+| `judy_4m` | N/S | 1.0292 [1.0156, 1.0406] | 1.0350 [1.0242, 1.0439] |
+| `judy_4m` | NR/SR | 1.0326 [1.0195, 1.0418] | 1.0311 [1.0215, 1.0386] |
+| `judy_4m` | N/NR | 0.9937 [0.9788, 1.0085] | 0.9955 [0.9831, 1.0063] |
+| `del_4m` | N/S | 1.0092 [1.0008, 1.0175] | 1.0089 [1.0007, 1.0171] |
+| `del_4m` | NR/SR | 1.0329 [1.0258, 1.0410] | 1.0342 [1.0272, 1.0400] |
+| `del_4m` | N/NR | 0.9821 [0.9729, 0.9917] | 0.9777 [0.9702, 0.9863] |
+
+- N's delete cycles against S are 1.009 here and 1.027–1.029 in the 4 Mi phases on main, the same files on the same host: the share of processes in each state differs between those runs. A 4 Mi cell's N/S therefore depends on that share, which neither design controls.
+- With randomisation off, N's deletes ran 1.8–2.2% slower than with it on, in both runs, and NR's mean L1D-miss loads per delete (4.57, 4.71) are above N's (4.01, 4.02). This is recorded as observed; why the fixed layout leans to the high-miss state is not measured.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

@@ -252,6 +252,35 @@ def promote2_reading(keyed):
     return ok
 
 
+def layout_reading(prefixes):
+    """The big_layout set's per-process rule (README.md, "Diagnostic: the 4 Mi
+    phases' per-process layout"): treatment check, huge pages, collapse."""
+    for n, prefix in enumerate(prefixes, 1):
+        recs = [json.loads(ln) for ln in open(f"{prefix}.jsonl")]
+        for shape in sorted({r["cell"] for r in recs}):
+            per = {}
+            for arm in ("N", "NR", "S", "SR"):
+                xs = [r for r in recs if r["cell"] == shape and r["arm"] == arm and valid(r)]
+                miss = [r["counters"]["mem_load_retired.l1_miss"] / r["ops"] for r in xs]
+                maps = {json.dumps([x for x in r["layout"] if x[0] == "map"]) for r in xs}
+                huge = sorted({int(x[1]) for r in xs for x in r["layout"] if x[0] == "anonhuge_kb"})
+                per[arm] = dict(n=len(xs), layouts=len(maps), huge=huge, lo=min(miss), hi=max(miss),
+                                mean=sum(miss) / len(miss))
+            treat = (per["NR"]["layouts"] == 1 and per["SR"]["layouts"] == 1
+                     and per["N"]["layouts"] > 1)
+            huge_ok = all(v["huge"] == [0] for v in per.values())
+            rng = {a: v["hi"] - v["lo"] for a, v in per.items()}
+            spread = rng["N"] > 2 * rng["S"]
+            collapse = rng["NR"] <= 2 * rng["SR"]
+            print(f"  {shape} run {n}: " + "; ".join(
+                f"{a} n={v['n']} layouts={v['layouts']} AnonHugePages={v['huge']} "
+                f"L1D-miss/op {v['lo']:.2f}-{v['hi']:.2f}" for a, v in per.items()))
+            print(f"    treatment check {'PASS' if treat else 'FAIL'}; huge pages "
+                  f"{'none' if huge_ok else 'PRESENT'}; N spread {'yes' if spread else 'no'} "
+                  f"({rng['N']:.2f} vs 2 x {rng['S']:.2f}); NR "
+                  f"{'COLLAPSES' if collapse else 'does not collapse'} ({rng['NR']:.2f} vs 2 x {rng['SR']:.2f})")
+
+
 def main():
     host, prefixes = sys.argv[1], sys.argv[2:4]
     arts, keyed = [], []
@@ -293,6 +322,13 @@ def main():
         print("\nreading rule (README.md), A against D and S per shape:")
         for shape in sorted({k[0] for k in keyed[0]}):
             acct_reading(keyed, shape)
+        return
+    if arts[0]["provenance"].get("phase_set") == "big_layout":
+        # Its reading rule is per process (README.md, "Diagnostic: the 4 Mi
+        # phases' per-process layout"); it collects no `slots`, so the
+        # memory/front-end reading does not apply.
+        print("\nreading rule (README.md), per process:")
+        layout_reading(prefixes)
         return
     num = PAIRS[0][0]
     print(f"\nreading rule (README.md), {num} against S per shape:")
