@@ -1417,6 +1417,28 @@ N retires fewer instructions than S (0.822× on inserts, 0.919× on deletes) and
 
 Per the reading rule, the next diagnostic records per process what could differ between them. It is designed and committed before it runs.
 
+## Diagnostic: the 4 Mi phases' per-process layout
+
+**A diagnostic, not a pre-registered result** (#1679, #1680). [The 4 Mi phases on main](#diagnostic-the-4-mi-phases-on-main) found N's processes in a low-miss or a high-miss state on identical keys and code. This asks one question: does the state follow the process's virtual-address layout?
+
+**What is already settled, and not repeated here.** Huge-page backing was measured as a treatment in #782 (`docs/benchmarks/masstree_comparison/README.md`): `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` took the probe's `AnonHugePages` from 0 kB to 573 MB, removed translation misses and cut `map_get` cycles by 7.2%. #1096's D2 measured paging sensitivity with `--hugetlb` on the patricia suite. #782 records its host's transparent huge pages in `madvise` mode, with 0 kB by default; this run reads the mode itself. This design applies no huge-page treatment and changes no host setting. It records `AnonHugePages` per process only to confirm that huge pages are not in play on these runs.
+
+**Design, fixed before the run** (`scripts/diag_phase_counters.py` with `SNG_PHASE_SET=big_layout`, `run.sh <run> <host> phase_big_layout`):
+- **Arms.** N, main's library (`SNG_MAIN`), and S, stock, as in the 4 Mi phases on main; NR and SR, the same two files with the probe run under `setarch <arch> -R`, which turns address-space randomisation off for that process only. The host's `randomize_va_space` and transparent-huge-page mode are read and recorded, not changed.
+- **Shapes.** `judy_4m` and `del_4m`, one repetition each.
+- **Counters.** The `mem` group only (`mem_load_retired.l1_miss`, `l2_miss`, `l3_miss`, `br_misp_retired.all_branches`) beside `cycles` and `instructions`. 24 rounds per run, one per order of the four arms. Two runs on the reference host under the host bench lock and the comparison's pin.
+- **Layout record.** With `SNG_LAYOUT=1`, `phase_probe.c` prints, outside the counted phase and while the array is populated, its `AnonHugePages` and the start and end of its `[heap]` mapping and of each anonymous mapping of at least 1 MiB. It prints nothing else, and the counted phase is unchanged.
+
+**Reading rule:**
+1. **Treatment check.** Within each of NR and SR, every process's layout lines must be identical within a shape, and within N they must differ between processes. Otherwise address-space randomisation was not switched as designed, and nothing below is read.
+2. **Huge pages.** `AnonHugePages` per arm. Any non-zero value is reported and stops the reading at rule 1, since this design assumes none.
+3. **Collapse.** Per shape, NR *collapses* if, in both runs, NR's per-process range of L1D-miss loads per operation is at most twice SR's. It is reported with the state NR lands in: low if NR's mean is nearer N's lowest-miss processes, high otherwise. N must still show its spread (more than twice S's range) in the same run, or that run is not read.
+4. **If NR collapses**, the state follows the virtual layout, and N's processes are tabled by state against their mapping start addresses modulo 4 KiB and modulo 2 MiB. That is an association; which address property causes the state is a separate question and is not claimed.
+5. **If NR does not collapse**, the state does not follow the virtual layout as `setarch -R` fixes it, and its cause stays unidentified. No mechanism is named.
+- N/S, NR/SR and N/NR cycle ratios are reported (BCa 95%). No verdict and no engine change.
+
+**Expected** (projected): `AnonHugePages` 0 kB on every process. Whether NR collapses is not predicted.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
