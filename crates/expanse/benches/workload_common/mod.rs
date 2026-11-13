@@ -71,6 +71,23 @@ impl XorShift {
 /// `clustered`, `sparse`) as one generator, resumable from any index so
 /// absent keys can be drawn from the population's own generator rather than
 /// from a transform of a present key (AGENTS.md §8.6 miss shape).
+///
+/// It also carries the trie-adversarial classes from Barrett's Judy versus
+/// hash-table comparison (<https://www.nothings.org/computer/judy/>), as
+/// 64-bit keys:
+///
+/// | Class | Key | Barrett's name |
+/// |---|---|---|
+/// | `rand22` | 22 uniform random bits in the low bytes: a dense, unordered 2^22 sub-range | `rand22` / `rand5678` |
+/// | `rand22_bswap` | the same 22 bits byte-reversed into the high bytes, so neighbours differ at the top digit | `rand8765` |
+/// | `ascii_upper` | each of the 8 bytes uniform in `A..=Z` (26 of 256 values per digit) | uppercase |
+/// | `ascii_alnum` | each of the 8 bytes uniform in `[0-9A-Za-z]` (62 of 256) | `symbol` |
+/// | `stride64` | `i * 64`: sequential, with a sparse low digit | `seq64` |
+///
+/// For one seed `rand22_bswap` is exactly `rand22` byte-reversed, key by
+/// key, so the pair isolates digit order with the key set held fixed. The
+/// 22-bit classes draw with repetition, so their populations hold fewer
+/// distinct keys than draws (890,427 of 1M from [`SEED`]).
 pub struct KeyGen<'a> {
     dist: &'a str,
     rng: XorShift,
@@ -112,12 +129,35 @@ impl<'a> KeyGen<'a> {
                 self.base + (self.i % 256)
             }
             "sparse" => self.i << 40,
+            "rand22" => self.rng.next() & RAND22_MASK,
+            "rand22_bswap" => (self.rng.next() & RAND22_MASK).swap_bytes(),
+            "ascii_upper" => self.ascii(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+            "ascii_alnum" => {
+                self.ascii(b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+            }
+            "stride64" => self.i * 64,
             other => panic!("unknown distribution '{other}'"),
         };
         self.i += 1;
         k
     }
 }
+
+impl KeyGen<'_> {
+    /// Eight bytes, each drawn uniformly from `alphabet`, most significant
+    /// first: one generator draw per byte.
+    fn ascii(&mut self, alphabet: &[u8]) -> u64 {
+        let mut k = 0u64;
+        for _ in 0..8 {
+            let b = alphabet[(self.rng.next() % alphabet.len() as u64) as usize];
+            k = (k << 8) | u64::from(b);
+        }
+        k
+    }
+}
+
+/// The 22 low bits the `rand22` classes keep.
+const RAND22_MASK: u64 = (1 << 22) - 1;
 
 /// `n` keys of `dist` from [`SEED`].
 pub fn keys(dist: &str, n: usize) -> Vec<u64> {

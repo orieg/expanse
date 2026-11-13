@@ -107,6 +107,8 @@ on:
           - hashbrown_ycsb
           - hashbrown_tail_latency
           - hashbrown_container_dists
+          - hashbrown_pop_sweep
+          - hashbrown_fifo_churn
           - hashbrown_memory_alloc
           - large_values
           - python_concurrency
@@ -130,6 +132,7 @@ on:
           - art_memory
           - art_small_payload
           - patricia_comparison
+          - hashbrown_comparison
           - patricia_d2_paging
           - hot_string_memory
           - hot_string_latency
@@ -1299,6 +1302,20 @@ jobs:
                 python3 docs/benchmarks/patricia_comparison/scripts/run_all.py \
                   --host-desc "$HOST_DESC" \
                   --run-id "$RUN_URL" \
+                  | tee bench-output.txt
+                ;;
+              "hashbrown_comparison")
+                # The hashbrown comparison's single-process pillars through the
+                # suite's own runner: one process per round (9 rounds), BCa 95%
+                # intervals and paired per-round ratios, one load window per
+                # process, and the provenance gate applied to every artifact it
+                # writes (#1214). `--skip-ycsb` leaves the YCSB pillar to its own
+                # `hashbrown_ycsb` token. This step already holds the bench lock
+                # and the pin, so the runner is invoked directly rather than
+                # through run.sh. Fatal on failure: the runner IS the
+                # measurement (AGENTS.md section 8.1).
+                python3 docs/benchmarks/hashbrown_comparison/scripts/run_all.py \
+                  --skip-ycsb \
                   | tee bench-output.txt
                 ;;
               "hot_string_memory"|"hot_string_latency"|"masstree_memory"|"masstree_string_latency"|"masstree_concurrent")
@@ -2520,6 +2537,7 @@ jobs:
             allocator-overhead.txt \
             docs/benchmarks/patricia_comparison/results/baseline_*.json \
             docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_*.json \
+            docs/benchmarks/hashbrown_comparison/results/baseline_*.json \
             docs/benchmarks/hot_comparison/results/baseline_string_memory.json \
             docs/benchmarks/hot_comparison/results/baseline_string_latency.json \
             docs/benchmarks/hot_comparison/results/baseline_string_sensitivity.json \

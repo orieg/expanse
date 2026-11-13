@@ -19,15 +19,9 @@
 #![cfg(not(miri))]
 #![cfg(feature = "std")]
 
-#[cfg(not(feature = "ablation-unsharded-alloc"))]
-use expanse_trie::alloc::NodeAlloc;
 use expanse_trie::occ::Collector;
 use expanse_trie::sync::SyncExpanseMap;
-#[cfg(not(feature = "ablation-unsharded-alloc"))]
-use std::ptr::NonNull;
 use std::sync::Arc;
-#[cfg(not(feature = "ablation-unsharded-alloc"))]
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
@@ -91,83 +85,76 @@ fn ablated_map_stays_correct_under_concurrent_writers() {
     }
 }
 
-#[cfg(not(feature = "ablation-unsharded-alloc"))]
-struct SendPtr(NonNull<u8>);
-// SAFETY: SendPtr is a test-only wrapper transferring raw heap allocations across test threads.
-#[cfg(not(feature = "ablation-unsharded-alloc"))]
-unsafe impl Send for SendPtr {}
-
-/// Arm (a)'s property: the per-writer-slot counters sum to the exact totals
-/// when allocations and frees are spread across threads, and a thread frees
-/// blocks another thread allocated.
+/// Arm (a)'s property: on a shared tree, whose allocator is deferred to the
+/// collector, the per-writer-slot accounting shards sum to the exact total
+/// when allocations happen on several threads, and net to zero when other
+/// threads free them. It runs through `SyncExpanseMap`, the only safe way to
+/// reach one allocator from several threads (`NodeAlloc` is `Send` and not
+/// `Sync`), and the only place the shards exist.
 ///
-/// What this test may *not* do is call one bare `NodeAlloc` from two threads at
-/// once. Its size-class freelists and slab pages are single-writer — their
-/// updates are load/store pairs, not CAS (see `NodeAlloc::freelists`) — which
-/// is why every `Sync*` wrapper defers to the collector's locked freelists
-/// before carving anything, and why `defer_to` refuses an allocator that has
-/// already carved. The counters under test are ordinary atomics and are not
-/// part of that region, so `gate` serialises the allocator calls and nothing
-/// else: each thread still takes its own slot, so the shards this sums over
-/// are still populated by four different threads.
+/// - After the inserts, `mem_used` equals a plain map's built from the same
+///   keys: the node census is fixed by the key set, not by the order or the
+///   thread the keys came from (`tests/test_mem_used_order_invariant.rs`).
+/// - Each thread then removes the range a different thread inserted, so every
+///   node is freed (retired) on a different writer slot than allocated it,
+///   and `mem_used` must come back to exactly 0.
+///
+/// Under `ablation-unsharded-alloc` there are no shards and the same
+/// assertions check the shared inline counters instead.
 #[test]
-#[cfg(not(feature = "ablation-unsharded-alloc"))]
-fn test_node_alloc_sharded_counters_cross_thread() {
-    let alloc = Arc::new(NodeAlloc::new());
-    let gate = Arc::new(Mutex::new(()));
-    let pop_threads = 4;
-    let ops_per_thread = 500;
-
-    let mut handles = Vec::new();
-    for _ in 0..pop_threads {
-        let a = Arc::clone(&alloc);
-        let g = Arc::clone(&gate);
-        handles.push(thread::spawn(move || {
-            let mut ptrs = Vec::new();
-            for _ in 0..ops_per_thread {
-                // 32 bytes allocation (Leaf1 / raw byte size)
-                let p = {
-                    let _single_writer = g.lock().expect("gate poisoned");
-                    a.alloc_bytes(32)
-                };
-                ptrs.push(SendPtr(p));
-            }
-            ptrs
-        }));
+fn test_deferred_accounting_shards_sum_across_threads() {
+    const WRITERS: u64 = 4;
+    const PER: u64 = 5_000;
+    fn key(w: u64, i: u64) -> u64 {
+        (i << 8) | w
+    }
+    let map = Arc::new(SyncExpanseMap::new());
+    let inserts: Vec<_> = (0..WRITERS)
+        .map(|w| {
+            let m = Arc::clone(&map);
+            thread::spawn(move || {
+                for i in 0..PER {
+                    m.insert(key(w, i), i);
+                }
+            })
+        })
+        .collect();
+    for h in inserts {
+        h.join().expect("insert thread panicked");
     }
 
-    let mut all_ptrs = Vec::new();
-    for h in handles {
-        all_ptrs.extend(h.join().unwrap());
+    let mut plain = expanse_trie::ExpanseMap::new();
+    for w in 0..WRITERS {
+        for i in 0..PER {
+            plain.insert(key(w, i), i);
+        }
     }
+    assert_eq!(
+        map.mem_used(),
+        plain.mem_used(),
+        "the shards do not sum to the plain map's accounting for the same keys"
+    );
 
-    assert_eq!(alloc.total_allocs(), pop_threads * ops_per_thread);
-    assert_eq!(alloc.live_allocs(), pop_threads * ops_per_thread);
-    assert_eq!(alloc.bytes_in_use(), pop_threads * ops_per_thread * 32);
-
-    // Cross-thread free: free from different threads than the allocating threads
-    let chunk_size = all_ptrs.len() / pop_threads;
-    let mut free_handles = Vec::new();
-    for chunk in all_ptrs.chunks(chunk_size) {
-        let a = Arc::clone(&alloc);
-        let g = Arc::clone(&gate);
-        let ptrs: Vec<SendPtr> = chunk.iter().map(|p| SendPtr(p.0)).collect();
-        free_handles.push(thread::spawn(move || {
-            for p in ptrs {
-                let _single_writer = g.lock().expect("gate poisoned");
-                // SAFETY: p.0 was allocated with alloc_bytes(32) above
-                unsafe { a.free_bytes(p.0, 32) };
-            }
-        }));
+    let removes: Vec<_> = (0..WRITERS)
+        .map(|w| {
+            let m = Arc::clone(&map);
+            // A range this thread did not insert.
+            let other = (w + 1) % WRITERS;
+            thread::spawn(move || {
+                for i in 0..PER {
+                    assert_eq!(m.remove(key(other, i)), Some(i));
+                }
+            })
+        })
+        .collect();
+    for h in removes {
+        h.join().expect("remove thread panicked");
     }
-
-    for h in free_handles {
-        h.join().unwrap();
-    }
-
-    assert_eq!(alloc.live_allocs(), 0);
-    assert_eq!(alloc.bytes_in_use(), 0);
-    assert_eq!(alloc.total_allocs(), pop_threads * ops_per_thread);
+    assert_eq!(
+        map.mem_used(),
+        0,
+        "frees on other writer slots do not net the allocations to zero"
+    );
 }
 
 #[test]

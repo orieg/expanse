@@ -1,0 +1,80 @@
+# python3 scripts/callgrind_1680_summary.py results/callgrind_1680 (run in the cg1680:noble image, valgrind 3.22.0)
+## bench arms (instructions.rs), per operation
+
+### map_get_slot_ptr.sm_10k: 229.9 Ir/op, Bcm 1.808/op, Bim 3.023/op (ops 20,000)
+-  64.6%    148.5 Ir/op  Bcm 0.953  Bim 3.008  `get::locate_slot_popcnt`
+-  26.3%     60.4 Ir/op  Bcm 0.850  Bim 0.015  `leaf::search`
+-   9.1%     21.0 Ir/op  Bcm 0.005  Bim 0.000  `instructions::map_get_slot_ptr::__iai_callgrind_wrapper_mod::map_get_slot_ptr`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `__memcpy_avx_unaligned_erms`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `free`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `munmap_chunk`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `munmap`
+
+### map_get_slot_ptr.sm_1m: 228.6 Ir/op, Bcm 0.735/op, Bim 3.343/op (ops 2,000,000)
+-  68.1%    155.7 Ir/op  Bcm 0.453  Bim 3.343  `get::locate_slot_popcnt`
+-  22.7%     51.9 Ir/op  Bcm 0.281  Bim 0.000  `leaf::search`
+-   9.2%     21.0 Ir/op  Bcm 0.000  Bim 0.000  `instructions::map_get_slot_ptr::__iai_callgrind_wrapper_mod::map_get_slot_ptr`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `__memcpy_avx_unaligned_erms`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `free`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `munmap_chunk`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `munmap`
+
+### map_get.sm_10k: 210.3 Ir/op, Bcm 1.809/op, Bim 3.023/op (ops 20,000)
+-  61.3%    128.9 Ir/op  Bcm 0.956  Bim 3.008  `get::get_map_popcnt`
+-  28.7%     60.4 Ir/op  Bcm 0.851  Bim 0.015  `leaf::search`
+-  10.0%     21.0 Ir/op  Bcm 0.002  Bim 0.000  `instructions::map_get::__iai_callgrind_wrapper_mod::map_get`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `__memcpy_avx_unaligned_erms`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `free`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `munmap_chunk`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `munmap`
+
+### map_get.sm_1m: 209.1 Ir/op, Bcm 0.734/op, Bim 3.343/op (ops 2,000,000)
+-  65.1%    136.2 Ir/op  Bcm 0.453  Bim 3.343  `get::get_map_popcnt`
+-  24.8%     51.9 Ir/op  Bcm 0.281  Bim 0.000  `leaf::search`
+-  10.0%     21.0 Ir/op  Bcm 0.000  Bim 0.000  `instructions::map_get::__iai_callgrind_wrapper_mod::map_get`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `__memcpy_avx_unaligned_erms`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `free`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `munmap_chunk`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `munmap`
+
+### map_get.random: 125.3 Ir/op, Bcm 0.529/op, Bim 3.000/op (ops 50,000)
+-  70.3%     88.1 Ir/op  Bcm 0.213  Bim 3.000  `get::get_map_popcnt`
+-  16.8%     21.0 Ir/op  Bcm 0.000  Bim 0.000  `instructions::map_get::__iai_callgrind_wrapper_mod::map_get`
+-  12.9%     16.2 Ir/op  Bcm 0.316  Bim 0.000  `leaf::search`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `__memcpy_avx_unaligned_erms`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `free`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `munmap_chunk`
+-   0.0%      0.0 Ir/op  Bcm 0.000  Bim 0.000  `munmap`
+
+### map_ins_slot.gen_4m: 634.3 Ir/op, Bcm 1.600/op, Bim 4.568/op (ops 4,194,304)
+-  73.7%    467.5 Ir/op  Bcm 1.039  Bim 4.295  `mutate_map::map_insert_with_path_flat::<true>`
+-   6.9%     44.0 Ir/op  Bcm 0.000  Bim 0.000  `instructions::map_ins_slot::__iai_callgrind_wrapper_mod::map_ins_slot`
+-   4.8%     30.6 Ir/op  Bcm 0.078  Bim 0.266  `mutate_map::map_insert_with_path_flat::<true>'2`
+-   3.4%     21.8 Ir/op  Bcm 0.017  Bim 0.000  `__memset_avx2_unaligned_erms`
+-   3.1%     20.0 Ir/op  Bcm 0.266  Bim 0.000  `_int_malloc`
+-   2.2%     14.1 Ir/op  Bcm 0.050  Bim 0.000  `__memcpy_avx_unaligned_erms`
+-   1.2%      7.7 Ir/op  Bcm 0.030  Bim 0.000  `mutate::upgrade_b_to_u::<false>`
+-   0.9%      5.4 Ir/op  Bcm 0.038  Bim 0.000  `_int_free_merge_chunk`
+
+### map_ins_slot.random: 505.6 Ir/op, Bcm 2.733/op, Bim 2.938/op (ops 50,000)
+-  57.0%    288.3 Ir/op  Bcm 1.000  Bim 2.596  `mutate_map::map_insert_with_path_flat::<true>`
+-   8.7%     44.1 Ir/op  Bcm 0.004  Bim 0.000  `instructions::map_ins_slot::__iai_callgrind_wrapper_mod::map_ins_slot`
+-   8.5%     42.9 Ir/op  Bcm 0.180  Bim 0.330  `mutate_map::map_insert_with_path_flat::<true>'2`
+-   6.0%     30.5 Ir/op  Bcm 0.067  Bim 0.000  `__memset_avx2_unaligned_erms`
+-   5.6%     28.3 Ir/op  Bcm 0.003  Bim 0.000  `mutate_map::build_map_leaf::<false>`
+-   4.5%     22.6 Ir/op  Bcm 0.916  Bim 0.000  `__memcpy_avx_unaligned_erms`
+-   2.7%     13.5 Ir/op  Bcm 0.110  Bim 0.000  `_int_malloc`
+-   2.1%     10.4 Ir/op  Bcm 0.355  Bim 0.000  `leaf::lower_bound_fixed::<7>`
+
+## phase_probe, per collected call, N against S
+| shape | arm | Ir | Bc | Bcm | Bi | Bim |
+|---|---|---|---|---|---|---|
+| `sm_default` (JudyLGet) | S | 224.4 | 18.83 | 0.562 | 3.02 | 3.021 |
+| `sm_default` (JudyLGet) | N | 215.2 | 37.75 | 1.528 | 5.95 | 2.985 |
+| `sm_default` | N/S | 0.959 | 2.01 | 2.72 | 1.97 | 0.99 |
+| `sm_big` (JudyLGet) | S | 213.8 | 17.73 | 0.564 | 2.01 | 2.014 |
+| `sm_big` (JudyLGet) | N | 213.4 | 34.19 | 0.884 | 6.29 | 3.334 |
+| `sm_big` | N/S | 0.998 | 1.93 | 1.57 | 3.12 | 1.66 |
+| `judy_4m` (JudyLIns) | S | 761.5 | 45.75 | 0.440 | 4.55 | 4.083 |
+| `judy_4m` (JudyLIns) | N | 645.8 | 89.43 | 1.786 | 8.04 | 4.572 |
+| `judy_4m` | N/S | 0.848 | 1.95 | 4.06 | 1.77 | 1.12 |

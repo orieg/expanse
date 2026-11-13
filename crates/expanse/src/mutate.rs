@@ -2451,22 +2451,24 @@ pub(crate) unsafe fn upgrade_l7_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut 
 pub(crate) unsafe fn upgrade_b_to_u<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge) {
     crate::occ_stats::note_branch_replacement();
     let new = a.alloc_node_zeroed_dispatch::<OCC, BranchU>();
-    // SAFETY: live BranchB; subarray reads bounded by pop_counts.
+    // SAFETY: live BranchB; subexpanse `sub`'s subarray holds one child per
+    // set bit of its word, so `src` stays within it.
     unsafe {
         let old = &*edge.node_ptr().cast::<BranchB>();
         let u = &mut *new.as_ptr();
-        let mut d = old.bitmap.next_set(0);
+        // Each subexpanse's subarray holds its children in digit order, so
+        // walk its 32 bits and the subarray together.
         let mut children = 0usize;
-        while let Some(dig) = d {
-            let sub = (dig >> 5) as usize;
-            let rank = old.bitmap.subexpanse_rank(dig) as usize;
-            u.edges[dig as usize] = *old.subarrays[sub].add(rank);
-            children += 1;
-            d = if dig == 255 {
-                None
-            } else {
-                old.bitmap.next_set(dig + 1)
-            };
+        for sub in 0..8 {
+            let mut bits = (old.bitmap.words[sub / 2] >> ((sub % 2) * 32)) as u32;
+            let mut src = old.subarrays[sub].cast_const();
+            while bits != 0 {
+                let dig = (sub << 5) | bits.trailing_zeros() as usize;
+                u.edges[dig] = *src;
+                src = src.add(1);
+                bits &= bits - 1;
+                children += 1;
+            }
         }
         branch_u_init_count::<OCC>(new.as_ptr(), children);
         for sub in 0..8 {
@@ -3803,6 +3805,46 @@ pub(crate) fn branch_u_digits_to_floor(edges: &[Edge; crate::types::BRANCH_FANOU
         }
     }
     n
+}
+
+/// The non-null slots of the `BranchU` at `b` after a removal has nulled one
+/// of them, for the map walks (#1679): `0` when the branch is empty, the
+/// exact count when it is at or below the demotion floor, and a count above
+/// the floor otherwise — the same answers [`branch_u_digits_to_floor`] gives
+/// its callers.
+///
+/// The branch's header bound ([`BranchU::digits_lower`]) held at most its
+/// non-null slots before the null, so one less holds after it. While that
+/// stays above the floor, no slot is read. Otherwise the slots are counted
+/// as [`branch_u_digits_to_floor`] counts them, which is exact at or below
+/// the floor and short of the true count above it, and the count becomes
+/// the bound. That count passes the floor by at most one block of 16, so a
+/// dense branch drained one slot at a time is recounted at most every 16
+/// removals on the way to its floor instead of on every removal, and a
+/// recount reads what the walk read before the bound.
+///
+/// # Safety
+///
+/// `b` is a live `BranchU` with write provenance, the caller is its one
+/// writer, and the slot this removal emptied is already null.
+#[inline(always)]
+pub(crate) unsafe fn branch_u_digits_after_null<const OCC: bool>(b: *mut BranchU) -> usize {
+    // SAFETY: caller contract.
+    let lower = (unsafe { BranchU::digits_lower::<OCC>(b) } as usize).saturating_sub(1);
+    let digits = if branch_u_below_floor(lower) {
+        // SAFETY: caller contract; the slots are inside the live branch.
+        unsafe { branch_u_digits_to_floor(&(*b).edges) }
+    } else {
+        lower
+    };
+    debug_assert!(
+        // SAFETY: as above.
+        digits <= unsafe { (*b).edges.iter().filter(|e| !e.is_null()).count() },
+        "a BranchU's digits_lower exceeds its non-null slots"
+    );
+    // SAFETY: caller contract; `digits` is at most the non-null slots.
+    unsafe { BranchU::set_digits_lower::<OCC>(b, digits as u32) };
+    digits
 }
 
 /// The header count word of the `ablation-branchu-header-count` feature

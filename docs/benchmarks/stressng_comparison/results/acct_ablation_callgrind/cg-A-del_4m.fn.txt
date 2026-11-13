@@ -1,0 +1,46 @@
+--------------------------------------------------------------------------------
+Profile data file '/w/cg-A-del_4m.out' (creator: callgrind-3.22.0)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 1033164374
+Trigger: Program termination
+Profiled target:  /w/probe del_4m 1 - - (PID 316, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       99
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                     
+--------------------------------------------------------------------------------
+3,082,552,070 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                      file:function
+--------------------------------------------------------------------------------
+2,080,812,994 (67.50%)  ???:expanse_trie::mutate_map::map_remove::<false, false>'2 [/w/lib-A/libexpanse.so.1.0.0]
+  314,570,550 (10.20%)  ???:expanse_trie::mutate_map::map_remove::<false, false> [/w/lib-A/libexpanse.so.1.0.0]
+  247,466,826 ( 8.03%)  ???:JudyLDel [/w/lib-A/libexpanse.so.1.0.0]
+  112,089,785 ( 3.64%)  ???:expanse_trie::mutate::downgrade_u_to_b::<false> [/w/lib-A/libexpanse.so.1.0.0]
+  101,366,488 ( 3.29%)  ???:expanse_trie::bits::find_byte_8 [/w/lib-A/libexpanse.so.1.0.0]
+   71,084,828 ( 2.31%)  ./malloc/./malloc/malloc.c:_int_malloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   46,557,558 ( 1.51%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   18,021,653 ( 0.58%)  ./malloc/./malloc/malloc.c:_int_free_merge_chunk [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   16,637,835 ( 0.54%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   16,288,800 ( 0.53%)  ./malloc/./malloc/malloc.c:calloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   13,571,541 ( 0.44%)  ./malloc/./malloc/malloc.c:_int_free [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   10,270,372 ( 0.33%)  ./malloc/./malloc/malloc.c:unlink_chunk.isra.0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+    8,270,080 ( 0.27%)  ???:expanse_trie::mutate::downgrade_b_to_l7::<false> [/w/lib-A/libexpanse.so.1.0.0]
+
+--------------------------------------------------------------------------------
+The following files chosen for auto-annotation could not be found:
+--------------------------------------------------------------------------------
+  ./malloc/./malloc/malloc.c
+  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S
+  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S
+

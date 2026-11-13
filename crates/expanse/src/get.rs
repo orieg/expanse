@@ -1557,6 +1557,8 @@ mod tests {
         b7.hdr.num = 7;
         b7.hdr.digits[..7].copy_from_slice(&digits_hi);
         b7.hdr.refresh_presence();
+        // Index form kept so codegen is unchanged; reviewed in #1724.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..7 {
             // SAFETY: `base.add(i)` stays inside the 7-element allocation.
             let leaf = unsafe { base.add(i) };

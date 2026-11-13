@@ -1,0 +1,106 @@
+# callgrind format
+version: 1
+creator: callgrind-3.22.0
+pid: 19
+cmd:  /o2/phase_probe sm_big 1 - -
+part: 1
+
+
+desc: I1 cache: 
+desc: D1 cache: 
+desc: LL cache: 
+
+desc: Timerange: Basic block 0 - 180044949
+desc: Trigger: Program termination
+
+positions: line
+events: Ir Bc Bcm Bi Bim
+summary: 641509780 53175655 1691458 6040509 6040509
+
+
+ob=(1) /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+fl=(1) ???
+fn=(0) 0x000000000001f540
+cob=(6) /o2/phase_probe
+cfi=(162) ???
+cfn=(534) (below main)
+calls=1 0 
+0 641509780 53175655 1691458 6040509 6040509
+
+ob=(6)
+fl=(162)
+fn=(534)
+cob=(2) /usr/lib/x86_64-linux-gnu/libc.so.6
+cfi=(163) ./csu/../csu/libc-start.c
+cfn=(536) __libc_start_main@@GLIBC_2.34
+calls=1 242 
+0 641509780 53175655 1691458 6040509 6040509
+
+fn=(576) sparsematrix
+cob=(3) ???
+cfi=(153) ???
+cfn=(578) 0x0000000000109180
+calls=999999 0 
+0 202997683 16186375 588736 2040509 2040509
+cob=(3)
+cfi=(153)
+cfn=(578)
+calls=1 0 
+0 4 1 1
+cob=(3)
+cfi=(153)
+cfn=(578)
+calls=999999 0 
+0 221751973 18639009 459502 1999998 1999998
+cob=(3)
+cfi=(153)
+cfn=(578)
+calls=1 0 
+0 225 19 2 2 2
+cob=(3)
+cfi=(153)
+cfn=(578)
+calls=999999 0 
+0 216759673 18350232 643216 1999998 1999998
+cob=(3)
+cfi=(153)
+cfn=(578)
+calls=1 0 
+0 222 19 1 2 2
+
+fn=(564) main
+cfn=(576)
+calls=1 0 
+0 641509780 53175655 1691458 6040509 6040509
+
+ob=(3)
+fl=(153)
+fn=(578)
+cob=(5) /o2/S/libJudy.so.1
+cfi=(161) ???
+cfn=(580) JudyLGet
+calls=3000000 0 
+0 641509780 53175655 1691458 6040509 6040509
+
+ob=(5)
+fl=(161)
+fn=(580)
+0 641509780 53175655 1691458 6040509 6040509
+
+ob=(2)
+fl=(165) ./csu/../sysdeps/nptl/libc_start_call_main.h
+fn=(556) (below main)
+cob=(6)
+cfi=(162)
+cfn=(564)
+calls=1 0 
+58 641509780 53175655 1691458 6040509 6040509
+
+fl=(163)
+fn=(536)
+cfi=(165)
+cfn=(556)
+calls=1 29 
+360 641509780 53175655 1691458 6040509 6040509
+
+totals: 641509780 53175655 1691458 6040509 6040509

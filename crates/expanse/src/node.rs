@@ -828,10 +828,17 @@ pub struct BranchU {
     /// Absent from the default build, which keeps the pre-#1202 header.
     #[cfg(feature = "ablation-branchu-header-count")]
     child_count: u32,
+    /// A lower bound on the non-null slots of `edges` (#1679). Only the
+    /// removals that null a slot move it, so a slot an insert fills leaves
+    /// it a lower bound, and a branch starts at 0. A removal whose bound,
+    /// one less, stays above the demotion floor knows the branch is neither
+    /// empty nor below the floor without counting its slots. Reached
+    /// through [`BranchU::digits_lower`] and [`BranchU::set_digits_lower`].
+    digits_lower: u32,
     #[cfg(feature = "ablation-branchu-header-count")]
-    _pad: [u8; 56],
+    _pad: [u8; 52],
     #[cfg(not(feature = "ablation-branchu-header-count"))]
-    _pad: [u8; 60],
+    _pad: [u8; 56],
     /// One edge per possible digit (null tag = empty subexpanse).
     pub edges: [Edge; BRANCH_FANOUT],
 }
@@ -844,10 +851,11 @@ impl BranchU {
             version: 0,
             #[cfg(feature = "ablation-branchu-header-count")]
             child_count: 0,
+            digits_lower: 0,
             #[cfg(feature = "ablation-branchu-header-count")]
-            _pad: [0; 56],
+            _pad: [0; 52],
             #[cfg(not(feature = "ablation-branchu-header-count"))]
-            _pad: [0; 60],
+            _pad: [0; 56],
             edges: [Edge::NULL; BRANCH_FANOUT],
         }
     }
@@ -888,6 +896,29 @@ impl BranchU {
         }
         // SAFETY: caller contract.
         unsafe { crate::bits::shared_word::store_u32::<OCC>(&raw mut (*b).child_count, n) }
+    }
+
+    /// The branch's lower bound on its non-null slots (see the field).
+    ///
+    /// # Safety
+    /// `b` points to a live `BranchU` with write provenance, and the caller
+    /// is the branch's one writer: it holds the version lock, or the writer
+    /// gate is closed, or the tree is not shared. Readers never load it.
+    #[inline(always)]
+    pub(crate) unsafe fn digits_lower<const OCC: bool>(b: *mut BranchU) -> u32 {
+        // SAFETY: caller contract; the field is 4-byte aligned in the node.
+        unsafe { crate::bits::shared_word::load_u32::<OCC>(&raw mut (*b).digits_lower) }
+    }
+
+    /// Sets the branch's lower bound on its non-null slots.
+    ///
+    /// # Safety
+    /// As [`BranchU::digits_lower`], and `n` is at most the branch's
+    /// non-null slots.
+    #[inline(always)]
+    pub(crate) unsafe fn set_digits_lower<const OCC: bool>(b: *mut BranchU, n: u32) {
+        // SAFETY: caller contract.
+        unsafe { crate::bits::shared_word::store_u32::<OCC>(&raw mut (*b).digits_lower, n) }
     }
 }
 
@@ -1007,7 +1038,7 @@ const _: () = {
     assert!(size_of::<BranchU>() == 4096 + CACHE_LINE);
     assert!(align_of::<BranchU>() == CACHE_LINE);
     // Header line: the version word, then (under the #1202 ablation) the
-    // child count on the same line.
+    // child count and the removals' lower bound on the same line.
     assert!(offset_of!(BranchU, version) == 0);
     assert!(offset_of!(BranchU, edges) == CACHE_LINE);
 
@@ -1018,6 +1049,10 @@ const _: () = {
 
 #[cfg(feature = "ablation-branchu-header-count")]
 const _: () = assert!(core::mem::offset_of!(BranchU, child_count) == 4);
+#[cfg(feature = "ablation-branchu-header-count")]
+const _: () = assert!(core::mem::offset_of!(BranchU, digits_lower) == 8);
+#[cfg(not(feature = "ablation-branchu-header-count"))]
+const _: () = assert!(core::mem::offset_of!(BranchU, digits_lower) == 4);
 
 impl Edge {
     /// Bit-level equality check (compares word0 and aux_word).
