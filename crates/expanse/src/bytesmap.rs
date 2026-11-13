@@ -590,8 +590,11 @@ pub(crate) fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, _defer: Option<&(
 pub struct ExpanseBytesMap<S: BuildHasher = DefaultBuildHasher> {
     /// hash → `Box<Bucket>` pointer, stored as the map value word.
     map: ExpanseMap,
-    /// Keys of at most 8 bytes, unhashed (#1681); empty on a deferred map.
-    short: ShortKeys,
+    /// Keys of at most 8 bytes, unhashed (#1681). Allocated on the first
+    /// such key a plain map stores, so an empty or long-key-only map carries
+    /// one pointer for it; never allocated on a deferred map, whose keys all
+    /// take the hash path its concurrent protocol covers.
+    short: Option<Box<ShortKeys>>,
     hasher: S,
     len: u64,
     /// Bucket/entry heap bytes (estimate; the trie's own bytes are exact
@@ -624,23 +627,29 @@ impl ShortKeys {
         }
     }
 
-    /// The trie and trie key `key` maps to, or `None` for a key longer than
-    /// one word.
+    /// The trie and trie key a key of at most 8 bytes maps to.
     #[inline(always)]
-    fn route(&self, key: &[u8]) -> Option<(&ExpanseMap, u64)> {
-        match short_word(key)? {
-            (true, w) => Some((&self.full, w)),
-            (false, w) => Some((&self.part, w)),
+    fn route(&self, key: &[u8]) -> (&ExpanseMap, u64) {
+        match short_word(key) {
+            (true, w) => (&self.full, w),
+            (false, w) => (&self.part, w),
         }
     }
 
     /// [`Self::route`], mutably.
     #[inline(always)]
-    fn route_mut(&mut self, key: &[u8]) -> Option<(&mut ExpanseMap, u64)> {
-        match short_word(key)? {
-            (true, w) => Some((&mut self.full, w)),
-            (false, w) => Some((&mut self.part, w)),
+    fn route_mut(&mut self, key: &[u8]) -> (&mut ExpanseMap, u64) {
+        match short_word(key) {
+            (true, w) => (&mut self.full, w),
+            (false, w) => (&mut self.part, w),
         }
+    }
+
+    /// The value of a key of at most 8 bytes.
+    #[inline(always)]
+    fn get(&self, key: &[u8]) -> Option<u64> {
+        let (trie, w) = self.route(key);
+        trie.get(w)
     }
 
     fn len(&self) -> u64 {
@@ -650,19 +659,16 @@ impl ShortKeys {
 
 /// `(is 8 bytes, trie key)` for a key of at most 8 bytes; see [`ShortKeys`].
 #[inline(always)]
-fn short_word(key: &[u8]) -> Option<(bool, u64)> {
+fn short_word(key: &[u8]) -> (bool, u64) {
+    debug_assert!(key.len() <= 8, "only keys of at most 8 bytes are short");
     let n = key.len();
-    if n == 8 {
-        let bytes: [u8; 8] = key.try_into().ok()?;
-        return Some((true, u64::from_be_bytes(bytes)));
-    }
-    if n > 8 {
-        return None;
-    }
     let mut buf = [0u8; 8];
     buf[..n].copy_from_slice(key);
+    if n == 8 {
+        return (true, u64::from_be_bytes(buf));
+    }
     buf[7] = n as u8;
-    Some((false, u64::from_be_bytes(buf)))
+    (false, u64::from_be_bytes(buf))
 }
 
 /// The key a [`ShortKeys`] trie key stands for: its bytes, and how many of
@@ -806,7 +812,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     pub fn with_hasher(hasher: S) -> Self {
         Self {
             map: ExpanseMap::new(),
-            short: ShortKeys::new(),
+            short: None,
             hasher,
             len: 0,
             extra_bytes: 0,
@@ -815,46 +821,18 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         }
     }
 
-    /// The short-key tries hold this map's keys of at most 8 bytes, which is
-    /// so unless the map is deferred: a shared map keeps every key on the hash
-    /// path, which its concurrent protocol covers. `defer_to` takes an empty
-    /// map, so a deferred map's short tries are always empty.
+    /// The short-key tries for an insert of a key of at most 8 bytes,
+    /// allocated on first use, or `None` on a deferred map: a shared map keeps
+    /// every key on the hash path. Only an insert asks; a read or a removal
+    /// that finds no tries takes the hash path, which on a plain map simply
+    /// misses, and that is what keeps `short == None` on a deferred map.
     #[inline(always)]
-    fn short_keys(&self) -> Option<&ShortKeys> {
+    fn short_keys_for_insert(&mut self) -> Option<&mut ShortKeys> {
         #[cfg(feature = "std")]
         if self.deferred.get().is_some() {
             return None;
         }
-        Some(&self.short)
-    }
-
-    /// [`Self::short_keys`], mutably.
-    #[inline(always)]
-    fn short_keys_mut(&mut self) -> Option<&mut ShortKeys> {
-        #[cfg(feature = "std")]
-        if self.deferred.get().is_some() {
-            return None;
-        }
-        Some(&mut self.short)
-    }
-
-    /// The short-key trie and trie key for `key`, or `None` for the hash
-    /// path. The length test comes first, so a longer key pays one compare.
-    #[inline(always)]
-    fn short_route(&self, key: &[u8]) -> Option<(&ExpanseMap, u64)> {
-        if key.len() > 8 {
-            return None;
-        }
-        self.short_keys()?.route(key)
-    }
-
-    /// [`Self::short_route`], mutably.
-    #[inline(always)]
-    fn short_route_mut(&mut self, key: &[u8]) -> Option<(&mut ExpanseMap, u64)> {
-        if key.len() > 8 {
-            return None;
-        }
-        self.short_keys_mut()?.route_mut(key)
+        Some(self.short.get_or_insert_with(|| Box::new(ShortKeys::new())))
     }
 
     #[inline(always)]
@@ -897,9 +875,15 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     #[cfg(feature = "std")]
     pub(crate) fn defer_to(&self, collector: Arc<Collector>) {
         assert!(
-            self.len == 0 && self.map.is_empty() && self.short.len() == 0,
+            self.len == 0 && self.map.is_empty(),
             "ExpanseBytesMap::defer_to requires an empty map; rebuild a \
              populated map through a pre-deferred one instead"
+        );
+        // A deferred map never allocates its short-key tries (#1681); one
+        // that once held a short key keeps them and cannot be shared.
+        assert!(
+            self.short.is_none(),
+            "ExpanseBytesMap::defer_to requires a map that never held a key of at most 8 bytes"
         );
         // Both steps are idempotent for the same collector and panic on
         // a different one.
@@ -952,8 +936,10 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.map.mem_used()
-            + self.short.full.mem_used()
-            + self.short.part.mem_used()
+            + self
+                .short
+                .as_deref()
+                .map_or(0, |s| s.full.mem_used() + s.part.mem_used())
             + self.extra_bytes
     }
 
@@ -967,7 +953,13 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         let mut stats = BytesMapStats::default();
         // The hash trie and the two short-key tries (#1681), summed: every
         // trie field describes all three.
-        for trie in [&self.map, &self.short.full, &self.short.part] {
+        let short = self.short.as_deref();
+        let tries = [
+            Some(&self.map),
+            short.map(|s| &s.full),
+            short.map(|s| &s.part),
+        ];
+        for trie in tries.into_iter().flatten() {
             let sub = trie.stats();
             stats.node_bytes.sub_maps += sub.node_bytes;
             stats.node_counts += sub.node_counts;
@@ -994,7 +986,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
 
         #[cfg(debug_assertions)]
         {
-            let mut counted_entries = self.short.len();
+            let mut counted_entries = self.short.as_deref().map_or(0, ShortKeys::len);
             let mut counted_terminals = 0usize;
             for (_, word) in self.map.iter() {
                 // SAFETY: every trie value is a live bucket owned by this map.
@@ -1073,9 +1065,19 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// Returns the value stored for `key`.
     #[must_use]
     pub fn get(&self, key: &[u8]) -> Option<u64> {
-        if let Some((trie, w)) = self.short_route(key) {
-            return trie.get(w);
+        if key.len() <= 8
+            && let Some(short) = self.short.as_deref()
+        {
+            return short.get(key);
         }
+        self.get_hashed(key)
+    }
+
+    /// [`Self::get`] on the hash path alone: for a deferred map, whose keys
+    /// all take it, so the shared wrapper's locked reads skip the short-key
+    /// test (#1681).
+    #[inline]
+    pub(crate) fn get_hashed(&self, key: &[u8]) -> Option<u64> {
         let bucket = self.bucket_of(key)?;
         // SAFETY: bucket pointers stored in the hash trie are live boxes
         // owned by this map.
@@ -1097,7 +1099,10 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// Takes `&self` to allow read-only lookups without requiring a mutable borrow.
     #[must_use]
     pub fn get_slot_ptr(&self, key: &[u8]) -> Option<NonNull<u64>> {
-        if let Some((trie, w)) = self.short_route(key) {
+        if key.len() <= 8
+            && let Some(short) = self.short.as_deref()
+        {
+            let (trie, w) = short.route(key);
             return trie.get_slot_ptr(w);
         }
         let b_ptr = self.bucket_of(key)?.as_ptr();
@@ -1135,19 +1140,6 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         key: &[u8],
         init_val: u64,
     ) -> (NonNull<u64>, Option<u64>) {
-        if !SHARED && let Some((trie, w)) = self.short_route_mut(key) {
-            let before = trie.len();
-            let slot = trie.ins_slot_plain(w);
-            if trie.len() == before {
-                // SAFETY: the live value slot `ins_slot_plain` returned.
-                return (slot, Some(unsafe { *slot.as_ptr() }));
-            }
-            // SAFETY: a fresh, zeroed slot, valid until the next structural
-            // mutation.
-            unsafe { *slot.as_ptr() = init_val };
-            self.len += 1;
-            return (slot, None);
-        }
         let defer = self.defer_handle();
         let h = hash_key(&self.hasher, key);
         // A shared map's root leaf is loaded by readers while this stores
@@ -1224,12 +1216,48 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// the compat `JudyHSIns` contract. Valid until the next structural
     /// mutation.
     pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {
+        if key.len() <= 8
+            && let Some(slot) = self.short_insert(key, 0)
+        {
+            return slot.0;
+        }
         self.insert_slot_inner::<false>(key, 0).0
+    }
+
+    /// Inserts a key of at most 8 bytes into the short-key tries, returning
+    /// its slot and the value it replaced, or `None` on a deferred map,
+    /// whose keys all take the hash path. A fresh key's slot holds
+    /// `init_val`; a present key's is left as it was.
+    #[inline]
+    fn short_insert(&mut self, key: &[u8], init_val: u64) -> Option<(NonNull<u64>, Option<u64>)> {
+        let (trie, w) = self.short_keys_for_insert()?.route_mut(key);
+        // The short-key tries are plain trees: never deferred (#1681).
+        debug_assert!(!trie.is_occ_enabled(), "a short-key trie is never shared");
+        let before = trie.len();
+        let slot = trie.ins_slot_plain(w);
+        if trie.len() == before {
+            // SAFETY: the live value slot `ins_slot_plain` returned.
+            return Some((slot, Some(unsafe { *slot.as_ptr() })));
+        }
+        // SAFETY: a fresh, zeroed slot, valid until the next structural
+        // mutation.
+        unsafe { *slot.as_ptr() = init_val };
+        self.len += 1;
+        Some((slot, None))
     }
 
     /// Inserts `key → val`; returns the replaced value if the key was
     /// already present.
     pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
+        if key.len() <= 8
+            && let Some((slot, prev)) = self.short_insert(key, val)
+        {
+            if prev.is_some() {
+                // SAFETY: the live value slot of a present key.
+                unsafe { *slot.as_ptr() = val };
+            }
+            return prev;
+        }
         let (slot, prev) = self.insert_slot_inner::<false>(key, val);
         if prev.is_some() {
             // The one in-place value mutation of a published bucket on
@@ -1282,6 +1310,16 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
 
     /// Removes `key`; returns its value if it was present.
     pub fn remove(&mut self, key: &[u8]) -> Option<u64> {
+        if key.len() <= 8
+            && let Some(short) = self.short.as_deref_mut()
+        {
+            let (trie, w) = short.route_mut(key);
+            // The short-key tries are plain trees: never deferred (#1681).
+            debug_assert!(!trie.is_occ_enabled(), "a short-key trie is never shared");
+            let val = trie.remove_plain(w)?;
+            self.len -= 1;
+            return Some(val);
+        }
         self.remove_impl::<false>(key)
     }
 
@@ -1320,11 +1358,6 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     }
 
     fn remove_impl<const SHARED: bool>(&mut self, key: &[u8]) -> Option<u64> {
-        if !SHARED && let Some((trie, w)) = self.short_route_mut(key) {
-            let val = trie.remove_plain(w)?;
-            self.len -= 1;
-            return Some(val);
-        }
         let defer = self.defer_handle();
         let h = hash_key(&self.hasher, key);
         let word = self.map.get(h)?;
@@ -1394,7 +1427,12 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// Returns the number of entries visited.
     pub fn try_for_each(&self, mut f: impl FnMut(&[u8], u64) -> bool) -> usize {
         let mut count = 0;
-        for (full, trie) in [(true, &self.short.full), (false, &self.short.part)] {
+        let short = self.short.as_deref();
+        let tries = [
+            short.map(|s| (true, &s.full)),
+            short.map(|s| (false, &s.part)),
+        ];
+        for (full, trie) in tries.into_iter().flatten() {
             for (w, v) in trie.iter() {
                 let (bytes, n) = short_key_bytes(full, w);
                 count += 1;
@@ -1420,8 +1458,8 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     pub fn clear(&mut self) {
         self.clear_entries();
         self.map.shrink_to_fit();
-        self.short.full.clear();
-        self.short.part.clear();
+        // Released with the rest: a cleared map holds what a new one does.
+        self.short = None;
     }
 
     /// [`Self::clear`] without returning the trie allocator's freed blocks,
@@ -1432,8 +1470,10 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         // Unlink everything from the trie first (its nodes free/retire
         // through its own `NodeAlloc`), then dispose of the buckets.
         self.map.clear_entries();
-        self.short.full.clear_entries();
-        self.short.part.clear_entries();
+        if let Some(short) = self.short.as_deref_mut() {
+            short.full.clear_entries();
+            short.part.clear_entries();
+        }
         for word in buckets {
             // Each collected word is a live bucket, unlinked above and
             // disposed of (with its keys) exactly once here.
@@ -1616,6 +1656,43 @@ mod tests {
     /// Deferred-mode model differential: the publish-replacement
     /// restructure must not change single-threaded semantics, with real
     /// hashing and with every key forced into one collision bucket.
+    /// A deferred map keeps every key on the hash path (#1681): short-key
+    /// inserts, overwrites and removals never allocate its short-key tries,
+    /// and each key stays readable through the hash path.
+    #[test]
+    #[cfg(feature = "std")]
+    fn deferred_map_never_allocates_short_key_tries() {
+        use crate::occ::Collector;
+        use core_alloc::sync::Arc;
+
+        let collector = Arc::new(Collector::new());
+        let mut m = ExpanseBytesMap::new();
+        m.defer_to(Arc::clone(&collector));
+        let keys: [&[u8]; 5] = [b"", b"a", b"abcdefg", b"abcdefgh", b"abcdefghi"];
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(m.insert(k, i as u64), None, "{k:02x?}");
+            assert!(
+                m.short.is_none(),
+                "insert of {k:02x?} allocated short-key tries"
+            );
+        }
+        assert_eq!(m.insert(b"abcdefgh", 9), Some(3));
+        // SAFETY: the slot is live until the next structural mutation.
+        unsafe { *m.ins_slot(b"a").as_ptr() += 10 };
+        assert!(m.short.is_none(), "an overwrite allocated short-key tries");
+        assert_eq!(m.get(b"a"), Some(11));
+        assert_eq!(m.get(b"abcdefgh"), Some(9));
+        // Every key took a bucket in the hash trie, the short ones included.
+        assert_eq!(m.bucket_count(), keys.len() as u64);
+        for k in keys {
+            assert!(m.remove(k).is_some(), "{k:02x?}");
+        }
+        assert!(m.short.is_none(), "a removal allocated short-key tries");
+        assert!(m.is_empty());
+        drop(m);
+        drop(collector);
+    }
+
     #[test]
     #[cfg(feature = "std")]
     fn deferred_model_round_trips() {
@@ -1663,7 +1740,7 @@ mod tests {
         assert_eq!(m.len(), keys.len() as u64);
         // The 11 keys of at most 8 bytes are in the short tries and took no
         // bucket; the 9-byte key took one bucket.
-        assert_eq!(m.short.len(), 11);
+        assert_eq!(m.short.as_deref().map_or(0, ShortKeys::len), 11);
         assert_eq!(m.bucket_count(), 1);
         assert_eq!(
             m.extra_bytes,

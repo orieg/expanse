@@ -16051,6 +16051,17 @@ impl SyncExpanseStrMap {
 /// (`RandomState` clones its keys). Hashing goes through `&self`
 /// concurrently, hence the `Sync` bound.
 ///
+/// # Keys of at most 8 bytes
+///
+/// Unlike the plain [`ExpanseBytesMap`](crate::bytesmap::ExpanseBytesMap),
+/// which keeps keys of at most 8 bytes in unhashed word tries, this wrapper
+/// hashes every key: its concurrent protocol covers the hash trie alone.
+/// Concurrent callers whose keys are all 8 bytes or shorter get the
+/// unhashed, allocation-free path from [`SyncExpanseMap`] (C:
+/// `expanse_sync_map_*`) instead, keyed by the bytes read as a big-endian
+/// `u64` (a shorter key needs its length folded into the word, as
+/// `ExpanseBytesMap` does, if keys of different lengths share a map).
+///
 /// # Memory-model soundness
 ///
 /// Concurrent use forms no data race and no aliasing violation that the
@@ -16681,7 +16692,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                 not(feature = "ablation-bytes-serial-writers")
             ))]
             m.set_len(self.entry_pop.load());
-            let seen = m.get(key);
+            let seen = m.get_hashed(key);
             if seen == expected {
                 #[cfg(all(
                     feature = "std",
@@ -17319,7 +17330,7 @@ impl<S: BuildHasher> BytesExclusive<'_, S> {
     /// The value stored for `key`, if any.
     #[must_use]
     pub fn get(&self, key: &[u8]) -> Option<u64> {
-        self.map.get(key)
+        self.map.get_hashed(key)
     }
 
     /// Whether `key` is present.
@@ -17356,7 +17367,7 @@ impl<S: BuildHasher> BytesExclusive<'_, S> {
         key: &[u8],
         f: impl FnOnce(Option<u64>) -> Option<u64>,
     ) -> Option<u64> {
-        let old = self.map.get(key);
+        let old = self.map.get_hashed(key);
         match f(old) {
             Some(v) => {
                 self.insert(key, v);
@@ -17473,7 +17484,7 @@ macro_rules! bytes_get_walk {
             }
         }
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        shared.read_locked(|m| m.get(key))
+        shared.read_locked(|m| m.get_hashed(key))
     }};
 }
 
