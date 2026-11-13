@@ -73,6 +73,24 @@ impl core::hash::Hasher for FnvHasher {
 #[cfg(not(feature = "std"))]
 pub type DefaultBuildHasher = core::hash::BuildHasherDefault<FnvHasher>;
 
+/// The 64-bit hash a key is filed under: its bytes, written once.
+///
+/// `BuildHasher::hash_one(&[u8])` would write the slice's length ahead of its
+/// bytes, which a composite key needs to stay prefix-free and a single byte
+/// string does not: the map hashes nothing but the key, SipHash folds the
+/// message length into its finalization, and every bucket compares keys
+/// byte-exactly, so two keys that hash alike only share a bucket. Skipping
+/// the prefix saves one hasher `write` per operation. Every path that files
+/// or finds a key (the plain map, the shared map's readers and optimistic
+/// writers) hashes through this function, so they agree.
+#[inline(always)]
+pub(crate) fn hash_key<S: BuildHasher>(hasher: &S, key: &[u8]) -> u64 {
+    use core::hash::Hasher;
+    let mut h = hasher.build_hasher();
+    h.write(key);
+    h.finish()
+}
+
 /// One collision-bucket entry: the exact key bytes and the value word.
 pub(crate) type Entry = (Box<[u8]>, u64);
 
@@ -644,7 +662,7 @@ pub(crate) unsafe fn get_validated<S: BuildHasher>(
     snap: u64,
 ) -> Result<Option<u64>, crate::sync::Retry> {
     use crate::sync::Retry;
-    let h = hasher.hash_one(key);
+    let h = hash_key(hasher, key);
     // SAFETY: the caller's pin + snapshot contract carries through.
     let found = unsafe { crate::sync::walk_validated::<true>(root, h, ver, snap) }?;
     let Some(word) = found else { return Ok(None) };
@@ -904,7 +922,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     }
 
     fn bucket_of(&self, key: &[u8]) -> Option<NonNull<Bucket>> {
-        let h = self.hasher.hash_one(key);
+        let h = hash_key(&self.hasher, key);
         self.map
             .get(h)
             .and_then(|word| NonNull::new(word as *mut Bucket))
@@ -970,7 +988,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         init_val: u64,
     ) -> (NonNull<u64>, Option<u64>) {
         let defer = self.defer_handle();
-        let h = self.hasher.hash_one(key);
+        let h = hash_key(&self.hasher, key);
         // A shared map's root leaf is loaded by readers while this stores
         // to it, so the shared instance takes the engine's shared entry
         // (#1086); the plain instance compiles as before.
@@ -1142,7 +1160,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
 
     fn remove_impl<const SHARED: bool>(&mut self, key: &[u8]) -> Option<u64> {
         let defer = self.defer_handle();
-        let h = self.hasher.hash_one(key);
+        let h = hash_key(&self.hasher, key);
         let word = self.map.get(h)?;
         let old = word as *mut Bucket;
         // SAFETY: live bucket owned by this map; read-only search.
@@ -1537,8 +1555,6 @@ mod tests {
                 self.0 |= u64::from(b) << (8 * i);
             }
         }
-        // `[u8]`'s `Hash` writes its length first; the word is the key alone.
-        fn write_usize(&mut self, _len: usize) {}
     }
 
     #[cfg(feature = "std")]
