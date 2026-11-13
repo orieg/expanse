@@ -26,11 +26,11 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; `sync_strmap_short_scan` and `sync_strmap_short_scan_capped` build 50k 22-byte `user<18 digits>` keys; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes (or 200k random 28-bit keys drained to 62.5k on 32-bit types), the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys; `sync_set_prev_locked/immed` and its optimistic twin `sync_set_prev/immed` build 50k keys in groups of `IMMED_GROUP` (12) consecutive low bytes under consecutive byte-1 values, a tree whose 4,167 terminals are all immediates; the stress-ng `judy` arms (#1666), `map_ins_slot/gen_4m` and `map_remove_revgen`, build `gen_index(i)` for `i` below 1,024 (`gen_1k`), 262,144 (`gen_256k`) or 4,194,304 (`gen_4m`); `map_small_tree` builds `SMALL_TREES` (500) maps of `SMALL_KEYS` (20) distinct keys uniform on `[0, 500)`; the stress-ng `sparsematrix` arm `map_get_slot_ptr` (#1680) builds `x << 32 | y` over 10,000 draws on `[0, 500)²` (`sm_10k`) or 1,000,000 draws on `[0, 100000)²` (`sm_1m`), repeats kept once |
-//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape; the `gen_*` arms insert in order of `i`, stress-ng's order, which is not sorted by key (bits 24..31 carry the complement of `i`'s low byte); `map_small_tree` inserts each tree's keys as drawn; `map_get_slot_ptr` inserts its draws as drawn, skipping a draw already present |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; `sync_strmap_short_scan` and `sync_strmap_short_scan_capped` build 50k 22-byte `user<18 digits>` keys; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes (or 200k random 28-bit keys drained to 62.5k on 32-bit types), the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys; `sync_set_prev_locked/immed` and its optimistic twin `sync_set_prev/immed` build 50k keys in groups of `IMMED_GROUP` (12) consecutive low bytes under consecutive byte-1 values, a tree whose 4,167 terminals are all immediates; the stress-ng `judy` arms (#1666), `map_ins_slot/gen_4m` and `map_remove_revgen`, build `gen_index(i)` for `i` below 1,024 (`gen_1k`), 262,144 (`gen_256k`) or 4,194,304 (`gen_4m`); `map_small_tree` builds `SMALL_TREES` (500) maps of `SMALL_KEYS` (20) distinct keys uniform on `[0, 500)`; the stress-ng `sparsematrix` arm `map_get_slot_ptr` (#1680) builds `x << 32 | y` over 10,000 draws on `[0, 500)²` (`sm_10k`) or 1,000,000 draws on `[0, 100000)²` (`sm_1m`), repeats kept once; the `bytesmap_fixed8_*` arms (#1671) build 50k distinct zmap response-dedup keys (`fixed8_stream`: 8 bytes, a 198.18.0.0/15 address and one of four ports big-endian, status and padding zero) |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape; the `gen_*` arms insert in order of `i`, stress-ng's order, which is not sorted by key (bits 24..31 carry the complement of `i`'s low byte); `map_small_tree` inserts each tree's keys as drawn; `map_get_slot_ptr` inserts its draws as drawn, skipping a draw already present; the `bytesmap_fixed8_*` arms insert in draw order, a scan's pseudo-random visit order |
 //! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); in the `sync_set_prev_locked` and `sync_set_prev` arms every probe is a present key, so every call answers except the probes of the minimum (1 for `random` and `immed`, 2,083 for `leaf`), each answering `None`; the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one (both 64-bit and 32-bit types); `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; `sync_blobmap_reclaim_free` compacts, in setup, an arena of more than 512 4 KiB chunks with 63 of every 64 records removed, then makes `RECLAIM_FREE_INSERTS` (65) plain inserts of fresh keys, two epoch-advance intervals and one, so the advance that frees the retired chunk set falls inside them; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses; `sync_strmap_mem_used` reads `mem_used` `MEM_USED_READS` (4) times over the built `routes` or `short` map, with no probe; `sync_strmap_short_scan` and `sync_strmap_short_scan_capped` make `SHORT_SCANS` (1,000) scans, each from a population key drawn by the file's XorShift (with replacement) reading `limit` records, `limit` uniform on 1..=100, the capped arm with the refill capped at `limit`; `map_remove_revgen` removes every key once in reverse insert order (stress-ng's delete phase) and drops the emptied map inside the arm; `map_small_tree` runs each tree's whole life once — a boxed map, 20 `ins_slot_plain`, `mem_used`, `clear_plain`, drop — counted per tree; `map_get_slot_ptr` probes its draws again in draw order (repeats included), then as many fresh draws, one `get_slot_ptr` each, and `map_get/sm_*` makes the same probes through `get` over the same map |
-//! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%), `sync32_map_get` (50%), and `map_get_slot_ptr` and `map_get/sm_*` (50%) |
-//! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`); `sync32_map_get`'s misses are draws from its keyspace rejected on membership, and so are `map_get_slot_ptr`'s, from its `(x, y)` generator |
+//! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%), `sync32_map_get` (50%), `map_get_slot_ptr` and `map_get/sm_*` (50%), and `bytesmap_fixed8_get` (50%: every present key and 50k absent ones, shuffled together) |
+//! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`); `sync32_map_get`'s misses are draws from its keyspace rejected on membership, and so are `map_get_slot_ptr`'s, from its `(x, y)` generator; `bytesmap_fixed8_get`'s misses continue `fixed8_stream` past the population, rejected on membership |
 //! | `value_dereference` | `black_box` on retrieved values |
 //! | `measured_region` | Clean (setup in setup) |
 //! | `arm_symmetry` | Internal trie paths |
@@ -2176,6 +2176,75 @@ fn built_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
     (map, probes)
 }
 
+/// Ports a zmap scan of the `fixed8` shape probes, in its key's port field.
+const FIXED8_PORTS: [u16; 4] = [80, 443, 8080, 8443];
+
+/// Draws distinct zmap-shaped 8-byte keys (#1671): zmap's response-dedup
+/// key, `target_t { ip, port, status }` with its padding byte, over the
+/// 198.18.0.0/15 benchmarking range and four ports, in the pseudo-random
+/// order a scan visits them. The address and port are big-endian, status and
+/// padding are zero, so 524,288 distinct keys exist. Draws in `reject` are
+/// passed over, which is how the misses of the mixed arm come from the same
+/// generator as the population and are rejected on membership.
+fn fixed8_stream(n: usize, reject: &std::collections::HashSet<[u8; 8]>) -> Vec<[u8; 8]> {
+    let mut rng = XorShift(0x2E9A_7C01_D3D0_5EED);
+    let mut seen = std::collections::HashSet::with_capacity(n);
+    let mut out = Vec::with_capacity(n);
+    while out.len() < n {
+        let r = rng.next();
+        let off = (r >> 2) as u32 & 0x1_FFFF;
+        let ip = 0xC612_0000u32 | off;
+        let port = FIXED8_PORTS[(r & 3) as usize];
+        let mut k = [0u8; 8];
+        k[..4].copy_from_slice(&ip.to_be_bytes());
+        k[4..6].copy_from_slice(&port.to_be_bytes());
+        if !reject.contains(&k) && seen.insert(k) {
+            out.push(k);
+        }
+    }
+    out
+}
+
+/// The `fixed8` population: `POP` keys from [`fixed8_stream`], in draw order.
+fn fixed8_keys(_dist: &str) -> Vec<Vec<u8>> {
+    fixed8_stream(POP, &Default::default())
+        .into_iter()
+        .map(|k| k.to_vec())
+        .collect()
+}
+
+/// The `fixed8` map with its present keys shuffled as probes.
+fn built_bytesmap_fixed8(_dist: &str) -> (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>) {
+    let ks = fixed8_keys("fixed8");
+    let mut map = ExpanseBytesMap::with_hasher(DetHasher::default());
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(k, i as u64);
+    }
+    let mut probes = ks;
+    let mut rng = XorShift(0x9E37_79B9);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    (map, probes)
+}
+
+/// The `fixed8` map probed at a 50% hit rate: every present key and `POP`
+/// absent ones, drawn from the same generator and rejected on membership
+/// (§8.6), shuffled together.
+fn built_bytesmap_fixed8_mixed(_dist: &str) -> (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>) {
+    let (map, mut probes) = built_bytesmap_fixed8("fixed8");
+    let present: std::collections::HashSet<[u8; 8]> = probes
+        .iter()
+        .map(|k| k.as_slice().try_into().expect("8-byte key"))
+        .collect();
+    probes.extend(fixed8_stream(POP, &present).into_iter().map(|k| k.to_vec()));
+    let mut rng = XorShift(0x5851_F42D);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    (map, probes)
+}
+
 /// Prebuilt byte-string map plus shuffled probe order.
 fn built_bytesmap(dist: &str) -> (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>) {
     let ks = str_keys(dist);
@@ -2853,6 +2922,46 @@ fn bytesmap_get(built: (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
     }
     core::mem::forget(map);
     black_box(sink)
+}
+
+// zmap's JudyHS shape (#1671): 8-byte response-dedup keys, insert in draw
+// order, get at a 50% hit rate, remove every key shuffled. Separate from the
+// `routes` arms so the `sync_bytesmap_*` arms keep their like-for-like
+// plain counterparts.
+#[library_benchmark]
+#[bench::zmap(args = ("zmap",), setup = fixed8_keys)]
+fn bytesmap_fixed8_insert(ks: Vec<Vec<u8>>) -> u64 {
+    let mut map = ExpanseBytesMap::with_hasher(DetHasher::default());
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(black_box(k), black_box(i as u64));
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::zmap(args = ("zmap",), setup = built_bytesmap_fixed8_mixed)]
+fn bytesmap_fixed8_get(built: (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.get(black_box(k)).unwrap_or(0);
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::zmap(args = ("zmap",), setup = built_bytesmap_fixed8)]
+fn bytesmap_fixed8_remove(built: (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut removed = 0u64;
+    for k in &probes {
+        removed += u64::from(map.remove(black_box(k)).is_some());
+    }
+    core::mem::forget(map);
+    black_box(removed)
 }
 
 // Same-key reinsert (in-place value update), remove (bucket
@@ -5039,6 +5148,9 @@ library_benchmark_group!(
         domain_dict_get,
         bytesmap_insert,
         bytesmap_get,
+        bytesmap_fixed8_insert,
+        bytesmap_fixed8_get,
+        bytesmap_fixed8_remove,
         bytesmap_churn,
         sync_map_insert,
         sync_set_insert,
