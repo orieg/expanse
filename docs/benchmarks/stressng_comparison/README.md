@@ -1474,6 +1474,26 @@ Per the reading rule, the next diagnostic records per process what could differ 
 - N's delete cycles against S are 1.009 here and 1.027–1.029 in the 4 Mi phases on main, the same files on the same host: the share of processes in each state differs between those runs. A 4 Mi cell's N/S therefore depends on that share, which neither design controls.
 - With randomisation off, N's deletes ran 1.8–2.2% slower than with it on, in both runs, and NR's mean L1D-miss loads per delete (4.57, 4.71) are above N's (4.01, 4.02). This is recorded as observed; why the fixed layout leans to the high-miss state is not measured.
 
+## Diagnostic: the 4 Mi phases under a simulated cache
+
+**A diagnostic, not a pre-registered result** (#1679, #1680). The layout diagnostic found N's per-process state with the virtual layout held fixed. This is the deterministic control: does a cache model that sees only virtual addresses produce the state when the layout varies?
+
+**Derived before the run.** A layout change moves mappings by whole 4 KiB pages: natively the 4 Mi array lives in `[heap]`, whose base randomisation moves by pages, and valgrind's `--aspace-minaddr` moves the client's mappings by pages. The L1D geometry, 49,152 / (12 × 64) = 64 sets of 64-byte lines, indexes on 64 × 64 = 4,096 bytes, one page (`index_span` in the driver, asserted at import). So in a virtual-address model an access's L1D set depends only on its offset within its page, which a page move preserves, and the simulated L1D misses cannot depend on the layout. The simulated L2 (1,310,720 / (10 × 64) = 2,048 sets, a 128 KiB index span) can.
+
+**Design, fixed before the run** (`scripts/diag_cachesim.py`):
+- **Instrument.** Callgrind's cache simulator (`--cache-sim=yes`) with the reference host's geometry: `--D1=49152,12,64`, `--LL=1310720,10,64` (the P-core's L2 as the last level), `--I1=32768,8,64`. It models no prefetcher and no physical addresses.
+- **Arms.** The reference host's files, hash-checked: N, main's library at `c386578f8` (`9b42a88b…`), and S, stock (`76f121a8…`). `phase_probe.c` from the layout diagnostic, compiled against S as there.
+- **Shapes and counts.** `judy_4m` and `del_4m`. The read count is the inclusive cost of the API call the phase consists of: `JudyLIns` on `judy_4m` (every insert is the phase), `JudyLDel` on `del_4m` (the inserts that build the array call `JudyLIns`, outside it). `D1mr` (simulated L1D read misses) per operation is the quantity compared with the hardware's L1D-miss loads.
+- **Layouts.** 24 values of `--aspace-minaddr`, each 4 KiB-aligned and all distinct modulo 2 MiB. Each process prints its layout (`SNG_LAYOUT=1`).
+
+**Reading rule:**
+1. **Treatment check.** Each arm's 24 processes must print 24 different layouts on each shape. Otherwise nothing is read.
+2. **Unimodal or bimodal.** Per arm and shape, N's simulated `D1mr` per operation is *unimodal* if its 24 values span at most 0.1% of their mean, and *bimodal* if they form two groups whose means differ by more than 10% of the lower mean. The derivation predicts unimodal (an exact match across layouts).
+   - Unimodal: the per-process state lies outside the virtual-address cache model, and that is recorded. Where N's simulated `D1mr` per operation falls against the hardware's two states (the 4 Mi phases on main: about 2.9–3.3 and 5.1–5.8 per operation) is reported as an association only, since the model has no prefetcher.
+   - Bimodal: the state is driven by the virtual address after all, and the layouts are tabled by group.
+   - Anything else is reported as found, with no reading.
+3. `DLmr` (simulated L2 read misses) per operation is reported, not read.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
