@@ -381,6 +381,11 @@ NO_ROUNDS = {
     # sits beside them in `misp_increment_raw/`.
     "stressng_comparison/results/diagnostic_misp_increment_keyoff_ref_run1.json",
     "stressng_comparison/results/diagnostic_misp_increment_keyoff_ref_run2.json",
+    # Per-process aggregates of the 4 Mi phases' [heap] frames: one record per
+    # process with its counters and frame statistics, no interval and no
+    # ratio, so there are no rounds to summarise. The rounds of the same
+    # processes are in diagnostic_big_pfn_ref_run{1,2}.json.
+    "stressng_comparison/results/diagnostic_big_pfn_ref_aggregates.json",
 }
 
 # The comparative suites this gate governs: the ones whose runners drive an

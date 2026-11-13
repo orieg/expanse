@@ -1497,6 +1497,38 @@ Per the reading rule, the next diagnostic records per process what could differ 
 
 **Expected** (projected): none predicted.
 
+### Physical-frame result (reference host)
+
+(measured: reference host Intel Core i9-12900F, one NUMA node, pin `0,2,4,6,8,10,12,14`, harness `a80e14161`, N main `c386578f8` (sha256 `9b42a88b…`), S `76f121a8…`; artifacts `results/diagnostic_big_pfn_ref_run{1,2}.json` (counters) and `results/diagnostic_big_pfn_ref_aggregates.json` (per-process frame aggregates, no frame numbers)) (workloads: phase_judy_4m, phase_del_4m)
+
+**Hygiene.** Run 1 ran 09:40:18–09:40:53 UTC and run 2 09:40:53–09:41:27, each under the bench lock, 96 processes each and none discarded; max load1 0.44 and 0.66 against a void limit of 12. Only the per-process `perf stat … phase_probe …` commands ran under `sudo -n`. No file owned by root was left in the results or work directories (checked after the runs).
+
+**Rule 1, privilege check: PASS.** Every process read all of its `[heap]` frames: 17,362 present pages in each N process and 17,444 in each S process, none reading 0.
+
+**Rule 2, spread: holds** in both runs. N's L1D-miss loads per operation range 2.56–5.21 and 3.17–5.22 on `judy_4m`, and 3.32–6.06 and 3.32–5.62 on `del_4m`, each more than twice S's range.
+
+**Rule 3: no property is associated with the state.** Spearman's ρ with L1D-miss loads per operation over N's 24 processes:
+
+| Shape | Property | N ρ run 1 | N ρ run 2 | S ρ run 1 | S ρ run 2 |
+|---|---|---|---|---|---|
+| `judy_4m` | contiguity | −0.010 | −0.169 | 0.289 | 0.176 |
+| `judy_4m` | colour imbalance | 0.036 | 0.150 | −0.136 | 0.100 |
+| `judy_4m` | colour CV | −0.039 | 0.084 | 0.241 | −0.001 |
+| `del_4m` | contiguity | 0.230 | −0.443 | −0.095 | 0.257 |
+| `del_4m` | colour imbalance | 0.072 | −0.376 | −0.233 | −0.010 |
+| `del_4m` | colour CV | 0.095 | 0.173 | −0.437 | 0.098 |
+
+- **Longest run:** 2 frames in every process of both arms, so ρ is undefined for it.
+- **The two libraries' frames look alike.** Contiguity is 0.28–0.46 for N and 0.30–0.49 for S. Colour imbalance is 1.06–1.14 for N and 1.06–1.13 for S. Colour CV is 0.032–0.063 for N and 0.031–0.059 for S.
+
+**Rule 4: these frame aggregates do not separate the states**, so the attribution stops here. Across the four diagnostics, N's per-process high-miss state on the 4 Mi phases is not explained by:
+- huge-page backing (none present);
+- the virtual layout (it persists with the layout fixed);
+- a virtual-address cache model (unimodal across layouts);
+- frame contiguity or L2 page colour (no association).
+
+Its cause is unidentified. What these instruments leave out includes the last-level cache's slice hash, which is undocumented, and hardware state such as prefetcher and replacement behaviour. None of them is named as a cause.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
