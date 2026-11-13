@@ -270,7 +270,7 @@ pub unsafe extern "C" fn Judy1ByCount(
 }
 
 macro_rules! judy1_nav {
-    ($name:ident, $method:ident, $doc:literal) => {
+    ($name:ident, $method:ident, $step:ident, $doc:literal) => {
         #[doc = $doc]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
@@ -292,7 +292,14 @@ macro_rules! judy1_nav {
                         *pindex = k as Word;
                         1
                     }
-                    None => 0,
+                    // A miss on a non-empty array leaves the index one
+                    // step past the probe in the search direction,
+                    // wrapping, as stock libjudy does; a null array returned
+                    // above with it untouched (COMPAT.md doc-gap D8).
+                    None => {
+                        *pindex = (*pindex).$step(1);
+                        0
+                    }
                 }
             }
         }
@@ -302,15 +309,27 @@ macro_rules! judy1_nav {
 judy1_nav!(
     Judy1First,
     next_at_or_after,
+    wrapping_add,
     "Smallest set index >= *pindex."
 );
-judy1_nav!(Judy1Next, next_after, "Smallest set index > *pindex.");
+judy1_nav!(
+    Judy1Next,
+    next_after,
+    wrapping_add,
+    "Smallest set index > *pindex."
+);
 judy1_nav!(
     Judy1Last,
     prev_at_or_before,
+    wrapping_sub,
     "Largest set index <= *pindex."
 );
-judy1_nav!(Judy1Prev, prev_before, "Largest set index < *pindex.");
+judy1_nav!(
+    Judy1Prev,
+    prev_before,
+    wrapping_sub,
+    "Largest set index < *pindex."
+);
 
 macro_rules! judy1_empty {
     ($name:ident, $absent:ident, $adjust:expr, $doc:literal) => {
@@ -543,7 +562,7 @@ pub unsafe extern "C" fn JudyLByCount(
 }
 
 macro_rules! judyl_nav {
-    ($name:ident, $method:ident, $doc:literal) => {
+    ($name:ident, $method:ident, $step:ident, $doc:literal) => {
         #[doc = $doc]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
@@ -565,7 +584,14 @@ macro_rules! judyl_nav {
                         *pindex = k as Word;
                         slot_ptr(map.get_slot_ptr(k))
                     }
-                    None => null_mut(),
+                    // A miss on a non-empty array leaves the index one
+                    // step past the probe in the search direction,
+                    // wrapping, as stock libjudy does; a null array returned
+                    // above with it untouched (COMPAT.md doc-gap D8).
+                    None => {
+                        *pindex = (*pindex).$step(1);
+                        null_mut()
+                    }
                 }
             }
         }
@@ -575,21 +601,25 @@ macro_rules! judyl_nav {
 judyl_nav!(
     JudyLFirst,
     next_at_or_after,
+    wrapping_add,
     "Smallest key >= *pindex; returns its value slot."
 );
 judyl_nav!(
     JudyLNext,
     next_after,
+    wrapping_add,
     "Smallest key > *pindex; returns its value slot."
 );
 judyl_nav!(
     JudyLLast,
     prev_at_or_before,
+    wrapping_sub,
     "Largest key <= *pindex; returns its value slot."
 );
 judyl_nav!(
     JudyLPrev,
     prev_before,
+    wrapping_sub,
     "Largest key < *pindex; returns its value slot."
 );
 

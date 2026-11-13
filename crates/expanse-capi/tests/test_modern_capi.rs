@@ -209,11 +209,13 @@ fn test_legacy_judy_navigation_boundary_guards() {
         assert!(!slot_max.is_null());
         *(slot_max.cast::<Word>()) = 200;
 
-        // Verify Prev on 0 returns 0 (None), does NOT wrap to Word::MAX
+        // Prev on 0 returns 0 (not found): the search does not wrap to the key
+        // at Word::MAX. The miss leaves the index one step back, wrapping, as
+        // stock libjudy does (COMPAT.md D8).
         let mut index: Word = 0;
         let rc = Judy1Prev(j1, &mut index, &mut jerr);
         assert_eq!(rc, 0, "Judy1Prev on 0 must return 0 (not found)");
-        assert_eq!(index, 0);
+        assert_eq!(index, Word::MAX);
 
         let mut l_index: Word = 0;
         let pvalue = JudyLPrev(jl, &mut l_index, &mut jerr);
@@ -222,13 +224,14 @@ fn test_legacy_judy_navigation_boundary_guards() {
             core::ptr::null_mut(),
             "JudyLPrev on 0 must return null"
         );
-        assert_eq!(l_index, 0);
+        assert_eq!(l_index, Word::MAX);
 
-        // Verify Next on Word::MAX returns 0 (None), does NOT wrap to 0
+        // Next on Word::MAX returns 0 (not found): the search does not wrap to
+        // the key at 0. The miss leaves the index one step on, wrapping to 0.
         let mut index_max: Word = Word::MAX;
         let rc = Judy1Next(j1, &mut index_max, &mut jerr);
         assert_eq!(rc, 0, "Judy1Next on Word::MAX must return 0 (not found)");
-        assert_eq!(index_max, Word::MAX);
+        assert_eq!(index_max, 0);
 
         let mut l_index_max: Word = Word::MAX;
         let pvalue = JudyLNext(jl, &mut l_index_max, &mut jerr);
@@ -237,7 +240,7 @@ fn test_legacy_judy_navigation_boundary_guards() {
             core::ptr::null_mut(),
             "JudyLNext on Word::MAX must return null"
         );
-        assert_eq!(l_index_max, Word::MAX);
+        assert_eq!(l_index_max, 0);
 
         Judy1FreeArray(&mut j1, &mut jerr);
         JudyLFreeArray(&mut jl, &mut jerr);
