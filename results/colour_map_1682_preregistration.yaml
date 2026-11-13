@@ -1,0 +1,149 @@
+# #1682 — pre-registration for the code-free measurements behind the colour-map
+# record (AGENTS.md §8.8 commit 2). Written and committed before any of the
+# runs below; never reconciled in place with their outcomes (§8.7). The
+# outcomes and the record go to docs/ARCHITECTURE.md §3.2 and to the artifacts
+# this file names.
+#
+# Scope. No engine change. The owner's decision: record the level-3 branch
+# mispredict as a characterised limitation; skip the narrow-root offset.
+# Measurements (a)-(c) are run; (d) is declared NOT RUN in this PR.
+
+issue: 1682
+workload_id: capi_colour_map   # crates/expanse-capi/examples/colour_map.rs
+tape: >-
+  One breadth-first search of benches/colour_map_common: 12n + 2 Judy1 calls
+  (8n Judy1Test, 3n Judy1Set, n Judy1Unset, 2 Judy1FreeArray) on two arrays.
+populations_timed: [10000, 100000]
+reference_host: >-
+  12th Gen Intel Core i9-12900F (8P+8E, 24 threads, 30 MiB L3), Linux 6.8,
+  measured on performance cores only (cpu_core PMU), host terms of the shared
+  bench schedule: bench_lock.py held, no foreign CPU above 100%, no run across
+  :17 or 17:39 UTC, gh bench_baremetal runs checked before any ssh.
+stock_library: distro libjudydebian1 (libJudy.so.1), unpacked without install
+
+prior_data_seen_before_this_file:
+  - what: perf stat counters at 82330977 (the #1699 instrument, reference host)
+    values: >-
+      dl/stock per call: cycles 1.177 / 1.164 (n=10k, runs 1/2) and 1.201 /
+      1.184 (n=100k); branch misses 0.153->0.272 and 0.158->0.270 (10k),
+      0.138->0.394 and 0.137->0.393 (100k); instructions 0.815 (10k), 0.763
+      (100k).
+    use: the predictions below are formed from these. They are not re-used as
+      data: every number in the record comes from the runs below.
+  - what: a laptop smoke of measurement (b) (macOS, Homebrew libjudy 1.0.5,
+      n=10k and 60k), run to check the instrument
+    values: >-
+      stock: peak 9,520 B (10k) and 15,760 B (60k) per array, largest
+      single-call increase 3,976 B at both n; libexpanse: peak 4,056 B and
+      20,040 B, largest single-call increase 728 B.
+    consequence: the step threshold in (b) is read AFTER this smoke. The
+      issue's wording ("about 4 KB or more") predates it; the numeric reading
+      chosen here (>= 3,584 B, i.e. 4 KiB less one eighth) is not independent
+      of the smoke and is labelled so wherever it is used.
+  - what: a laptop smoke of measurement (c) at reps=2, read for correctness
+      only (equal sinks, child-entry share 0.9998 at n=10k and 100k). No timing
+      was taken.
+
+measurements:
+
+  a_topdown:
+    question: >-
+      How many of the extra cycles per call libexpanse spends over stock are
+      bad speculation, how many backend (memory-bound vs core-bound), and how
+      many frontend? This replaces the unmeasured 15-20 cycles per mispredict
+      figure.
+    instrument: >-
+      scripts/perf_counters.py --workload colour_map --pmu cpu_core --runs 10
+      --pops 10000,100000 --arms stock,expanse_dl, two independent runs.
+    events: >-
+      slots, topdown-retiring, topdown-bad-spec, topdown-fe-bound,
+      topdown-be-bound, topdown-br-mispredict, topdown-mem-bound,
+      topdown-fetch-lat, topdown-heavy-ops (the fixed slots counter and the
+      PERF_METRICS register: no general-purpose counter), cycles (fixed), and
+      br_misp_retired.all_branches (one general-purpose counter). At most 4
+      general-purpose events in the group, as required.
+    probe_step: >-
+      Before the timed runs, one untimed `perf stat -e <events> true` on the
+      host under the lock. If perf refuses topdown events outside a group led
+      by slots, the only permitted change is to pass the same events as one
+      group; it is made before any timed run and disclosed. If the kernel
+      exposes no topdown events on cpu_core, (a) is reported NOT RUN with the
+      perf error, and no substitute event set is chosen.
+    derived: >-
+      Per call, per category: slots(category) / ops, converted to cycles by
+      the arm's measured slots/cycles. delta = libexpanse - stock, per run
+      index (the driver's runs are paired by index). Share of the cycle gap =
+      delta(category) / delta(cycles). Cost per extra mispredict =
+      delta(br_mispredict cycles) / delta(br_misp_retired per call).
+    estimator: BCa 95% over the 10 paired per-run deltas (scripts/bca_bootstrap.py), per run; a
+      claim is made only where both runs' intervals agree in sign.
+    predictions:
+      - id: A1
+        text: delta(topdown-bad-spec) per call > 0 at both n (lower bound > 0, both runs).
+      - id: A2
+        text: >-
+          At n=100k, bad speculation is 30-90% of the cycle gap; at n=10k it is
+          below 50%, leaving most of the 10k gap to another category.
+      - id: A3
+        text: The cost per extra mispredict is between 10 and 25 cycles at n=100k.
+    falsifiers: A1 fails if either n's interval contains 0 in either run; A2/A3 by their stated bands.
+
+  b_memused:
+    question: >-
+      Does stock libjudy trade memory for this speed, with a
+      population-driven step (uncompression) per array?
+    instrument: >-
+      colour_map memory mode (EXPANSE_COLOUR_MEMUSED=60000,70000,100000):
+      one replay per population per library, Judy1MemUsed read on the touched
+      array after every Judy1Set and Judy1Unset, through the C ABI only. Run
+      untimed on the reference host, against the same stock library as (a).
+      Deterministic for a given tape and library build, so one replay per cell.
+    reported: >-
+      Per library, n and array: peak bytes, last bytes before the frees,
+      largest single-call increase, and every increase of at least 1,024 B with
+      its call index and the array's population.
+    criterion: >-
+      Stock shows a population-driven step if, at each of the three n, every
+      array has single-call increases >= 3,584 B (see prior_data: chosen after
+      the laptop smoke) at populations that do not depend on n. Stock trades
+      memory if its peak bytes per array exceed libexpanse's at that n.
+      Libjudy source is never consulted (AGENTS.md §3).
+
+  c_top_skip:
+    question: >-
+      What would skipping the top node of the level-8 slot save per lookup?
+      (Option C of the #1682 design comment, measured as an upper bound before
+      any engine change.)
+    instrument: >-
+      scripts/colour_top_skip.py over the ignored test
+      set::diag_colour_top::colour_top_skip, built with
+      `cargo test --release -p expanse-trie --lib`; variants root
+      (ExpanseSet::contains) and child (get::test_set at the top node's
+      digit-0 child, level 7); 10 interleaved pairs per n, alternating which
+      variant runs first; reps 400 at n=10k and 40 at n=100k; one performance
+      core (cpu 4); two independent runs.
+    derived: (cycles(root) - cycles(child)) / tests, per pair.
+    estimator: BCa 95% over the 10 pairs, per run.
+    decision: >-
+      Option C is recorded as dropped if the interval's upper bound is below
+      2.0 cycles per test call at both n in both runs. Otherwise the record
+      states the bound and C stays open in #1682; no engine change follows in
+      this PR either way.
+    validity: >-
+      Void (and reported) if the variants' sinks differ or the child variant
+      enters through the child edge for fewer than 99% of its tests; the
+      driver fails on both.
+    note: >-
+      An upper bound: `child` also skips the root-variant match in
+      ExpanseSet::contains, which a top-node skip would keep. It is measured
+      on the Rust set, not through the C ABI shim.
+
+  d_shapes:
+    status: NOT RUN in this PR (optional in the brief); stays in #1682.
+
+record_requirements: >-
+  docs/ARCHITECTURE.md §3.2 beside the B->U rule, with a one-line pointer from
+  docs/COMPAT.md: the mechanism, each measured number with its provenance,
+  stock's memory trade if (b) shows one, #1711's negative, and that Callgrind
+  cannot see this cost so the instruction terms exclude a select-based fix.
+  #1682 stays open for the unexplained share of the gap, at n=10k especially.
