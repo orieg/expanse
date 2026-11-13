@@ -1995,6 +1995,55 @@ impl<'a> core::marker::Unpin for expanse_trie::set32::SetRangeRev32<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::set32::SetRangeRev32<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::set32::SetRangeRev32<'a>
 impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::set32::SetRangeRev32<'a>
+pub mod expanse_trie::short_bytesmap
+pub struct expanse_trie::short_bytesmap::ExpanseShortBytesMap<S: core::hash::BuildHasher>
+impl expanse_trie::short_bytesmap::ExpanseShortBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>::new() -> Self
+impl<S: core::hash::BuildHasher> expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::clear(&mut self)
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::contains_key(&self, &[u8]) -> bool
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::for_each(&self, impl core::ops::function::FnMut(&[u8], u64))
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::get(&self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::get_slot_ptr(&self, &[u8]) -> core::option::Option<core::ptr::non_null::NonNull<u64>>
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::ins_slot(&mut self, &[u8]) -> core::ptr::non_null::NonNull<u64>
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::insert(&mut self, &[u8], u64) -> core::option::Option<u64>
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::is_empty(&self) -> bool
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::len(&self) -> u64
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::mem_used(&self) -> usize
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::remove(&mut self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::stats(&self) -> expanse_trie::short_bytesmap::ShortBytesMapStats
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::try_for_each(&self, impl core::ops::function::FnMut(&[u8], u64) -> bool) -> usize
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>::with_hasher(S) -> Self
+impl core::default::Default for expanse_trie::short_bytesmap::ExpanseShortBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>
+pub fn expanse_trie::short_bytesmap::ExpanseShortBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>::default() -> Self
+impl<S> !core::marker::Freeze for expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>
+impl<S> core::marker::Send for expanse_trie::short_bytesmap::ExpanseShortBytesMap<S> where expanse_trie::bytesmap::ExpanseBytesMap<S>: core::marker::Send
+impl<S> !core::marker::Sync for expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>
+impl<S> core::marker::Unpin for expanse_trie::short_bytesmap::ExpanseShortBytesMap<S> where expanse_trie::bytesmap::ExpanseBytesMap<S>: core::marker::Unpin
+impl<S> core::marker::UnsafeUnpin for expanse_trie::short_bytesmap::ExpanseShortBytesMap<S> where expanse_trie::bytesmap::ExpanseBytesMap<S>: core::marker::UnsafeUnpin
+impl<S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::short_bytesmap::ExpanseShortBytesMap<S>
+impl<S> core::panic::unwind_safe::UnwindSafe for expanse_trie::short_bytesmap::ExpanseShortBytesMap<S> where expanse_trie::bytesmap::ExpanseBytesMap<S>: core::panic::unwind_safe::UnwindSafe
+pub struct expanse_trie::short_bytesmap::ShortBytesMapStats
+pub expanse_trie::short_bytesmap::ShortBytesMapStats::hashed: expanse_trie::validate::BytesMapStats
+pub expanse_trie::short_bytesmap::ShortBytesMapStats::short_box_bytes: usize
+pub expanse_trie::short_bytesmap::ShortBytesMapStats::short_entries: u64
+pub expanse_trie::short_bytesmap::ShortBytesMapStats::short_full: core::option::Option<expanse_trie::validate::ExpanseStats>
+pub expanse_trie::short_bytesmap::ShortBytesMapStats::short_part: core::option::Option<expanse_trie::validate::ExpanseStats>
+impl expanse_trie::short_bytesmap::ShortBytesMapStats
+pub fn expanse_trie::short_bytesmap::ShortBytesMapStats::total_bytes(&self) -> usize
+impl core::clone::Clone for expanse_trie::short_bytesmap::ShortBytesMapStats
+pub fn expanse_trie::short_bytesmap::ShortBytesMapStats::clone(&self) -> expanse_trie::short_bytesmap::ShortBytesMapStats
+impl core::default::Default for expanse_trie::short_bytesmap::ShortBytesMapStats
+pub fn expanse_trie::short_bytesmap::ShortBytesMapStats::default() -> expanse_trie::short_bytesmap::ShortBytesMapStats
+impl core::fmt::Debug for expanse_trie::short_bytesmap::ShortBytesMapStats
+pub fn expanse_trie::short_bytesmap::ShortBytesMapStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for expanse_trie::short_bytesmap::ShortBytesMapStats
+impl core::marker::Send for expanse_trie::short_bytesmap::ShortBytesMapStats
+impl core::marker::Sync for expanse_trie::short_bytesmap::ShortBytesMapStats
+impl core::marker::Unpin for expanse_trie::short_bytesmap::ShortBytesMapStats
+impl core::marker::UnsafeUnpin for expanse_trie::short_bytesmap::ShortBytesMapStats
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::short_bytesmap::ShortBytesMapStats
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::short_bytesmap::ShortBytesMapStats
 pub mod expanse_trie::slot
 #[non_exhaustive] #[repr(u8)] pub enum expanse_trie::slot::SlotTag
 pub expanse_trie::slot::SlotTag::ArenaMeta = 16

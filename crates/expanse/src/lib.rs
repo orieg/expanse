@@ -142,6 +142,8 @@ pub mod ordered_bytesmap;
 #[cfg(target_pointer_width = "64")]
 pub mod set;
 #[cfg(target_pointer_width = "64")]
+pub mod short_bytesmap;
+#[cfg(target_pointer_width = "64")]
 pub mod slot;
 #[cfg(target_pointer_width = "64")]
 pub mod strmap;
