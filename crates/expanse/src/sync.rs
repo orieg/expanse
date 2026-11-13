@@ -16137,7 +16137,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             }
 
             let guard = self.shared.enter_writer_blocking();
-            let h = self.hasher.hash_one(key);
+            let h = crate::bytesmap::hash_key(&self.hasher, key);
 
             let res = self.shared.with_writer_pin(|| {
                 crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
@@ -16386,7 +16386,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             }
 
             let guard = self.shared.enter_writer_blocking();
-            let h = self.hasher.hash_one(key);
+            let h = crate::bytesmap::hash_key(&self.hasher, key);
 
             let res = self.shared.with_writer_pin(|| {
                 crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
@@ -16728,7 +16728,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             }
 
             let guard = self.shared.enter_writer_blocking();
-            let h = self.hasher.hash_one(key);
+            let h = crate::bytesmap::hash_key(&self.hasher, key);
 
             let res = self.shared.with_writer_pin(|| {
                 crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
@@ -32034,10 +32034,13 @@ mod bytes_reader_forms_tests {
     fn buckets<S: BuildHasher + Send + Sync>(map: &SyncExpanseBytesMap<S>, n: u64) -> usize {
         let mut hashes = std::collections::BTreeSet::new();
         for i in 0..n {
-            hashes.insert(map.hasher.hash_one(format!("filler/{i}").as_bytes()));
+            hashes.insert(crate::bytesmap::hash_key(
+                &map.hasher,
+                format!("filler/{i}").as_bytes(),
+            ));
         }
         for k in MIX {
-            hashes.insert(map.hasher.hash_one(k));
+            hashes.insert(crate::bytesmap::hash_key(&map.hasher, k));
         }
         hashes.len()
     }
