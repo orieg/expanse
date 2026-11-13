@@ -22,6 +22,7 @@ import json
 import os
 import platform
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -99,6 +100,14 @@ elif SET == "big_layout":
             "S": driver.ARMS["S"], "SR": driver.ARMS["S"]}
     SHAPES = [("judy_4m", 1, 4_194_304), ("del_4m", 1, 4_194_304)]
     PREFLIGHT = ("judy_4m", 1, "N")
+elif SET == "big_pfn":
+    # The 4 Mi phases' physical frames (README.md, "Diagnostic: the 4 Mi
+    # phases' physical frames"): N and S as in big_main. Each process's whole
+    # per-process command runs under `sudo -n` so its pagemap shows frame
+    # numbers, and the probe prints only aggregates of them (SNG_LAYOUT=2).
+    ARMS = {"N": f"{driver.D}/expcompat-{os.environ['SNG_MAIN']}/lib", "S": driver.ARMS["S"]}
+    SHAPES = [("judy_4m", 1, 4_194_304), ("del_4m", 1, 4_194_304)]
+    PREFLIGHT = ("judy_4m", 1, "N")
 elif SET == "gets_inc":
     # The #1680 shapes on an engine increment (README.md, "Diagnostic: where
     # the #1680 shapes mispredict and miss"): G is the increment's head and M
@@ -139,7 +148,7 @@ elif SET == "promote2":
 elif SET == "delete_acct":
     GROUPS = {"acct": ["slots", "idq_uops_not_delivered.core", "cycle_activity.stalls_total",
                        "br_inst_retired.near_taken"]}
-if SET == "big_layout":
+if SET in ("big_layout", "big_pfn"):
     GROUPS = {"mem": GROUPS["mem"]}
 # Arms that run the probe with address-space randomisation off, and the stock arms.
 NORAND = {"NR", "SR"}
@@ -168,12 +177,18 @@ def perf_phase(events, shape, repeats, arm, base):
         if SET == "big_layout":
             env["SNG_LAYOUT"] = "1"
         norand = ["setarch", platform.machine(), "-R"] if arm in NORAND else []
+        # big_pfn: perf writes its rows to stderr, into a file this user
+        # opened, so the privileged command leaves no file owned by root.
+        out = [] if SET == "big_pfn" else ["-o", base + ".csv"]
         cmd = ["perf", "stat", "-x,", "--no-big-num", "-D", "-1", "--control", f"fifo:{ctl},{ack}",
-               "-o", base + ".csv", "-e", ",".join(dfc.ev(e) for e in events), "--",
+               *out, "-e", ",".join(dfc.ev(e) for e in events), "--",
                *norand, PROBE, shape, str(repeats), ctl, ack]
+        if SET == "big_pfn":
+            cmd = ["sudo", "-n", "env", f"LD_LIBRARY_PATH={ARMS[arm]}", "SNG_LAYOUT=2", *cmd]
         t0 = time.monotonic()
-        with open(base + ".log", "w") as lf:
-            p = subprocess.Popen(cmd, env=env, stdout=lf, stderr=subprocess.STDOUT)
+        with open(base + ".log", "w") as lf, open(base + ".csv", "w") as cf:
+            p = subprocess.Popen(cmd, env=env, stdout=lf,
+                                 stderr=cf if SET == "big_pfn" else subprocess.STDOUT)
             _, status, ru = os.wait4(p.pid, 0)
         wall = time.monotonic() - t0
     rc = os.waitstatus_to_exitcode(status)
@@ -244,7 +259,12 @@ def main():
         sha256={"probe": driver.sha256(PROBE),
                 **{f"arm_{a}": driver.sha256(f"{d}/libJudy.so.1") for a, d in ARMS.items()}},
         library_proof=proof)
-    if SET == "big_layout":
+    if SET == "big_pfn":
+        if subprocess.run(["sudo", "-n", "true"]).returncode != 0:
+            sys.exit("STOP: no non-interactive privilege (sudo -n); the frames cannot be read")
+        prov["privilege"] = "sudo -n on each per-process perf stat + phase_probe command"
+        prov["numa_nodes"] = len([d for d in os.listdir("/sys/devices/system/node") if re.fullmatch(r"node\d+", d)])
+    if SET in ("big_layout", "big_pfn"):
         prov["randomize_va_space"] = Path("/proc/sys/kernel/randomize_va_space").read_text().strip()
         prov["thp_enabled"] = Path("/sys/kernel/mm/transparent_hugepage/enabled").read_text().strip()
         prov["norand_arms"] = sorted(NORAND & set(ARMS))
@@ -268,11 +288,16 @@ def main():
                                own_cpu=ru.ru_utime + ru.ru_stime, load=load,
                                counters={e: rows[e][0] for e in FIXED + GROUPS[g]
                                          + (["phase_ns"] if SET in ("delete_acct", "promote2") else [])})
-                    if SET == "big_layout":
+                    if SET in ("big_layout", "big_pfn"):
                         lay = [ln.split()[1:] for ln in Path(base + ".log").read_text().splitlines()
                                if ln.startswith("layout ")]
                         if not any(x[0] == "anonhuge_kb" for x in lay) or not any(x[0] == "map" for x in lay):
                             sys.exit(f"STOP: no layout lines from the probe for {shape} on arm {arm}")
+                        if SET == "big_pfn":
+                            kv = {x[0]: x[1] for x in lay if len(x) > 1}
+                            if "pfn_pages" not in kv or int(kv["pfn_pages"]) == 0 or kv.get("pfn_zero") != "0":
+                                sys.exit(f"STOP: frames not readable for {shape} on arm {arm}: {kv}")
+                            # The probe's `layout map` lines carry virtual addresses only.
                         rec["layout"] = lay
                     out.write(json.dumps(rec) + "\n")
                     out.flush()

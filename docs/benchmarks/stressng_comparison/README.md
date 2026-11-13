@@ -1514,7 +1514,62 @@ As derived, a virtual-address model does not produce the state: moving the layou
 - **Simulated L2 read misses** (`DLmr`) vary with the layout, as the derivation allows, by at most 0.2%: N 0.1599–0.1600 per insert and 0.5085–0.5093 per delete, S 0.0596–0.0604 and 0.3218–0.3226.
 - **Cross-check.** N's simulated instructions per insert (645.80) agree with the hardware count in [the 4 Mi phases on main](#diagnostic-the-4-mi-phases-on-main) (645.2), so the inclusive `JudyLIns` cost is the phase.
 
-**Where this leaves the 4 Mi gap.** The state is not huge pages, not the virtual layout and not the virtual-address cache geometry. What remains are properties the model leaves out: physical page placement, and hardware behaviour such as prefetching and replacement. Measuring physical placement per process needs privileges on the reference host (reading page frame numbers), which is the owner's decision.
+**Where this leaves the 4 Mi gap.** The state is not huge pages, not the virtual layout and not the virtual-address cache geometry. What remains are properties the model leaves out: physical page placement, and hardware behaviour such as prefetching and replacement. [The 4 Mi phases' physical frames](#diagnostic-the-4-mi-phases-physical-frames) measures physical placement per process.
+
+## Diagnostic: the 4 Mi phases' physical frames
+
+**A diagnostic, not a pre-registered result** (#1679, #1680). The per-process state does not follow the virtual layout (the layout diagnostic). With the layout held fixed, a virtual-address cache model gives the same L1D misses at every layout ([the simulated-cache control](#diagnostic-the-4-mi-phases-under-a-simulated-cache)). This asks whether the physical frames under the array separate N's high-miss and low-miss processes.
+
+**Privilege and data handling, fixed by the owner's terms.** Frame numbers in `/proc/self/pagemap` read as 0 without `CAP_SYS_ADMIN`. Each process's single per-process command (`perf stat … phase_probe …`) runs under `sudo -n`, and nothing else is elevated. The driver checks `sudo -n true` first and stops if privilege is not available non-interactively. No host setting changes. perf writes its rows to a file the unprivileged driver opened. The probe prints only aggregates of the frames, never a frame number or physical address, and only those aggregates are recorded or published.
+
+**Design, fixed before the run** (`scripts/diag_phase_counters.py` with `SNG_PHASE_SET=big_pfn`, `run.sh <run> <host> phase_big_pfn`):
+- **Arms.** N, main's library (`SNG_MAIN`), and S, stock, as in the 4 Mi phases on main.
+- **Shapes and counters.** `judy_4m` and `del_4m`; the `mem` group beside `cycles` and `instructions`; 24 rounds per run; two runs on the reference host under the host bench lock and the comparison's pin.
+- **Frames.** With `SNG_LAYOUT=2`, the probe walks its `[heap]` mapping, where the 4 Mi array lives (the layout diagnostic), outside the counted phase and with the array populated. It prints four aggregates:
+  - present pages, and how many read frame 0 (the privilege check);
+  - contiguity: maximal runs of virtually consecutive pages on consecutive frames, and the longest run;
+  - the L2 page-colour histogram, frame mod 32. The P-core L2 has 1,310,720 / (10 × 64) = 2,048 sets of 64-byte lines, indexing 128 KiB, 32 pages, so a page's L2 sets follow its frame mod 32.
+- **Not covered.** The last-level cache's slice hash is not documented, so no LLC colour is computed. The host has one NUMA node, which is recorded, so node placement cannot differ between processes.
+
+**Reading rule:**
+1. **Privilege check.** Every process must report a non-zero count of present pages and no frame that reads 0. Otherwise nothing is read.
+2. **Spread.** In each run, N's per-process range of L1D-miss loads per operation must exceed twice S's, as in the earlier diagnostics. A run where it does not is not read.
+3. **Association.** For each property per process (contiguity, 1 − runs / present pages; the longest run; colour imbalance, the largest colour count over the mean; colour CV), Spearman's ρ with L1D-miss loads per operation over N's 24 processes per shape. A property is *associated* with the state if |ρ| ≥ 0.7 in both runs with the same sign. ρ = 0.7 at n = 24 is t = 4.60 on 22 degrees of freedom, two-sided p ≈ 1.4 × 10⁻⁴ in the t approximation, and both runs must meet it. S's ρ is reported beside it as a control.
+4. **If a property is associated,** the physical placement it summarises is associated with the state. It is reported as an association, not a cause. **If none is,** these frame aggregates do not separate the states, the cause stays unidentified, and the attribution stops here.
+
+**Expected** (projected): none predicted.
+
+### Physical-frame result (reference host)
+
+(measured: reference host Intel Core i9-12900F, one NUMA node, pin `0,2,4,6,8,10,12,14`, harness `a80e14161`, N main `c386578f8` (sha256 `9b42a88b…`), S `76f121a8…`; artifacts `results/diagnostic_big_pfn_ref_run{1,2}.json` (counters) and `results/diagnostic_big_pfn_ref_aggregates.json` (per-process frame aggregates, no frame numbers)) (workloads: phase_judy_4m, phase_del_4m)
+
+**Hygiene.** Run 1 ran 09:40:18–09:40:53 UTC and run 2 09:40:53–09:41:27, each under the bench lock, 96 processes each and none discarded; max load1 0.44 and 0.66 against a void limit of 12. Only the per-process `perf stat … phase_probe …` commands ran under `sudo -n`. No file owned by root was left in the results or work directories (checked after the runs).
+
+**Rule 1, privilege check: PASS.** Every process read all of its `[heap]` frames: 17,362 present pages in each N process and 17,444 in each S process, none reading 0.
+
+**Rule 2, spread: holds** in both runs. N's L1D-miss loads per operation range 2.56–5.21 and 3.17–5.22 on `judy_4m`, and 3.32–6.06 and 3.32–5.62 on `del_4m`, each more than twice S's range.
+
+**Rule 3: no property is associated with the state.** Spearman's ρ with L1D-miss loads per operation over N's 24 processes:
+
+| Shape | Property | N ρ run 1 | N ρ run 2 | S ρ run 1 | S ρ run 2 |
+|---|---|---|---|---|---|
+| `judy_4m` | contiguity | −0.010 | −0.169 | 0.289 | 0.176 |
+| `judy_4m` | colour imbalance | 0.036 | 0.150 | −0.136 | 0.100 |
+| `judy_4m` | colour CV | −0.039 | 0.084 | 0.241 | −0.001 |
+| `del_4m` | contiguity | 0.230 | −0.443 | −0.095 | 0.257 |
+| `del_4m` | colour imbalance | 0.072 | −0.376 | −0.233 | −0.010 |
+| `del_4m` | colour CV | 0.095 | 0.173 | −0.437 | 0.098 |
+
+- **Longest run:** 2 frames in every process of both arms, so ρ is undefined for it.
+- **The two libraries' frames look alike.** Contiguity is 0.28–0.46 for N and 0.30–0.49 for S. Colour imbalance is 1.06–1.14 for N and 1.06–1.13 for S. Colour CV is 0.032–0.063 for N and 0.031–0.059 for S.
+
+**Rule 4: these frame aggregates do not separate the states**, so the attribution stops here. Across the four diagnostics, N's per-process high-miss state on the 4 Mi phases is not explained by:
+- huge-page backing (none present);
+- the virtual layout (it persists with the layout fixed);
+- a virtual-address cache model (unimodal across layouts);
+- frame contiguity or L2 page colour (no association).
+
+Its cause is unidentified. What these instruments leave out includes the last-level cache's slice hash, which is undocumented, and hardware state such as prefetcher and replacement behaviour. None of them is named as a cause.
 
 ## Reproduce
 

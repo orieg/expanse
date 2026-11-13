@@ -2,7 +2,7 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution|misp_increment|phase_big_main|phase_big_layout|sm_main|increment]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution|misp_increment|phase_big_main|phase_big_layout|phase_big_pfn|sm_main|increment]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
@@ -126,6 +126,10 @@ case "${MODE}" in
   # process printing its layout (24 rounds: the four arms' 24 orders).
   phase_big_layout) SNG_PHASE_SET=big_layout SNG_PHASE_ROUNDS=24 python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_big_layout_${SNG_MAIN:?}_${HOST_LABEL}_run${RUN}" ;;
+  # The same shapes with each process's physical frames summarised by the
+  # probe (aggregates only); the per-process command runs under `sudo -n`.
+  phase_big_pfn) SNG_PHASE_SET=big_pfn SNG_PHASE_ROUNDS=24 python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_big_pfn_${SNG_MAIN:?}_${HOST_LABEL}_run${RUN}" ;;
   ms_attribution) SNG_PHASE_SET=delete_ms python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_ms_attribution_${HOST_LABEL}_run${RUN}" ;;
   misp_attribution) SNG_ATTR=misp SNG_PHASE_SET=gets_main python3 "${SCRIPT_DIR}/scripts/diag_ms_attribution.py" "${RUN}" "${HOST_LABEL}" \

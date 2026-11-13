@@ -1,0 +1,6995 @@
+{
+ "provenance": {
+  "suite": "stressng_comparison",
+  "issue": 1680,
+  "commit": "a80e14161",
+  "host": {
+   "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+   "cpus_online": 24,
+   "cpu_core_cpus": "0-15",
+   "cpu_atom_cpus": "16-23",
+   "cpu0_thread_siblings": "0-1",
+   "scaling_driver": "intel_pstate",
+   "scaling_governor": "powersave",
+   "scaling_governor_by_cpu": {
+    "0": "powersave",
+    "2": "powersave",
+    "4": "powersave",
+    "6": "powersave",
+    "8": "powersave",
+    "10": "powersave",
+    "12": "powersave",
+    "14": "powersave"
+   },
+   "scaling_governor_pin_set": "0,2,4,6,8,10,12,14",
+   "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+   "transparent_hugepage": "always [madvise] never",
+   "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+   "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+  },
+  "estimators": {
+   "ratio": "N/S, N64/S and N64/N: the ratio of two arms' means of one user-mode counter over the measured phase, with a two-sample BCa 95% interval over the run's rounds",
+   "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+   "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+  },
+  "core_pin": "0,2,4,6,8,10,12,14",
+  "loads": [
+   {
+    "label": "start",
+    "since": null,
+    "load1": 0.49,
+    "load5": 0.13,
+    "load15": 0.04,
+    "at": "2026-11-13T09:41:02Z",
+    "stat_busy_jiffies": 62680460,
+    "stat_total_jiffies": 5867496490,
+    "child_cpu_s": 8.536,
+    "monotonic_s": 2445688.007,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r0",
+    "since": "start",
+    "load1": 0.49,
+    "load5": 0.13,
+    "load15": 0.04,
+    "at": "2026-11-13T09:41:02Z",
+    "stat_busy_jiffies": 62680551,
+    "stat_total_jiffies": 5867498677,
+    "child_cpu_s": 9.436,
+    "monotonic_s": 2445688.918,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r0",
+    "since": "cell:judy_4m:mem:N:r0",
+    "load1": 0.49,
+    "load5": 0.13,
+    "load15": 0.04,
+    "at": "2026-11-13T09:41:03Z",
+    "stat_busy_jiffies": 62680569,
+    "stat_total_jiffies": 5867499115,
+    "child_cpu_s": 9.618,
+    "monotonic_s": 2445689.101,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:mem:N:r0",
+    "since": "cell:judy_4m:mem:S:r0",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:03Z",
+    "stat_busy_jiffies": 62680587,
+    "stat_total_jiffies": 5867499550,
+    "child_cpu_s": 9.799,
+    "monotonic_s": 2445689.283,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:mem:S:r0",
+    "since": "cell:del_4m:mem:N:r0",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:03Z",
+    "stat_busy_jiffies": 62680621,
+    "stat_total_jiffies": 5867500356,
+    "child_cpu_s": 10.133,
+    "monotonic_s": 2445689.619,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:mem:S:r1",
+    "since": "cell:del_4m:mem:S:r0",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:03Z",
+    "stat_busy_jiffies": 62680654,
+    "stat_total_jiffies": 5867501135,
+    "child_cpu_s": 10.457,
+    "monotonic_s": 2445689.943,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:mem:N:r1",
+    "since": "cell:del_4m:mem:S:r1",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:04Z",
+    "stat_busy_jiffies": 62680687,
+    "stat_total_jiffies": 5867501924,
+    "child_cpu_s": 10.785,
+    "monotonic_s": 2445690.272,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r1",
+    "since": "cell:del_4m:mem:N:r1",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:04Z",
+    "stat_busy_jiffies": 62680721,
+    "stat_total_jiffies": 5867502739,
+    "child_cpu_s": 11.124,
+    "monotonic_s": 2445690.612,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r1",
+    "since": "cell:judy_4m:mem:S:r1",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:04Z",
+    "stat_busy_jiffies": 62680738,
+    "stat_total_jiffies": 5867503169,
+    "child_cpu_s": 11.302,
+    "monotonic_s": 2445690.792,
+    "busy_cpus_since_prev": 0.95,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": -0.04
+   },
+   {
+    "label": "cell:del_4m:mem:N:r2",
+    "since": "cell:judy_4m:mem:N:r1",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:04Z",
+    "stat_busy_jiffies": 62680756,
+    "stat_total_jiffies": 5867503601,
+    "child_cpu_s": 11.481,
+    "monotonic_s": 2445690.972,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:mem:S:r2",
+    "since": "cell:del_4m:mem:N:r2",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:05Z",
+    "stat_busy_jiffies": 62680790,
+    "stat_total_jiffies": 5867504410,
+    "child_cpu_s": 11.817,
+    "monotonic_s": 2445691.309,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r2",
+    "since": "cell:del_4m:mem:S:r2",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:05Z",
+    "stat_busy_jiffies": 62680823,
+    "stat_total_jiffies": 5867505196,
+    "child_cpu_s": 12.144,
+    "monotonic_s": 2445691.637,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r2",
+    "since": "cell:judy_4m:mem:N:r2",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:05Z",
+    "stat_busy_jiffies": 62680841,
+    "stat_total_jiffies": 5867505624,
+    "child_cpu_s": 12.322,
+    "monotonic_s": 2445691.816,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:mem:S:r3",
+    "since": "cell:judy_4m:mem:S:r2",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:06Z",
+    "stat_busy_jiffies": 62680860,
+    "stat_total_jiffies": 5867506057,
+    "child_cpu_s": 12.501,
+    "monotonic_s": 2445691.996,
+    "busy_cpus_since_prev": 1.05,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "cell:del_4m:mem:N:r3",
+    "since": "cell:del_4m:mem:S:r3",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:06Z",
+    "stat_busy_jiffies": 62680892,
+    "stat_total_jiffies": 5867506842,
+    "child_cpu_s": 12.828,
+    "monotonic_s": 2445692.323,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.02
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r3",
+    "since": "cell:del_4m:mem:N:r3",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:06Z",
+    "stat_busy_jiffies": 62680926,
+    "stat_total_jiffies": 5867507646,
+    "child_cpu_s": 13.161,
+    "monotonic_s": 2445692.658,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r3",
+    "since": "cell:judy_4m:mem:S:r3",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:06Z",
+    "stat_busy_jiffies": 62680944,
+    "stat_total_jiffies": 5867508082,
+    "child_cpu_s": 13.342,
+    "monotonic_s": 2445692.84,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:mem:N:r4",
+    "since": "cell:judy_4m:mem:N:r3",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:07Z",
+    "stat_busy_jiffies": 62680964,
+    "stat_total_jiffies": 5867508529,
+    "child_cpu_s": 13.527,
+    "monotonic_s": 2445693.026,
+    "busy_cpus_since_prev": 1.07,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.08
+   },
+   {
+    "label": "cell:del_4m:mem:S:r4",
+    "since": "cell:del_4m:mem:N:r4",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:07Z",
+    "stat_busy_jiffies": 62680998,
+    "stat_total_jiffies": 5867509353,
+    "child_cpu_s": 13.87,
+    "monotonic_s": 2445693.37,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r4",
+    "since": "cell:del_4m:mem:S:r4",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:07Z",
+    "stat_busy_jiffies": 62681031,
+    "stat_total_jiffies": 5867510135,
+    "child_cpu_s": 14.194,
+    "monotonic_s": 2445693.696,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r4",
+    "since": "cell:judy_4m:mem:N:r4",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:07Z",
+    "stat_busy_jiffies": 62681049,
+    "stat_total_jiffies": 5867510555,
+    "child_cpu_s": 14.369,
+    "monotonic_s": 2445693.871,
+    "busy_cpus_since_prev": 1.03,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r5",
+    "since": "cell:judy_4m:mem:S:r4",
+    "load1": 0.53,
+    "load5": 0.14,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:08Z",
+    "stat_busy_jiffies": 62681067,
+    "stat_total_jiffies": 5867510987,
+    "child_cpu_s": 14.548,
+    "monotonic_s": 2445694.051,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r5",
+    "since": "cell:judy_4m:mem:S:r5",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:08Z",
+    "stat_busy_jiffies": 62681085,
+    "stat_total_jiffies": 5867511419,
+    "child_cpu_s": 14.727,
+    "monotonic_s": 2445694.231,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:mem:S:r5",
+    "since": "cell:judy_4m:mem:N:r5",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:08Z",
+    "stat_busy_jiffies": 62681103,
+    "stat_total_jiffies": 5867511862,
+    "child_cpu_s": 14.911,
+    "monotonic_s": 2445694.416,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:mem:N:r5",
+    "since": "cell:del_4m:mem:S:r5",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:08Z",
+    "stat_busy_jiffies": 62681136,
+    "stat_total_jiffies": 5867512652,
+    "child_cpu_s": 15.239,
+    "monotonic_s": 2445694.745,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r6",
+    "since": "cell:del_4m:mem:N:r5",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:09Z",
+    "stat_busy_jiffies": 62681169,
+    "stat_total_jiffies": 5867513446,
+    "child_cpu_s": 15.569,
+    "monotonic_s": 2445695.077,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r6",
+    "since": "cell:judy_4m:mem:N:r6",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:09Z",
+    "stat_busy_jiffies": 62681188,
+    "stat_total_jiffies": 5867513890,
+    "child_cpu_s": 15.753,
+    "monotonic_s": 2445695.262,
+    "busy_cpus_since_prev": 1.03,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "cell:del_4m:mem:N:r6",
+    "since": "cell:judy_4m:mem:S:r6",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:09Z",
+    "stat_busy_jiffies": 62681206,
+    "stat_total_jiffies": 5867514328,
+    "child_cpu_s": 15.935,
+    "monotonic_s": 2445695.444,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:mem:S:r6",
+    "since": "cell:del_4m:mem:N:r6",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:09Z",
+    "stat_busy_jiffies": 62681239,
+    "stat_total_jiffies": 5867515109,
+    "child_cpu_s": 16.259,
+    "monotonic_s": 2445695.77,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:mem:S:r7",
+    "since": "cell:del_4m:mem:S:r6",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:10Z",
+    "stat_busy_jiffies": 62681272,
+    "stat_total_jiffies": 5867515900,
+    "child_cpu_s": 16.588,
+    "monotonic_s": 2445696.1,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:mem:N:r7",
+    "since": "cell:del_4m:mem:S:r7",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:10Z",
+    "stat_busy_jiffies": 62681305,
+    "stat_total_jiffies": 5867516699,
+    "child_cpu_s": 16.92,
+    "monotonic_s": 2445696.433,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r7",
+    "since": "cell:del_4m:mem:N:r7",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:10Z",
+    "stat_busy_jiffies": 62681338,
+    "stat_total_jiffies": 5867517483,
+    "child_cpu_s": 17.246,
+    "monotonic_s": 2445696.76,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r7",
+    "since": "cell:judy_4m:mem:S:r7",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:10Z",
+    "stat_busy_jiffies": 62681357,
+    "stat_total_jiffies": 5867517917,
+    "child_cpu_s": 17.425,
+    "monotonic_s": 2445696.94,
+    "busy_cpus_since_prev": 1.05,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "cell:del_4m:mem:N:r8",
+    "since": "cell:judy_4m:mem:N:r7",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:11Z",
+    "stat_busy_jiffies": 62681373,
+    "stat_total_jiffies": 5867518335,
+    "child_cpu_s": 17.6,
+    "monotonic_s": 2445697.115,
+    "busy_cpus_since_prev": 0.92,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.08
+   },
+   {
+    "label": "cell:del_4m:mem:S:r8",
+    "since": "cell:del_4m:mem:N:r8",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:11Z",
+    "stat_busy_jiffies": 62681407,
+    "stat_total_jiffies": 5867519140,
+    "child_cpu_s": 17.933,
+    "monotonic_s": 2445697.451,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r8",
+    "since": "cell:del_4m:mem:S:r8",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:11Z",
+    "stat_busy_jiffies": 62681440,
+    "stat_total_jiffies": 5867519927,
+    "child_cpu_s": 18.26,
+    "monotonic_s": 2445697.779,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r8",
+    "since": "cell:judy_4m:mem:N:r8",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:11Z",
+    "stat_busy_jiffies": 62681458,
+    "stat_total_jiffies": 5867520354,
+    "child_cpu_s": 18.437,
+    "monotonic_s": 2445697.957,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r9",
+    "since": "cell:judy_4m:mem:S:r8",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:12Z",
+    "stat_busy_jiffies": 62681476,
+    "stat_total_jiffies": 5867520794,
+    "child_cpu_s": 18.62,
+    "monotonic_s": 2445698.141,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r9",
+    "since": "cell:judy_4m:mem:S:r9",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:12Z",
+    "stat_busy_jiffies": 62681494,
+    "stat_total_jiffies": 5867521228,
+    "child_cpu_s": 18.8,
+    "monotonic_s": 2445698.321,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:mem:S:r9",
+    "since": "cell:judy_4m:mem:N:r9",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:12Z",
+    "stat_busy_jiffies": 62681513,
+    "stat_total_jiffies": 5867521673,
+    "child_cpu_s": 18.984,
+    "monotonic_s": 2445698.507,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:mem:N:r9",
+    "since": "cell:del_4m:mem:S:r9",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:12Z",
+    "stat_busy_jiffies": 62681546,
+    "stat_total_jiffies": 5867522472,
+    "child_cpu_s": 19.317,
+    "monotonic_s": 2445698.84,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:mem:N:r10",
+    "since": "cell:del_4m:mem:N:r9",
+    "load1": 0.57,
+    "load5": 0.16,
+    "load15": 0.05,
+    "at": "2026-11-13T09:41:13Z",
+    "stat_busy_jiffies": 62681579,
+    "stat_total_jiffies": 5867523254,
+    "child_cpu_s": 19.641,
+    "monotonic_s": 2445699.166,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:mem:S:r10",
+    "since": "cell:del_4m:mem:N:r10",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:13Z",
+    "stat_busy_jiffies": 62681612,
+    "stat_total_jiffies": 5867524052,
+    "child_cpu_s": 19.973,
+    "monotonic_s": 2445699.499,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r10",
+    "since": "cell:del_4m:mem:S:r10",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:13Z",
+    "stat_busy_jiffies": 62681644,
+    "stat_total_jiffies": 5867524835,
+    "child_cpu_s": 20.298,
+    "monotonic_s": 2445699.825,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.02
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r10",
+    "since": "cell:judy_4m:mem:N:r10",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:14Z",
+    "stat_busy_jiffies": 62681662,
+    "stat_total_jiffies": 5867525257,
+    "child_cpu_s": 20.473,
+    "monotonic_s": 2445700.001,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "cell:del_4m:mem:S:r11",
+    "since": "cell:judy_4m:mem:S:r10",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:14Z",
+    "stat_busy_jiffies": 62681680,
+    "stat_total_jiffies": 5867525696,
+    "child_cpu_s": 20.655,
+    "monotonic_s": 2445700.184,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.02
+   },
+   {
+    "label": "cell:del_4m:mem:N:r11",
+    "since": "cell:del_4m:mem:S:r11",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:14Z",
+    "stat_busy_jiffies": 62681713,
+    "stat_total_jiffies": 5867526476,
+    "child_cpu_s": 20.979,
+    "monotonic_s": 2445700.51,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r11",
+    "since": "cell:del_4m:mem:N:r11",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:14Z",
+    "stat_busy_jiffies": 62681747,
+    "stat_total_jiffies": 5867527270,
+    "child_cpu_s": 21.308,
+    "monotonic_s": 2445700.84,
+    "busy_cpus_since_prev": 1.03,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r11",
+    "since": "cell:judy_4m:mem:S:r11",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:15Z",
+    "stat_busy_jiffies": 62681765,
+    "stat_total_jiffies": 5867527707,
+    "child_cpu_s": 21.49,
+    "monotonic_s": 2445701.023,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:mem:N:r12",
+    "since": "cell:judy_4m:mem:N:r11",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:15Z",
+    "stat_busy_jiffies": 62681783,
+    "stat_total_jiffies": 5867528148,
+    "child_cpu_s": 21.673,
+    "monotonic_s": 2445701.207,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.02
+   },
+   {
+    "label": "cell:del_4m:mem:S:r12",
+    "since": "cell:del_4m:mem:N:r12",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:15Z",
+    "stat_busy_jiffies": 62681817,
+    "stat_total_jiffies": 5867528966,
+    "child_cpu_s": 22.013,
+    "monotonic_s": 2445701.548,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r12",
+    "since": "cell:del_4m:mem:S:r12",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:15Z",
+    "stat_busy_jiffies": 62681850,
+    "stat_total_jiffies": 5867529753,
+    "child_cpu_s": 22.34,
+    "monotonic_s": 2445701.876,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r12",
+    "since": "cell:judy_4m:mem:N:r12",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:16Z",
+    "stat_busy_jiffies": 62681868,
+    "stat_total_jiffies": 5867530193,
+    "child_cpu_s": 22.522,
+    "monotonic_s": 2445702.059,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.02
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r13",
+    "since": "cell:judy_4m:mem:S:r12",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:16Z",
+    "stat_busy_jiffies": 62681887,
+    "stat_total_jiffies": 5867530627,
+    "child_cpu_s": 22.702,
+    "monotonic_s": 2445702.24,
+    "busy_cpus_since_prev": 1.05,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r13",
+    "since": "cell:judy_4m:mem:S:r13",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:16Z",
+    "stat_busy_jiffies": 62681905,
+    "stat_total_jiffies": 5867531061,
+    "child_cpu_s": 22.882,
+    "monotonic_s": 2445702.421,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:mem:S:r13",
+    "since": "cell:judy_4m:mem:N:r13",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:16Z",
+    "stat_busy_jiffies": 62681924,
+    "stat_total_jiffies": 5867531508,
+    "child_cpu_s": 23.068,
+    "monotonic_s": 2445702.607,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:mem:N:r13",
+    "since": "cell:del_4m:mem:S:r13",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:16Z",
+    "stat_busy_jiffies": 62681957,
+    "stat_total_jiffies": 5867532312,
+    "child_cpu_s": 23.402,
+    "monotonic_s": 2445702.943,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r14",
+    "since": "cell:del_4m:mem:N:r13",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:17Z",
+    "stat_busy_jiffies": 62681991,
+    "stat_total_jiffies": 5867533121,
+    "child_cpu_s": 23.738,
+    "monotonic_s": 2445703.28,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r14",
+    "since": "cell:judy_4m:mem:N:r14",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:17Z",
+    "stat_busy_jiffies": 62682010,
+    "stat_total_jiffies": 5867533568,
+    "child_cpu_s": 23.923,
+    "monotonic_s": 2445703.466,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:mem:N:r14",
+    "since": "cell:judy_4m:mem:S:r14",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:17Z",
+    "stat_busy_jiffies": 62682028,
+    "stat_total_jiffies": 5867534002,
+    "child_cpu_s": 24.104,
+    "monotonic_s": 2445703.648,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:mem:S:r14",
+    "since": "cell:del_4m:mem:N:r14",
+    "load1": 0.6,
+    "load5": 0.17,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:17Z",
+    "stat_busy_jiffies": 62682061,
+    "stat_total_jiffies": 5867534808,
+    "child_cpu_s": 24.438,
+    "monotonic_s": 2445703.984,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.02
+   },
+   {
+    "label": "cell:del_4m:mem:S:r15",
+    "since": "cell:del_4m:mem:S:r14",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:18Z",
+    "stat_busy_jiffies": 62682095,
+    "stat_total_jiffies": 5867535596,
+    "child_cpu_s": 24.765,
+    "monotonic_s": 2445704.312,
+    "busy_cpus_since_prev": 1.04,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:del_4m:mem:N:r15",
+    "since": "cell:del_4m:mem:S:r15",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:18Z",
+    "stat_busy_jiffies": 62682127,
+    "stat_total_jiffies": 5867536390,
+    "child_cpu_s": 25.096,
+    "monotonic_s": 2445704.643,
+    "busy_cpus_since_prev": 0.97,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.03
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r15",
+    "since": "cell:del_4m:mem:N:r15",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:18Z",
+    "stat_busy_jiffies": 62682161,
+    "stat_total_jiffies": 5867537190,
+    "child_cpu_s": 25.427,
+    "monotonic_s": 2445704.976,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r15",
+    "since": "cell:judy_4m:mem:S:r15",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:19Z",
+    "stat_busy_jiffies": 62682179,
+    "stat_total_jiffies": 5867537621,
+    "child_cpu_s": 25.606,
+    "monotonic_s": 2445705.156,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r16",
+    "since": "cell:judy_4m:mem:N:r15",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:19Z",
+    "stat_busy_jiffies": 62682196,
+    "stat_total_jiffies": 5867538045,
+    "child_cpu_s": 25.782,
+    "monotonic_s": 2445705.333,
+    "busy_cpus_since_prev": 0.96,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": -0.03
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r16",
+    "since": "cell:judy_4m:mem:N:r16",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:19Z",
+    "stat_busy_jiffies": 62682215,
+    "stat_total_jiffies": 5867538475,
+    "child_cpu_s": 25.96,
+    "monotonic_s": 2445705.512,
+    "busy_cpus_since_prev": 1.06,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.07
+   },
+   {
+    "label": "cell:del_4m:mem:N:r16",
+    "since": "cell:judy_4m:mem:S:r16",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:19Z",
+    "stat_busy_jiffies": 62682233,
+    "stat_total_jiffies": 5867538906,
+    "child_cpu_s": 26.139,
+    "monotonic_s": 2445705.692,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:mem:S:r16",
+    "since": "cell:del_4m:mem:N:r16",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:20Z",
+    "stat_busy_jiffies": 62682268,
+    "stat_total_jiffies": 5867539730,
+    "child_cpu_s": 26.481,
+    "monotonic_s": 2445706.035,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:mem:S:r17",
+    "since": "cell:del_4m:mem:S:r16",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:20Z",
+    "stat_busy_jiffies": 62682300,
+    "stat_total_jiffies": 5867540513,
+    "child_cpu_s": 26.807,
+    "monotonic_s": 2445706.362,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.02
+   },
+   {
+    "label": "cell:del_4m:mem:N:r17",
+    "since": "cell:del_4m:mem:S:r17",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:20Z",
+    "stat_busy_jiffies": 62682333,
+    "stat_total_jiffies": 5867541293,
+    "child_cpu_s": 27.13,
+    "monotonic_s": 2445706.687,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r17",
+    "since": "cell:del_4m:mem:N:r17",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:21Z",
+    "stat_busy_jiffies": 62682368,
+    "stat_total_jiffies": 5867542111,
+    "child_cpu_s": 27.47,
+    "monotonic_s": 2445707.028,
+    "busy_cpus_since_prev": 1.03,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r17",
+    "since": "cell:judy_4m:mem:S:r17",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:21Z",
+    "stat_busy_jiffies": 62682385,
+    "stat_total_jiffies": 5867542543,
+    "child_cpu_s": 27.65,
+    "monotonic_s": 2445707.209,
+    "busy_cpus_since_prev": 0.94,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.06
+   },
+   {
+    "label": "cell:del_4m:mem:N:r18",
+    "since": "cell:judy_4m:mem:N:r17",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:21Z",
+    "stat_busy_jiffies": 62682403,
+    "stat_total_jiffies": 5867542972,
+    "child_cpu_s": 27.828,
+    "monotonic_s": 2445707.388,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:mem:S:r18",
+    "since": "cell:del_4m:mem:N:r18",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:21Z",
+    "stat_busy_jiffies": 62682437,
+    "stat_total_jiffies": 5867543785,
+    "child_cpu_s": 28.165,
+    "monotonic_s": 2445707.726,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r18",
+    "since": "cell:del_4m:mem:S:r18",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:22Z",
+    "stat_busy_jiffies": 62682469,
+    "stat_total_jiffies": 5867544568,
+    "child_cpu_s": 28.491,
+    "monotonic_s": 2445708.053,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.02
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r18",
+    "since": "cell:judy_4m:mem:N:r18",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:22Z",
+    "stat_busy_jiffies": 62682488,
+    "stat_total_jiffies": 5867544991,
+    "child_cpu_s": 28.666,
+    "monotonic_s": 2445708.229,
+    "busy_cpus_since_prev": 1.08,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.09
+   },
+   {
+    "label": "cell:del_4m:mem:S:r19",
+    "since": "cell:judy_4m:mem:S:r18",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:22Z",
+    "stat_busy_jiffies": 62682506,
+    "stat_total_jiffies": 5867545428,
+    "child_cpu_s": 28.847,
+    "monotonic_s": 2445708.411,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:mem:N:r19",
+    "since": "cell:del_4m:mem:S:r19",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:22Z",
+    "stat_busy_jiffies": 62682539,
+    "stat_total_jiffies": 5867546215,
+    "child_cpu_s": 29.174,
+    "monotonic_s": 2445708.739,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r19",
+    "since": "cell:del_4m:mem:N:r19",
+    "load1": 0.63,
+    "load5": 0.18,
+    "load15": 0.06,
+    "at": "2026-11-13T09:41:23Z",
+    "stat_busy_jiffies": 62682572,
+    "stat_total_jiffies": 5867547008,
+    "child_cpu_s": 29.503,
+    "monotonic_s": 2445709.07,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r19",
+    "since": "cell:judy_4m:mem:S:r19",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:23Z",
+    "stat_busy_jiffies": 62682590,
+    "stat_total_jiffies": 5867547439,
+    "child_cpu_s": 29.682,
+    "monotonic_s": 2445709.249,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:mem:N:r20",
+    "since": "cell:judy_4m:mem:N:r19",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:23Z",
+    "stat_busy_jiffies": 62682608,
+    "stat_total_jiffies": 5867547864,
+    "child_cpu_s": 29.859,
+    "monotonic_s": 2445709.427,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:mem:S:r20",
+    "since": "cell:del_4m:mem:N:r20",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:23Z",
+    "stat_busy_jiffies": 62682640,
+    "stat_total_jiffies": 5867548653,
+    "child_cpu_s": 30.186,
+    "monotonic_s": 2445709.756,
+    "busy_cpus_since_prev": 0.97,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.03
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r20",
+    "since": "cell:del_4m:mem:S:r20",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:24Z",
+    "stat_busy_jiffies": 62682674,
+    "stat_total_jiffies": 5867549440,
+    "child_cpu_s": 30.513,
+    "monotonic_s": 2445710.083,
+    "busy_cpus_since_prev": 1.04,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r20",
+    "since": "cell:judy_4m:mem:N:r20",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:24Z",
+    "stat_busy_jiffies": 62682690,
+    "stat_total_jiffies": 5867549859,
+    "child_cpu_s": 30.688,
+    "monotonic_s": 2445710.259,
+    "busy_cpus_since_prev": 0.92,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.08
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r21",
+    "since": "cell:judy_4m:mem:S:r20",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:24Z",
+    "stat_busy_jiffies": 62682709,
+    "stat_total_jiffies": 5867550296,
+    "child_cpu_s": 30.868,
+    "monotonic_s": 2445710.441,
+    "busy_cpus_since_prev": 1.04,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r21",
+    "since": "cell:judy_4m:mem:S:r21",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:24Z",
+    "stat_busy_jiffies": 62682727,
+    "stat_total_jiffies": 5867550726,
+    "child_cpu_s": 31.047,
+    "monotonic_s": 2445710.62,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:mem:S:r21",
+    "since": "cell:judy_4m:mem:N:r21",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:24Z",
+    "stat_busy_jiffies": 62682745,
+    "stat_total_jiffies": 5867551150,
+    "child_cpu_s": 31.223,
+    "monotonic_s": 2445710.797,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:mem:N:r21",
+    "since": "cell:del_4m:mem:S:r21",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:25Z",
+    "stat_busy_jiffies": 62682777,
+    "stat_total_jiffies": 5867551934,
+    "child_cpu_s": 31.549,
+    "monotonic_s": 2445711.124,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.02
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r22",
+    "since": "cell:del_4m:mem:N:r21",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:25Z",
+    "stat_busy_jiffies": 62682811,
+    "stat_total_jiffies": 5867552745,
+    "child_cpu_s": 31.885,
+    "monotonic_s": 2445711.462,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r22",
+    "since": "cell:judy_4m:mem:N:r22",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:25Z",
+    "stat_busy_jiffies": 62682830,
+    "stat_total_jiffies": 5867553177,
+    "child_cpu_s": 32.064,
+    "monotonic_s": 2445711.642,
+    "busy_cpus_since_prev": 1.06,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.06
+   },
+   {
+    "label": "cell:del_4m:mem:N:r22",
+    "since": "cell:judy_4m:mem:S:r22",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:25Z",
+    "stat_busy_jiffies": 62682847,
+    "stat_total_jiffies": 5867553608,
+    "child_cpu_s": 32.244,
+    "monotonic_s": 2445711.822,
+    "busy_cpus_since_prev": 0.95,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": -0.04
+   },
+   {
+    "label": "cell:del_4m:mem:S:r22",
+    "since": "cell:del_4m:mem:N:r22",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:26Z",
+    "stat_busy_jiffies": 62682881,
+    "stat_total_jiffies": 5867554419,
+    "child_cpu_s": 32.58,
+    "monotonic_s": 2445712.16,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:S:r23",
+    "since": "cell:del_4m:mem:S:r22",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:26Z",
+    "stat_busy_jiffies": 62682914,
+    "stat_total_jiffies": 5867555200,
+    "child_cpu_s": 32.905,
+    "monotonic_s": 2445712.485,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:mem:N:r23",
+    "since": "cell:judy_4m:mem:S:r23",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:26Z",
+    "stat_busy_jiffies": 62682932,
+    "stat_total_jiffies": 5867555636,
+    "child_cpu_s": 33.086,
+    "monotonic_s": 2445712.667,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:mem:S:r23",
+    "since": "cell:judy_4m:mem:N:r23",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:26Z",
+    "stat_busy_jiffies": 62682949,
+    "stat_total_jiffies": 5867556060,
+    "child_cpu_s": 33.262,
+    "monotonic_s": 2445712.844,
+    "busy_cpus_since_prev": 0.96,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.04
+   },
+   {
+    "label": "cell:del_4m:mem:N:r23",
+    "since": "cell:del_4m:mem:S:r23",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:27Z",
+    "stat_busy_jiffies": 62682982,
+    "stat_total_jiffies": 5867556842,
+    "child_cpu_s": 33.587,
+    "monotonic_s": 2445713.17,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "end",
+    "since": "cell:del_4m:mem:N:r23",
+    "load1": 0.66,
+    "load5": 0.2,
+    "load15": 0.07,
+    "at": "2026-11-13T09:41:27Z",
+    "stat_busy_jiffies": 62683016,
+    "stat_total_jiffies": 5867557654,
+    "child_cpu_s": 33.924,
+    "monotonic_s": 2445713.509,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   }
+  ],
+  "host_label": "ref",
+  "run": 2,
+  "rounds": 24,
+  "diagnostic": "phase counters on the shapes Expanse loses, outside METHODOLOGY.md's pre-registration",
+  "probe": "scripts/phase_probe.c",
+  "phase_set": "big_pfn",
+  "shapes": [
+   [
+    "judy_4m",
+    1,
+    4194304
+   ],
+   [
+    "del_4m",
+    1,
+    4194304
+   ]
+  ],
+  "arms": {
+   "N": "/var/tmp/stressng-eval/expcompat-c386578f8/lib",
+   "S": "/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu"
+  },
+  "arm_orders": [
+   "NS",
+   "SN"
+  ],
+  "pmu": "cpu_core",
+  "perf_version": "perf version 6.8.12",
+  "event_groups": {
+   "mem": [
+    "cycles",
+    "instructions",
+    "mem_load_retired.l1_miss",
+    "mem_load_retired.l2_miss",
+    "mem_load_retired.l3_miss",
+    "br_misp_retired.all_branches"
+   ]
+  },
+  "cell_isolation": "process",
+  "sha256": {
+   "probe": "853fe9b55ac4beadac2fb3966c3aab86225d624d1b2c6af23a49dca6a9283e9e",
+   "arm_N": "9b42a88ba3e9a39a52219d202f6f583e1b2695f92de6cfe20415f261b9e9edf6",
+   "arm_S": "76f121a81b7d8b019e7c5f3bc43e8ead5f7f6a99b377ea7afb9f1d6ff483d731"
+  },
+  "library_proof": {
+   "N": [
+    "/var/tmp/stressng-eval/expcompat-c386578f8/lib/libexpanse.so.1.0.0"
+   ],
+   "S": [
+    "/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu/libJudy.so.1.0.3"
+   ]
+  },
+  "privilege": "sudo -n on each per-process perf stat + phase_probe command",
+  "numa_nodes": 1,
+  "randomize_va_space": "2",
+  "thp_enabled": "always [madvise] never",
+  "norand_arms": [],
+  "preflight": {
+   "mem_load_retired.l1_miss": {
+    "group": "mem",
+    "alone": 11006203.0,
+    "in_group": 10736978.0
+   },
+   "mem_load_retired.l2_miss": {
+    "group": "mem",
+    "alone": 227014.0,
+    "in_group": 178401.0
+   },
+   "mem_load_retired.l3_miss": {
+    "group": "mem",
+    "alone": 26575.0,
+    "in_group": 19054.0
+   },
+   "br_misp_retired.all_branches": {
+    "group": "mem",
+    "alone": 720561.0,
+    "in_group": 722980.0
+   }
+  },
+  "void": {
+   "void": false,
+   "max_load1": 0.66,
+   "limit": 12.0
+  }
+ },
+ "cells": [
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "cycles",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 818003548.0416666,
+   "mean_S": 812655693.5,
+   "per_op_N": 195.02724362413088,
+   "per_op_S": 193.75221574306488,
+   "ratio": 1.0065807138059097,
+   "ci_lower": 0.9966039352355469,
+   "ci_upper": 1.015733977360656,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 823937059.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3352928711101413
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 801261084.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.32423768285661936
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 837214068.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3395885010249913
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 813977607.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32805891893804073
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 800827504.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368060882203281
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 804152945.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3273855112493038
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 827291042.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33464067708700895
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 803316162.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3268776019103825
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 826192182.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3435499370098114
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 811998072.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251306717284024
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 823891881.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3307788730598986
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 806023276.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32860525604337454
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 800338154.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251275303773582
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 816566412.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32930297777056694
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 801054821.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3263305090367794
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 832807321.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326099659316242
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 802411414.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.334531765896827
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 808507890.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3275590529665351
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 800683329.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3250246839597821
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 833250375.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3327680230140686
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 825162620.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326007449068129
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 801912123.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3257339857518673
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 801210158.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3300248677842319
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 805136512.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3247428839094937
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 822468454.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3407131750136614
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 809883607.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32752409437671304
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 852105638.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368014828301966
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 851635579.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3349812082014978
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 825777804.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.33554246416315436
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 808187183.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3274143640883267
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 801529871.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3325455291196704
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 820829793.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.33088522916659713
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 830203196.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3425184888765216
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 816999475.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3264125087298453
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 817035331.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3405936388298869
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 802567366.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3239220390096307
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 803737913.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33818833669647574
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 810135293.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32622888311743736
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 802173492.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33056089002639055
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 811611783.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32720609614625573
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 801999767.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.3286679922603071
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 809400954.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3269435209222138
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 835559813.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33737437473610044
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 802725863.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32660806085914373
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 833268410.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3374297129921615
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 807878615.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3246565400622785
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 836011232.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3379220459610224
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 812971354.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32539023412391543
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "instructions",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 3134510477.0833335,
+   "mean_S": 3410397589.4583335,
+   "per_op_N": 747.3255341251692,
+   "per_op_S": 813.1021474500498,
+   "ratio": 0.9191041205202064,
+   "ci_lower": 0.9191041200255746,
+   "ci_upper": 0.9191041209805195,
+   "ci_method": "bc",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510480.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3352928711101413
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397586.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.32423768285661936
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510481.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3395885010249913
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397589.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32805891893804073
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510473.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368060882203281
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397588.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3273855112493038
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510478.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33464067708700895
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397588.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3268776019103825
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510479.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3435499370098114
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397589.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251306717284024
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510478.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3307788730598986
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397588.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32860525604337454
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510476.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251275303773582
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397592.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32930297777056694
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510472.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3263305090367794
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397593.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326099659316242
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510474.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.334531765896827
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397589.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3275590529665351
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510481.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3250246839597821
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397593.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3327680230140686
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510478.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326007449068129
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397587.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3257339857518673
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510474.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3300248677842319
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397587.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3247428839094937
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510478.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3407131750136614
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397589.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32752409437671304
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510483.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368014828301966
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397597.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3349812082014978
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510479.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.33554246416315436
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397590.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3274143640883267
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510472.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3325455291196704
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397590.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.33088522916659713
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510481.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3425184888765216
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397590.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3264125087298453
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510476.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3405936388298869
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397587.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3239220390096307
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510474.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33818833669647574
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397590.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32622888311743736
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510475.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33056089002639055
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397590.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32720609614625573
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510470.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.3286679922603071
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397589.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3269435209222138
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510478.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33737437473610044
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397587.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32660806085914373
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 3134510479.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3374297129921615
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3410397588.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3246565400622785
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 3134510481.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3379220459610224
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3410397591.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32539023412391543
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "br_misp_retired.all_branches",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 610161.0833333334,
+   "mean_S": 612719.5833333334,
+   "per_op_N": 0.1454737385114034,
+   "per_op_S": 0.14608373244603476,
+   "ratio": 0.9958243541261058,
+   "ci_lower": 0.9925373326556568,
+   "ci_upper": 0.9983702664670524,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 610888.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3352928711101413
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 612102.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.32423768285661936
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 611757.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3395885010249913
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 609527.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32805891893804073
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 612723.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368060882203281
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 612531.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3273855112493038
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 608799.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33464067708700895
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 610466.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3268776019103825
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 608879.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3435499370098114
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 613711.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251306717284024
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 610382.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3307788730598986
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 612884.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32860525604337454
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 611758.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251275303773582
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 615022.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32930297777056694
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 609934.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3263305090367794
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 611088.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326099659316242
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 608288.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.334531765896827
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 607780.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3275590529665351
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 612443.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3250246839597821
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 609601.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3327680230140686
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 609862.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326007449068129
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 610508.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3257339857518673
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 611908.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3300248677842319
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 607544.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3247428839094937
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 609347.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3407131750136614
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 619592.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32752409437671304
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 609480.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368014828301966
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 607555.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3349812082014978
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 609832.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.33554246416315436
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 615138.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3274143640883267
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 609052.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3325455291196704
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 610327.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.33088522916659713
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 609561.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3425184888765216
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 609135.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3264125087298453
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 609119.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3405936388298869
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 609364.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3239220390096307
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 609585.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33818833669647574
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 624030.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32622888311743736
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 611852.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33056089002639055
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 614719.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32720609614625573
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 609525.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.3286679922603071
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 615055.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3269435209222138
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 609377.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33737437473610044
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 612361.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32660806085914373
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 608678.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3374297129921615
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 612949.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3246565400622785
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 610837.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3379220459610224
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 622281.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32539023412391543
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "mem_load_retired.l1_miss",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 17119942.625,
+   "mean_S": 10764599.833333334,
+   "per_op_N": 4.081712394952774,
+   "per_op_S": 2.56648059686025,
+   "ratio": 1.5903928515751142,
+   "ci_lower": 1.4793028286412258,
+   "ci_upper": 1.7001155991284131,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 18730114.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3352928711101413
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10286747.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.32423768285661936
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 20691150.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3395885010249913
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10884662.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32805891893804073
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 14002024.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368060882203281
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10398613.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3273855112493038
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 18620291.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33464067708700895
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10398130.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3268776019103825
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 18970849.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3435499370098114
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10849099.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251306717284024
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 18251354.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3307788730598986
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10490283.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32860525604337454
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 14040058.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251275303773582
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10917269.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32930297777056694
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 13934607.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3263305090367794
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 11552513.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326099659316242
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 13984698.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.334531765896827
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10559625.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3275590529665351
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 13958901.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3250246839597821
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 11435132.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3327680230140686
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 18508204.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326007449068129
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10266069.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3257339857518673
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 13979704.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3300248677842319
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10509964.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3247428839094937
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 18246362.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3407131750136614
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10295222.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32752409437671304
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 23574003.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368014828301966
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 12520555.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3349812082014978
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 18518733.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.33554246416315436
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10591595.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3274143640883267
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 13983521.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3325455291196704
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 11067387.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.33088522916659713
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 19602905.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3425184888765216
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 11097403.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3264125087298453
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 16499492.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3405936388298869
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10317251.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3239220390096307
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 14419662.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33818833669647574
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10735204.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32622888311743736
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 14070020.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33056089002639055
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10734062.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32720609614625573
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 13996046.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.3286679922603071
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10652788.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3269435209222138
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 20403744.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33737437473610044
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10453157.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32660806085914373
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 19832566.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3374297129921615
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10547502.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3246565400622785
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 20059615.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3379220459610224
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10790164.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32539023412391543
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "mem_load_retired.l2_miss",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 880878.625,
+   "mean_S": 562406.125,
+   "per_op_N": 0.2100178301334381,
+   "per_op_S": 0.13408806920051575,
+   "ratio": 1.5662678371434877,
+   "ci_lower": 1.4405857808132465,
+   "ci_upper": 1.695650704507366,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 983429.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3352928711101413
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 512656.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.32423768285661936
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 1080490.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3395885010249913
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 569235.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32805891893804073
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 698318.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368060882203281
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 524659.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3273855112493038
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 991403.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33464067708700895
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 530260.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3268776019103825
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 984808.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3435499370098114
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 560699.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251306717284024
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 963880.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3307788730598986
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 533712.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32860525604337454
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 690405.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251275303773582
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 575682.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32930297777056694
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 701011.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3263305090367794
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 644418.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326099659316242
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 695984.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.334531765896827
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 547549.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3275590529665351
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 708024.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3250246839597821
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 635148.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3327680230140686
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 966027.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326007449068129
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 523659.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3257339857518673
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 693535.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3300248677842319
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 540991.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3247428839094937
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 950693.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3407131750136614
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 514861.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32752409437671304
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 1254998.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368014828301966
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 706567.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3349812082014978
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 974688.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.33554246416315436
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 550459.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3274143640883267
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 697751.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3325455291196704
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 602347.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.33088522916659713
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 1013250.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3425184888765216
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 589304.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3264125087298453
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 862004.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3405936388298869
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 519310.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3239220390096307
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 717943.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33818833669647574
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 556695.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32622888311743736
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 693323.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33056089002639055
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 556852.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32720609614625573
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 689128.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.3286679922603071
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 555602.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3269435209222138
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 1032936.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33737437473610044
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 535445.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32660806085914373
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 1036019.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3374297129921615
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 545090.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3246565400622785
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 1061040.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3379220459610224
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 566547.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32539023412391543
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "mem_load_retired.l3_miss",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 224024.375,
+   "mean_S": 181756.66666666666,
+   "per_op_N": 0.0534115731716156,
+   "per_op_S": 0.04333416620890299,
+   "ratio": 1.2325510756139162,
+   "ci_lower": 1.0620235186467726,
+   "ci_upper": 1.4122533108081823,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 254218.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3352928711101413
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 153166.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.32423768285661936
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 301477.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3395885010249913
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 183578.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32805891893804073
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 153448.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368060882203281
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 156746.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3273855112493038
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 263560.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33464067708700895
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 159384.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3268776019103825
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 263639.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3435499370098114
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 176664.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251306717284024
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 252163.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3307788730598986
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 159361.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32860525604337454
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 155625.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3251275303773582
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 184832.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.32930297777056694
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 153516.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3263305090367794
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 252909.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326099659316242
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 157021.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.334531765896827
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 164564.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3275590529665351
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 154989.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3250246839597821
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 242794.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3327680230140686
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 246776.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3326007449068129
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 154689.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3257339857518673
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 154204.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3300248677842319
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 160693.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3247428839094937
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 243461.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.3407131750136614
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 150572.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32752409437671304
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 368734.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3368014828301966
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 316691.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.3349812082014978
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 256518.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.33554246416315436
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 168584.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3274143640883267
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 155207.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3325455291196704
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 205363.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.33088522916659713
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 286058.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3425184888765216
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 189848.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.3264125087298453
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 216378.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.3405936388298869
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 155440.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3239220390096307
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 164143.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33818833669647574
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 172862.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32622888311743736
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 156482.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.33056089002639055
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 175486.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32720609614625573
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 154694.0,
+     "foreign_busy_cpus": -0.03,
+     "wall_s": 0.3286679922603071
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 170060.0,
+     "foreign_busy_cpus": 0.04,
+     "wall_s": 0.3269435209222138
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 299330.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.33737437473610044
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 159887.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.32660806085914373
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 274561.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3374297129921615
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 165908.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.3246565400622785
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 290383.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.3379220459610224
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 182079.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.32539023412391543
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "cycles",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 717362249.8333334,
+   "mean_S": 702832438.5416666,
+   "per_op_N": 171.03248830636343,
+   "per_op_S": 167.5683113435904,
+   "ratio": 1.020673222371203,
+   "ci_lower": 1.0096075437722034,
+   "ci_upper": 1.0328795220691513,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 735172170.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1825761403888464
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 705261494.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18097715033218265
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 722077780.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1796414479613304
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 696417362.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.1790327220223844
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 705005445.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17826177878305316
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 702471662.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.17956890538334846
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 742260380.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.1850156639702618
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 708235057.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18153043370693922
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 692466755.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17451912304386497
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 702793937.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17982120718806982
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 742184586.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18409761507064104
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 701721213.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17969110794365406
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 741671435.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.18438515719026327
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 708100441.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1821293351240456
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 695107167.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17442987021058798
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 702399250.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18018947588279843
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 700198591.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17741891276091337
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 704232999.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1833043689839542
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 746405798.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18501544883474708
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 701080912.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18012586189433932
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 699077422.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17512431973591447
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 709413953.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18258207896724343
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 733905309.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18346343515440822
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 705287894.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18195472517982125
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 730961072.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.1827238411642611
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 705472096.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18031933205202222
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 748959558.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18548838794231415
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 706200622.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1803627540357411
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 743490669.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18566912412643433
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 705160859.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18066805694252253
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 696853648.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17665383778512478
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 692927430.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17916365386918187
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 716044104.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17845742590725422
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 697579999.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17918946780264378
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 715661592.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17830692091956735
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 699675504.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18030478712171316
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 691033142.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.17513454193249345
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 706129814.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18158613378182054
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 706902082.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17659618519246578
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 695299949.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17903538886457682
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 694296564.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17494306107982993
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 706334346.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18114305892959237
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 704767574.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.1758076623082161
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 700510043.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17925268085673451
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 713142662.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17934346105903387
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 698301525.0,
+     "foreign_busy_cpus": -0.05,
+     "wall_s": 0.17954772477969527
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 699048491.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17658909736201167
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 706970164.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18142274487763643
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "instructions",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 2706048890.6666665,
+   "mean_S": 3291310555.0,
+   "per_op_N": 645.1723314921061,
+   "per_op_S": 784.7095859050751,
+   "ratio": 0.8221797504206243,
+   "ci_lower": 0.8221797497122679,
+   "ci_upper": 0.8221797511993227,
+   "ci_method": "bc",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048887.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1825761403888464
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310559.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18097715033218265
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048890.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1796414479613304
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310551.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.1790327220223844
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048889.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17826177878305316
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310552.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.17956890538334846
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048888.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.1850156639702618
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310554.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18153043370693922
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048887.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17451912304386497
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310551.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17982120718806982
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048891.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18409761507064104
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310555.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17969110794365406
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048893.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.18438515719026327
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310558.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1821293351240456
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048889.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17442987021058798
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310555.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18018947588279843
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048893.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17741891276091337
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310564.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1833043689839542
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048898.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18501544883474708
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310551.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18012586189433932
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048885.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17512431973591447
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310558.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18258207896724343
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048897.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18346343515440822
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310556.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18195472517982125
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048898.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.1827238411642611
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310557.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18031933205202222
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048901.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18548838794231415
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310558.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1803627540357411
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048897.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18566912412643433
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310552.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18066805694252253
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048885.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17665383778512478
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310555.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17916365386918187
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048892.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17845742590725422
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310554.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17918946780264378
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048882.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17830692091956735
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310553.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18030478712171316
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048895.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.17513454193249345
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310556.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18158613378182054
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048890.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17659618519246578
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310555.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17903538886457682
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048888.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17494306107982993
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310553.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18114305892959237
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048879.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.1758076623082161
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310558.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17925268085673451
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 2706048891.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17934346105903387
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 3291310549.0,
+     "foreign_busy_cpus": -0.05,
+     "wall_s": 0.17954772477969527
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 2706048891.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17658909736201167
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 3291310556.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18142274487763643
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "br_misp_retired.all_branches",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 721559.875,
+   "mean_S": 633006.5,
+   "per_op_N": 0.17203328013420105,
+   "per_op_S": 0.15092051029205322,
+   "ratio": 1.1398933107321962,
+   "ci_lower": 1.1375286428652902,
+   "ci_upper": 1.1421244929447825,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 716945.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1825761403888464
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 634699.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18097715033218265
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 720456.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1796414479613304
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 633266.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.1790327220223844
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 721918.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17826177878305316
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 628001.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.17956890538334846
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 715479.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.1850156639702618
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 628707.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18153043370693922
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 721083.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17451912304386497
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 633376.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17982120718806982
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 721362.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18409761507064104
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 629265.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17969110794365406
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 720924.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.18438515719026327
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 632521.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1821293351240456
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 720007.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17442987021058798
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 636704.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18018947588279843
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 721266.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17741891276091337
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 631196.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1833043689839542
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 719433.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18501544883474708
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 629898.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18012586189433932
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 719265.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17512431973591447
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 632826.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18258207896724343
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 721790.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18346343515440822
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 632996.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18195472517982125
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 724481.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.1827238411642611
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 633862.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18031933205202222
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 720066.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18548838794231415
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 634515.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1803627540357411
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 722934.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18566912412643433
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 630164.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18066805694252253
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 722002.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17665383778512478
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 633693.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17916365386918187
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 721248.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17845742590725422
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 636254.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17918946780264378
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 723202.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17830692091956735
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 631834.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18030478712171316
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 725429.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.17513454193249345
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 635785.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18158613378182054
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 723000.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17659618519246578
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 637746.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17903538886457682
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 725827.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17494306107982993
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 633925.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18114305892959237
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 723032.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.1758076623082161
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 631524.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17925268085673451
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 723734.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17934346105903387
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 633484.0,
+     "foreign_busy_cpus": -0.05,
+     "wall_s": 0.17954772477969527
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 722554.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17658909736201167
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 635915.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18142274487763643
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "mem_load_retired.l1_miss",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 17463941.0,
+   "mean_S": 10371726.916666666,
+   "per_op_N": 4.1637279987335205,
+   "per_op_S": 2.4728123943010965,
+   "ratio": 1.6838026242222617,
+   "ci_lower": 1.5523691202943701,
+   "ci_upper": 1.8300557062996228,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 20674243.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1825761403888464
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10944856.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18097715033218265
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 18613912.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1796414479613304
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 9015245.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.1790327220223844
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 15448970.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17826177878305316
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10325393.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.17956890538334846
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 21887661.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.1850156639702618
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 11298254.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18153043370693922
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 13344467.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17451912304386497
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10668267.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17982120718806982
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 21856758.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18409761507064104
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10409619.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17969110794365406
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 21886302.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.18438515719026327
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 11131451.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1821293351240456
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 13437661.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17442987021058798
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10368263.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18018947588279843
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 14227742.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17741891276091337
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10769461.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1833043689839542
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 21837139.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18501544883474708
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10283426.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18012586189433932
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 14463869.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17512431973591447
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 11238937.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18258207896724343
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 20410920.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18346343515440822
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 10871191.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18195472517982125
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 20106493.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.1827238411642611
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10818878.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18031933205202222
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 21803376.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18548838794231415
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 11114891.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1803627540357411
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 21899948.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18566912412643433
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10728721.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18066805694252253
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 14557408.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17665383778512478
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 8788258.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17916365386918187
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 16655122.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17845742590725422
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 9466372.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17918946780264378
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 17322623.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17830692091956735
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 9866545.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18030478712171316
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 13289110.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.17513454193249345
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10601140.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18158613378182054
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 15293521.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17659618519246578
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 9123026.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17903538886457682
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 13655630.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17494306107982993
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 10557922.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18114305892959237
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 15363834.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.1758076623082161
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 9511716.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17925268085673451
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 16704578.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17934346105903387
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 9667952.0,
+     "foreign_busy_cpus": -0.05,
+     "wall_s": 0.17954772477969527
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 14393297.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17658909736201167
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 11351662.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18142274487763643
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "mem_load_retired.l2_miss",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 205632.25,
+   "mean_S": 402160.4166666667,
+   "per_op_N": 0.049026548862457275,
+   "per_op_S": 0.095882515112559,
+   "ratio": 0.5113189699384055,
+   "ci_lower": 0.49537375218095137,
+   "ci_upper": 0.5290052439835836,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 209773.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1825761403888464
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 398524.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18097715033218265
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 204509.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1796414479613304
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 400811.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.1790327220223844
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 194982.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17826177878305316
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 401562.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.17956890538334846
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 227343.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.1850156639702618
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 407517.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18153043370693922
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 185724.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17451912304386497
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 392848.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17982120718806982
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 225048.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18409761507064104
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 393522.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17969110794365406
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 228542.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.18438515719026327
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 396355.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1821293351240456
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 188327.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17442987021058798
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 395812.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18018947588279843
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 194944.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17741891276091337
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 394584.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1833043689839542
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 225461.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18501544883474708
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 390727.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18012586189433932
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 187449.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17512431973591447
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 398535.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18258207896724343
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 220599.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18346343515440822
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 404866.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18195472517982125
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 220833.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.1827238411642611
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 409948.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18031933205202222
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 229456.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18548838794231415
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 398423.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1803627540357411
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 227088.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18566912412643433
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 403726.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18066805694252253
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 180409.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17665383778512478
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 416792.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17916365386918187
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 204871.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17845742590725422
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 405279.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17918946780264378
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 205889.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17830692091956735
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 412168.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18030478712171316
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 189265.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.17513454193249345
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 408627.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18158613378182054
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 198639.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17659618519246578
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 407044.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17903538886457682
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 190246.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17494306107982993
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 420592.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18114305892959237
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 192714.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.1758076623082161
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 400363.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17925268085673451
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 212327.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17934346105903387
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 402735.0,
+     "foreign_busy_cpus": -0.05,
+     "wall_s": 0.17954772477969527
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 190736.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17658909736201167
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 390490.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18142274487763643
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "mem_load_retired.l3_miss",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 22483.0,
+   "mean_S": 50197.208333333336,
+   "per_op_N": 0.00536036491394043,
+   "per_op_S": 0.011967947085698446,
+   "ratio": 0.4478934336487836,
+   "ci_lower": 0.43279783786297943,
+   "ci_upper": 0.4650258056230994,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 21950.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1825761403888464
+    },
+    {
+     "round": 0,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 51939.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18097715033218265
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 22650.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1796414479613304
+    },
+    {
+     "round": 1,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 51239.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.1790327220223844
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 20957.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17826177878305316
+    },
+    {
+     "round": 2,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 51149.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.17956890538334846
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 25317.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.1850156639702618
+    },
+    {
+     "round": 3,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 49864.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18153043370693922
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 19800.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17451912304386497
+    },
+    {
+     "round": 4,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 50326.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17982120718806982
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 24266.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18409761507064104
+    },
+    {
+     "round": 5,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 50075.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17969110794365406
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 24533.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.18438515719026327
+    },
+    {
+     "round": 6,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 51806.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1821293351240456
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 21897.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17442987021058798
+    },
+    {
+     "round": 7,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 49481.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18018947588279843
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 21382.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17741891276091337
+    },
+    {
+     "round": 8,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 53175.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.1833043689839542
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 24891.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18501544883474708
+    },
+    {
+     "round": 9,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 49576.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18012586189433932
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 19949.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.17512431973591447
+    },
+    {
+     "round": 10,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 51043.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18258207896724343
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 22554.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.18346343515440822
+    },
+    {
+     "round": 11,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 48431.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18195472517982125
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 22669.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.1827238411642611
+    },
+    {
+     "round": 12,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 53421.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18031933205202222
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 25699.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18548838794231415
+    },
+    {
+     "round": 13,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 53209.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.1803627540357411
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 24942.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.18566912412643433
+    },
+    {
+     "round": 14,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 51441.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.18066805694252253
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 20312.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17665383778512478
+    },
+    {
+     "round": 15,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 45029.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17916365386918187
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 23253.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17845742590725422
+    },
+    {
+     "round": 16,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 46842.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17918946780264378
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 22788.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.17830692091956735
+    },
+    {
+     "round": 17,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 46343.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18030478712171316
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 20123.0,
+     "foreign_busy_cpus": 0.08,
+     "wall_s": 0.17513454193249345
+    },
+    {
+     "round": 18,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 48133.0,
+     "foreign_busy_cpus": -0.06,
+     "wall_s": 0.18158613378182054
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 22844.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.17659618519246578
+    },
+    {
+     "round": 19,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 50202.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17903538886457682
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 21376.0,
+     "foreign_busy_cpus": -0.08,
+     "wall_s": 0.17494306107982993
+    },
+    {
+     "round": 20,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 52585.0,
+     "foreign_busy_cpus": 0.05,
+     "wall_s": 0.18114305892959237
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 21141.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.1758076623082161
+    },
+    {
+     "round": 21,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 49352.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.17925268085673451
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "N",
+     "order": "NS",
+     "value": 23445.0,
+     "foreign_busy_cpus": 0.06,
+     "wall_s": 0.17934346105903387
+    },
+    {
+     "round": 22,
+     "group": "mem",
+     "arm": "S",
+     "order": "NS",
+     "value": 47879.0,
+     "foreign_busy_cpus": -0.05,
+     "wall_s": 0.17954772477969527
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "N",
+     "order": "SN",
+     "value": 20854.0,
+     "foreign_busy_cpus": -0.04,
+     "wall_s": 0.17658909736201167
+    },
+    {
+     "round": 23,
+     "group": "mem",
+     "arm": "S",
+     "order": "SN",
+     "value": 52193.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.18142274487763643
+    }
+   ]
+  }
+ ]
+}
