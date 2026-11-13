@@ -34,6 +34,16 @@
 //! `EXPANSE_PERF_POP` is the vertex count. Unrecognised values are fatal
 //! (AGENTS.md §8.1).
 //!
+//! **Memory mode** (`EXPANSE_COLOUR_MEMUSED` set to comma-separated vertex
+//! counts): replays the tape once per population against `stock` and
+//! `expanse_dl` and reads `Judy1MemUsed` on the array a call touched after
+//! every set and unset, through the C ABI only. It reports each array's
+//! peak, its last value before the frees, its largest single-call increase,
+//! and every increase of at least 1,024 bytes with the call index and the
+//! array's population at that call (#1682). `Judy1MemUsed` is deterministic
+//! for a given tape, so one replay per cell is the whole measurement. JSON
+//! goes to `EXPANSE_COLOUR_JSON`.
+//!
 //! Needs stock libjudy (`libjudy-dev`, or `brew install judy`) and, for
 //! `expanse_dl`, `libexpanse` (`EXPANSE_CDYLIB`, or `target/release`).
 //!
@@ -204,6 +214,135 @@ mod bench {
             .unwrap_or_else(|e| panic!("{name}={v:?} is not a number: {e}"))
     }
 
+    /// `Judy1MemUsed` after every set and unset of one replay, per library
+    /// and population (memory mode).
+    fn mem_mode(pops: &str) {
+        type MemFn = unsafe extern "C" fn(*const c_void) -> Word;
+        const STEP: Word = 1024;
+        let pops: Vec<u64> = pops
+            .split(',')
+            .map(|p| parse("EXPANSE_COLOUR_MEMUSED", p.trim()))
+            .collect();
+        assert!(
+            !pops.is_empty(),
+            "EXPANSE_COLOUR_MEMUSED names no population"
+        );
+        let libs: [(&str, *mut c_void); 2] = [
+            (
+                "stock",
+                open_any(
+                    STOCK_NAMES,
+                    "stock libjudy — install libjudy-dev (Linux) or `brew install judy` (macOS)",
+                ),
+            ),
+            ("expanse_dl", ours()),
+        ];
+        let mut cells = Vec::new();
+        for &pop in &pops {
+            let tape = cm::tape(pop);
+            let mut sinks = Vec::new();
+            for &(name, h) in &libs {
+                let j = loaded(h);
+                let mem: MemFn = sym(h, c"Judy1MemUsed");
+                let mut arrays: [*mut c_void; 2] = [core::ptr::null_mut(); 2];
+                let mut popn = [0u64; 2];
+                let mut last = [0 as Word; 2];
+                let mut peak = [0 as Word; 2];
+                let mut max_up = [0 as Word; 2];
+                let mut steps: [Vec<String>; 2] = [vec![], vec![]];
+                let mut sink: Word = 0;
+                for (i, &t) in tape.iter().enumerate() {
+                    let (op, a, v) = cm::decode(t);
+                    let v = v as Word;
+                    // SAFETY: `j` and `mem` are one library's Judy1 entry
+                    // points, called on that library's own arrays.
+                    unsafe {
+                        match op {
+                            cm::OP_TEST => {
+                                sink =
+                                    sink.wrapping_add(
+                                        (j.test)(arrays[a], v, core::ptr::null_mut()) as Word,
+                                    );
+                                continue;
+                            }
+                            cm::OP_SET | cm::OP_UNSET => {
+                                let f = if op == cm::OP_SET { j.set } else { j.unset };
+                                let r = f(&raw mut arrays[a], v, core::ptr::null_mut());
+                                assert!(r >= 0, "{name}: Judy1 call {i} returned {r}");
+                                sink = sink.wrapping_add(r as Word);
+                                if r == 1 {
+                                    if op == cm::OP_SET {
+                                        popn[a] += 1;
+                                    } else {
+                                        popn[a] -= 1;
+                                    }
+                                }
+                            }
+                            _ => {
+                                black_box((j.free)(&raw mut arrays[a], core::ptr::null_mut()));
+                                continue;
+                            }
+                        }
+                        let now = mem(arrays[a]);
+                        if now > last[a] {
+                            let up = now - last[a];
+                            max_up[a] = max_up[a].max(up);
+                            if up >= STEP {
+                                steps[a].push(format!(
+                                    "{{\"call\": {i}, \"population\": {}, \"before\": {}, \"after\": {now}}}",
+                                    popn[a], last[a]
+                                ));
+                            }
+                        }
+                        peak[a] = peak[a].max(now);
+                        last[a] = now;
+                    }
+                }
+                assert!(
+                    arrays.iter().all(|a| a.is_null()),
+                    "{name}: frees left an array"
+                );
+                sinks.push(sink);
+                for a in 0..2 {
+                    cells.push(format!(
+                        "    {{\"library\": \"{name}\", \"population\": {pop}, \"array\": {a}, \
+                         \"peak_bytes\": {}, \"last_bytes_before_free\": {}, \
+                         \"max_single_call_increase\": {}, \"increases_ge_{STEP}\": [{}]}}",
+                        peak[a],
+                        last[a],
+                        max_up[a],
+                        steps[a].join(", ")
+                    ));
+                    println!(
+                        "{name:>10} n={pop:>7} array {a}: peak {:>9} B, last {:>9} B, \
+                         max increase {:>7} B, increases >= {STEP} B: {}",
+                        peak[a],
+                        last[a],
+                        max_up[a],
+                        steps[a].len()
+                    );
+                }
+            }
+            assert!(
+                sinks.iter().all(|&s| s == sinks[0]),
+                "results differ between libraries at pop={pop}: {sinks:?}"
+            );
+        }
+        let json = format!(
+            "{{\n  \"workload_id\": \"capi_colour_map\",\n  \"mode\": \"memused\",\n  \"cells\": [\n{}\n  ]\n}}\n",
+            cells.join(",\n")
+        );
+        let path = std::path::PathBuf::from(env_or(
+            "EXPANSE_COLOUR_JSON",
+            "target/bench/colour_map_memused.json",
+        ));
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).expect("create the JSON directory");
+        }
+        std::fs::write(&path, json).expect("write the MemUsed JSON");
+        println!("Judy1MemUsed per set/unset: {}", path.display());
+    }
+
     /// The `perf stat` workload: one arm, one population, one phase.
     fn counter_mode(phase: &str) {
         let name = env_or("EXPANSE_PERF_ARM", "expanse_dl");
@@ -270,6 +409,10 @@ mod bench {
     pub fn main() {
         if let Ok(phase) = std::env::var("EXPANSE_PERF_PHASE") {
             counter_mode(&phase);
+            return;
+        }
+        if let Ok(pops) = std::env::var("EXPANSE_COLOUR_MEMUSED") {
+            mem_mode(&pops);
             return;
         }
         let (rounds, reps) = parse_args();

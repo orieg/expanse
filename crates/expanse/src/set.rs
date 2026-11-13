@@ -2783,6 +2783,9 @@ impl Drop for ExpanseSet {
     }
 }
 
+#[cfg(all(test, feature = "std", target_pointer_width = "64"))]
+mod diag_colour_top;
+
 #[cfg(test)]
 mod tests {
     use super::*;
