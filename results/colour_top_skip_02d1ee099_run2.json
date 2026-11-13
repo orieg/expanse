@@ -1,0 +1,586 @@
+{
+ "workload_id": "capi_colour_map",
+ "measurement": "1682-c top-node skip upper bound",
+ "provenance": {
+  "commit": "02d1ee099",
+  "host": "12th Gen Intel Core i9-12900F (8P+8E, 24 threads, 30 MiB L3), Linux 6.8.0-138-generic, governor powersave",
+  "run_id": "colour-topskip-r2",
+  "cpu_pin": "4",
+  "pmu": "cpu_core",
+  "estimators": "BCa 95% over pairs",
+  "loads": [
+   {
+    "label": "start",
+    "since": null,
+    "load1": 0.64,
+    "load5": 0.26,
+    "load15": 0.16,
+    "at": "2026-11-13T05:52:39Z",
+    "stat_busy_jiffies": 62267626,
+    "stat_total_jiffies": 5834619676,
+    "child_cpu_s": 0.0,
+    "monotonic_s": 2431985.126,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "after n=10000",
+    "since": "start",
+    "load1": 0.77,
+    "load5": 0.3,
+    "load15": 0.18,
+    "at": "2026-11-13T05:52:48Z",
+    "stat_busy_jiffies": 62268572,
+    "stat_total_jiffies": 5834642264,
+    "child_cpu_s": 9.408,
+    "monotonic_s": 2431994.541,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "after n=100000",
+    "since": "after n=10000",
+    "load1": 0.8,
+    "load5": 0.33,
+    "load15": 0.19,
+    "at": "2026-11-13T05:53:00Z",
+    "stat_busy_jiffies": 62269774,
+    "stat_total_jiffies": 5834670864,
+    "child_cpu_s": 21.306,
+    "monotonic_s": 2432006.461,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   }
+  ]
+ },
+ "drop_below_cycles": 2.0,
+ "cells": [
+  {
+   "population": 10000,
+   "reps": 400,
+   "pairs": [
+    {
+     "root": {
+      "variant": "root",
+      "cycles": 2421533743.0,
+      "instructions": 9068172486.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 28092800
+     },
+     "child": {
+      "variant": "child",
+      "cycles": 2223049565.0,
+      "instructions": 8205451220.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 31936000,
+      "via_root": 64000,
+      "sink": 28092800
+     },
+     "first": "root"
+    },
+    {
+     "child": {
+      "variant": "child",
+      "cycles": 2243579235.0,
+      "instructions": 8205478835.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 31936000,
+      "via_root": 64000,
+      "sink": 28092800
+     },
+     "root": {
+      "variant": "root",
+      "cycles": 2425178199.0,
+      "instructions": 9067950232.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 28092800
+     },
+     "first": "child"
+    },
+    {
+     "root": {
+      "variant": "root",
+      "cycles": 2415666910.0,
+      "instructions": 9068122031.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 28092800
+     },
+     "child": {
+      "variant": "child",
+      "cycles": 2226118253.0,
+      "instructions": 8205582434.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 31936000,
+      "via_root": 64000,
+      "sink": 28092800
+     },
+     "first": "root"
+    },
+    {
+     "child": {
+      "variant": "child",
+      "cycles": 2223272762.0,
+      "instructions": 8205631455.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 31936000,
+      "via_root": 64000,
+      "sink": 28092800
+     },
+     "root": {
+      "variant": "root",
+      "cycles": 2414779501.0,
+      "instructions": 9068029706.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 28092800
+     },
+     "first": "child"
+    },
+    {
+     "root": {
+      "variant": "root",
+      "cycles": 2417078020.0,
+      "instructions": 9068045496.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 28092800
+     },
+     "child": {
+      "variant": "child",
+      "cycles": 2223729233.0,
+      "instructions": 8205414862.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 31936000,
+      "via_root": 64000,
+      "sink": 28092800
+     },
+     "first": "root"
+    },
+    {
+     "child": {
+      "variant": "child",
+      "cycles": 2224405697.0,
+      "instructions": 8205663104.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 31936000,
+      "via_root": 64000,
+      "sink": 28092800
+     },
+     "root": {
+      "variant": "root",
+      "cycles": 2410115830.0,
+      "instructions": 9068176657.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 28092800
+     },
+     "first": "child"
+    },
+    {
+     "root": {
+      "variant": "root",
+      "cycles": 2428986748.0,
+      "instructions": 9068233648.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 28092800
+     },
+     "child": {
+      "variant": "child",
+      "cycles": 2223064989.0,
+      "instructions": 8205588574.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 31936000,
+      "via_root": 64000,
+      "sink": 28092800
+     },
+     "first": "root"
+    },
+    {
+     "child": {
+      "variant": "child",
+      "cycles": 2230131075.0,
+      "instructions": 8205593006.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 31936000,
+      "via_root": 64000,
+      "sink": 28092800
+     },
+     "root": {
+      "variant": "root",
+      "cycles": 2414013588.0,
+      "instructions": 9068025817.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 28092800
+     },
+     "first": "child"
+    },
+    {
+     "root": {
+      "variant": "root",
+      "cycles": 2432172188.0,
+      "instructions": 9068099720.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 28092800
+     },
+     "child": {
+      "variant": "child",
+      "cycles": 2228149548.0,
+      "instructions": 8205552284.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 31936000,
+      "via_root": 64000,
+      "sink": 28092800
+     },
+     "first": "root"
+    },
+    {
+     "child": {
+      "variant": "child",
+      "cycles": 2224716400.0,
+      "instructions": 8205539753.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 31936000,
+      "via_root": 64000,
+      "sink": 28092800
+     },
+     "root": {
+      "variant": "root",
+      "cycles": 2418004020.0,
+      "instructions": 9068188743.0,
+      "calls": 48000800,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 28092800
+     },
+     "first": "child"
+    }
+   ],
+   "min_child_share": 0.998,
+   "saved_cycles_per_test": {
+    "mean": 6.02284996875,
+    "ci_lower": 5.89077779375,
+    "ci_upper": 6.189098637500001,
+    "ci_method": "bca"
+   },
+   "saved_instructions_per_test": {
+    "mean": 26.954840653125,
+    "ci_lower": 26.952960668750002,
+    "ci_upper": 26.956740503125,
+    "ci_method": "bca"
+   },
+   "saved_cycles_per_test_samples": [
+    6.2026305625,
+    5.674967625,
+    5.92339553125,
+    5.98458559375,
+    6.04214959375,
+    5.80344165625,
+    6.43505496875,
+    5.74632853125,
+    6.3757075,
+    6.040238125
+   ],
+   "drop_option_c": false
+  },
+  {
+   "population": 100000,
+   "reps": 40,
+   "pairs": [
+    {
+     "root": {
+      "variant": "root",
+      "cycles": 3050734657.0,
+      "instructions": 10459538070.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 27216640
+     },
+     "child": {
+      "variant": "child",
+      "cycles": 2836810636.0,
+      "instructions": 9595294236.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 31993600,
+      "via_root": 6400,
+      "sink": 27216640
+     },
+     "first": "root"
+    },
+    {
+     "child": {
+      "variant": "child",
+      "cycles": 2813137137.0,
+      "instructions": 9595479427.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 31993600,
+      "via_root": 6400,
+      "sink": 27216640
+     },
+     "root": {
+      "variant": "root",
+      "cycles": 3043853441.0,
+      "instructions": 10459667796.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 27216640
+     },
+     "first": "child"
+    },
+    {
+     "root": {
+      "variant": "root",
+      "cycles": 3055584245.0,
+      "instructions": 10459674370.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 27216640
+     },
+     "child": {
+      "variant": "child",
+      "cycles": 2811584651.0,
+      "instructions": 9595493951.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 31993600,
+      "via_root": 6400,
+      "sink": 27216640
+     },
+     "first": "root"
+    },
+    {
+     "child": {
+      "variant": "child",
+      "cycles": 2825976274.0,
+      "instructions": 9595511404.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 31993600,
+      "via_root": 6400,
+      "sink": 27216640
+     },
+     "root": {
+      "variant": "root",
+      "cycles": 3078310896.0,
+      "instructions": 10459690832.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 27216640
+     },
+     "first": "child"
+    },
+    {
+     "root": {
+      "variant": "root",
+      "cycles": 3047314168.0,
+      "instructions": 10459735317.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 27216640
+     },
+     "child": {
+      "variant": "child",
+      "cycles": 2830802813.0,
+      "instructions": 9595641370.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 31993600,
+      "via_root": 6400,
+      "sink": 27216640
+     },
+     "first": "root"
+    },
+    {
+     "child": {
+      "variant": "child",
+      "cycles": 2821428993.0,
+      "instructions": 9595484372.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 31993600,
+      "via_root": 6400,
+      "sink": 27216640
+     },
+     "root": {
+      "variant": "root",
+      "cycles": 3057276418.0,
+      "instructions": 10459725102.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 27216640
+     },
+     "first": "child"
+    },
+    {
+     "root": {
+      "variant": "root",
+      "cycles": 3075198736.0,
+      "instructions": 10459781125.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 27216640
+     },
+     "child": {
+      "variant": "child",
+      "cycles": 2815617844.0,
+      "instructions": 9595331517.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 31993600,
+      "via_root": 6400,
+      "sink": 27216640
+     },
+     "first": "root"
+    },
+    {
+     "child": {
+      "variant": "child",
+      "cycles": 2817593968.0,
+      "instructions": 9595397991.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 31993600,
+      "via_root": 6400,
+      "sink": 27216640
+     },
+     "root": {
+      "variant": "root",
+      "cycles": 3073862462.0,
+      "instructions": 10459534527.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 27216640
+     },
+     "first": "child"
+    },
+    {
+     "root": {
+      "variant": "root",
+      "cycles": 3046029672.0,
+      "instructions": 10459579124.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 27216640
+     },
+     "child": {
+      "variant": "child",
+      "cycles": 2830567632.0,
+      "instructions": 9595447931.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 31993600,
+      "via_root": 6400,
+      "sink": 27216640
+     },
+     "first": "root"
+    },
+    {
+     "child": {
+      "variant": "child",
+      "cycles": 2842147948.0,
+      "instructions": 9595578478.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 31993600,
+      "via_root": 6400,
+      "sink": 27216640
+     },
+     "root": {
+      "variant": "root",
+      "cycles": 3064312693.0,
+      "instructions": 10459717539.0,
+      "calls": 48000080,
+      "tests": 32000000,
+      "via_child": 0,
+      "via_root": 32000000,
+      "sink": 27216640
+     },
+     "first": "child"
+    }
+   ],
+   "min_child_share": 0.9998,
+   "saved_cycles_per_test": {
+    "mean": 7.3337796625,
+    "ci_lower": 7.013186153125,
+    "ci_upper": 7.65500265625,
+    "ci_method": "bca"
+   },
+   "saved_instructions_per_test": {
+    "mean": 27.006197265625,
+    "ci_lower": 27.004932046875002,
+    "ci_upper": 27.009146778125,
+    "ci_method": "bca"
+   },
+   "saved_cycles_per_test_samples": [
+    6.68512565625,
+    7.2098845,
+    7.6249873125,
+    7.8854569375,
+    6.76597984375,
+    7.37023203125,
+    8.111902875,
+    8.0083904375,
+    6.73318875,
+    6.94264828125
+   ],
+   "drop_option_c": false
+  }
+ ]
+}
