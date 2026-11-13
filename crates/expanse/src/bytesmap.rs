@@ -646,7 +646,11 @@ impl ShortKeys {
     }
 
     /// The value of a key of at most 8 bytes.
-    #[inline(always)]
+    ///
+    /// Out of line so that [`ExpanseBytesMap::get`] stays small enough to
+    /// inline into its callers: inlined here, the packing and the trie walk
+    /// made `get` an out-of-line call on the long-key path too (#1681).
+    #[inline(never)]
     fn get(&self, key: &[u8]) -> Option<u64> {
         let (trie, w) = self.route(key);
         trie.get(w)
