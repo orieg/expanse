@@ -265,6 +265,12 @@ BENCH_N_MAP: Dict[str, int] = {
     "bytesmap_fixed8_insert": 50_000,
     "bytesmap_fixed8_get": 100_000,
     "bytesmap_fixed8_remove": 50_000,
+    # `ExpanseShortBytesMap` twins (#1681): the zmap shape as above, and the
+    # `routes` get over the 50k present keys.
+    "short_bytesmap_insert": 50_000,
+    "short_bytesmap_get": 100_000,
+    "short_bytesmap_get/routes": 50_000,
+    "short_bytesmap_remove": 50_000,
     # `short` string keys (#730): one pass over `short_keys` (POP = 50,000),
     # plain and through `SyncExpanseStrMap` on one thread.
     "strmap_get_short": 50_000,
@@ -383,6 +389,11 @@ HARNESS_BENCH_N_MAP: Dict[str, Dict[str, int]] = {
         "judyhs_insert": 30_000,
         "judyhs_get": 60_000,
         "judyhs_del": 30_000,
+        # ~40-byte route keys (#1681): `POP` inserts or deletes; the get arm
+        # probes every present key and `POP` absent ones.
+        "judyhs_long_insert": 30_000,
+        "judyhs_long_get": 60_000,
+        "judyhs_long_del": 30_000,
         # OQGraph's two-bit colour map (#1682): every Judy1 call of one
         # breadth-first search's tape, 12n + 2 for n vertices (8n tests, 3n
         # sets, n unsets, 2 frees; `colour_map_common::census`). The bare name
@@ -458,6 +469,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "judysl_get",
             "judyhs_get",
             "bytesmap_fixed8_get",
+            "judyhs_long_get",
+            "short_bytesmap_get",
             "strmap_get",
             "strmap_transcode_get",
             "ordered_bytesmap_get",
@@ -595,6 +608,10 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "judyhs_del",
             "bytesmap_fixed8_insert",
             "bytesmap_fixed8_remove",
+            "judyhs_long_insert",
+            "judyhs_long_del",
+            "short_bytesmap_insert",
+            "short_bytesmap_remove",
             "map32_insert",
             "strmap_insert",
             "strmap_insert_plain",

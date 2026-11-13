@@ -14,7 +14,7 @@
 //! of an empty array.
 //!
 //! `JudySL*` is backed by `ExpanseStrMap` (a meta-trie of word maps);
-//! `JudyHS*` lands with `ExpanseBytesMap`.
+//! `JudyHS*` lands with `ExpanseShortBytesMap`.
 
 // The entry points below are C ABI exports whose safety contract is the
 // documented Judy C API itself (docs/COMPAT.md); per-call obligations are
@@ -50,8 +50,6 @@ pub mod modern_sync32;
 use expanse_trie::ExpanseMap;
 #[cfg(target_pointer_width = "64")]
 use expanse_trie::ExpanseSet;
-#[cfg(target_pointer_width = "64")]
-use expanse_trie::bytesmap::ExpanseBytesMap;
 #[cfg(target_pointer_width = "64")]
 use expanse_trie::strmap::ExpanseStrMap;
 
@@ -641,6 +639,66 @@ mod oracle {
                 assert!(o_free(&raw mut theirs, null_mut()) > 0);
                 assert!(ours.is_null() && theirs.is_null());
             }
+        }
+    }
+
+    /// Black-box probe (#1681, docs/COMPAT.md D10): does a JudyHS value slot
+    /// stay at one address across unrelated inserts? Each library takes a
+    /// probe key, then 20,000 other keys of the same length class, and the
+    /// probe key's slot address is compared before and after. Prints both
+    /// libraries' answer per class; asserts only that the value survives.
+    #[test]
+    fn judyhs_slot_address_across_unrelated_inserts() {
+        let lib = Lib::open();
+        let o_ins: FHsIns = lib.sym(c"JudyHSIns");
+        let o_get: FHsGet = lib.sym(c"JudyHSGet");
+        let o_free: FFree = lib.sym(c"JudyHSFreeArray");
+        unsafe extern "C" fn our_ins(
+            pp: *mut *mut c_void,
+            k: *const c_void,
+            n: Word,
+            pj: *mut c_void,
+        ) -> *mut c_void {
+            // SAFETY: forwarded unchanged.
+            unsafe { JudyHSIns(pp, k, n, pj.cast()) }
+        }
+        unsafe extern "C" fn our_get(p: *const c_void, k: *const c_void, n: Word) -> *mut c_void {
+            // SAFETY: forwarded unchanged.
+            unsafe { JudyHSGet(p, k, n) }
+        }
+        for (class, len) in [("8-byte", 8usize), ("40-byte", 40)] {
+            let key = |i: u64| -> Vec<u8> {
+                let mut k = vec![0u8; len];
+                k[len - 8..].copy_from_slice(&i.to_be_bytes());
+                k
+            };
+            let mut moved = Vec::new();
+            let libs: [(&str, FHsIns, FHsGet); 2] =
+                [("libexpanse", our_ins, our_get), ("stock", o_ins, o_get)];
+            for (name, ins, get) in libs {
+                let mut arr: *mut c_void = null_mut();
+                let probe = key(u64::MAX / 3);
+                // SAFETY: standard JudyHS usage with live byte strings; the
+                // slot address is compared, and dereferenced only through a
+                // fresh JudyHSGet.
+                unsafe {
+                    let p0 = ins(&raw mut arr, probe.as_ptr().cast(), len as Word, null_mut());
+                    *p0.cast::<Word>() = 0xC0FFEE;
+                    for i in 0..20_000u64 {
+                        let k = key(i.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                        ins(&raw mut arr, k.as_ptr().cast(), len as Word, null_mut());
+                    }
+                    let p1 = get(arr, probe.as_ptr().cast(), len as Word);
+                    assert_eq!(*p1.cast::<Word>(), 0xC0FFEE, "{name} {class}: value lost");
+                    moved.push((name, p0 != p1));
+                    if name == "stock" {
+                        o_free(&raw mut arr, null_mut());
+                    } else {
+                        JudyHSFreeArray(&raw mut arr, null_mut());
+                    }
+                }
+            }
+            println!("JudyHS slot moved across 20,000 unrelated inserts ({class} keys): {moved:?}");
         }
     }
 

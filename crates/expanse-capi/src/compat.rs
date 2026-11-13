@@ -17,8 +17,8 @@
 #[cfg(not(feature = "std"))]
 use crate::core_alloc::boxed::Box;
 use crate::{
-    ExpanseBytesMap, ExpanseMap, ExpanseSet, ExpanseStrMap, JError, JU_ERRNO_NONE,
-    JU_ERRNO_NULLPINDEX, JU_ERRNO_NULLPPARRAY, Word,
+    ExpanseMap, ExpanseSet, ExpanseStrMap, JError, JU_ERRNO_NONE, JU_ERRNO_NULLPINDEX,
+    JU_ERRNO_NULLPPARRAY, Word,
 };
 use core::ffi::{c_int, c_void};
 use core::ptr::{NonNull, null_mut};
@@ -900,16 +900,20 @@ pub unsafe extern "C" fn JudySLFreeArray(pparray: *mut *mut c_void, pj: *mut JEr
 }
 
 // ---------------------------------------------------------------------
-// JudyHS (byte-string → word hash map) — backed by ExpanseBytesMap
+// JudyHS (byte-string → word map) — backed by ExpanseShortBytesMap: keys of
+// at most 8 bytes in ordered tries, longer keys hashed (#1681)
 // ---------------------------------------------------------------------
 
-unsafe fn bytesmap_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut ExpanseBytesMap {
+/// The map behind a JudyHS array word.
+type HsMap = expanse_trie::short_bytesmap::ExpanseShortBytesMap;
+
+unsafe fn bytesmap_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut HsMap {
     // SAFETY: per set_handle_mut's contract, for byte-string maps.
     unsafe {
         if (*pparray).is_null() {
-            *pparray = Box::into_raw(Box::new(ExpanseBytesMap::new())).cast();
+            *pparray = Box::into_raw(Box::new(HsMap::new())).cast();
         }
-        &mut *(*pparray).cast::<ExpanseBytesMap>()
+        &mut *(*pparray).cast::<HsMap>()
     }
 }
 
@@ -959,7 +963,7 @@ pub unsafe extern "C" fn JudyHSGet(
     // SAFETY: forwarded C contract (the C surface hands out writable
     // slots even from Pcvoid_t entry points, without mutating map state).
     unsafe {
-        let Some(map) = parray.cast::<ExpanseBytesMap>().as_ref() else {
+        let Some(map) = parray.cast::<HsMap>().as_ref() else {
             return null_mut();
         };
         let Some(key) = hs_key(index, length) else {
@@ -992,10 +996,10 @@ pub unsafe extern "C" fn JudyHSDel(
         if (*pparray).is_null() {
             return 0;
         }
-        let map = &mut *(*pparray).cast::<ExpanseBytesMap>();
+        let map = &mut *(*pparray).cast::<HsMap>();
         let removed = map.remove(key).is_some();
         if removed && map.is_empty() {
-            drop(Box::from_raw((*pparray).cast::<ExpanseBytesMap>()));
+            drop(Box::from_raw((*pparray).cast::<HsMap>()));
             *pparray = null_mut();
         }
         c_int::from(removed)
@@ -1008,8 +1012,8 @@ pub unsafe extern "C" fn JudyHSDel(
 pub unsafe extern "C" fn JudyHSFreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
     // SAFETY: forwarded C contract.
     unsafe {
-        free_array(pparray, pj, |boxed: Box<ExpanseBytesMap>| {
-            (boxed.mem_used() + size_of::<ExpanseBytesMap>()) as Word
+        free_array(pparray, pj, |boxed: Box<HsMap>| {
+            (boxed.mem_used() + size_of::<HsMap>()) as Word
         })
     }
 }
