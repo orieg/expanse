@@ -126,6 +126,7 @@ chunk-geometry fields) is `CorruptedHeader`, a different error.
 
 - **`Judy1MemUsed`/`JudyLMemUsed` byte equality.** Internal geometry differs (64-byte-line nodes, different allocator). Guarantee: same order of magnitude and monotonic behavior — not the same number. Documented in `Judy(3)` (`man/man3/Judy.3`, *Memory Accounting*); the shipped `Judy.h` declares the two functions without comment.
 - **Cycle parity on every call pattern.** On a small Judy1 key range (MariaDB OQGraph's colour map) libexpanse retires fewer instructions per call than stock and still takes more cycles, from branch mispredicts and front-end stalls; the mechanism, the measured numbers and why an instruction-neutral fix is not in hand are in `docs/ARCHITECTURE.md` §3.2, *Known cost* (#1682).
+- **Peak-memory parity for JudyHS on every key shape.** With zmap's 1,000,000-entry dedup window full of responders spread over the address space, libexpanse's zmap holds about 10 MB (10.3–10.4%) more peak RSS than stock, and about 13 MB through eviction; on a dense key set it holds slightly less. The measurements, and why neither an allocator change nor an automatic reclaim is shipped, are in `docs/ARCHITECTURE.md` §3.7, *Known cost* (#1681).
 
 ### What `Judy1MemUsed` / `JudyLMemUsed` count, and the small-array floor
 
