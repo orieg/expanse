@@ -348,8 +348,9 @@ assert round(icc1([[9, 2, 5, 8], [6, 1, 3, 2], [8, 4, 6, 8], [7, 1, 2, 6], [10, 
 
 def pf_reading(prefixes):
     """Spread on repetition 0 and on repetitions 1-3, persistence (ICC over
-    repetitions 1-3), frames, and the prefetch-counter association."""
-    per = {}
+    repetitions 1-3), frames, and the prefetch-counter association. Returns
+    the reported cycle intervals, recorded in the per-repetition artifact."""
+    per, reported = {}, []
     for n, prefix in enumerate(prefixes, 1):
         recs = [json.loads(ln) for ln in open(f"{prefix}.jsonl")]
         for shape in sorted({r["cell"] for r in recs}):
@@ -374,6 +375,8 @@ def pf_reading(prefixes):
                     cpus=[q["cpu"] for r in xs for q in r["reps"]],
                     pf={e: [math.fsum(q["counters"][e] for q in r["reps"][1:]) / ((len(r["reps"]) - 1) * ops)
                             for r in xs] for e in PF_EVENTS},
+                    cyc=[[q["counters"]["cycles"] / ops for q in r["reps"]] for r in xs],
+                    h0=[r["reps"][0]["counters"]["l1d.hwpf_miss"] / ops for r in xs],
                     miss_all=[x for m in miss for x in m],
                     cpu_all=[q["cpu"][0] for r in xs for q in r["reps"]])
                 v = per[(shape, arm, n)]
@@ -385,6 +388,29 @@ def pf_reading(prefixes):
                       f"{sum(a != b for a, b in v['cpus'])}")
     for shape in sorted({k[0] for k in per}):
         print(f"  {shape}:")
+        # Reported, not read: cycles per operation on repetition 0 and on
+        # repetitions 1-3, and N/S on each (BCa 95% over process means).
+        for n in (1, 2):
+            for lab, sel in (("rep 0", lambda r: r[:1]), ("reps 1-3", lambda r: r[1:])):
+                cyc = {a: [math.fsum(sel(c)) / len(sel(c)) for c in per[(shape, a, n)]["cyc"]] for a in ("N", "S")}
+                ratio, lo, hi, how = bca_bootstrap_ratio_ci_with_method(cyc["N"], cyc["S"], num_resamples=2000, seed=42)
+                reported.append({"workload_id": f"phase_{shape}", "run": n, "repetitions": lab,
+                                 "metric": "cycles", "pair": "N/S", "ratio": ratio,
+                                 "ci_lower": lo, "ci_upper": hi, "ci_method": how})
+                print(f"    reported, run {n}, cycles/op {lab}: N {min(cyc['N']):.1f}-{max(cyc['N']):.1f}, "
+                      f"S {min(cyc['S']):.1f}-{max(cyc['S']):.1f}; N/S {ratio:.4f} [{lo:.4f}, {hi:.4f}] ({how})")
+            v = per[(shape, "N", n)]
+            print(f"    reported, run {n}, N rep 0: rho(L1D-miss/op, cycles/op) "
+                  f"{spearman(v['r0'], [c[0] for c in v['cyc']])}")
+        # Observed, outside the pre-registration (README.md, "The 4 Mi phases
+        # repeated in one process"): l1d.hwpf_miss against L1D-miss loads on
+        # repetition 0, where rules 2-4 do not look.
+        for n in (1, 2):
+            for arm in ("N", "S"):
+                v = per[(shape, arm, n)]
+                print(f"    observed, run {n} {arm} rep 0: l1d.hwpf_miss/op {min(v['h0']):.3f}-{max(v['h0']):.3f}, "
+                      f"zero in {sum(x == 0 for x in v['h0'])} processes; rho with L1D-miss/op "
+                      f"{spearman(v['h0'], v['r0'])}")
         rng = lambda xs: max(xs) - min(xs)
         sp0 = [rng(per[(shape, "N", n)]["r0"]) > 2 * rng(per[(shape, "S", n)]["r0"]) for n in (1, 2)]
         spl = [rng([x for m in per[(shape, "N", n)]["later"] for x in m])
@@ -425,6 +451,7 @@ def pf_reading(prefixes):
                 by[c].append(x)
             print(f"    reported, run {n}, N L1D-miss/op by CPU: " + "; ".join(
                 f"cpu {c}: n={len(xs)} {min(xs):.2f}-{max(xs):.2f}" for c, xs in sorted(by.items())))
+    return reported
 
 
 def layout_reading(prefixes):
@@ -500,7 +527,29 @@ def main():
         return
     if arts[0]["provenance"].get("phase_set") == "big_pf":
         print("\nreading rule (README.md), per process and repetition:")
-        pf_reading(prefixes)
+        reported = pf_reading(prefixes)
+        # The per-repetition records the reading uses: counters, the CPU
+        # before and after the phase, and the frame counts (no frame numbers).
+        reps = []
+        for n, prefix in enumerate(prefixes, 1):
+            for ln in open(f"{prefix}.jsonl"):
+                r = json.loads(ln)
+                reps.append({"run": n, "round": r["round"], "shape": r["cell"], "arm": r["arm"],
+                             "ops_per_rep": r["ops"] // len(r["reps"]), "reps": r["reps"], "frames": r["frames"]})
+        p0 = arts[0]["provenance"]
+        dest = RESULTS / f"diagnostic_big_pf_{host}_reps.json"
+        dest.write_text(json.dumps({"provenance": {
+            "diagnostic": "the 4 Mi phases repeated in one process; per-repetition records",
+            "harness": p0["commit"], "host": p0["host"],
+            "loads": [ld for a in arts for ld in a["provenance"]["loads"]],
+            "estimators": {"ratio": "none: no ratio is published from this file",
+                           "columns": "Per repetition: the probe's self-counted user-mode cpu_core counters, the CPU "
+                                      "before and after the phase, time enabled and running (cumulative over the "
+                                      "process), and per repetition the [heap] present pages, pages whose frame reads "
+                                      "0 and pages on the previous repetition's frame. No frame numbers."},
+            "runs": [a["provenance"]["run"] for a in arts]}, "reported_cycles": reported,
+            "processes": reps}, indent=0) + "\n")
+        print(f"per-repetition records -> {shown(dest)}")
         return
     if arts[0]["provenance"].get("phase_set") == "big_pfn":
         print("\nreading rule (README.md), per process:")

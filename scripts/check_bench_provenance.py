@@ -386,6 +386,11 @@ NO_ROUNDS = {
     # ratio, so there are no rounds to summarise. The rounds of the same
     # processes are in diagnostic_big_pfn_ref_run{1,2}.json.
     "stressng_comparison/results/diagnostic_big_pfn_ref_aggregates.json",
+    # Per-repetition records of the 4 Mi phases repeated in one process:
+    # counters, CPUs and frame counts per repetition, no interval and no
+    # ratio. The rounds of the same processes are in
+    # diagnostic_big_pf_ref_run{1,2}.json.
+    "stressng_comparison/results/diagnostic_big_pf_ref_reps.json",
 }
 
 # The comparative suites this gate governs: the ones whose runners drive an

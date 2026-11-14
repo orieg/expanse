@@ -1602,6 +1602,52 @@ Its cause is unidentified. What these instruments leave out includes the last-le
 
 **Expected** (projected): none predicted. If the state varies on unchanged frames, it was set by something that changes between repetitions within a process, and these instruments do not name it. That outcome is then reported as unexplained, not credited to prefetching or replacement.
 
+### Repeated-phase result (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `3b42b7bac`, N main `c386578f8` (sha256 `9b42a88b…`), S `76f121a8…`; artifacts `results/diagnostic_big_pf_ref_run{1,2}.json` (process totals) and `results/diagnostic_big_pf_ref_reps.json` (per-repetition counters, CPUs and frame counts, no frame numbers)) (workloads: phase_judy_4m, phase_del_4m)
+
+**Hygiene.** Run 1 ran 20:20:24–20:22:01 UTC and run 2 20:22:01–20:23:37, each under the bench lock. Each run had 96 processes, none discarded, with max load1 0.82 and 0.97 against a void limit of 12. Two earlier launches stopped before producing a result (the amendments above). The preflight cross-check passed: one `judy_4m` repetition retired 2,706,234,373 instructions self-counted and 2,706,048,915 under `perf stat`. Within a process, the instructions per operation on repetition 0 and on repetitions 1–3 differ by 0.52% for N on `judy_4m` (645.22 against 648.60) and by at most 0.48% elsewhere. The 0.5% check is reported, not gated, and N's insert repetitions exceed it.
+
+**Rule 1, spread.**
+- **`judy_4m`: confined to the first repetition.** On repetition 0, N's L1D-miss loads per insert span 2.46–5.22 and 2.49–5.22, as in every earlier diagnostic. On repetitions 1–3 they span 2.49–4.02 in run 1, one repetition above 2.7, and 2.49–2.63 in run 2. Run 2 does not carry the spread (S 1.76–1.95), so rules 2–4 are not read on this shape. N's mean is 4.10 and 4.00 per insert on repetition 0, against 2.57 and 2.55 on repetitions 1–3. S's is 2.47 and 2.39, against 1.87 and 1.86.
+- **`del_4m`: carried, but narrow.** N spans 3.25–3.49 per delete on repetitions 1–3, against S's 2.24–2.29. Even repetition 0 reaches only 4.57 here (3.28–4.57). The high state of the earlier runs, 5.07–5.83 per delete, did not occur in either run.
+
+**Rule 2, persistence (`del_4m`): varies.** N's ICC(1) over repetitions 1–3 is 0.046 and 0.012.
+
+**Rule 3, frames and so the slice hash: no reading.** On `del_4m`, each of repetitions 2 and 3 in every N process keeps 92.6% of its pages on the previous repetition's frames (S 99.7%), between the two thresholds. On `judy_4m`, N keeps 92.4% (S 99.7%). The slice hash is **not ruled out and not identified** on either shape.
+
+**Rule 4, prefetch counters (`del_4m`).** `l1d.hwpf_miss` per delete is **associated** with L1D-miss loads, at ρ −0.915 and −0.922; S's ρ is 0.44 and 0.34. `mem_load_retired.fb_hit` (ρ 0.25 and 0.10) and `l1d.replacement` (−0.51 and −0.41) are not associated. N's L1D-miss range behind these figures is the narrow one above.
+
+**Observed outside the pre-registration: the first insert pass.** Rules 2–4 do not look at repetition 0. There, `l1d.hwpf_miss` per insert and L1D-miss loads per insert move together almost exactly, and N's highest-miss processes read the event as zero. `perf list` names the event `L1D.HWPF_MISS` and carries no description of it, so it is reported by name.
+
+| Run | Arm | `l1d.hwpf_miss` per insert, repetition 0 | processes reading 0 | ρ with L1D-miss loads per insert |
+|---|---|---|---|---|
+| 1 | N | 0.000–4.012 | 6 | −0.990 |
+| 1 | S | 1.135–2.982 | 0 | −0.993 |
+| 2 | N | 0.000–3.986 | 5 | −0.988 |
+| 2 | S | 1.201–3.141 | 0 | −0.992 |
+
+- Every N process that read 0 sits at 5.20–5.22 L1D-miss loads per insert. That is the high state of every earlier diagnostic, and near the 5.3156 the cache simulator gives with no prefetcher ([the simulated-cache result](#simulated-cache-result)). This is an association between two measurements, not an identity.
+- On repetitions 1–3, no repetition reads 0. N's per-process mean of `l1d.hwpf_miss` is 3.23–4.02 per insert in run 1 and 3.94–4.02 in run 2. The one run-1 repetition at 4.02 L1D misses per insert has that run's lowest count, 1.72.
+- The 18:20 launch's preflight saw the same thing. Its two `judy_4m` cross-check processes, one self-counted and one under `perf stat`, both read 0 on the event, at 21.8 M and 21.9 M L1D misses (5.2 per insert).
+
+**Cycles per operation**, reported, BCa 95% over process means:
+
+| Shape | Run | N/S, repetition 0 | N/S, repetitions 1–3 |
+|---|---|---|---|
+| `judy_4m` | 1 | 1.0150 [0.9994, 1.0295] | 1.0101 [1.0087, 1.0129] |
+| `judy_4m` | 2 | 1.0153 [0.9995, 1.0304] | 1.0071 [1.0051, 1.0082] |
+| `del_4m` | 1 | 1.0173 [1.0131, 1.0230] | 1.0191 [1.0178, 1.0201] |
+| `del_4m` | 2 | 1.0172 [1.0134, 1.0223] | 1.0183 [1.0167, 1.0196] |
+
+On repetition 0, N's L1D-miss loads and cycles per insert correlate at ρ 0.979 and 0.937.
+
+**Where this leaves the 4 Mi gap.**
+- **Slice hash:** not ruled out and not identified. The frame measure fell between the pre-registered thresholds on deletes, and the insert shape was not read.
+- **Prefetching:** associated. On deletes this is the pre-registered association. On the first insert pass the observed association is stronger: in N's high-miss processes the `L1D.HWPF_MISS` count is zero. It is not established as the cause, because switching the prefetchers off to test it is a host configuration change outside the owner's terms. Why the count is zero in some processes' first pass and not in others is not measured.
+- **Replacement state:** not tested; no counter observes it.
+- **What remains without the state.** On repetitions 1–3, every N insert process is in the low-miss state, yet N still takes 1.007–1.010× S's cycles per insert. Deletes take 1.018–1.019×, with every interval above 1. That remainder is not explained by the per-process state, and its cause is unidentified.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
