@@ -213,7 +213,11 @@ def self_phase(shape, repeats, arm, base):
     for r in reps:
         if r["running"] != r["enabled"] or r["enabled"] == 0:
             sys.exit(f"STOP: {shape} rep {r['rep']} on arm {arm} was multiplexed or never ran: {r}")
-        if any(len(r["counters"]) != len(events) or v <= 0 for v in r["counters"].values()):
+        # A prefetch event may read 0 on a shape (l1d.hwpf_miss does on
+        # judy_4m, under perf stat as well); the preflight checks that the
+        # probe's zeros are perf stat's. The state's own counters may not.
+        if len(r["counters"]) != len(events) or any(
+                r["counters"][e] <= 0 for e in ("cycles", "instructions", "mem_load_retired.l1_miss")):
             sys.exit(f"STOP: {shape} rep {r['rep']} on arm {arm} has a zero counter: {r}")
     for x in frames:
         if x["pages"] == 0 or x["zero"] != 0:
@@ -286,7 +290,11 @@ def preflight(outdir):
         a, b = viaperf["instructions"][0], own["instructions"]
         if abs(a / b - 1) > 0.005:
             sys.exit(f"STOP: self-counted instructions {b:.0f} vs perf stat {a:.0f} on judy_4m")
-        report["selfcount_crosscheck"] = {"perf_instructions": a, "self_instructions": b}
+        for e in GROUPS["pf"]:
+            if (viaperf[e][0] == 0) != (own[e] == 0):
+                sys.exit(f"STOP: {e} reads {own[e]:.0f} self-counted and {viaperf[e][0]:.0f} under perf stat")
+        report["selfcount_crosscheck"] = {"perf": {e: viaperf[e][0] for e in FIXED + GROUPS["pf"]},
+                                          "self": {e: own[e] for e in FIXED + GROUPS["pf"]}}
     return report
 
 
