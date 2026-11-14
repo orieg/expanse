@@ -1,0 +1,2610 @@
+{
+ "issue": 1681,
+ "question": "instruction cost of an automatic reclaim (shrink_to_fit on the JudyHS shim's two short-key tries every 65,536 JudyHSIns calls) under the owner's terms: every Callgrind arm within +0.1% of main with no allow-regression",
+ "base": "59119d217 (main)",
+ "instrument": "replica of the CI Callgrind jobs: rust:1.100-trixie (rustc 1.100.0), Debian valgrind 3.24.0, iai-callgrind-runner 0.16.1, workspace bench profile (panic = unwind), EXPANSE_CDYLIB = that tree's release libexpanse.so; x86_64 (2x Xeon E5-2697 v4). Callgrind counts are deterministic; host load does not enter them",
+ "variants": {
+  "a": "process-wide AtomicU64 fetch_add in JudyHSIns; every 65,536th call sweeps both short-key tries before ins_slot",
+  "a2": "u32 countdown in the boxed ShortKeys, decremented by a shim-only ins_slot_reclaiming; at zero it resets and sweeps",
+  "b": "not built: no trigger without per-insert work was found outside alloc_raw_body!, whose edits measured negative in #1675, #1670 and #1095"
+ },
+ "patches": {
+  "a": "diff -ru base/crates/expanse/src/short_bytesmap.rs va/crates/expanse/src/short_bytesmap.rs\n--- base/crates/expanse/src/short_bytesmap.rs\t2026-11-13 08:33:20.000000000 -0800\n+++ va/crates/expanse/src/short_bytesmap.rs\t2026-11-13 10:45:15.948471756 -0800\n@@ -258,6 +258,15 @@\n     /// and returns a **writable pointer to its value slot**: the compat\n     /// `JudyHSIns` contract. Valid until the next insert or remove of any key\n     /// in the map.\n+    /// #1681 private measurement build only (never published).\n+    #[doc(hidden)]\n+    pub fn private_shrink_short(&mut self) -> usize {\n+        match self.short.as_mut() {\n+            Some(s) => s.full.shrink_to_fit() + s.part.shrink_to_fit(),\n+            None => 0,\n+        }\n+    }\n+\n     pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {\n         if key.len() <= 8 {\n             let (trie, w) = self.short_mut().route_mut(key);\ndiff -ru base/crates/expanse-capi/src/compat.rs va/crates/expanse-capi/src/compat.rs\n--- base/crates/expanse-capi/src/compat.rs\t2026-11-13 08:33:20.000000000 -0800\n+++ va/crates/expanse-capi/src/compat.rs\t2026-11-13 10:45:15.948471756 -0800\n@@ -949,7 +949,13 @@\n             set_err(pj, JU_ERRNO_NULLPINDEX);\n             return PJERR;\n         };\n-        bytesmap_handle_mut(pparray).ins_slot(key).as_ptr().cast()\n+        let map = bytesmap_handle_mut(pparray);\n+        // #1681 private reclaim build: every 65,536th insert call.\n+        static HS_INS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);\n+        if HS_INS.fetch_add(1, core::sync::atomic::Ordering::Relaxed) % 65_536 == 65_535 {\n+            map.private_shrink_short();\n+        }\n+        map.ins_slot(key).as_ptr().cast()\n     }\n }\n \n",
+  "a2": "diff -ru base/crates/expanse/src/short_bytesmap.rs va2/crates/expanse/src/short_bytesmap.rs\n--- base/crates/expanse/src/short_bytesmap.rs\t2026-11-13 08:33:20.000000000 -0800\n+++ va2/crates/expanse/src/short_bytesmap.rs\t2026-11-13 10:45:15.948471756 -0800\n@@ -61,6 +61,8 @@\n     /// 0- to 7-byte keys: the bytes big-endian in the high bytes of the word,\n     /// zeros below them, and the length in the low byte.\n     part: ExpanseMap,\n+    /// #1681 private measurement build: inserts left before the next sweep.\n+    countdown: u32,\n }\n \n impl ShortKeys {\n@@ -68,6 +70,7 @@\n         Self {\n             full: ExpanseMap::new(),\n             part: ExpanseMap::new(),\n+            countdown: 65_536,\n         }\n     }\n \n@@ -258,6 +261,24 @@\n     /// and returns a **writable pointer to its value slot**: the compat\n     /// `JudyHSIns` contract. Valid until the next insert or remove of any key\n     /// in the map.\n+    /// #1681 private measurement build only (never published): `ins_slot`\n+    /// that returns free slab pages every 65,536 short-key inserts.\n+    #[doc(hidden)]\n+    pub fn ins_slot_reclaiming(&mut self, key: &[u8]) -> NonNull<u64> {\n+        if key.len() <= 8 {\n+            let s = self.short_mut();\n+            s.countdown -= 1;\n+            if s.countdown == 0 {\n+                s.countdown = 65_536;\n+                s.full.shrink_to_fit();\n+                s.part.shrink_to_fit();\n+            }\n+            let (trie, w) = s.route_mut(key);\n+            return trie.ins_slot_plain(w);\n+        }\n+        self.hashed.ins_slot(key)\n+    }\n+\n     pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {\n         if key.len() <= 8 {\n             let (trie, w) = self.short_mut().route_mut(key);\ndiff -ru base/crates/expanse-capi/src/compat.rs va2/crates/expanse-capi/src/compat.rs\n--- base/crates/expanse-capi/src/compat.rs\t2026-11-13 08:33:20.000000000 -0800\n+++ va2/crates/expanse-capi/src/compat.rs\t2026-11-13 10:45:15.952471829 -0800\n@@ -949,7 +949,7 @@\n             set_err(pj, JU_ERRNO_NULLPINDEX);\n             return PJERR;\n         };\n-        bytesmap_handle_mut(pparray).ins_slot(key).as_ptr().cast()\n+        bytesmap_handle_mut(pparray).ins_slot_reclaiming(key).as_ptr().cast()\n     }\n }\n \n"
+ },
+ "preregistered_prediction_ir_per_judyhsins": {
+  "a": "4-5 (+0.48 to +0.60% on judyhs_insert_expanse*)",
+  "a2": "2-4 (+0.24 to +0.48%)"
+ },
+ "sequencing": "x86 first; AArch64 smoke and wasm fuel only for a shape that passes x86; neither shape passed, so they were not run",
+ "verdict": {
+  "a": "FAIL",
+  "a2": "FAIL"
+ },
+ "arms_above_0_1_pct": {
+  "a": [
+   {
+    "suite": "vs_stock",
+    "arm": "vs_stock::vs_stock::judyhs_insert_expanse fixed8:hs_feed_expanse(\"fixed8\")",
+    "base": 24591567,
+    "variant": 24741566,
+    "pct": 0.61,
+    "base_rerun_pct": 0.0
+   },
+   {
+    "suite": "vs_stock",
+    "arm": "vs_stock::vs_stock::judyhs_insert_expanse_dl fixed8:hs_feed_expanse_dl(\"fixed8\")",
+    "base": 24492900,
+    "variant": 24612972,
+    "pct": 0.49,
+    "base_rerun_pct": 0.0
+   },
+   {
+    "suite": "vs_stock",
+    "arm": "vs_stock::vs_stock::judyhs_long_del_expanse_dl routes:build_hs_long_del_expanse_dl(\"routes\")",
+    "base": 50024720,
+    "variant": 50098585,
+    "pct": 0.148,
+    "base_rerun_pct": 0.28
+   },
+   {
+    "suite": "vs_stock",
+    "arm": "vs_stock::vs_stock::judyhs_long_insert_expanse routes:hs_long_feed_expanse(\"routes\")",
+    "base": 46997637,
+    "variant": 47124374,
+    "pct": 0.27,
+    "base_rerun_pct": -0.07
+   },
+   {
+    "suite": "vs_stock",
+    "arm": "vs_stock::vs_stock::judyhs_long_insert_expanse_dl routes:hs_long_feed_expanse_dl(\"routes\")",
+    "base": 47818301,
+    "variant": 47952496,
+    "pct": 0.281,
+    "base_rerun_pct": 0.021
+   }
+  ],
+  "a2": [
+   {
+    "suite": "vs_stock",
+    "arm": "vs_stock::vs_stock::judyhs_insert_expanse fixed8:hs_feed_expanse(\"fixed8\")",
+    "base": 24591567,
+    "variant": 24651580,
+    "pct": 0.244,
+    "base_rerun_pct": 0.0
+   }
+  ]
+ },
+ "run_dependent_arms": "judyhs_long_*_expanse* hash with a per-process RandomState; their base_rerun column is base's own spread",
+ "sweeps_in_ci_arms": "0: every judyhs_* arm inserts POP = 30,000 < 65,536 and runs in a fresh process; no other arm calls JudyHSIns",
+ "sweep_cost": {
+  "instrument": "callgrind --toggle-collect on an #[inline(never)] wrapper around ExpanseMap::shrink_to_fit, census key stream (mix32 addresses, seed 4242, 4 ports, 1,000,000-entry window), at 59119d217",
+  "driver": "//! #1681 sweep cost (not committed): census m1/m3 key stream on the 8-byte trie.\n//! mode one1m: one sweep at 1,000,000 held. mode one_m3: one sweep at the end of\n//! 4,194,304 inserts through the 1M window. mode periodic_s1 / periodic_s3: a sweep\n//! every 65,536 inserts. Callgrind toggles on `sweep`.\nuse expanse_trie::map::ExpanseMap;\nfn mix32(mut x: u32) -> u32 { x ^= x >> 16; x = x.wrapping_mul(0x7feb352d); x ^= x >> 15; x = x.wrapping_mul(0x846ca68b); x ^= x >> 16; x }\n#[inline(never)]\nfn sweep(m: &mut ExpanseMap) -> usize { std::hint::black_box(m.shrink_to_fit()) }\nfn main() {\n    let mode = std::env::args().nth(1).unwrap();\n    let n: usize = match mode.as_str() { \"one1m\" | \"periodic_s1\" => 1 << 20, _ => 1 << 22 };\n    let window = 1_000_000usize; let seed: u32 = 4242; let ports = [80u16, 443, 8080, 8443];\n    let w: Vec<u64> = (0..n).map(|i| { let mut k = [0u8; 8];\n        k[..4].copy_from_slice(&mix32((i as u32).wrapping_add(seed.wrapping_mul(0x9e3779b9))).to_be_bytes());\n        k[4..6].copy_from_slice(&ports[i & 3].to_be_bytes()); u64::from_be_bytes(k) }).collect();\n    let periodic = mode.starts_with(\"periodic\");\n    let mut m = ExpanseMap::new(); let mut sweeps = 0usize; let mut released = 0usize;\n    for i in 0..n {\n        if i >= window { assert!(m.remove(w[i - window]).is_some()); }\n        if periodic && i % 65_536 == 65_535 { released += sweep(&mut m); sweeps += 1; }\n        m.insert(w[i], i as u64 + 1);\n        if mode == \"one1m\" && i + 1 == window {\n            let pages: usize = m.alloc_census().slab.iter().map(|s| s.pages).sum();\n            let r = sweep(&mut m); println!(\"one1m pages_before={pages} released={r}\"); return;\n        }\n    }\n    if mode == \"one_m3\" {\n        let pages: usize = m.alloc_census().slab.iter().map(|s| s.pages).sum();\n        let r = sweep(&mut m); println!(\"one_m3 pages_before={pages} released={r}\"); return;\n    }\n    let pages: usize = m.alloc_census().slab.iter().map(|s| s.pages).sum();\n    println!(\"{mode} sweeps={sweeps} released_total={released} pages_end={pages} held={}\", m.len());\n}",
+  "modes": {
+   "one1m": {
+    "pages_before": 3189,
+    "released": 3158016,
+    "ir_collected": 27092466
+   },
+   "one_m3": {
+    "pages_before": 3194,
+    "released": 2977792,
+    "ir_collected": 26956541
+   },
+   "periodic_s1": {
+    "sweeps": 16,
+    "released_total": 3215360,
+    "pages_end": 2413,
+    "held": 1000000,
+    "ir_collected": 156017752,
+    "inserts": 1048576,
+    "ir_per_sweep": 9751110,
+    "ir_per_insert": 148.8
+   },
+   "periodic_s3": {
+    "sweeps": 64,
+    "released_total": 4145152,
+    "pages_end": 2271,
+    "held": 1000000,
+    "ir_collected": 630559743,
+    "inserts": 4194304,
+    "ir_per_sweep": 9852496,
+    "ir_per_insert": 150.3
+   }
+  }
+ },
+ "arms": {
+  "vs_stock": {
+   "vs_stock::vs_stock::judy1_colour_expanse n100k:colour_expanse(\"n100k\")": {
+    "base": 254732891,
+    "base_rerun": 254732891,
+    "a": 254732891,
+    "a2": 254732891
+   },
+   "vs_stock::vs_stock::judy1_colour_expanse n10k:colour_expanse(\"n10k\")": {
+    "base": 22321778,
+    "base_rerun": 22321778,
+    "a": 22321778,
+    "a2": 22321778
+   },
+   "vs_stock::vs_stock::judy1_colour_expanse_dl n100k:colour_expanse_dl(\"n100k\")": {
+    "base": 253317975,
+    "base_rerun": 253317975,
+    "a": 253317975,
+    "a2": 253317975
+   },
+   "vs_stock::vs_stock::judy1_colour_expanse_dl n10k:colour_expanse_dl(\"n10k\")": {
+    "base": 22042380,
+    "base_rerun": 22042380,
+    "a": 22042380,
+    "a2": 22042380
+   },
+   "vs_stock::vs_stock::judy1_colour_stock n100k:colour_stock(\"n100k\")": {
+    "base": 254165356,
+    "base_rerun": 254165356,
+    "a": 254165356,
+    "a2": 254165356
+   },
+   "vs_stock::vs_stock::judy1_colour_stock n10k:colour_stock(\"n10k\")": {
+    "base": 20135231,
+    "base_rerun": 20135231,
+    "a": 20135231,
+    "a2": 20135231
+   },
+   "vs_stock::vs_stock::judy1_set_expanse clustered:feed_expanse(\"clustered\")": {
+    "base": 6919867,
+    "base_rerun": 6919867,
+    "a": 6919867,
+    "a2": 6919867
+   },
+   "vs_stock::vs_stock::judy1_set_expanse random:feed_expanse(\"random\")": {
+    "base": 14258223,
+    "base_rerun": 14258223,
+    "a": 14258223,
+    "a2": 14258223
+   },
+   "vs_stock::vs_stock::judy1_set_expanse_dl clustered:feed_expanse_dl(\"clustered\")": {
+    "base": 6606025,
+    "base_rerun": 6606025,
+    "a": 6606025,
+    "a2": 6606025
+   },
+   "vs_stock::vs_stock::judy1_set_expanse_dl random:feed_expanse_dl(\"random\")": {
+    "base": 14000607,
+    "base_rerun": 14000607,
+    "a": 14000607,
+    "a2": 14000607
+   },
+   "vs_stock::vs_stock::judy1_set_stock clustered:feed_stock(\"clustered\")": {
+    "base": 10334927,
+    "base_rerun": 10334927,
+    "a": 10334927,
+    "a2": 10334927
+   },
+   "vs_stock::vs_stock::judy1_set_stock random:feed_stock(\"random\")": {
+    "base": 15495938,
+    "base_rerun": 15495938,
+    "a": 15495938,
+    "a2": 15495938
+   },
+   "vs_stock::vs_stock::judy1_test_expanse random:build_set_expanse(\"random\")": {
+    "base": 3824788,
+    "base_rerun": 3824788,
+    "a": 3824788,
+    "a2": 3824788
+   },
+   "vs_stock::vs_stock::judy1_test_expanse_dl random:build_set_expanse_dl(\"random\")": {
+    "base": 3824791,
+    "base_rerun": 3824791,
+    "a": 3824791,
+    "a2": 3824791
+   },
+   "vs_stock::vs_stock::judy1_test_stock random:build_set_stock(\"random\")": {
+    "base": 3826863,
+    "base_rerun": 3826863,
+    "a": 3826863,
+    "a2": 3826863
+   },
+   "vs_stock::vs_stock::judyhs_del_expanse fixed8:build_hs_del_expanse(\"fixed8\")": {
+    "base": 19630958,
+    "base_rerun": 19630958,
+    "a": 19630958,
+    "a2": 19630958
+   },
+   "vs_stock::vs_stock::judyhs_del_expanse_dl fixed8:build_hs_del_expanse_dl(\"fixed8\")": {
+    "base": 20526225,
+    "base_rerun": 20526225,
+    "a": 20526225,
+    "a2": 20526225
+   },
+   "vs_stock::vs_stock::judyhs_del_stock fixed8:build_hs_del_stock(\"fixed8\")": {
+    "base": 42156170,
+    "base_rerun": 42156170,
+    "a": 42156170,
+    "a2": 42156170
+   },
+   "vs_stock::vs_stock::judyhs_get_expanse fixed8:build_hs_get_expanse(\"fixed8\")": {
+    "base": 13044605,
+    "base_rerun": 13044605,
+    "a": 13044605,
+    "a2": 13044605
+   },
+   "vs_stock::vs_stock::judyhs_get_expanse_dl fixed8:build_hs_get_expanse_dl(\"fixed8\")": {
+    "base": 12864609,
+    "base_rerun": 12864609,
+    "a": 12864609,
+    "a2": 12864609
+   },
+   "vs_stock::vs_stock::judyhs_get_stock fixed8:build_hs_get_stock(\"fixed8\")": {
+    "base": 22042218,
+    "base_rerun": 22042218,
+    "a": 22042218,
+    "a2": 22042218
+   },
+   "vs_stock::vs_stock::judyhs_insert_expanse fixed8:hs_feed_expanse(\"fixed8\")": {
+    "base": 24591567,
+    "base_rerun": 24591567,
+    "a": 24741566,
+    "a2": 24651580
+   },
+   "vs_stock::vs_stock::judyhs_insert_expanse_dl fixed8:hs_feed_expanse_dl(\"fixed8\")": {
+    "base": 24492900,
+    "base_rerun": 24492900,
+    "a": 24612972,
+    "a2": 24492894
+   },
+   "vs_stock::vs_stock::judyhs_insert_stock fixed8:hs_feed_stock(\"fixed8\")": {
+    "base": 25976384,
+    "base_rerun": 25976384,
+    "a": 25976384,
+    "a2": 25976384
+   },
+   "vs_stock::vs_stock::judyhs_long_del_expanse routes:build_hs_long_del_expanse(\"routes\")": {
+    "base": 49635780,
+    "base_rerun": 49497302,
+    "a": 49526871,
+    "a2": 49521940
+   },
+   "vs_stock::vs_stock::judyhs_long_del_expanse_dl routes:build_hs_long_del_expanse_dl(\"routes\")": {
+    "base": 50024720,
+    "base_rerun": 50164766,
+    "a": 50098585,
+    "a2": 50049455
+   },
+   "vs_stock::vs_stock::judyhs_long_del_stock routes:build_hs_long_del_stock(\"routes\")": {
+    "base": 70820613,
+    "base_rerun": 70820613,
+    "a": 70820613,
+    "a2": 70820613
+   },
+   "vs_stock::vs_stock::judyhs_long_get_expanse routes:build_hs_long_get_expanse(\"routes\")": {
+    "base": 29242452,
+    "base_rerun": 29248033,
+    "a": 29239819,
+    "a2": 29236113
+   },
+   "vs_stock::vs_stock::judyhs_long_get_expanse_dl routes:build_hs_long_get_expanse_dl(\"routes\")": {
+    "base": 29247541,
+    "base_rerun": 29248401,
+    "a": 29248393,
+    "a2": 29230460
+   },
+   "vs_stock::vs_stock::judyhs_long_get_stock routes:build_hs_long_get_stock(\"routes\")": {
+    "base": 41613758,
+    "base_rerun": 41613758,
+    "a": 41613758,
+    "a2": 41613758
+   },
+   "vs_stock::vs_stock::judyhs_long_insert_expanse routes:hs_long_feed_expanse(\"routes\")": {
+    "base": 46997637,
+    "base_rerun": 46964765,
+    "a": 47124374,
+    "a2": 46946708
+   },
+   "vs_stock::vs_stock::judyhs_long_insert_expanse_dl routes:hs_long_feed_expanse_dl(\"routes\")": {
+    "base": 47818301,
+    "base_rerun": 47828496,
+    "a": 47952496,
+    "a2": 47795379
+   },
+   "vs_stock::vs_stock::judyhs_long_insert_stock routes:hs_long_feed_stock(\"routes\")": {
+    "base": 42239841,
+    "base_rerun": 42239841,
+    "a": 42239841,
+    "a2": 42239841
+   },
+   "vs_stock::vs_stock::judyl_churn_expanse random:build_expanse(\"random\")": {
+    "base": 36535673,
+    "base_rerun": 36535673,
+    "a": 36535673,
+    "a2": 36535673
+   },
+   "vs_stock::vs_stock::judyl_churn_expanse_dl random:build_expanse_dl(\"random\")": {
+    "base": 37484896,
+    "base_rerun": 37484896,
+    "a": 37484896,
+    "a2": 37484896
+   },
+   "vs_stock::vs_stock::judyl_churn_stock random:build_stock(\"random\")": {
+    "base": 49812138,
+    "base_rerun": 49812138,
+    "a": 49812138,
+    "a2": 49812138
+   },
+   "vs_stock::vs_stock::judyl_get_expanse clustered:build_expanse(\"clustered\")": {
+    "base": 3631161,
+    "base_rerun": 3631161,
+    "a": 3631161,
+    "a2": 3631161
+   },
+   "vs_stock::vs_stock::judyl_get_expanse random:build_expanse(\"random\")": {
+    "base": 3824647,
+    "base_rerun": 3824647,
+    "a": 3824647,
+    "a2": 3824647
+   },
+   "vs_stock::vs_stock::judyl_get_expanse random_big:build_expanse(\"random_big\")": {
+    "base": 306309789,
+    "base_rerun": 306309789,
+    "a": 306309789,
+    "a2": 306309789
+   },
+   "vs_stock::vs_stock::judyl_get_expanse sequential:build_expanse(\"sequential\")": {
+    "base": 4350105,
+    "base_rerun": 4350105,
+    "a": 4350105,
+    "a2": 4350105
+   },
+   "vs_stock::vs_stock::judyl_get_expanse_dl clustered:build_expanse_dl(\"clustered\")": {
+    "base": 3481164,
+    "base_rerun": 3481164,
+    "a": 3481164,
+    "a2": 3481164
+   },
+   "vs_stock::vs_stock::judyl_get_expanse_dl random:build_expanse_dl(\"random\")": {
+    "base": 3674650,
+    "base_rerun": 3674650,
+    "a": 3674650,
+    "a2": 3674650
+   },
+   "vs_stock::vs_stock::judyl_get_expanse_dl random_big:build_expanse_dl(\"random_big\")": {
+    "base": 298809792,
+    "base_rerun": 298809792,
+    "a": 298809792,
+    "a2": 298809792
+   },
+   "vs_stock::vs_stock::judyl_get_expanse_dl sequential:build_expanse_dl(\"sequential\")": {
+    "base": 4200108,
+    "base_rerun": 4200108,
+    "a": 4200108,
+    "a2": 4200108
+   },
+   "vs_stock::vs_stock::judyl_get_stock clustered:build_stock(\"clustered\")": {
+    "base": 3966194,
+    "base_rerun": 3966194,
+    "a": 3966194,
+    "a2": 3966194
+   },
+   "vs_stock::vs_stock::judyl_get_stock random:build_stock(\"random\")": {
+    "base": 4823172,
+    "base_rerun": 4823172,
+    "a": 4823172,
+    "a2": 4823172
+   },
+   "vs_stock::vs_stock::judyl_get_stock random_big:build_stock(\"random_big\")": {
+    "base": 389653237,
+    "base_rerun": 389653237,
+    "a": 389653237,
+    "a2": 389653237
+   },
+   "vs_stock::vs_stock::judyl_get_stock sequential:build_stock(\"sequential\")": {
+    "base": 4800108,
+    "base_rerun": 4800108,
+    "a": 4800108,
+    "a2": 4800108
+   },
+   "vs_stock::vs_stock::judyl_insert_expanse clustered:feed_expanse(\"clustered\")": {
+    "base": 10567504,
+    "base_rerun": 10567504,
+    "a": 10567504,
+    "a2": 10567504
+   },
+   "vs_stock::vs_stock::judyl_insert_expanse random:feed_expanse(\"random\")": {
+    "base": 16611741,
+    "base_rerun": 16611741,
+    "a": 16611741,
+    "a2": 16611741
+   },
+   "vs_stock::vs_stock::judyl_insert_expanse sequential:feed_expanse(\"sequential\")": {
+    "base": 5857008,
+    "base_rerun": 5857008,
+    "a": 5857008,
+    "a2": 5857008
+   },
+   "vs_stock::vs_stock::judyl_insert_expanse_dl clustered:feed_expanse_dl(\"clustered\")": {
+    "base": 10773437,
+    "base_rerun": 10773437,
+    "a": 10773437,
+    "a2": 10773437
+   },
+   "vs_stock::vs_stock::judyl_insert_expanse_dl random:feed_expanse_dl(\"random\")": {
+    "base": 16610782,
+    "base_rerun": 16610782,
+    "a": 16610782,
+    "a2": 16610782
+   },
+   "vs_stock::vs_stock::judyl_insert_expanse_dl sequential:feed_expanse_dl(\"sequential\")": {
+    "base": 5971020,
+    "base_rerun": 5971020,
+    "a": 5971020,
+    "a2": 5971020
+   },
+   "vs_stock::vs_stock::judyl_insert_stock clustered:feed_stock(\"clustered\")": {
+    "base": 11893209,
+    "base_rerun": 11893209,
+    "a": 11893209,
+    "a2": 11893209
+   },
+   "vs_stock::vs_stock::judyl_insert_stock random:feed_stock(\"random\")": {
+    "base": 17437019,
+    "base_rerun": 17437019,
+    "a": 17437019,
+    "a2": 17437019
+   },
+   "vs_stock::vs_stock::judyl_insert_stock sequential:feed_stock(\"sequential\")": {
+    "base": 12730668,
+    "base_rerun": 12730668,
+    "a": 12730668,
+    "a2": 12730668
+   },
+   "vs_stock::vs_stock::judysl_get_expanse clustered:build_str_expanse(\"clustered\")": {
+    "base": 20127497,
+    "base_rerun": 20127497,
+    "a": 20127497,
+    "a2": 20127497
+   },
+   "vs_stock::vs_stock::judysl_get_expanse random:build_str_expanse(\"random\")": {
+    "base": 14029943,
+    "base_rerun": 14029943,
+    "a": 14029943,
+    "a2": 14029943
+   },
+   "vs_stock::vs_stock::judysl_get_expanse sequential:build_str_expanse(\"sequential\")": {
+    "base": 15528383,
+    "base_rerun": 15528383,
+    "a": 15528383,
+    "a2": 15528383
+   },
+   "vs_stock::vs_stock::judysl_get_expanse_dl clustered:build_str_expanse_dl(\"clustered\")": {
+    "base": 20697500,
+    "base_rerun": 20697500,
+    "a": 20697500,
+    "a2": 20697500
+   },
+   "vs_stock::vs_stock::judysl_get_expanse_dl random:build_str_expanse_dl(\"random\")": {
+    "base": 14454582,
+    "base_rerun": 14454582,
+    "a": 14454582,
+    "a2": 14454582
+   },
+   "vs_stock::vs_stock::judysl_get_expanse_dl sequential:build_str_expanse_dl(\"sequential\")": {
+    "base": 16098386,
+    "base_rerun": 16098386,
+    "a": 16098386,
+    "a2": 16098386
+   },
+   "vs_stock::vs_stock::judysl_get_stock clustered:build_str_stock(\"clustered\")": {
+    "base": 22827372,
+    "base_rerun": 22827372,
+    "a": 22827372,
+    "a2": 22827372
+   },
+   "vs_stock::vs_stock::judysl_get_stock random:build_str_stock(\"random\")": {
+    "base": 14639809,
+    "base_rerun": 14639809,
+    "a": 14639809,
+    "a2": 14639809
+   },
+   "vs_stock::vs_stock::judysl_get_stock sequential:build_str_stock(\"sequential\")": {
+    "base": 18073866,
+    "base_rerun": 18073866,
+    "a": 18073866,
+    "a2": 18073866
+   },
+   "vs_stock::vs_stock::judysl_insert_expanse clustered:str_feed_expanse(\"clustered\")": {
+    "base": 27495805,
+    "base_rerun": 27495805,
+    "a": 27495805,
+    "a2": 27495805
+   },
+   "vs_stock::vs_stock::judysl_insert_expanse random:str_feed_expanse(\"random\")": {
+    "base": 38993963,
+    "base_rerun": 38993963,
+    "a": 38993963,
+    "a2": 38993963
+   },
+   "vs_stock::vs_stock::judysl_insert_expanse sequential:str_feed_expanse(\"sequential\")": {
+    "base": 24149876,
+    "base_rerun": 24149876,
+    "a": 24149876,
+    "a2": 24149876
+   },
+   "vs_stock::vs_stock::judysl_insert_expanse_dl clustered:str_feed_expanse_dl(\"clustered\")": {
+    "base": 28429628,
+    "base_rerun": 28429628,
+    "a": 28429628,
+    "a2": 28429628
+   },
+   "vs_stock::vs_stock::judysl_insert_expanse_dl random:str_feed_expanse_dl(\"random\")": {
+    "base": 39546724,
+    "base_rerun": 39546724,
+    "a": 39546724,
+    "a2": 39546724
+   },
+   "vs_stock::vs_stock::judysl_insert_expanse_dl sequential:str_feed_expanse_dl(\"sequential\")": {
+    "base": 25024395,
+    "base_rerun": 25024395,
+    "a": 25024395,
+    "a2": 25024395
+   },
+   "vs_stock::vs_stock::judysl_insert_stock clustered:str_feed_stock(\"clustered\")": {
+    "base": 37382777,
+    "base_rerun": 37382777,
+    "a": 37382777,
+    "a2": 37382777
+   },
+   "vs_stock::vs_stock::judysl_insert_stock random:str_feed_stock(\"random\")": {
+    "base": 39778206,
+    "base_rerun": 39778206,
+    "a": 39778206,
+    "a2": 39778206
+   },
+   "vs_stock::vs_stock::judysl_insert_stock sequential:str_feed_stock(\"sequential\")": {
+    "base": 31728016,
+    "base_rerun": 31728016,
+    "a": 31728016,
+    "a2": 31728016
+   }
+  },
+  "smoke_instructions (expanse-capi)": {
+   "smoke_instructions::smoke_capi_cost::judy1_set clustered:keys(\"clustered\")": {
+    "base": 2292894,
+    "base_rerun": 2292894,
+    "a": 2292894,
+    "a2": 2292894
+   },
+   "smoke_instructions::smoke_capi_cost::judy1_set random:keys(\"random\")": {
+    "base": 6460209,
+    "base_rerun": 6460209,
+    "a": 6460209,
+    "a2": 6460209
+   },
+   "smoke_instructions::smoke_capi_cost::judy1_set sequential:keys(\"sequential\")": {
+    "base": 956700,
+    "base_rerun": 956700,
+    "a": 956700,
+    "a2": 956700
+   },
+   "smoke_instructions::smoke_capi_cost::judy1_test clustered:build_judy1(\"clustered\")": {
+    "base": 1056075,
+    "base_rerun": 1056075,
+    "a": 1056075,
+    "a2": 1056075
+   },
+   "smoke_instructions::smoke_capi_cost::judy1_test random:build_judy1(\"random\")": {
+    "base": 1243727,
+    "base_rerun": 1243727,
+    "a": 1243727,
+    "a2": 1243727
+   },
+   "smoke_instructions::smoke_capi_cost::judy1_test sequential:build_judy1(\"sequential\")": {
+    "base": 1173035,
+    "base_rerun": 1173035,
+    "a": 1173035,
+    "a2": 1173035
+   },
+   "smoke_instructions::smoke_capi_cost::judyl_get clustered:build_judyl(\"clustered\")": {
+    "base": 1147860,
+    "base_rerun": 1147860,
+    "a": 1147860,
+    "a2": 1147860
+   },
+   "smoke_instructions::smoke_capi_cost::judyl_get random:build_judyl(\"random\")": {
+    "base": 1240117,
+    "base_rerun": 1240117,
+    "a": 1240117,
+    "a2": 1240117
+   },
+   "smoke_instructions::smoke_capi_cost::judyl_get sequential:build_judyl(\"sequential\")": {
+    "base": 1450868,
+    "base_rerun": 1450868,
+    "a": 1450868,
+    "a2": 1450868
+   },
+   "smoke_instructions::smoke_capi_cost::judyl_insert clustered:keys(\"clustered\")": {
+    "base": 3515411,
+    "base_rerun": 3515411,
+    "a": 3515411,
+    "a2": 3515411
+   },
+   "smoke_instructions::smoke_capi_cost::judyl_insert random:keys(\"random\")": {
+    "base": 7538426,
+    "base_rerun": 7538426,
+    "a": 7538426,
+    "a2": 7538426
+   },
+   "smoke_instructions::smoke_capi_cost::judyl_insert sequential:keys(\"sequential\")": {
+    "base": 2030597,
+    "base_rerun": 2030597,
+    "a": 2030597,
+    "a2": 2030597
+   },
+   "smoke_instructions::smoke_capi_cost::judysl_get routes:build_judysl(\"routes\")": {
+    "base": 6948336,
+    "base_rerun": 6948336,
+    "a": 6948336,
+    "a2": 6948336
+   },
+   "smoke_instructions::smoke_capi_cost::judysl_insert routes:str_keys(\"routes\")": {
+    "base": 8792923,
+    "base_rerun": 8792923,
+    "a": 8792923,
+    "a2": 8792923
+   }
+  },
+  "smoke_instructions (expanse-trie)": {
+   "smoke_instructions::smoke_cost::bytesmap_churn routes:built_bytesmap(\"routes\")": {
+    "base": 24834763,
+    "base_rerun": 24834763,
+    "a": 24834763,
+    "a2": 24834763
+   },
+   "smoke_instructions::smoke_cost::bytesmap_get routes:built_bytesmap(\"routes\")": {
+    "base": 4825832,
+    "base_rerun": 4825832,
+    "a": 4825832,
+    "a2": 4825832
+   },
+   "smoke_instructions::smoke_cost::bytesmap_insert routes:str_keys(\"routes\")": {
+    "base": 17198062,
+    "base_rerun": 17198062,
+    "a": 17198062,
+    "a2": 17198062
+   },
+   "smoke_instructions::smoke_cost::map_churn random:built_map(\"random\")": {
+    "base": 11248555,
+    "base_rerun": 11248555,
+    "a": 11248555,
+    "a2": 11248555
+   },
+   "smoke_instructions::smoke_cost::map_get clustered:built_map(\"clustered\")": {
+    "base": 1017687,
+    "base_rerun": 1017687,
+    "a": 1017687,
+    "a2": 1017687
+   },
+   "smoke_instructions::smoke_cost::map_get random:built_map(\"random\")": {
+    "base": 1133877,
+    "base_rerun": 1133877,
+    "a": 1133877,
+    "a2": 1133877
+   },
+   "smoke_instructions::smoke_cost::map_get sequential:built_map(\"sequential\")": {
+    "base": 1230935,
+    "base_rerun": 1230935,
+    "a": 1230935,
+    "a2": 1230935
+   },
+   "smoke_instructions::smoke_cost::map_ins_slot random:keys(\"random\")": {
+    "base": 7397906,
+    "base_rerun": 7397906,
+    "a": 7397913,
+    "a2": 7397913
+   },
+   "smoke_instructions::smoke_cost::map_insert clustered:keys(\"clustered\")": {
+    "base": 3325588,
+    "base_rerun": 3325588,
+    "a": 3325588,
+    "a2": 3325588
+   },
+   "smoke_instructions::smoke_cost::map_insert random:keys(\"random\")": {
+    "base": 7348793,
+    "base_rerun": 7348793,
+    "a": 7348793,
+    "a2": 7348793
+   },
+   "smoke_instructions::smoke_cost::map_insert sequential:keys(\"sequential\")": {
+    "base": 1803744,
+    "base_rerun": 1803744,
+    "a": 1803744,
+    "a2": 1803744
+   },
+   "smoke_instructions::smoke_cost::set_contains clustered:built_set(\"clustered\")": {
+    "base": 906170,
+    "base_rerun": 906170,
+    "a": 906170,
+    "a2": 906170
+   },
+   "smoke_instructions::smoke_cost::set_contains random:built_set(\"random\")": {
+    "base": 1093822,
+    "base_rerun": 1093822,
+    "a": 1093822,
+    "a2": 1093822
+   },
+   "smoke_instructions::smoke_cost::set_contains sequential:built_set(\"sequential\")": {
+    "base": 1023130,
+    "base_rerun": 1023130,
+    "a": 1023130,
+    "a2": 1023130
+   },
+   "smoke_instructions::smoke_cost::set_insert clustered:keys(\"clustered\")": {
+    "base": 2029887,
+    "base_rerun": 2029894,
+    "a": 2029887,
+    "a2": 2029887
+   },
+   "smoke_instructions::smoke_cost::set_insert random:keys(\"random\")": {
+    "base": 6215005,
+    "base_rerun": 6215012,
+    "a": 6215005,
+    "a2": 6215005
+   },
+   "smoke_instructions::smoke_cost::set_insert sequential:keys(\"sequential\")": {
+    "base": 706794,
+    "base_rerun": 706801,
+    "a": 706794,
+    "a2": 706794
+   },
+   "smoke_instructions::smoke_cost::strmap_churn routes:built_strmap(\"routes\")": {
+    "base": 22055061,
+    "base_rerun": 22055061,
+    "a": 22055061,
+    "a2": 22055061
+   },
+   "smoke_instructions::smoke_cost::strmap_get routes:built_strmap(\"routes\")": {
+    "base": 6688392,
+    "base_rerun": 6688392,
+    "a": 6688392,
+    "a2": 6688392
+   },
+   "smoke_instructions::smoke_cost::strmap_insert routes:str_keys(\"routes\")": {
+    "base": 8204133,
+    "base_rerun": 8204133,
+    "a": 8204133,
+    "a2": 8204133
+   }
+  },
+  "instructions (expanse-trie)": {
+   "instructions::cost::blobmap32_scan ipv4_routes:built_blobmap32(\"ipv4_routes\")": {
+    "base": 341888,
+    "base_rerun": 341888,
+    "a": 341888,
+    "a2": 341888
+   },
+   "instructions::cost::blobmap_churn random:built_blobmap(\"random\")": {
+    "base": 72695459,
+    "base_rerun": 72695459,
+    "a": 72695459,
+    "a2": 72695459
+   },
+   "instructions::cost::blobmap_compact random:built_blobmap_garbage(\"random\")": {
+    "base": 19339108,
+    "base_rerun": 19339108,
+    "a": 19339108,
+    "a2": 19339108
+   },
+   "instructions::cost::blobmap_get random:built_blobmap(\"random\")": {
+    "base": 10695232,
+    "base_rerun": 10695232,
+    "a": 10695232,
+    "a2": 10695232
+   },
+   "instructions::cost::blobmap_insert random:keys(\"random\")": {
+    "base": 31087108,
+    "base_rerun": 31087108,
+    "a": 31087108,
+    "a2": 31087108
+   },
+   "instructions::cost::blobmap_insert_inline random:keys(\"random\")": {
+    "base": 28736325,
+    "base_rerun": 28736325,
+    "a": 28736325,
+    "a2": 28736325
+   },
+   "instructions::cost::blobmap_insert_reclaiming random:built_blobmap_reclaiming(\"random\")": {
+    "base": 505317,
+    "base_rerun": 505317,
+    "a": 505317,
+    "a2": 505317
+   },
+   "instructions::cost::blobmap_overwrite random:built_blobmap(\"random\")": {
+    "base": 19644066,
+    "base_rerun": 19644066,
+    "a": 19644066,
+    "a2": 19644066
+   },
+   "instructions::cost::blobmap_remove random:built_blobmap(\"random\")": {
+    "base": 25391716,
+    "base_rerun": 25391716,
+    "a": 25391716,
+    "a2": 25391716
+   },
+   "instructions::cost::bytesmap_churn routes:built_bytesmap(\"routes\")": {
+    "base": 131096828,
+    "base_rerun": 131096828,
+    "a": 131096828,
+    "a2": 131096828
+   },
+   "instructions::cost::bytesmap_fixed8_get zmap:built_bytesmap_fixed8_mixed(\"zmap\")": {
+    "base": 41259460,
+    "base_rerun": 41259460,
+    "a": 41259460,
+    "a2": 41259460
+   },
+   "instructions::cost::bytesmap_fixed8_insert zmap:fixed8_keys(\"zmap\")": {
+    "base": 71025954,
+    "base_rerun": 71025954,
+    "a": 71025954,
+    "a2": 71025954
+   },
+   "instructions::cost::bytesmap_fixed8_remove zmap:built_bytesmap_fixed8(\"zmap\")": {
+    "base": 78725330,
+    "base_rerun": 78725330,
+    "a": 78725330,
+    "a2": 78725330
+   },
+   "instructions::cost::bytesmap_get routes:built_bytesmap(\"routes\")": {
+    "base": 25464550,
+    "base_rerun": 25464550,
+    "a": 25464550,
+    "a2": 25464550
+   },
+   "instructions::cost::bytesmap_insert routes:str_keys(\"routes\")": {
+    "base": 74622680,
+    "base_rerun": 74622680,
+    "a": 74622680,
+    "a2": 74622680
+   },
+   "instructions::cost::bytesmap_overwrite routes:built_bytesmap(\"routes\")": {
+    "base": 31791519,
+    "base_rerun": 31791519,
+    "a": 31791519,
+    "a2": 31791519
+   },
+   "instructions::cost::bytesmap_remove routes:built_bytesmap(\"routes\")": {
+    "base": 81721464,
+    "base_rerun": 81721464,
+    "a": 81721464,
+    "a2": 81721464
+   },
+   "instructions::cost::domain_dict_get routes:built_domain_dict(\"routes\")": {
+    "base": 51628794,
+    "base_rerun": 51628794,
+    "a": 51628794,
+    "a2": 51628794
+   },
+   "instructions::cost::domain_dict_insert routes:str_keys(\"routes\")": {
+    "base": 87161269,
+    "base_rerun": 87161269,
+    "a": 87161269,
+    "a2": 87161269
+   },
+   "instructions::cost::map32_compact_drained random28:drained_partial_map32(\"random28\")": {
+    "base": 47412881,
+    "base_rerun": 47412881,
+    "a": 47412881,
+    "a2": 47412881
+   },
+   "instructions::cost::map32_for_each_range clustered:built_map32_dist(\"clustered\")": {
+    "base": 207675,
+    "base_rerun": 207675,
+    "a": 207675,
+    "a2": 207675
+   },
+   "instructions::cost::map32_for_each_range random:built_map32_dist(\"random\")": {
+    "base": 97745,
+    "base_rerun": 97745,
+    "a": 97745,
+    "a2": 97745
+   },
+   "instructions::cost::map32_for_each_range sequential:built_map32_dist(\"sequential\")": {
+    "base": 138213,
+    "base_rerun": 138213,
+    "a": 138213,
+    "a2": 138213
+   },
+   "instructions::cost::map32_from_sorted_iter random:entries32_build(\"random\")": {
+    "base": 5367154,
+    "base_rerun": 5367154,
+    "a": 5367154,
+    "a2": 5367154
+   },
+   "instructions::cost::map32_from_sorted_iter random_sorted:entries32_build(\"random_sorted\")": {
+    "base": 3754145,
+    "base_rerun": 3754145,
+    "a": 3754145,
+    "a2": 3754145
+   },
+   "instructions::cost::map32_from_sorted_iter sequential:entries32_build(\"sequential\")": {
+    "base": 1866072,
+    "base_rerun": 1866072,
+    "a": 1866072,
+    "a2": 1866072
+   },
+   "instructions::cost::map32_get can_dispatch:built_map32(\"can_dispatch\")": {
+    "base": 105841,
+    "base_rerun": 105841,
+    "a": 105841,
+    "a2": 105841
+   },
+   "instructions::cost::map32_insert sensor_timestamps": {
+    "base": 4726275,
+    "base_rerun": 4726275,
+    "a": 4726275,
+    "a2": 4726275
+   },
+   "instructions::cost::map32_insert_sorted random:entries32_build(\"random\")": {
+    "base": 9535345,
+    "base_rerun": 9535345,
+    "a": 9535345,
+    "a2": 9535345
+   },
+   "instructions::cost::map32_insert_sorted random_sorted:entries32_build(\"random_sorted\")": {
+    "base": 8999931,
+    "base_rerun": 8999931,
+    "a": 8999931,
+    "a2": 8999931
+   },
+   "instructions::cost::map32_insert_sorted sequential:entries32_build(\"sequential\")": {
+    "base": 4752150,
+    "base_rerun": 4752150,
+    "a": 4752150,
+    "a2": 4752150
+   },
+   "instructions::cost::map32_iterate clustered:built_map32_dist(\"clustered\")": {
+    "base": 294256,
+    "base_rerun": 294256,
+    "a": 294256,
+    "a2": 294256
+   },
+   "instructions::cost::map32_iterate random:built_map32_dist(\"random\")": {
+    "base": 334107,
+    "base_rerun": 334107,
+    "a": 334107,
+    "a2": 334107
+   },
+   "instructions::cost::map32_iterate sequential:built_map32_dist(\"sequential\")": {
+    "base": 188834,
+    "base_rerun": 188834,
+    "a": 188834,
+    "a2": 188834
+   },
+   "instructions::cost::map32_nav clustered:built_map32_remove(\"clustered\")": {
+    "base": 2301311,
+    "base_rerun": 2301311,
+    "a": 2301311,
+    "a2": 2301311
+   },
+   "instructions::cost::map32_nav random:built_map32_remove(\"random\")": {
+    "base": 5284959,
+    "base_rerun": 5284959,
+    "a": 5284959,
+    "a2": 5284959
+   },
+   "instructions::cost::map32_nav sequential:built_map32_remove(\"sequential\")": {
+    "base": 1185688,
+    "base_rerun": 1185688,
+    "a": 1185688,
+    "a2": 1185688
+   },
+   "instructions::cost::map32_prev clustered:built_map32_remove(\"clustered\")": {
+    "base": 2491406,
+    "base_rerun": 2491406,
+    "a": 2491406,
+    "a2": 2491406
+   },
+   "instructions::cost::map32_prev random:built_map32_remove(\"random\")": {
+    "base": 5133351,
+    "base_rerun": 5133351,
+    "a": 5133351,
+    "a2": 5133351
+   },
+   "instructions::cost::map32_prev sequential:built_map32_remove(\"sequential\")": {
+    "base": 1203000,
+    "base_rerun": 1203000,
+    "a": 1203000,
+    "a2": 1203000
+   },
+   "instructions::cost::map32_range clustered:built_map32_dist(\"clustered\")": {
+    "base": 294265,
+    "base_rerun": 294265,
+    "a": 294265,
+    "a2": 294265
+   },
+   "instructions::cost::map32_range random:built_map32_dist(\"random\")": {
+    "base": 168083,
+    "base_rerun": 168083,
+    "a": 168083,
+    "a2": 168083
+   },
+   "instructions::cost::map32_range sequential:built_map32_dist(\"sequential\")": {
+    "base": 188843,
+    "base_rerun": 188843,
+    "a": 188843,
+    "a2": 188843
+   },
+   "instructions::cost::map32_rebuild_drained random28:drained_partial_map32(\"random28\")": {
+    "base": 93811882,
+    "base_rerun": 93811882,
+    "a": 93811882,
+    "a2": 93811882
+   },
+   "instructions::cost::map32_remove clustered:built_map32_remove(\"clustered\")": {
+    "base": 1943829,
+    "base_rerun": 1943829,
+    "a": 1943829,
+    "a2": 1943829
+   },
+   "instructions::cost::map32_remove random:built_map32_remove(\"random\")": {
+    "base": 1338324,
+    "base_rerun": 1338324,
+    "a": 1338324,
+    "a2": 1338324
+   },
+   "instructions::cost::map32_remove sequential:built_map32_remove(\"sequential\")": {
+    "base": 1435234,
+    "base_rerun": 1435234,
+    "a": 1435234,
+    "a2": 1435234
+   },
+   "instructions::cost::map_churn random:built_map(\"random\")": {
+    "base": 58525812,
+    "base_rerun": 58525812,
+    "a": 58525812,
+    "a2": 58525812
+   },
+   "instructions::cost::map_clear_refill random:built_map(\"random\")": {
+    "base": 27116696,
+    "base_rerun": 27116696,
+    "a": 27116696,
+    "a2": 27116696
+   },
+   "instructions::cost::map_clone random:built_map(\"random\")": {
+    "base": 28016202,
+    "base_rerun": 28016202,
+    "a": 28016209,
+    "a2": 28016209
+   },
+   "instructions::cost::map_clone sequential:built_map(\"sequential\")": {
+    "base": 9579446,
+    "base_rerun": 9579446,
+    "a": 9579453,
+    "a2": 9579453
+   },
+   "instructions::cost::map_collect random:entries(\"random\")": {
+    "base": 24522518,
+    "base_rerun": 24522518,
+    "a": 24522511,
+    "a2": 24522511
+   },
+   "instructions::cost::map_collect random_sorted:entries(\"random_sorted\")": {
+    "base": 23465618,
+    "base_rerun": 23465618,
+    "a": 23465611,
+    "a2": 23465611
+   },
+   "instructions::cost::map_collect sequential:entries(\"sequential\")": {
+    "base": 8308376,
+    "base_rerun": 8308376,
+    "a": 8308369,
+    "a2": 8308369
+   },
+   "instructions::cost::map_compact_drained random60:drained_partial_map(\"random60\")": {
+    "base": 16958905,
+    "base_rerun": 16958905,
+    "a": 16958905,
+    "a2": 16958905
+   },
+   "instructions::cost::map_count_below one_top_byte:built_map(\"one_top_byte\")": {
+    "base": 518916589,
+    "base_rerun": 518916589,
+    "a": 518916589,
+    "a2": 518916589
+   },
+   "instructions::cost::map_count_below random:built_map(\"random\")": {
+    "base": 515890260,
+    "base_rerun": 515890260,
+    "a": 515890260,
+    "a2": 515890260
+   },
+   "instructions::cost::map_count_below sequential:built_map(\"sequential\")": {
+    "base": 188472636,
+    "base_rerun": 188472636,
+    "a": 188472636,
+    "a2": 188472636
+   },
+   "instructions::cost::map_cursor_scan clustered:built_map(\"clustered\")": {
+    "base": 2255529,
+    "base_rerun": 2255529,
+    "a": 2255529,
+    "a2": 2255529
+   },
+   "instructions::cost::map_cursor_scan random:built_map(\"random\")": {
+    "base": 6347786,
+    "base_rerun": 6347786,
+    "a": 6347786,
+    "a2": 6347786
+   },
+   "instructions::cost::map_cursor_scan sequential:built_map(\"sequential\")": {
+    "base": 2241739,
+    "base_rerun": 2241739,
+    "a": 2241739,
+    "a2": 2241739
+   },
+   "instructions::cost::map_from_sorted_iter random:entries(\"random\")": {
+    "base": 24379350,
+    "base_rerun": 24379350,
+    "a": 24379350,
+    "a2": 24379350
+   },
+   "instructions::cost::map_from_sorted_iter random_sorted:entries(\"random_sorted\")": {
+    "base": 10390927,
+    "base_rerun": 10390927,
+    "a": 10390927,
+    "a2": 10390927
+   },
+   "instructions::cost::map_from_sorted_iter sequential:entries(\"sequential\")": {
+    "base": 3317325,
+    "base_rerun": 3317325,
+    "a": 3317325,
+    "a2": 3317325
+   },
+   "instructions::cost::map_get clustered:built_map(\"clustered\")": {
+    "base": 5619908,
+    "base_rerun": 5619908,
+    "a": 5619908,
+    "a2": 5619908
+   },
+   "instructions::cost::map_get dense_leaf:built_map(\"dense_leaf\")": {
+    "base": 11259260,
+    "base_rerun": 11259260,
+    "a": 11259260,
+    "a2": 11259260
+   },
+   "instructions::cost::map_get linear_leaf:built_map(\"linear_leaf\")": {
+    "base": 10110284,
+    "base_rerun": 10110284,
+    "a": 10110284,
+    "a2": 10110284
+   },
+   "instructions::cost::map_get random:built_map(\"random\")": {
+    "base": 6265113,
+    "base_rerun": 6265113,
+    "a": 6265113,
+    "a2": 6265113
+   },
+   "instructions::cost::map_get sequential:built_map(\"sequential\")": {
+    "base": 6950212,
+    "base_rerun": 6950212,
+    "a": 6950212,
+    "a2": 6950212
+   },
+   "instructions::cost::map_get sm_10k:built_sm_map(\"sm_10k\")": {
+    "base": 4206243,
+    "base_rerun": 4206243,
+    "a": 4206243,
+    "a2": 4206243
+   },
+   "instructions::cost::map_get sm_1m:built_sm_map(\"sm_1m\")": {
+    "base": 418176250,
+    "base_rerun": 418176250,
+    "a": 418176250,
+    "a2": 418176250
+   },
+   "instructions::cost::map_get_batch random:built_map(\"random\")": {
+    "base": 8534780,
+    "base_rerun": 8534780,
+    "a": 8534780,
+    "a2": 8534780
+   },
+   "instructions::cost::map_get_slot_ptr sm_10k:built_sm_map(\"sm_10k\")": {
+    "base": 4597792,
+    "base_rerun": 4597792,
+    "a": 4597792,
+    "a2": 4597792
+   },
+   "instructions::cost::map_get_slot_ptr sm_1m:built_sm_map(\"sm_1m\")": {
+    "base": 457177919,
+    "base_rerun": 457177919,
+    "a": 457177919,
+    "a2": 457177919
+   },
+   "instructions::cost::map_ins_slot gen_4m:keys(\"gen_4m\")": {
+    "base": 2641269085,
+    "base_rerun": 2641269085,
+    "a": 2641269092,
+    "a2": 2641269092
+   },
+   "instructions::cost::map_ins_slot random:keys(\"random\")": {
+    "base": 25021702,
+    "base_rerun": 25021702,
+    "a": 25021709,
+    "a2": 25021709
+   },
+   "instructions::cost::map_insert clustered:keys(\"clustered\")": {
+    "base": 17024398,
+    "base_rerun": 17024398,
+    "a": 17024398,
+    "a2": 17024398
+   },
+   "instructions::cost::map_insert dense_leaf:keys(\"dense_leaf\")": {
+    "base": 21819016,
+    "base_rerun": 21819016,
+    "a": 21819016,
+    "a2": 21819016
+   },
+   "instructions::cost::map_insert linear_leaf:keys(\"linear_leaf\")": {
+    "base": 23583658,
+    "base_rerun": 23583658,
+    "a": 23583658,
+    "a2": 23583658
+   },
+   "instructions::cost::map_insert random:keys(\"random\")": {
+    "base": 24772589,
+    "base_rerun": 24772589,
+    "a": 24772589,
+    "a2": 24772589
+   },
+   "instructions::cost::map_insert sequential:keys(\"sequential\")": {
+    "base": 8554813,
+    "base_rerun": 8554813,
+    "a": 8554813,
+    "a2": 8554813
+   },
+   "instructions::cost::map_insert small:keys(\"small\")": {
+    "base": 24098603,
+    "base_rerun": 24098603,
+    "a": 24098603,
+    "a2": 24098603
+   },
+   "instructions::cost::map_iterate clustered:built_map(\"clustered\")": {
+    "base": 1455193,
+    "base_rerun": 1455193,
+    "a": 1455193,
+    "a2": 1455193
+   },
+   "instructions::cost::map_iterate random:built_map(\"random\")": {
+    "base": 5310508,
+    "base_rerun": 5310508,
+    "a": 5310508,
+    "a2": 5310508
+   },
+   "instructions::cost::map_iterate random_10k:built_map(\"random_10k\")": {
+    "base": 1216245,
+    "base_rerun": 1216245,
+    "a": 1216245,
+    "a2": 1216245
+   },
+   "instructions::cost::map_iterate sequential:built_map(\"sequential\")": {
+    "base": 1440798,
+    "base_rerun": 1440798,
+    "a": 1440798,
+    "a2": 1440798
+   },
+   "instructions::cost::map_iterate sparse:built_map(\"sparse\")": {
+    "base": 5317968,
+    "base_rerun": 5317968,
+    "a": 5317968,
+    "a2": 5317968
+   },
+   "instructions::cost::map_iterate sparse_10k:built_map(\"sparse_10k\")": {
+    "base": 1063035,
+    "base_rerun": 1063035,
+    "a": 1063035,
+    "a2": 1063035
+   },
+   "instructions::cost::map_nav clustered:built_map(\"clustered\")": {
+    "base": 15943747,
+    "base_rerun": 15943747,
+    "a": 15943747,
+    "a2": 15943747
+   },
+   "instructions::cost::map_nav random:built_map(\"random\")": {
+    "base": 15625592,
+    "base_rerun": 15625592,
+    "a": 15625592,
+    "a2": 15625592
+   },
+   "instructions::cost::map_nav sequential:built_map(\"sequential\")": {
+    "base": 22350211,
+    "base_rerun": 22350211,
+    "a": 22350211,
+    "a2": 22350211
+   },
+   "instructions::cost::map_oscillate random:keys(\"random\")": {
+    "base": 3805885,
+    "base_rerun": 3805885,
+    "a": 3805892,
+    "a2": 3805892
+   },
+   "instructions::cost::map_prev clustered:built_map(\"clustered\")": {
+    "base": 16701565,
+    "base_rerun": 16701565,
+    "a": 16701565,
+    "a2": 16701565
+   },
+   "instructions::cost::map_prev random:built_map(\"random\")": {
+    "base": 21880844,
+    "base_rerun": 21880844,
+    "a": 21880844,
+    "a2": 21880844
+   },
+   "instructions::cost::map_prev sequential:built_map(\"sequential\")": {
+    "base": 23449765,
+    "base_rerun": 23449765,
+    "a": 23449765,
+    "a2": 23449765
+   },
+   "instructions::cost::map_range_cursor_scan clustered:built_map(\"clustered\")": {
+    "base": 3905990,
+    "base_rerun": 3905990,
+    "a": 3905990,
+    "a2": 3905990
+   },
+   "instructions::cost::map_range_cursor_scan random:built_map(\"random\")": {
+    "base": 7651312,
+    "base_rerun": 7651312,
+    "a": 7651312,
+    "a2": 7651312
+   },
+   "instructions::cost::map_range_cursor_scan sequential:built_map(\"sequential\")": {
+    "base": 3889147,
+    "base_rerun": 3889147,
+    "a": 3889147,
+    "a2": 3889147
+   },
+   "instructions::cost::map_rebuild_drained random60:drained_partial_map(\"random60\")": {
+    "base": 38680086,
+    "base_rerun": 38680086,
+    "a": 38680086,
+    "a2": 38680086
+   },
+   "instructions::cost::map_refill random:built_map(\"random\")": {
+    "base": 45758962,
+    "base_rerun": 45758962,
+    "a": 45758962,
+    "a2": 45758962
+   },
+   "instructions::cost::map_regrow_after_shrink random60:shrink_drained_map_with_keys(\"random60\")": {
+    "base": 66476510,
+    "base_rerun": 66476510,
+    "a": 66476510,
+    "a2": 66476510
+   },
+   "instructions::cost::map_remove random:built_map(\"random\")": {
+    "base": 22514270,
+    "base_rerun": 22514270,
+    "a": 22514270,
+    "a2": 22514270
+   },
+   "instructions::cost::map_remove_partial random60:built_partial_map(\"random60\")": {
+    "base": 69561162,
+    "base_rerun": 69561162,
+    "a": 69561162,
+    "a2": 69561162
+   },
+   "instructions::cost::map_remove_revgen gen_1k:built_gen_map(\"gen_1k\")": {
+    "base": 595980,
+    "base_rerun": 595980,
+    "a": 595980,
+    "a2": 595980
+   },
+   "instructions::cost::map_remove_revgen gen_256k:built_gen_map(\"gen_256k\")": {
+    "base": 174385397,
+    "base_rerun": 174385397,
+    "a": 174385397,
+    "a2": 174385397
+   },
+   "instructions::cost::map_remove_revgen gen_4m:built_gen_map(\"gen_4m\")": {
+    "base": 2804754347,
+    "base_rerun": 2804754347,
+    "a": 2804754347,
+    "a2": 2804754347
+   },
+   "instructions::cost::map_shrink_drained random60:drained_partial_map(\"random60\")": {
+    "base": 14921264,
+    "base_rerun": 14921264,
+    "a": 14921264,
+    "a2": 14921264
+   },
+   "instructions::cost::map_small_tree hashjudy:small_tree_keys(\"hashjudy\")": {
+    "base": 16280317,
+    "base_rerun": 16280317,
+    "a": 16280317,
+    "a2": 16280317
+   },
+   "instructions::cost::ordered_bytesmap_cursor clean:built_ordered_bytesmap(\"clean\")": {
+    "base": 26742127,
+    "base_rerun": 26742127,
+    "a": 26742127,
+    "a2": 26742127
+   },
+   "instructions::cost::ordered_bytesmap_cursor escaped:built_ordered_bytesmap(\"escaped\")": {
+    "base": 40022558,
+    "base_rerun": 40022558,
+    "a": 40022558,
+    "a2": 40022558
+   },
+   "instructions::cost::ordered_bytesmap_cursor_into clean:built_ordered_bytesmap(\"clean\")": {
+    "base": 18842105,
+    "base_rerun": 18842105,
+    "a": 18842105,
+    "a2": 18842105
+   },
+   "instructions::cost::ordered_bytesmap_cursor_into escaped:built_ordered_bytesmap(\"escaped\")": {
+    "base": 29819378,
+    "base_rerun": 29819378,
+    "a": 29819378,
+    "a2": 29819378
+   },
+   "instructions::cost::ordered_bytesmap_get clean:built_ordered_bytesmap(\"clean\")": {
+    "base": 21940273,
+    "base_rerun": 21940273,
+    "a": 21940273,
+    "a2": 21940273
+   },
+   "instructions::cost::ordered_bytesmap_get escaped:built_ordered_bytesmap(\"escaped\")": {
+    "base": 33353407,
+    "base_rerun": 33353407,
+    "a": 33353407,
+    "a2": 33353407
+   },
+   "instructions::cost::ordered_bytesmap_insert clean:transcode_keys(\"clean\")": {
+    "base": 45436388,
+    "base_rerun": 45436395,
+    "a": 45436388,
+    "a2": 45436388
+   },
+   "instructions::cost::ordered_bytesmap_insert escaped:transcode_keys(\"escaped\")": {
+    "base": 61658660,
+    "base_rerun": 61658667,
+    "a": 61658660,
+    "a2": 61658660
+   },
+   "instructions::cost::set32_compact_drained random28:drained_partial_set32(\"random28\")": {
+    "base": 37908424,
+    "base_rerun": 37908424,
+    "a": 37908424,
+    "a2": 37908424
+   },
+   "instructions::cost::set32_from_sorted_iter random:keys32_build(\"random\")": {
+    "base": 4768228,
+    "base_rerun": 4768228,
+    "a": 4768228,
+    "a2": 4768228
+   },
+   "instructions::cost::set32_from_sorted_iter random_sorted:keys32_build(\"random_sorted\")": {
+    "base": 3571172,
+    "base_rerun": 3571172,
+    "a": 3571172,
+    "a2": 3571172
+   },
+   "instructions::cost::set32_from_sorted_iter sequential:keys32_build(\"sequential\")": {
+    "base": 542780,
+    "base_rerun": 542780,
+    "a": 542780,
+    "a2": 542780
+   },
+   "instructions::cost::set32_insert sensor_timestamps": {
+    "base": 4990309,
+    "base_rerun": 4990309,
+    "a": 4990309,
+    "a2": 4990309
+   },
+   "instructions::cost::set32_insert_sorted random:keys32_build(\"random\")": {
+    "base": 9468708,
+    "base_rerun": 9468708,
+    "a": 9468708,
+    "a2": 9468708
+   },
+   "instructions::cost::set32_insert_sorted random_sorted:keys32_build(\"random_sorted\")": {
+    "base": 8701210,
+    "base_rerun": 8701210,
+    "a": 8701210,
+    "a2": 8701210
+   },
+   "instructions::cost::set32_insert_sorted sequential:keys32_build(\"sequential\")": {
+    "base": 5007137,
+    "base_rerun": 5007137,
+    "a": 5007137,
+    "a2": 5007137
+   },
+   "instructions::cost::set32_iterate clustered:built_set32_dist(\"clustered\")": {
+    "base": 261256,
+    "base_rerun": 261256,
+    "a": 261256,
+    "a2": 261256
+   },
+   "instructions::cost::set32_iterate random:built_set32_dist(\"random\")": {
+    "base": 294054,
+    "base_rerun": 294054,
+    "a": 294054,
+    "a2": 294054
+   },
+   "instructions::cost::set32_iterate sequential:built_set32_dist(\"sequential\")": {
+    "base": 133631,
+    "base_rerun": 133631,
+    "a": 133631,
+    "a2": 133631
+   },
+   "instructions::cost::set32_range clustered:built_set32_dist(\"clustered\")": {
+    "base": 261265,
+    "base_rerun": 261265,
+    "a": 261265,
+    "a2": 261265
+   },
+   "instructions::cost::set32_range random:built_set32_dist(\"random\")": {
+    "base": 148195,
+    "base_rerun": 148195,
+    "a": 148195,
+    "a2": 148195
+   },
+   "instructions::cost::set32_range sequential:built_set32_dist(\"sequential\")": {
+    "base": 133640,
+    "base_rerun": 133640,
+    "a": 133640,
+    "a2": 133640
+   },
+   "instructions::cost::set32_rebuild_drained random28:drained_partial_set32(\"random28\")": {
+    "base": 72519051,
+    "base_rerun": 72519051,
+    "a": 72519051,
+    "a2": 72519051
+   },
+   "instructions::cost::set32_remove clustered:built_set32_remove(\"clustered\")": {
+    "base": 1824432,
+    "base_rerun": 1824432,
+    "a": 1824432,
+    "a2": 1824432
+   },
+   "instructions::cost::set32_remove random:built_set32_remove(\"random\")": {
+    "base": 1098411,
+    "base_rerun": 1098411,
+    "a": 1098411,
+    "a2": 1098411
+   },
+   "instructions::cost::set32_remove sequential:built_set32_remove(\"sequential\")": {
+    "base": 1078363,
+    "base_rerun": 1078363,
+    "a": 1078363,
+    "a2": 1078363
+   },
+   "instructions::cost::set_clear_refill random:built_set(\"random\")": {
+    "base": 22713634,
+    "base_rerun": 22713634,
+    "a": 22713634,
+    "a2": 22713634
+   },
+   "instructions::cost::set_clone random:built_set(\"random\")": {
+    "base": 15003661,
+    "base_rerun": 15003661,
+    "a": 15003661,
+    "a2": 15003661
+   },
+   "instructions::cost::set_clone sequential:built_set(\"sequential\")": {
+    "base": 2698774,
+    "base_rerun": 2698774,
+    "a": 2698774,
+    "a2": 2698774
+   },
+   "instructions::cost::set_compact_drained random60:drained_partial_set(\"random60\")": {
+    "base": 16323715,
+    "base_rerun": 16323715,
+    "a": 16323715,
+    "a2": 16323715
+   },
+   "instructions::cost::set_contains random:built_set(\"random\")": {
+    "base": 6026220,
+    "base_rerun": 6026220,
+    "a": 6026220,
+    "a2": 6026220
+   },
+   "instructions::cost::set_contains_batch random:built_set(\"random\")": {
+    "base": 8372801,
+    "base_rerun": 8372801,
+    "a": 8372801,
+    "a2": 8372801
+   },
+   "instructions::cost::set_count_below one_top_byte:built_set(\"one_top_byte\")": {
+    "base": 526154918,
+    "base_rerun": 526154918,
+    "a": 526154918,
+    "a2": 526154918
+   },
+   "instructions::cost::set_count_below random:built_set(\"random\")": {
+    "base": 521363715,
+    "base_rerun": 521363715,
+    "a": 521363715,
+    "a2": 521363715
+   },
+   "instructions::cost::set_count_below sequential:built_set(\"sequential\")": {
+    "base": 199619100,
+    "base_rerun": 199619100,
+    "a": 199619100,
+    "a2": 199619100
+   },
+   "instructions::cost::set_insert clustered:keys(\"clustered\")": {
+    "base": 10777579,
+    "base_rerun": 10777579,
+    "a": 10777572,
+    "a2": 10777572
+   },
+   "instructions::cost::set_insert dense_leaf:keys(\"dense_leaf\")": {
+    "base": 17983820,
+    "base_rerun": 17983820,
+    "a": 17983813,
+    "a2": 17983813
+   },
+   "instructions::cost::set_insert linear_leaf:keys(\"linear_leaf\")": {
+    "base": 18935618,
+    "base_rerun": 18935618,
+    "a": 18935611,
+    "a2": 18935611
+   },
+   "instructions::cost::set_insert random:keys(\"random\")": {
+    "base": 20648806,
+    "base_rerun": 20648806,
+    "a": 20648799,
+    "a2": 20648799
+   },
+   "instructions::cost::set_insert sequential:keys(\"sequential\")": {
+    "base": 3115450,
+    "base_rerun": 3115450,
+    "a": 3115443,
+    "a2": 3115443
+   },
+   "instructions::cost::set_insert sparse:keys(\"sparse\")": {
+    "base": 22556633,
+    "base_rerun": 22556633,
+    "a": 22556626,
+    "a2": 22556626
+   },
+   "instructions::cost::set_iterate random:built_set(\"random\")": {
+    "base": 6493230,
+    "base_rerun": 6493230,
+    "a": 6493230,
+    "a2": 6493230
+   },
+   "instructions::cost::set_iterate random_10k:built_set(\"random_10k\")": {
+    "base": 1294121,
+    "base_rerun": 1294121,
+    "a": 1294121,
+    "a2": 1294121
+   },
+   "instructions::cost::set_iterate sequential:built_set(\"sequential\")": {
+    "base": 571058,
+    "base_rerun": 571058,
+    "a": 571058,
+    "a2": 571058
+   },
+   "instructions::cost::set_iterate sparse:built_set(\"sparse\")": {
+    "base": 4770140,
+    "base_rerun": 4770140,
+    "a": 4770140,
+    "a2": 4770140
+   },
+   "instructions::cost::set_iterate sparse_10k:built_set(\"sparse_10k\")": {
+    "base": 953449,
+    "base_rerun": 953449,
+    "a": 953449,
+    "a2": 953449
+   },
+   "instructions::cost::set_nav clustered:built_set(\"clustered\")": {
+    "base": 14293756,
+    "base_rerun": 14293756,
+    "a": 14293756,
+    "a2": 14293756
+   },
+   "instructions::cost::set_nav random:built_set(\"random\")": {
+    "base": 15824125,
+    "base_rerun": 15824125,
+    "a": 15824125,
+    "a2": 15824125
+   },
+   "instructions::cost::set_nav sequential:built_set(\"sequential\")": {
+    "base": 19457612,
+    "base_rerun": 19457612,
+    "a": 19457612,
+    "a2": 19457612
+   },
+   "instructions::cost::set_oscillate random:keys(\"random\")": {
+    "base": 3405891,
+    "base_rerun": 3405891,
+    "a": 3405884,
+    "a2": 3405884
+   },
+   "instructions::cost::set_prev clustered:built_set(\"clustered\")": {
+    "base": 14871097,
+    "base_rerun": 14871097,
+    "a": 14871097,
+    "a2": 14871097
+   },
+   "instructions::cost::set_prev random:built_set(\"random\")": {
+    "base": 22599272,
+    "base_rerun": 22599272,
+    "a": 22599272,
+    "a2": 22599272
+   },
+   "instructions::cost::set_prev sequential:built_set(\"sequential\")": {
+    "base": 20405851,
+    "base_rerun": 20405851,
+    "a": 20405851,
+    "a2": 20405851
+   },
+   "instructions::cost::set_rebuild_drained random60:drained_partial_set(\"random60\")": {
+    "base": 16768026,
+    "base_rerun": 16768026,
+    "a": 16768026,
+    "a2": 16768026
+   },
+   "instructions::cost::set_refill random:built_set(\"random\")": {
+    "base": 43195758,
+    "base_rerun": 43195758,
+    "a": 43195758,
+    "a2": 43195758
+   },
+   "instructions::cost::set_remove random:built_set(\"random\")": {
+    "base": 23461873,
+    "base_rerun": 23461873,
+    "a": 23461873,
+    "a2": 23461873
+   },
+   "instructions::cost::set_remove_partial random60:built_partial_set(\"random60\")": {
+    "base": 78555947,
+    "base_rerun": 78555947,
+    "a": 78555947,
+    "a2": 78555947
+   },
+   "instructions::cost::set_shrink_drained random60:drained_partial_set(\"random60\")": {
+    "base": 11082041,
+    "base_rerun": 11082041,
+    "a": 11082041,
+    "a2": 11082041
+   },
+   "instructions::cost::set_subtree_boundary_oscillate band2:osc_setup(2)": {
+    "base": 17034911,
+    "base_rerun": 17034911,
+    "a": 17034911,
+    "a2": 17034911
+   },
+   "instructions::cost::set_subtree_boundary_oscillate band9:osc_setup(9)": {
+    "base": 71409567,
+    "base_rerun": 71409567,
+    "a": 71409567,
+    "a2": 71409567
+   },
+   "instructions::cost::set_subtree_condense h1:condense_setup(SUBTREE_T_H1 + 1)": {
+    "base": 638176,
+    "base_rerun": 638176,
+    "a": 638176,
+    "a2": 638176
+   },
+   "instructions::cost::set_subtree_condense wide:condense_setup(SUBTREE_T_WIDE + 1)": {
+    "base": 531235,
+    "base_rerun": 531235,
+    "a": 531235,
+    "a2": 531235
+   },
+   "instructions::cost::set_subtree_condense_control h1:condense_setup(SUBTREE_T_H1 + 2)": {
+    "base": 643683,
+    "base_rerun": 643683,
+    "a": 643683,
+    "a2": 643683
+   },
+   "instructions::cost::set_subtree_condense_control wide:condense_setup(SUBTREE_T_WIDE + 2)": {
+    "base": 554632,
+    "base_rerun": 554632,
+    "a": 554632,
+    "a2": 554632
+   },
+   "instructions::cost::set_subtree_split e1024:split_leaf_setup(expanse_trie :: types :: LEAF_CAP...": {
+    "base": 11814521,
+    "base_rerun": 11814521,
+    "a": 11814521,
+    "a2": 11814521
+   },
+   "instructions::cost::set_subtree_split_control e1024:split_leaf_setup(expanse_trie :: types :: LEAF_CAP...": {
+    "base": 385314,
+    "base_rerun": 385314,
+    "a": 385314,
+    "a2": 385314
+   },
+   "instructions::cost::short_bytesmap_get routes:built_short_routes(\"routes\")": {
+    "base": 25664549,
+    "base_rerun": 25664549,
+    "a": 25664549,
+    "a2": 25664549
+   },
+   "instructions::cost::short_bytesmap_get zmap:built_short_fixed8_mixed(\"zmap\")": {
+    "base": 29474549,
+    "base_rerun": 29474549,
+    "a": 29474549,
+    "a2": 29474549
+   },
+   "instructions::cost::short_bytesmap_insert zmap:fixed8_keys(\"zmap\")": {
+    "base": 41643841,
+    "base_rerun": 41643855,
+    "a": 41643841,
+    "a2": 41643842
+   },
+   "instructions::cost::short_bytesmap_remove zmap:built_short_fixed8(\"zmap\")": {
+    "base": 36415107,
+    "base_rerun": 36415107,
+    "a": 36415107,
+    "a2": 36415107
+   },
+   "instructions::cost::strmap_churn routes:built_strmap(\"routes\")": {
+    "base": 115475361,
+    "base_rerun": 115475361,
+    "a": 115475361,
+    "a2": 115475361
+   },
+   "instructions::cost::strmap_clear_refill routes:built_strmap(\"routes\")": {
+    "base": 51706114,
+    "base_rerun": 51706114,
+    "a": 51706114,
+    "a2": 51706114
+   },
+   "instructions::cost::strmap_cursor_scan paths:built_path_strmap(\"paths\")": {
+    "base": 9204895,
+    "base_rerun": 9204895,
+    "a": 9204895,
+    "a2": 9204895
+   },
+   "instructions::cost::strmap_cursor_scan paths_dense:built_path_strmap(\"paths_dense\")": {
+    "base": 13693955,
+    "base_rerun": 13693955,
+    "a": 13693955,
+    "a2": 13693955
+   },
+   "instructions::cost::strmap_get routes:built_strmap(\"routes\")": {
+    "base": 34975989,
+    "base_rerun": 34975989,
+    "a": 34975989,
+    "a2": 34975989
+   },
+   "instructions::cost::strmap_get_short short:built_strmap_short(\"short\")": {
+    "base": 20806523,
+    "base_rerun": 20806523,
+    "a": 20806523,
+    "a2": 20806523
+   },
+   "instructions::cost::strmap_insert routes:str_keys(\"routes\")": {
+    "base": 42266682,
+    "base_rerun": 42266682,
+    "a": 42266682,
+    "a2": 42266682
+   },
+   "instructions::cost::strmap_insert_plain routes:str_keys(\"routes\")": {
+    "base": 42266682,
+    "base_rerun": 42266682,
+    "a": 42266682,
+    "a2": 42266682
+   },
+   "instructions::cost::strmap_oscillate routes:str_keys(\"routes\")": {
+    "base": 27015909,
+    "base_rerun": 27015909,
+    "a": 27015909,
+    "a2": 27015909
+   },
+   "instructions::cost::strmap_prefix_bounded paths:built_path_strmap(\"paths\")": {
+    "base": 2622259,
+    "base_rerun": 2622259,
+    "a": 2622259,
+    "a2": 2622259
+   },
+   "instructions::cost::strmap_prefix_bounded paths_dense:built_path_strmap(\"paths_dense\")": {
+    "base": 3747206,
+    "base_rerun": 3747206,
+    "a": 3747206,
+    "a2": 3747206
+   },
+   "instructions::cost::strmap_prefix_scan paths:built_path_strmap(\"paths\")": {
+    "base": 2807170,
+    "base_rerun": 2807170,
+    "a": 2807170,
+    "a2": 2807170
+   },
+   "instructions::cost::strmap_prefix_scan paths_dense:built_path_strmap(\"paths_dense\")": {
+    "base": 3937229,
+    "base_rerun": 3937229,
+    "a": 3937229,
+    "a2": 3937229
+   },
+   "instructions::cost::strmap_prefix_seek paths:built_path_strmap(\"paths\")": {
+    "base": 146157,
+    "base_rerun": 146157,
+    "a": 146157,
+    "a2": 146157
+   },
+   "instructions::cost::strmap_prefix_seek paths_dense:built_path_strmap(\"paths_dense\")": {
+    "base": 145495,
+    "base_rerun": 145495,
+    "a": 145495,
+    "a2": 145495
+   },
+   "instructions::cost::strmap_raw_cursor clean:built_raw_strmap(\"clean\")": {
+    "base": 14534087,
+    "base_rerun": 14534087,
+    "a": 14534087,
+    "a2": 14534087
+   },
+   "instructions::cost::strmap_raw_get clean:built_raw_strmap(\"clean\")": {
+    "base": 17390273,
+    "base_rerun": 17390273,
+    "a": 17390273,
+    "a2": 17390273
+   },
+   "instructions::cost::strmap_raw_insert clean:transcode_keys(\"clean\")": {
+    "base": 40575995,
+    "base_rerun": 40575995,
+    "a": 40575995,
+    "a2": 40575995
+   },
+   "instructions::cost::strmap_refill routes:built_strmap(\"routes\")": {
+    "base": 98849475,
+    "base_rerun": 98849475,
+    "a": 98849475,
+    "a2": 98849475
+   },
+   "instructions::cost::strmap_refill_small routes:small_strmap(\"routes\")": {
+    "base": 83681722,
+    "base_rerun": 83681722,
+    "a": 83681722,
+    "a2": 83681722
+   },
+   "instructions::cost::strmap_transcode_cursor clean:built_transcode_strmap(\"clean\")": {
+    "base": 25734088,
+    "base_rerun": 25734088,
+    "a": 25734088,
+    "a2": 25734088
+   },
+   "instructions::cost::strmap_transcode_cursor escaped:built_transcode_strmap(\"escaped\")": {
+    "base": 39120684,
+    "base_rerun": 39120684,
+    "a": 39120684,
+    "a2": 39120684
+   },
+   "instructions::cost::strmap_transcode_get clean:built_transcode_strmap(\"clean\")": {
+    "base": 21640275,
+    "base_rerun": 21640275,
+    "a": 21640275,
+    "a2": 21640275
+   },
+   "instructions::cost::strmap_transcode_get escaped:built_transcode_strmap(\"escaped\")": {
+    "base": 62650839,
+    "base_rerun": 62650839,
+    "a": 62650839,
+    "a2": 62650839
+   },
+   "instructions::cost::strmap_transcode_insert clean:transcode_keys(\"clean\")": {
+    "base": 44777066,
+    "base_rerun": 44777066,
+    "a": 44777066,
+    "a2": 44777066
+   },
+   "instructions::cost::strmap_transcode_insert escaped:transcode_keys(\"escaped\")": {
+    "base": 90870059,
+    "base_rerun": 90870059,
+    "a": 90870059,
+    "a2": 90870059
+   },
+   "instructions::cost::sync32_map_get bitmap:built_sync32_read(\"bitmap\")": {
+    "base": 1452470,
+    "base_rerun": 1452470,
+    "a": 1452470,
+    "a2": 1452470
+   },
+   "instructions::cost::sync32_map_get linear:built_sync32_read(\"linear\")": {
+    "base": 1782630,
+    "base_rerun": 1782630,
+    "a": 1782630,
+    "a2": 1782630
+   },
+   "instructions::cost::sync32_map_get linear_wide:built_sync32_read(\"linear_wide\")": {
+    "base": 1460624,
+    "base_rerun": 1460624,
+    "a": 1460624,
+    "a2": 1460624
+   },
+   "instructions::cost::sync32_map_write churn:built_sync32_write(\"churn\")": {
+    "base": 1125125,
+    "base_rerun": 1125125,
+    "a": 1125125,
+    "a2": 1125125
+   },
+   "instructions::cost::sync32_map_write overwrite:built_sync32_write(\"overwrite\")": {
+    "base": 1472444,
+    "base_rerun": 1472444,
+    "a": 1472444,
+    "a2": 1472444
+   },
+   "instructions::cost::sync32_map_write overwrite_same:built_sync32_write(\"overwrite_same\")": {
+    "base": 608444,
+    "base_rerun": 608444,
+    "a": 608444,
+    "a2": 608444
+   },
+   "instructions::cost::sync_blobmap_churn random:built_sync_blobmap(\"random\")": {
+    "base": 121437540,
+    "base_rerun": 121437540,
+    "a": 121437540,
+    "a2": 121437540
+   },
+   "instructions::cost::sync_blobmap_compact random:built_sync_blobmap_garbage(\"random\")": {
+    "base": 19339983,
+    "base_rerun": 19339983,
+    "a": 19339983,
+    "a2": 19339983
+   },
+   "instructions::cost::sync_blobmap_compare_exchange random:built_sync_blobmap(\"random\")": {
+    "base": 50745407,
+    "base_rerun": 50745407,
+    "a": 50745407,
+    "a2": 50745407
+   },
+   "instructions::cost::sync_blobmap_get random:built_sync_blobmap(\"random\")": {
+    "base": 19659573,
+    "base_rerun": 19659573,
+    "a": 19659573,
+    "a2": 19659573
+   },
+   "instructions::cost::sync_blobmap_get_into random:built_sync_blobmap(\"random\")": {
+    "base": 19991771,
+    "base_rerun": 19991771,
+    "a": 19991771,
+    "a2": 19991771
+   },
+   "instructions::cost::sync_blobmap_insert random:keys(\"random\")": {
+    "base": 55400148,
+    "base_rerun": 55400148,
+    "a": 55400148,
+    "a2": 55400148
+   },
+   "instructions::cost::sync_blobmap_insert_reclaiming random:built_sync_blobmap_reclaiming(\"random\")": {
+    "base": 700007,
+    "base_rerun": 700007,
+    "a": 700007,
+    "a2": 700007
+   },
+   "instructions::cost::sync_blobmap_overwrite random:built_sync_blobmap(\"random\")": {
+    "base": 32519216,
+    "base_rerun": 32519216,
+    "a": 32519216,
+    "a2": 32519216
+   },
+   "instructions::cost::sync_blobmap_reclaim_free random:built_sync_blobmap_reclaim_free(\"random\")": {
+    "base": 251840,
+    "base_rerun": 251840,
+    "a": 251840,
+    "a2": 251840
+   },
+   "instructions::cost::sync_blobmap_remove random:built_sync_blobmap(\"random\")": {
+    "base": 49473494,
+    "base_rerun": 49473494,
+    "a": 49473494,
+    "a2": 49473494
+   },
+   "instructions::cost::sync_blobmap_remove_miss random:built_sync_blobmap_misses(\"random\")": {
+    "base": 17847043,
+    "base_rerun": 17847043,
+    "a": 17847043,
+    "a2": 17847043
+   },
+   "instructions::cost::sync_bytesmap_churn routes:built_sync_bytesmap(\"routes\")": {
+    "base": 247587284,
+    "base_rerun": 247587284,
+    "a": 247587284,
+    "a2": 247587284
+   },
+   "instructions::cost::sync_bytesmap_compare_exchange routes:built_sync_bytesmap_rmw(\"routes\")": {
+    "base": 120977700,
+    "base_rerun": 120977700,
+    "a": 120977700,
+    "a2": 120977700
+   },
+   "instructions::cost::sync_bytesmap_get routes:built_sync_bytesmap(\"routes\")": {
+    "base": 31450629,
+    "base_rerun": 31450629,
+    "a": 31450629,
+    "a2": 31450629
+   },
+   "instructions::cost::sync_bytesmap_insert routes:str_keys(\"routes\")": {
+    "base": 107455277,
+    "base_rerun": 107455277,
+    "a": 107455277,
+    "a2": 107455277
+   },
+   "instructions::cost::sync_bytesmap_overwrite routes:built_sync_bytesmap(\"routes\")": {
+    "base": 53697535,
+    "base_rerun": 53697535,
+    "a": 53697535,
+    "a2": 53697535
+   },
+   "instructions::cost::sync_bytesmap_remove routes:built_sync_bytesmap(\"routes\")": {
+    "base": 131067808,
+    "base_rerun": 131067808,
+    "a": 131067808,
+    "a2": 131067808
+   },
+   "instructions::cost::sync_bytesmap_update routes:built_sync_bytesmap_rmw(\"routes\")": {
+    "base": 94729090,
+    "base_rerun": 94729090,
+    "a": 94729090,
+    "a2": 94729090
+   },
+   "instructions::cost::sync_map_branchu_band top:built_sync_map_band(\"top\")": {
+    "base": 8970814,
+    "base_rerun": 8970814,
+    "a": 8970814,
+    "a2": 8970814
+   },
+   "instructions::cost::sync_map_churn leaf:built_sync_map_leaf(\"leaf\")": {
+    "base": 99330496,
+    "base_rerun": 99330496,
+    "a": 99330496,
+    "a2": 99330496
+   },
+   "instructions::cost::sync_map_churn random:built_sync_map(\"random\")": {
+    "base": 117975529,
+    "base_rerun": 117975529,
+    "a": 117975529,
+    "a2": 117975529
+   },
+   "instructions::cost::sync_map_compact_baseline random60:drained_partial_sync_map(\"random60\")": {
+    "base": 44927142,
+    "base_rerun": 44927142,
+    "a": 44927135,
+    "a2": 44927135
+   },
+   "instructions::cost::sync_map_compact_drained random60:drained_partial_sync_map(\"random60\")": {
+    "base": 20499921,
+    "base_rerun": 20499914,
+    "a": 20499921,
+    "a2": 20499921
+   },
+   "instructions::cost::sync_map_compare_exchange random:built_sync_map(\"random\")": {
+    "base": 40799226,
+    "base_rerun": 40799226,
+    "a": 40799226,
+    "a2": 40799226
+   },
+   "instructions::cost::sync_map_count_after_write one_top_byte:built_sync_map_count(\"one_top_byte\")": {
+    "base": 1709592655,
+    "base_rerun": 1709592655,
+    "a": 1709592655,
+    "a2": 1709592655
+   },
+   "instructions::cost::sync_map_count_after_write random:built_sync_map_count(\"random\")": {
+    "base": 34889614,
+    "base_rerun": 34889614,
+    "a": 34889614,
+    "a2": 34889614
+   },
+   "instructions::cost::sync_map_count_after_write sequential:built_sync_map_count(\"sequential\")": {
+    "base": 14456731,
+    "base_rerun": 14456731,
+    "a": 14456731,
+    "a2": 14456731
+   },
+   "instructions::cost::sync_map_count_locked one_top_byte:built_sync_map_count(\"one_top_byte\")": {
+    "base": 11110209,
+    "base_rerun": 11110209,
+    "a": 11110209,
+    "a2": 11110209
+   },
+   "instructions::cost::sync_map_count_locked random:built_sync_map_count(\"random\")": {
+    "base": 11049679,
+    "base_rerun": 11049679,
+    "a": 11049679,
+    "a2": 11049679
+   },
+   "instructions::cost::sync_map_count_locked sequential:built_sync_map_count(\"sequential\")": {
+    "base": 4426917,
+    "base_rerun": 4426917,
+    "a": 4426917,
+    "a2": 4426917
+   },
+   "instructions::cost::sync_map_drain_floor top:built_sync_map_floor(\"top\")": {
+    "base": 197329,
+    "base_rerun": 197329,
+    "a": 197329,
+    "a2": 197329
+   },
+   "instructions::cost::sync_map_get leaf:built_sync_map_leaf(\"leaf\")": {
+    "base": 7554516,
+    "base_rerun": 7554516,
+    "a": 7554516,
+    "a2": 7554516
+   },
+   "instructions::cost::sync_map_get random:built_sync_map(\"random\")": {
+    "base": 14946993,
+    "base_rerun": 14946993,
+    "a": 14946993,
+    "a2": 14946993
+   },
+   "instructions::cost::sync_map_insert random:keys(\"random\")": {
+    "base": 48327462,
+    "base_rerun": 48327462,
+    "a": 48327462,
+    "a2": 48327462
+   },
+   "instructions::cost::sync_map_next_after_scan clustered:built_sync_map(\"clustered\")": {
+    "base": 26299959,
+    "base_rerun": 26299959,
+    "a": 26299959,
+    "a2": 26299959
+   },
+   "instructions::cost::sync_map_next_after_scan random:built_sync_map(\"random\")": {
+    "base": 33004872,
+    "base_rerun": 33004872,
+    "a": 33004872,
+    "a2": 33004872
+   },
+   "instructions::cost::sync_map_next_after_scan sequential:built_sync_map(\"sequential\")": {
+    "base": 35301481,
+    "base_rerun": 35301481,
+    "a": 35301481,
+    "a2": 35301481
+   },
+   "instructions::cost::sync_map_prev random:built_sync_map(\"random\")": {
+    "base": 34041421,
+    "base_rerun": 34041421,
+    "a": 34041421,
+    "a2": 34041421
+   },
+   "instructions::cost::sync_map_prev_locked random:built_sync_map(\"random\")": {
+    "base": 57180347,
+    "base_rerun": 57180347,
+    "a": 57180347,
+    "a2": 57180347
+   },
+   "instructions::cost::sync_map_remove random:built_sync_map(\"random\")": {
+    "base": 47850145,
+    "base_rerun": 47850145,
+    "a": 47850145,
+    "a2": 47850145
+   },
+   "instructions::cost::sync_map_scan clustered:built_sync_map(\"clustered\")": {
+    "base": 4544413,
+    "base_rerun": 4544413,
+    "a": 4544413,
+    "a2": 4544413
+   },
+   "instructions::cost::sync_map_scan random:built_sync_map(\"random\")": {
+    "base": 10202171,
+    "base_rerun": 10202171,
+    "a": 10202171,
+    "a2": 10202171
+   },
+   "instructions::cost::sync_map_scan sequential:built_sync_map(\"sequential\")": {
+    "base": 4541467,
+    "base_rerun": 4541467,
+    "a": 4541467,
+    "a2": 4541467
+   },
+   "instructions::cost::sync_map_update random:built_sync_map(\"random\")": {
+    "base": 40799226,
+    "base_rerun": 40799226,
+    "a": 40799226,
+    "a2": 40799226
+   },
+   "instructions::cost::sync_map_write_twin one_top_byte:built_sync_map_count(\"one_top_byte\")": {
+    "base": 1782576,
+    "base_rerun": 1782576,
+    "a": 1782576,
+    "a2": 1782576
+   },
+   "instructions::cost::sync_map_write_twin random:built_sync_map_count(\"random\")": {
+    "base": 1607868,
+    "base_rerun": 1607868,
+    "a": 1607868,
+    "a2": 1607868
+   },
+   "instructions::cost::sync_map_write_twin sequential:built_sync_map_count(\"sequential\")": {
+    "base": 2133805,
+    "base_rerun": 2133805,
+    "a": 2133805,
+    "a2": 2133805
+   },
+   "instructions::cost::sync_set_churn leaf:built_sync_set_leaf(\"leaf\")": {
+    "base": 85463509,
+    "base_rerun": 85463509,
+    "a": 85463509,
+    "a2": 85463509
+   },
+   "instructions::cost::sync_set_churn random:built_sync_set(\"random\")": {
+    "base": 92284910,
+    "base_rerun": 92284910,
+    "a": 92284910,
+    "a2": 92284910
+   },
+   "instructions::cost::sync_set_compact_baseline random60:drained_partial_sync_set(\"random60\")": {
+    "base": 22629362,
+    "base_rerun": 22629362,
+    "a": 22629369,
+    "a2": 22629369
+   },
+   "instructions::cost::sync_set_compact_drained random60:drained_partial_sync_set(\"random60\")": {
+    "base": 18901377,
+    "base_rerun": 18901384,
+    "a": 18901377,
+    "a2": 18901377
+   },
+   "instructions::cost::sync_set_contains leaf:built_sync_set_leaf(\"leaf\")": {
+    "base": 7104686,
+    "base_rerun": 7104686,
+    "a": 7104686,
+    "a2": 7104686
+   },
+   "instructions::cost::sync_set_contains random:built_sync_set(\"random\")": {
+    "base": 14754943,
+    "base_rerun": 14754943,
+    "a": 14754943,
+    "a2": 14754943
+   },
+   "instructions::cost::sync_set_drain_floor top:built_sync_set_floor(\"top\")": {
+    "base": 194105,
+    "base_rerun": 194105,
+    "a": 194105,
+    "a2": 194105
+   },
+   "instructions::cost::sync_set_insert random:keys(\"random\")": {
+    "base": 44735116,
+    "base_rerun": 44735116,
+    "a": 44735116,
+    "a2": 44735116
+   },
+   "instructions::cost::sync_set_next_after_scan clustered:built_sync_set(\"clustered\")": {
+    "base": 25022329,
+    "base_rerun": 25022329,
+    "a": 25022329,
+    "a2": 25022329
+   },
+   "instructions::cost::sync_set_next_after_scan random:built_sync_set(\"random\")": {
+    "base": 33592531,
+    "base_rerun": 33592531,
+    "a": 33592531,
+    "a2": 33592531
+   },
+   "instructions::cost::sync_set_next_after_scan sequential:built_sync_set(\"sequential\")": {
+    "base": 32954973,
+    "base_rerun": 32954973,
+    "a": 32954973,
+    "a2": 32954973
+   },
+   "instructions::cost::sync_set_next_after_scan_locked clustered:built_sync_set(\"clustered\")": {
+    "base": 48035213,
+    "base_rerun": 48035213,
+    "a": 48035213,
+    "a2": 48035213
+   },
+   "instructions::cost::sync_set_next_after_scan_locked random:built_sync_set(\"random\")": {
+    "base": 57120698,
+    "base_rerun": 57120698,
+    "a": 57120698,
+    "a2": 57120698
+   },
+   "instructions::cost::sync_set_next_after_scan_locked sequential:built_sync_set(\"sequential\")": {
+    "base": 53167570,
+    "base_rerun": 53167570,
+    "a": 53167570,
+    "a2": 53167570
+   },
+   "instructions::cost::sync_set_prev immed:built_sync_set_immed(\"immed\")": {
+    "base": 57114019,
+    "base_rerun": 57114019,
+    "a": 57114019,
+    "a2": 57114019
+   },
+   "instructions::cost::sync_set_prev leaf:built_sync_set_leaf_prev(\"leaf\")": {
+    "base": 7002670,
+    "base_rerun": 7002670,
+    "a": 7002670,
+    "a2": 7002670
+   },
+   "instructions::cost::sync_set_prev random:built_sync_set(\"random\")": {
+    "base": 33101648,
+    "base_rerun": 33101648,
+    "a": 33101648,
+    "a2": 33101648
+   },
+   "instructions::cost::sync_set_prev_locked immed:built_sync_set_immed(\"immed\")": {
+    "base": 78542796,
+    "base_rerun": 78542796,
+    "a": 78542796,
+    "a2": 78542796
+   },
+   "instructions::cost::sync_set_prev_locked leaf:built_sync_set_leaf_prev(\"leaf\")": {
+    "base": 37281424,
+    "base_rerun": 37281424,
+    "a": 37281424,
+    "a2": 37281424
+   },
+   "instructions::cost::sync_set_prev_locked random:built_sync_set(\"random\")": {
+    "base": 57961669,
+    "base_rerun": 57961669,
+    "a": 57961669,
+    "a2": 57961669
+   },
+   "instructions::cost::sync_set_remove random:built_sync_set(\"random\")": {
+    "base": 38038144,
+    "base_rerun": 38038144,
+    "a": 38038144,
+    "a2": 38038144
+   },
+   "instructions::cost::sync_strmap_churn routes:built_sync_strmap(\"routes\")": {
+    "base": 191292569,
+    "base_rerun": 191292569,
+    "a": 191292569,
+    "a2": 191292569
+   },
+   "instructions::cost::sync_strmap_churn_short short:built_sync_strmap_short(\"short\")": {
+    "base": 227424687,
+    "base_rerun": 227424687,
+    "a": 227424687,
+    "a2": 227424687
+   },
+   "instructions::cost::sync_strmap_compare_exchange routes:built_sync_strmap(\"routes\")": {
+    "base": 122776604,
+    "base_rerun": 122776604,
+    "a": 122776604,
+    "a2": 122776604
+   },
+   "instructions::cost::sync_strmap_get_short short:built_sync_strmap_short(\"short\")": {
+    "base": 29883512,
+    "base_rerun": 29883512,
+    "a": 29883512,
+    "a2": 29883512
+   },
+   "instructions::cost::sync_strmap_insert routes:str_keys(\"routes\")": {
+    "base": 77897942,
+    "base_rerun": 77897942,
+    "a": 77897942,
+    "a2": 77897942
+   },
+   "instructions::cost::sync_strmap_insert_short short:short_keys(\"short\")": {
+    "base": 99877186,
+    "base_rerun": 99877186,
+    "a": 99877179,
+    "a2": 99877179
+   },
+   "instructions::cost::sync_strmap_insert_sorted uuid:uuid_keys_sorted(\"uuid\")": {
+    "base": 46645998,
+    "base_rerun": 46645998,
+    "a": 46645991,
+    "a2": 46645991
+   },
+   "instructions::cost::sync_strmap_mem_used routes:built_sync_strmap(\"routes\")": {
+    "base": 5851763,
+    "base_rerun": 5851763,
+    "a": 5851763,
+    "a2": 5851763
+   },
+   "instructions::cost::sync_strmap_mem_used short:built_sync_strmap_short(\"short\")": {
+    "base": 5852065,
+    "base_rerun": 5852065,
+    "a": 5852065,
+    "a2": 5852065
+   },
+   "instructions::cost::sync_strmap_next_after_scan_locked paths:built_sync_path_strmap(\"paths\")": {
+    "base": 118329432,
+    "base_rerun": 118329432,
+    "a": 118329432,
+    "a2": 118329432
+   },
+   "instructions::cost::sync_strmap_next_after_scan_locked paths_dense:built_sync_path_strmap(\"paths_dense\")": {
+    "base": 134261389,
+    "base_rerun": 134261389,
+    "a": 134261389,
+    "a2": 134261389
+   },
+   "instructions::cost::sync_strmap_remove routes:built_sync_strmap(\"routes\")": {
+    "base": 86364129,
+    "base_rerun": 86364129,
+    "a": 86364129,
+    "a2": 86364129
+   },
+   "instructions::cost::sync_strmap_scan paths:built_sync_path_strmap(\"paths\")": {
+    "base": 19328963,
+    "base_rerun": 19328963,
+    "a": 19328963,
+    "a2": 19328963
+   },
+   "instructions::cost::sync_strmap_scan paths_dense:built_sync_path_strmap(\"paths_dense\")": {
+    "base": 34724457,
+    "base_rerun": 34724457,
+    "a": 34724457,
+    "a2": 34724457
+   },
+   "instructions::cost::sync_strmap_scan_locked paths:built_sync_path_strmap(\"paths\")": {
+    "base": 9155815,
+    "base_rerun": 9155815,
+    "a": 9155815,
+    "a2": 9155815
+   },
+   "instructions::cost::sync_strmap_scan_locked paths_dense:built_sync_path_strmap(\"paths_dense\")": {
+    "base": 13644632,
+    "base_rerun": 13644632,
+    "a": 13644632,
+    "a2": 13644632
+   },
+   "instructions::cost::sync_strmap_scan_pointops paths:built_sync_path_strmap(\"paths\")": {
+    "base": 183267997,
+    "base_rerun": 183267997,
+    "a": 183267997,
+    "a2": 183267997
+   },
+   "instructions::cost::sync_strmap_scan_pointops paths_dense:built_sync_path_strmap(\"paths_dense\")": {
+    "base": 172527262,
+    "base_rerun": 172527262,
+    "a": 172527262,
+    "a2": 172527262
+   },
+   "instructions::cost::sync_strmap_short_scan user22:built_sync_strmap_short_scan(\"user22\")": {
+    "base": 93102255,
+    "base_rerun": 93102255,
+    "a": 93102255,
+    "a2": 93102255
+   },
+   "instructions::cost::sync_strmap_short_scan_capped user22:built_sync_strmap_short_scan(\"user22\")": {
+    "base": 64160857,
+    "base_rerun": 64160857,
+    "a": 64160857,
+    "a2": 64160857
+   },
+   "instructions::cost::sync_strmap_update routes:built_sync_strmap(\"routes\")": {
+    "base": 73393820,
+    "base_rerun": 73393820,
+    "a": 73393820,
+    "a2": 73393820
+   },
+   "instructions::range_cost::map_range clustered:built_map(\"clustered\")": {
+    "base": 350751,
+    "base_rerun": 350751,
+    "a": 350751,
+    "a2": 350751
+   },
+   "instructions::range_cost::map_range random:built_map(\"random\")": {
+    "base": 68640,
+    "base_rerun": 68640,
+    "a": 68640,
+    "a2": 68640
+   },
+   "instructions::range_cost::map_range sequential:built_map(\"sequential\")": {
+    "base": 408758,
+    "base_rerun": 408758,
+    "a": 408758,
+    "a2": 408758
+   },
+   "instructions::range_cost::set_range clustered:built_set(\"clustered\")": {
+    "base": 266760,
+    "base_rerun": 266760,
+    "a": 266760,
+    "a2": 266760
+   },
+   "instructions::range_cost::set_range random:built_set(\"random\")": {
+    "base": 72710,
+    "base_rerun": 72710,
+    "a": 72710,
+    "a2": 72710
+   },
+   "instructions::range_cost::set_range sequential:built_set(\"sequential\")": {
+    "base": 203732,
+    "base_rerun": 203732,
+    "a": 203732,
+    "a2": 203732
+   }
+  }
+ }
+}
