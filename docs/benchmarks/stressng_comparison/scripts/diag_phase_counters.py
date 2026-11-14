@@ -19,6 +19,7 @@ Environment: SNG_D, REPO_ROOT, SNG_PHASE_ROUNDS (default 12, a multiple of 6).
 """
 import itertools
 import json
+import math
 import os
 import platform
 import random
@@ -108,6 +109,16 @@ elif SET == "big_pfn":
     ARMS = {"N": f"{driver.D}/expcompat-{os.environ['SNG_MAIN']}/lib", "S": driver.ARMS["S"]}
     SHAPES = [("judy_4m", 1, 4_194_304), ("del_4m", 1, 4_194_304)]
     PREFLIGHT = ("judy_4m", 1, "N")
+elif SET == "big_pf":
+    # The 4 Mi phases repeated within one process (README.md, "Diagnostic:
+    # the 4 Mi phases repeated in one process"): N and S as in big_main. The
+    # probe counts each repetition itself (SNG_SELFCOUNT=1) and compares each
+    # repetition's [heap] frames with the first's (SNG_LAYOUT=3, aggregates
+    # only), its one command under `sudo -n` as in big_pfn.
+    ARMS = {"N": f"{driver.D}/expcompat-{os.environ['SNG_MAIN']}/lib", "S": driver.ARMS["S"]}
+    REPS = 4
+    SHAPES = [("judy_4m", REPS, REPS * 4_194_304), ("del_4m", REPS, REPS * 4_194_304)]
+    PREFLIGHT = ("sm_big", 1, "N")
 elif SET == "gets_inc":
     # The #1680 shapes on an engine increment (README.md, "Diagnostic: where
     # the #1680 shapes mispredict and miss"): G is the increment's head and M
@@ -150,6 +161,11 @@ elif SET == "delete_acct":
                        "br_inst_retired.near_taken"]}
 if SET in ("big_layout", "big_pfn"):
     GROUPS = {"mem": GROUPS["mem"]}
+elif SET == "big_pf":
+    # The probe's own counter group (phase_probe.c, SNG_SELFCOUNT), in its
+    # order after cycles and instructions; the preflight runs it under perf.
+    GROUPS = {"pf": ["mem_load_retired.l1_miss", "mem_load_retired.fb_hit",
+                     "l1d.replacement", "l1d.hwpf_miss"]}
 # Arms that run the probe with address-space randomisation off, and the stock arms.
 NORAND = {"NR", "SR"}
 STOCK = {"S", "SR"}
@@ -165,6 +181,45 @@ def build_probe():
     subprocess.run(["cc", "-std=c11", "-O2", "-Wall", "-Werror", f"-I{driver.REPO_ROOT}/include",
                     str(src), "-o", out, f"{ARMS['S']}/libJudy.so.1"], check=True)
     return out
+
+
+def self_phase(shape, repeats, arm, base):
+    """big_pf: one probe process counting its own repetitions (phase_probe.c,
+    SNG_SELFCOUNT=1), under `sudo -n` so its pagemap shows frames."""
+    events = FIXED + GROUPS["pf"]
+    cmd = ["sudo", "-n", "env", f"LD_LIBRARY_PATH={ARMS[arm]}", "SNG_LAYOUT=3", "SNG_SELFCOUNT=1",
+           PROBE, shape, str(repeats), "-", "-"]
+    t0 = time.monotonic()
+    with open(base + ".log", "w") as lf:
+        p = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT)
+        _, status, ru = os.wait4(p.pid, 0)
+    wall = time.monotonic() - t0
+    rc = os.waitstatus_to_exitcode(status)
+    text = Path(base + ".log").read_text()
+    if rc != 0:
+        sys.exit(f"STOP: probe exited {rc} for {shape} on arm {arm}: {text[-800:]}")
+    reps, frames = [], []
+    for ln in text.splitlines():
+        f = ln.split()
+        if f[:1] == ["rep"]:
+            # rep <r> cpu <a> <b> enabled <ns> running <ns> counts <6>
+            reps.append({"rep": int(f[1]), "cpu": [int(f[3]), int(f[4])], "enabled": int(f[6]),
+                         "running": int(f[8]), "counters": dict(zip(events, map(int, f[10:])))})
+        elif f[:2] == ["layout", "pfn_rep"]:
+            frames.append({"rep": int(f[2]), "pages": int(f[3]), "zero": int(f[4]), "same": int(f[5])})
+    if [r["rep"] for r in reps] != list(range(repeats)) or [x["rep"] for x in frames] != list(range(repeats)):
+        sys.exit(f"STOP: {shape} on arm {arm} reported reps {[r['rep'] for r in reps]} and frames "
+                 f"{[x['rep'] for x in frames]}, not 0..{repeats - 1}")
+    for r in reps:
+        if r["running"] != r["enabled"] or r["enabled"] == 0:
+            sys.exit(f"STOP: {shape} rep {r['rep']} on arm {arm} was multiplexed or never ran: {r}")
+        if any(len(r["counters"]) != len(events) or v <= 0 for v in r["counters"].values()):
+            sys.exit(f"STOP: {shape} rep {r['rep']} on arm {arm} has a zero counter: {r}")
+    for x in frames:
+        if x["pages"] == 0 or x["zero"] != 0:
+            sys.exit(f"STOP: frames not readable for {shape} rep {x['rep']} on arm {arm}: {x}")
+    rows = {e: math.fsum(r["counters"][e] for r in reps) for e in events}
+    return wall, ru, rows, reps, frames
 
 
 def perf_phase(events, shape, repeats, arm, base):
@@ -223,6 +278,15 @@ def preflight(outdir):
             if a > 0 and t == 0:
                 sys.exit(f"STOP: {e} counts {a:.0f} alone and 0 in group {gname} (#1177)")
             report[e] = {"group": gname, "alone": a, "in_group": t}
+    if SET == "big_pf":
+        # The probe's own count covers what perf stat's bracket covers: one
+        # judy_4m repetition's instructions agree within 0.5%.
+        _, _, viaperf = perf_phase(FIXED + GROUPS["pf"], "judy_4m", 1, "N", f"{outdir}/pre_x_perf")
+        _, _, own, _, _ = self_phase("judy_4m", 1, "N", f"{outdir}/pre_x_self")
+        a, b = viaperf["instructions"][0], own["instructions"]
+        if abs(a / b - 1) > 0.005:
+            sys.exit(f"STOP: self-counted instructions {b:.0f} vs perf stat {a:.0f} on judy_4m")
+        report["selfcount_crosscheck"] = {"perf_instructions": a, "self_instructions": b}
     return report
 
 
@@ -259,12 +323,13 @@ def main():
         sha256={"probe": driver.sha256(PROBE),
                 **{f"arm_{a}": driver.sha256(f"{d}/libJudy.so.1") for a, d in ARMS.items()}},
         library_proof=proof)
-    if SET == "big_pfn":
+    if SET in ("big_pfn", "big_pf"):
         if subprocess.run(["sudo", "-n", "true"]).returncode != 0:
             sys.exit("STOP: no non-interactive privilege (sudo -n); the frames cannot be read")
-        prov["privilege"] = "sudo -n on each per-process perf stat + phase_probe command"
+        prov["privilege"] = ("sudo -n on each per-process perf stat + phase_probe command" if SET == "big_pfn"
+                             else "sudo -n on each per-process phase_probe command")
         prov["numa_nodes"] = len([d for d in os.listdir("/sys/devices/system/node") if re.fullmatch(r"node\d+", d)])
-    if SET in ("big_layout", "big_pfn"):
+    if SET in ("big_layout", "big_pfn", "big_pf"):
         prov["randomize_va_space"] = Path("/proc/sys/kernel/randomize_va_space").read_text().strip()
         prov["thp_enabled"] = Path("/sys/kernel/mm/transparent_hugepage/enabled").read_text().strip()
         prov["norand_arms"] = sorted(NORAND & set(ARMS))
@@ -280,14 +345,21 @@ def main():
                         sys.exit(f"STOP: MemAvailable below {driver.MEM_FLOOR_GIB} GiB")
                     base = f"{outdir}/r{rnd}_{shape}_{g}_{arm}"
                     start = bp.begin_cell(prov, f"cell:{shape}:{g}:{arm}:r{rnd}")
-                    wall, ru, rows = perf_phase(FIXED + GROUPS[g], shape, repeats, arm, base)
+                    if SET == "big_pf":
+                        wall, ru, sums, reps, frames = self_phase(shape, repeats, arm, base)
+                        rows = {e: (v, 100.0) for e, v in sums.items()}
+                    else:
+                        wall, ru, rows = perf_phase(FIXED + GROUPS[g], shape, repeats, arm, base)
                     load = bp.end_cell(start)
-                    dfc.check_rows(rows, FIXED + GROUPS[g], f"r{rnd} {shape} {g} {arm}")
+                    if SET != "big_pf":
+                        dfc.check_rows(rows, FIXED + GROUPS[g], f"r{rnd} {shape} {g} {arm}")
                     rec = dict(run=run, round=rnd, cell=shape, group=g, arm=arm, order="".join(arms),
                                rc=0, failed=False, wall=wall, ops=ops,
                                own_cpu=ru.ru_utime + ru.ru_stime, load=load,
                                counters={e: rows[e][0] for e in FIXED + GROUPS[g]
                                          + (["phase_ns"] if SET in ("delete_acct", "promote2") else [])})
+                    if SET == "big_pf":
+                        rec["reps"], rec["frames"] = reps, frames
                     if SET in ("big_layout", "big_pfn"):
                         lay = [ln.split()[1:] for ln in Path(base + ".log").read_text().splitlines()
                                if ln.startswith("layout ")]

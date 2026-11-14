@@ -1570,6 +1570,35 @@ As derived, a virtual-address model does not produce the state: moving the layou
 - frame contiguity or L2 page colour (no association).
 
 Its cause is unidentified. What these instruments leave out includes the last-level cache's slice hash, which is undocumented, and hardware state such as prefetcher and replacement behaviour. None of them is named as a cause.
+[The 4 Mi phases repeated in one process](#diagnostic-the-4-mi-phases-repeated-in-one-process) tests both.
+
+## Diagnostic: the 4 Mi phases repeated in one process
+
+**A diagnostic, not a pre-registered result** (#1679, #1680). [The physical-frame diagnostic](#diagnostic-the-4-mi-phases-physical-frames) left two untested candidates for N's per-process high-miss state: the last-level cache's slice hash, and hardware state such as prefetcher and replacement behaviour. Neither can be read directly. The slice hash is undocumented, and no counter reads replacement state. This design separates them by repeating the phase inside one process and asking whether the state follows that process's physical frames.
+
+**Premise.** The slice-selection function maps a physical address to a slice, and it does not change while the host runs. Maurice et al. reverse-engineered it on earlier Intel parts as a fixed function of the physical address bits ("Reverse Engineering Intel Last-Level Cache Complex Addressing Using Performance Counters", RAID 2015). This design assumes the same holds on this host's part and does not reconstruct the function. A state the slice hash determines therefore cannot change while the frames stay the same, and cannot persist when they are replaced.
+
+**Not available under the owner's terms.** Prefetchers are switched off by writing a model-specific register, which changes the host's configuration. So this design can only *associate* prefetch counters with the state: it can neither establish prefetching as the cause nor rule it out. No counter observes replacement state, so replacement is not tested beyond what persistence shows.
+
+**Design, fixed before the run** (`scripts/diag_phase_counters.py` with `SNG_PHASE_SET=big_pf`, `run.sh <run> <host> phase_big_pf`):
+- **Arms.** N, main's library (`SNG_MAIN`), and S, stock, as in the earlier 4 Mi diagnostics.
+- **Shapes.** `judy_4m` and `del_4m`, each run **four times in one process**. `judy_4m` frees the array outside the phase between repetitions; `del_4m` rebuilds it outside the phase.
+- **Counting.** The probe counts each repetition itself (`phase_probe.c`, `SNG_SELFCOUNT=1`). One counter group on the `cpu_core` PMU, user mode only, is reset and enabled just before the phase and disabled just after it. It holds `cycles`, `instructions`, `mem_load_retired.l1_miss`, `mem_load_retired.fb_hit`, `l1d.replacement` and `l1d.hwpf_miss`, with raw encodings from the host's `perf list`. A repetition that was multiplexed (time running below time enabled) or has a zero counter stops the run. The preflight runs the four events under `perf stat` for the co-scheduling check (#1177). It also compares the probe's own instruction count for one `judy_4m` repetition with `perf stat`'s, and stops if they differ by more than 0.5%. The CPU is read just before the phase and again just after it.
+- **Frames.** Outside the phase, after each repetition, the probe reads its `[heap]` frames through `/proc/self/pagemap` and prints only counts: present pages, pages whose frame reads 0, and pages on the same frame at the same virtual page as in the previous repetition. Frame numbers stay in the process's memory and are never printed. The single per-process command runs under `sudo -n`, as in the physical-frame diagnostic. Nothing else is elevated and no host setting changes.
+- 24 rounds per run, two runs on the reference host under the host bench lock and the comparison's pin.
+
+**Reading rule.** `x` is L1D-miss loads per operation, per repetition:
+1. **Spread.** On repetition 0 and, separately, on repetitions 1–3, N's range of `x` must exceed twice S's in both runs. If repetitions 1–3 do not carry the spread, rules 2–4 are not read. The state is then reported as confined to the first repetition, the one that first touches the heap. Each arm's mean `x` on repetition 0 and on repetitions 1–3 is reported.
+2. **Persistence.** One-way intraclass correlation ICC(1) of `x` over N's 24 processes, repetitions 1–3. The state *persists* within a process if ICC ≥ 0.9 in both runs, and *varies* if ICC ≤ 0.5 in both runs. Anything between is *mixed*: it is reported, and rule 3 gives no reading.
+3. **Frames, and so the slice hash.** For each N process, `kept` is the smaller of the shares of repetition 2's and repetition 3's present pages that sit on the previous repetition's frame. Its median over N's processes is the frame measure.
+   - *Varies* while the median `kept` is at least 0.99 in both runs: the state changes on unchanged frames. It is not a function of the frames, and the slice hash is **ruled out** as what sets it.
+   - *Persists* while the median `kept` is at most 0.5 in both runs: the state survives the frames being replaced. Again it is not a function of the frames, and the slice hash is **ruled out**.
+   - *Persists* while the median `kept` is at least 0.99: state and frames are both fixed per process. The slice hash is **not ruled out and not identified**, and neither is anything else fixed per process. The per-CPU table below is the only further reading.
+   - Otherwise: no reading on the slice hash.
+4. **Prefetch counters, associated only.** For each of `mem_load_retired.fb_hit`, `l1d.replacement` and `l1d.hwpf_miss` per operation, take Spearman's ρ with `x` over N's process means on repetitions 1–3 (n = 24). It is *associated* if |ρ| ≥ 0.7 in both runs with the same sign (t = 4.60 on 22 degrees of freedom, p ≈ 1.4 × 10⁻⁴ in the t approximation). S's ρ is reported beside it as a control. An association does not establish a cause: prefetch fills and demand misses are linked by construction.
+- **Reported, not read:** N's `x` by the CPU each repetition ran on, and the number of repetitions that migrated during their phase. Instruction counts within each process must agree across repetitions to within 0.5%; this is checked and reported. No verdict and no engine change.
+
+**Expected** (projected): none predicted. If the state varies on unchanged frames, it was set by something that changes between repetitions within a process, and these instruments do not name it. That outcome is then reported as unexplained, not credited to prefetching or replacement.
 
 ## Reproduce
 

@@ -11,12 +11,15 @@
  *               again and then as many fresh draws.
  *   sm_big      the same over 1,000,000 draws on [0, 100000)^2.
  *   judy_4m     judy: JLI of gen_index(i) = (~i & 0xff) << 24 | (i & 0xffffff)
- *               for i below 4,194,304; the measured phase is the inserts.
+ *               for i below 4,194,304; the measured phase is the inserts,
+ *               `repeats` times (1 except under SNG_LAYOUT=3), each array
+ *               freed outside the phase.
  *   del_1k      judy's delete phase at --judy-size 1024: JLI of gen_index(i)
  *               for i below 1,024, then JLD in reverse order; the measured
  *               phase is the deletes, `repeats` builds each followed by its
  *               counted delete pass, so each array is as warm as stress-ng's.
- *   del_4m      the same at 4,194,304 keys, once (`repeats` is 1).
+ *   del_4m      the same at 4,194,304 keys, `repeats` times (1 except
+ *               under SNG_LAYOUT=3).
  *               Both delete shapes also print `phase_ns`, the CLOCK_MONOTONIC
  *               time summed over the counted delete passes, read inside the
  *               enable/disable bracket so the perf control round trips are
@@ -48,6 +51,20 @@
  * consecutive pages on consecutive frames, and the longest), and
  * `layout l2_colour` (32 counts of frame mod 32, the L2 page colour: 2,048
  * sets of 64-byte lines span 128 KiB, 32 pages).
+ * With SNG_LAYOUT=3 the 4 Mi shapes run their phase `repeats` times in one
+ * process (judy_4m frees the array outside the phase between repetitions;
+ * del_4m rebuilds it outside the phase) and, per repetition and outside the
+ * phase, print `layout pfn_rep <r> <pages> <zero> <same>`: the [heap]
+ * mapping's present pages, those whose frame reads 0, and those on the same
+ * frame at the same virtual page as in the previous repetition. Frame numbers stay in
+ * this process's memory and are never printed.
+ * With SNG_SELFCOUNT=1 the program counts its own phase instead of perf
+ * stat: one counter group on the cpu_core PMU (cycles, instructions,
+ * mem_load_retired.l1_miss, mem_load_retired.fb_hit, l1d.replacement,
+ * l1d.hwpf_miss; user mode only), reset and enabled just before each
+ * repetition and disabled just after, and prints
+ * `rep <r> cpu <before> <after> enabled <ns> running <ns> counts <6 values>`.
+ * Run it with `-` for both fifos.
  *
  * The draws come from splitmix64, not stress-ng's mwc32, so the keys follow
  * the stressor's distribution and not its exact sequence. Every arm draws
@@ -61,7 +78,8 @@
  * Passing `-` for both fifos runs without perf control, for a run under
  * Callgrind, which brackets the phase by function instead.
  */
-#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE
+#include <sched.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,6 +87,9 @@
 #include <fcntl.h>
 #include <time.h>
 #include <unistd.h>
+#include <linux/perf_event.h>
+#include <sys/ioctl.h>
+#include <sys/syscall.h>
 
 #include "Judy.h"
 
@@ -93,6 +114,145 @@ static void perf_ctl(const char *cmd)
 		fprintf(stderr, "STOP: perf control '%s' failed\n", cmd);
 		exit(3);
 	}
+}
+
+/* SNG_SELFCOUNT=1: the phase's own counter group (header comment). */
+#define SC_N 6
+static int sc_fd[SC_N] = {-1, -1, -1, -1, -1, -1};
+static int sc_cpu0;
+
+static int sc_open(void)
+{
+	/* cpu_core raw encodings, from the host's `perf list --details`. */
+	static const uint64_t raw[4] = {0x08d1, 0x40d1, 0x0151, 0x2051};
+	struct perf_event_attr at;
+	unsigned long type;
+	FILE *f = fopen("/sys/bus/event_source/devices/cpu_core/type", "r");
+	int k;
+
+	if (f == NULL || fscanf(f, "%lu", &type) != 1) {
+		fprintf(stderr, "STOP: no cpu_core PMU type\n");
+		return -1;
+	}
+	fclose(f);
+	for (k = 0; k < SC_N; k++) {
+		memset(&at, 0, sizeof at);
+		at.size = sizeof at;
+		if (k < 2) {
+			/* Hybrid extended type: the generic event on the cpu_core PMU. */
+			at.type = PERF_TYPE_HARDWARE;
+			at.config = (k == 0 ? PERF_COUNT_HW_CPU_CYCLES : PERF_COUNT_HW_INSTRUCTIONS)
+				| ((uint64_t)type << 32);
+		} else {
+			at.type = (uint32_t)type;
+			at.config = raw[k - 2];
+		}
+		at.disabled = k == 0;
+		at.exclude_kernel = 1;
+		at.exclude_hv = 1;
+		at.read_format = PERF_FORMAT_GROUP | PERF_FORMAT_TOTAL_TIME_ENABLED
+			| PERF_FORMAT_TOTAL_TIME_RUNNING;
+		sc_fd[k] = (int)syscall(SYS_perf_event_open, &at, 0, -1, k ? sc_fd[0] : -1, 0);
+		if (sc_fd[k] < 0) {
+			fprintf(stderr, "STOP: perf_event_open failed for counter %d\n", k);
+			return -1;
+		}
+	}
+	return 0;
+}
+
+static void sc_begin(void)
+{
+	if (sc_fd[0] < 0)
+		return;
+	sc_cpu0 = sched_getcpu();
+	ioctl(sc_fd[0], PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP);
+	ioctl(sc_fd[0], PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP);
+}
+
+static int sc_end(long r)
+{
+	uint64_t v[3 + SC_N];
+	int k;
+
+	if (sc_fd[0] < 0)
+		return 0;
+	ioctl(sc_fd[0], PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP);
+	if (read(sc_fd[0], v, sizeof v) != (ssize_t)sizeof v || v[0] != SC_N) {
+		fprintf(stderr, "STOP: counter group read failed\n");
+		return -1;
+	}
+	printf("rep %ld cpu %d %d enabled %llu running %llu counts", r, sc_cpu0, sched_getcpu(),
+	       (unsigned long long)v[1], (unsigned long long)v[2]);
+	for (k = 0; k < SC_N; k++)
+		printf(" %llu", (unsigned long long)v[3 + k]);
+	printf("\n");
+	return 0;
+}
+
+/* SNG_LAYOUT=3: the previous repetition's [heap] frames, kept in memory only. */
+static uint64_t *prev_pfn, *cur_pfn;
+static unsigned long prev_lo, prev_n;
+
+static void frames_rep(long r)
+{
+	char line[512];
+	FILE *f = fopen("/proc/self/maps", "r");
+	unsigned long lo = 0, hi = 0, va, n, pages = 0, zero = 0, same = 0, i;
+	uint64_t e;
+	int fd;
+
+	if (f == NULL)
+		return;
+	while (fgets(line, sizeof line, f) != NULL) {
+		unsigned long a, b;
+		char name[256] = "";
+		if (sscanf(line, "%lx-%lx %*s %*s %*s %*s %255s", &a, &b, name) >= 2
+		    && strcmp(name, "[heap]") == 0) {
+			lo = a;
+			hi = b;
+		}
+	}
+	fclose(f);
+	fd = open("/proc/self/pagemap", O_RDONLY);
+	n = hi > lo ? (hi - lo) / 4096 : 0;
+	cur_pfn = n ? calloc(n, sizeof *cur_pfn) : NULL;
+	if (fd < 0 || cur_pfn == NULL) {
+		printf("layout pfn_error rep\n");
+		if (fd >= 0)
+			close(fd);
+		return;
+	}
+	for (va = lo, i = 0; va < hi; va += 4096, i++) {
+		if (pread(fd, &e, sizeof e, (off_t)(va / 4096 * 8)) != (ssize_t)sizeof e)
+			break;
+		if (!(e >> 63))
+			continue;
+		e &= (1ULL << 55) - 1;
+		pages++;
+		if (e == 0) {
+			zero++;
+			continue;
+		}
+		cur_pfn[i] = e;
+		if (prev_pfn != NULL && va >= prev_lo && (va - prev_lo) / 4096 < prev_n
+		    && prev_pfn[(va - prev_lo) / 4096] == e)
+			same++;
+	}
+	close(fd);
+	free(prev_pfn);
+	prev_pfn = cur_pfn;
+	prev_lo = lo;
+	prev_n = n;
+	/* `same`: present pages on the same frame at the same virtual page as in
+	 * the previous repetition (all of them for repetition 0). */
+	printf("layout pfn_rep %ld %lu %lu %lu\n", r, pages, zero, r == 0 ? pages - zero : same);
+}
+
+static int layout3(void)
+{
+	const char *mode = getenv("SNG_LAYOUT");
+	return mode != NULL && strcmp(mode, "3") == 0;
 }
 
 static Word_t sm_key(uint64_t size)
@@ -231,24 +391,33 @@ static void print_layout(void)
 	fclose(f);
 }
 
-static int judy_4m(void)
+static int judy_4m(long repeats)
 {
 	Pvoid_t a = NULL;
 	PWord_t pv;
 	uint64_t i, n = 4194304;
-	Word_t freed;
+	Word_t freed = 0;
+	long r;
 
-	perf_ctl("enable\n");
-	for (i = 0; i < n; i++) {
-		JLI(pv, a, (Word_t)(((~i & 0xff) << 24) | (i & 0xffffff)));
-		if (pv == NULL || pv == PJERR)
+	for (r = 0; r < repeats; r++) {
+		perf_ctl("enable\n");
+		sc_begin();
+		for (i = 0; i < n; i++) {
+			JLI(pv, a, (Word_t)(((~i & 0xff) << 24) | (i & 0xffffff)));
+			if (pv == NULL || pv == PJERR)
+				return 2;
+			*pv = i;
+		}
+		if (sc_end(r) != 0)
 			return 2;
-		*pv = i;
+		perf_ctl("disable\n");
+		if (layout3())
+			frames_rep(r);
+		else if (r == 0)
+			print_layout();
+		JLFA(freed, a);
 	}
-	perf_ctl("disable\n");
-	print_layout();
-	JLFA(freed, a);
-	printf("inserted %lu freed %lu\n", (unsigned long)n, (unsigned long)freed);
+	printf("inserted %lu x %ld freed %lu\n", (unsigned long)n, repeats, (unsigned long)freed);
 	return 0;
 }
 
@@ -316,6 +485,8 @@ static int judy1_oscillate(long repeats)
 			sink += (uint64_t)rc;
 		}
 		clock_gettime(CLOCK_MONOTONIC, &t1);
+		if (sc_end(r) != 0)
+			return 2;
 		perf_ctl("disable\n");
 		phase_ns += ns_between(&t0, &t1);
 		if (a != NULL)
@@ -403,9 +574,12 @@ static int judy_delete(uint64_t n, long repeats)
 				return 2;
 			*pv = i;
 		}
-		if (n == 4194304)
+		if (n == 4194304 && layout3())
+			frames_rep(r);
+		else if (n == 4194304)
 			print_layout();
 		perf_ctl("enable\n");
+		sc_begin();
 		clock_gettime(CLOCK_MONOTONIC, &t0);
 		for (i = n; i-- > 0;) {
 			JLD(rc, a, (Word_t)gen_index(i));
@@ -445,16 +619,19 @@ int main(int argc, char **argv)
 		fprintf(stderr, "STOP: bad repeats\n");
 		return 1;
 	}
+	if (getenv("SNG_SELFCOUNT") != NULL && strcmp(getenv("SNG_SELFCOUNT"), "1") == 0
+	    && sc_open() != 0)
+		return 1;
 	if (strcmp(argv[1], "sm_default") == 0)
 		return sparsematrix(10000, 500, repeats);
 	if (strcmp(argv[1], "sm_big") == 0)
 		return sparsematrix(1000000, 100000, repeats);
 	if (strcmp(argv[1], "judy_4m") == 0)
-		return judy_4m();
+		return judy_4m(repeats);
 	if (strcmp(argv[1], "del_1k") == 0)
 		return judy_delete(1024, repeats);
 	if (strcmp(argv[1], "del_4m") == 0)
-		return judy_delete(4194304, 1);
+		return judy_delete(4194304, repeats);
 	if (strcmp(argv[1], "osc_1") == 0)
 		return judy1_oscillate(repeats);
 	if (strcmp(argv[1], "j1s_clustered") == 0)
