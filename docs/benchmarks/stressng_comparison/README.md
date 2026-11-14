@@ -1570,6 +1570,83 @@ As derived, a virtual-address model does not produce the state: moving the layou
 - frame contiguity or L2 page colour (no association).
 
 Its cause is unidentified. What these instruments leave out includes the last-level cache's slice hash, which is undocumented, and hardware state such as prefetcher and replacement behaviour. None of them is named as a cause.
+[The 4 Mi phases repeated in one process](#diagnostic-the-4-mi-phases-repeated-in-one-process) tests both.
+
+## Diagnostic: the 4 Mi phases repeated in one process
+
+**A diagnostic, not a pre-registered result** (#1679, #1680). [The physical-frame diagnostic](#diagnostic-the-4-mi-phases-physical-frames) left two untested candidates for N's per-process high-miss state: the last-level cache's slice hash, and hardware state such as prefetcher and replacement behaviour. Neither can be read directly. The slice hash is undocumented, and no counter reads replacement state. This design separates them by repeating the phase inside one process and asking whether the state follows that process's physical frames.
+
+**Premise.** The slice-selection function maps a physical address to a slice, and it does not change while the host runs. Maurice et al. reverse-engineered it on earlier Intel parts as a fixed function of the physical address bits ("Reverse Engineering Intel Last-Level Cache Complex Addressing Using Performance Counters", RAID 2015). This design assumes the same holds on this host's part and does not reconstruct the function. A state the slice hash determines therefore cannot change while the frames stay the same, and cannot persist when they are replaced.
+
+**Not available under the owner's terms.** Prefetchers are switched off by writing a model-specific register, which changes the host's configuration. So this design can only *associate* prefetch counters with the state: it can neither establish prefetching as the cause nor rule it out. No counter observes replacement state, so replacement is not tested beyond what persistence shows.
+
+**Design, fixed before the run** (`scripts/diag_phase_counters.py` with `SNG_PHASE_SET=big_pf`, `run.sh <run> <host> phase_big_pf`):
+- **Arms.** N, main's library (`SNG_MAIN`), and S, stock, as in the earlier 4 Mi diagnostics.
+- **Shapes.** `judy_4m` and `del_4m`, each run **four times in one process**. `judy_4m` frees the array outside the phase between repetitions; `del_4m` rebuilds it outside the phase.
+- **Counting.** The probe counts each repetition itself (`phase_probe.c`, `SNG_SELFCOUNT=1`). One counter group on the `cpu_core` PMU, user mode only, is reset and enabled just before the phase and disabled just after it. It holds `cycles`, `instructions`, `mem_load_retired.l1_miss`, `mem_load_retired.fb_hit`, `l1d.replacement` and `l1d.hwpf_miss`, with raw encodings from the host's `perf list`. A repetition that was multiplexed (time running below time enabled) stops the run, as does a zero in `cycles`, `instructions` or `mem_load_retired.l1_miss`. The preflight runs the four events under `perf stat` for the co-scheduling check (#1177). It also compares the probe's own instruction count for one `judy_4m` repetition with `perf stat`'s, and stops if they differ by more than 0.5%, or if a prefetch event reads 0 in one count and not in the other.
+  - *Amended before any round ran.* The first launch stopped in this preflight, because the probe's `l1d.hwpf_miss` read 0 on `judy_4m`. `perf stat` reads 0 there too, and 5.2 M on `sm_big`, so the event is encoded correctly and counts nothing on this shape. The original gate stopped the run on a zero in any counter. It now allows a zero in the three prefetch events only when `perf stat` agrees. No rounds had run, so no data was seen before the amendment.
+  - *Second stop, a probe defect.* The relaunch stopped in round 0 because the probe's `del_4m` printed no per-repetition counts. The code that reads and prints the counters had been placed in the wrong function, so `del_4m` started its counter group but never printed it. That is fixed, and the stopped run's files are set aside, not used. Before it stopped, the run had completed one `judy_4m` process per arm, and those two processes were seen. No threshold, rule or counter changed after that; only the defect was fixed. The counters' time-enabled and time-running totals accumulate over a process's repetitions, which the multiplexing check reads as totals. The CPU is read just before the phase and again just after it.
+- **Frames.** Outside the phase, after each repetition, the probe reads its `[heap]` frames through `/proc/self/pagemap` and prints only counts: present pages, pages whose frame reads 0, and pages on the same frame at the same virtual page as in the previous repetition. Frame numbers stay in the process's memory and are never printed. The single per-process command runs under `sudo -n`, as in the physical-frame diagnostic. Nothing else is elevated and no host setting changes.
+- 24 rounds per run, two runs on the reference host under the host bench lock and the comparison's pin.
+
+**Reading rule.** `x` is L1D-miss loads per operation, per repetition:
+1. **Spread.** On repetition 0 and, separately, on repetitions 1–3, N's range of `x` must exceed twice S's in both runs. If repetitions 1–3 do not carry the spread, rules 2–4 are not read. The state is then reported as confined to the first repetition, the one that first touches the heap. Each arm's mean `x` on repetition 0 and on repetitions 1–3 is reported.
+2. **Persistence.** One-way intraclass correlation ICC(1) of `x` over N's 24 processes, repetitions 1–3. The state *persists* within a process if ICC ≥ 0.9 in both runs, and *varies* if ICC ≤ 0.5 in both runs. Anything between is *mixed*: it is reported, and rule 3 gives no reading.
+3. **Frames, and so the slice hash.** For each N process, `kept` is the smaller of the shares of repetition 2's and repetition 3's present pages that sit on the previous repetition's frame. Its median over N's processes is the frame measure.
+   - *Varies* while the median `kept` is at least 0.99 in both runs: the state changes on unchanged frames. It is not a function of the frames, and the slice hash is **ruled out** as what sets it.
+   - *Persists* while the median `kept` is at most 0.5 in both runs: the state survives the frames being replaced. Again it is not a function of the frames, and the slice hash is **ruled out**.
+   - *Persists* while the median `kept` is at least 0.99: state and frames are both fixed per process. The slice hash is **not ruled out and not identified**, and neither is anything else fixed per process. The per-CPU table below is the only further reading.
+   - Otherwise: no reading on the slice hash.
+4. **Prefetch counters, associated only.** For each of `mem_load_retired.fb_hit`, `l1d.replacement` and `l1d.hwpf_miss` per operation, take Spearman's ρ with `x` over N's process means on repetitions 1–3 (n = 24). It is *associated* if |ρ| ≥ 0.7 in both runs with the same sign (t = 4.60 on 22 degrees of freedom, p ≈ 1.4 × 10⁻⁴ in the t approximation). S's ρ is reported beside it as a control. A counter that is constant over the processes, such as all zero, has no ρ, and is reported as not associated. An association does not establish a cause: prefetch fills and demand misses are linked by construction.
+- **Reported, not read:** N's `x` by the CPU each repetition ran on, and the number of repetitions that migrated during their phase. Instruction counts within each process must agree across repetitions to within 0.5%; this is checked and reported. No verdict and no engine change.
+
+**Expected** (projected): none predicted. If the state varies on unchanged frames, it was set by something that changes between repetitions within a process, and these instruments do not name it. That outcome is then reported as unexplained, not credited to prefetching or replacement.
+
+### Repeated-phase result (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `3b42b7bac`, N main `c386578f8` (sha256 `9b42a88b…`), S `76f121a8…`; artifacts `results/diagnostic_big_pf_ref_run{1,2}.json` (process totals) and `results/diagnostic_big_pf_ref_reps.json` (per-repetition counters, CPUs and frame counts, no frame numbers)) (workloads: phase_judy_4m, phase_del_4m)
+
+**Hygiene.** Run 1 ran 20:20:24–20:22:01 UTC and run 2 20:22:01–20:23:37, each under the bench lock. Each run had 96 processes, none discarded, with max load1 0.82 and 0.97 against a void limit of 12. Two earlier launches stopped before producing a result (the amendments above). The preflight cross-check passed: one `judy_4m` repetition retired 2,706,234,373 instructions self-counted and 2,706,048,915 under `perf stat`. Within a process, the instructions per operation on repetition 0 and on repetitions 1–3 differ by 0.52% for N on `judy_4m` (645.22 against 648.60) and by at most 0.48% elsewhere. The 0.5% check is reported, not gated, and N's insert repetitions exceed it.
+
+**Rule 1, spread.**
+- **`judy_4m`: confined to the first repetition.** On repetition 0, N's L1D-miss loads per insert span 2.46–5.22 and 2.49–5.22, as in every earlier diagnostic. On repetitions 1–3 they span 2.49–4.02 in run 1, one repetition above 2.7, and 2.49–2.63 in run 2. Run 2 does not carry the spread (S 1.76–1.95), so rules 2–4 are not read on this shape. N's mean is 4.10 and 4.00 per insert on repetition 0, against 2.57 and 2.55 on repetitions 1–3. S's is 2.47 and 2.39, against 1.87 and 1.86.
+- **`del_4m`: carried, but narrow.** N spans 3.25–3.49 per delete on repetitions 1–3, against S's 2.24–2.29. Even repetition 0 reaches only 4.57 here (3.28–4.57). The high state of the earlier runs, 5.07–5.83 per delete, did not occur in either run.
+
+**Rule 2, persistence (`del_4m`): varies.** N's ICC(1) over repetitions 1–3 is 0.046 and 0.012.
+
+**Rule 3, frames and so the slice hash: no reading.** On `del_4m`, each of repetitions 2 and 3 in every N process keeps 92.6% of its pages on the previous repetition's frames (S 99.7%), between the two thresholds. On `judy_4m`, N keeps 92.4% (S 99.7%). The slice hash is **not ruled out and not identified** on either shape.
+
+**Rule 4, prefetch counters (`del_4m`).** `l1d.hwpf_miss` per delete is **associated** with L1D-miss loads, at ρ −0.915 and −0.922; S's ρ is 0.44 and 0.34. `mem_load_retired.fb_hit` (ρ 0.25 and 0.10) and `l1d.replacement` (−0.51 and −0.41) are not associated. N's L1D-miss range behind these figures is the narrow one above.
+
+**Observed outside the pre-registration: the first insert pass.** Rules 2–4 do not look at repetition 0. There, `l1d.hwpf_miss` per insert and L1D-miss loads per insert move together almost exactly, and N's highest-miss processes read the event as zero. `perf list` names the event `L1D.HWPF_MISS` and carries no description of it, so it is reported by name.
+
+| Run | Arm | `l1d.hwpf_miss` per insert, repetition 0 | processes reading 0 | ρ with L1D-miss loads per insert |
+|---|---|---|---|---|
+| 1 | N | 0.000–4.012 | 6 | −0.990 |
+| 1 | S | 1.135–2.982 | 0 | −0.993 |
+| 2 | N | 0.000–3.986 | 5 | −0.988 |
+| 2 | S | 1.201–3.141 | 0 | −0.992 |
+
+- Every N process that read 0 sits at 5.20–5.22 L1D-miss loads per insert. That is the high state of every earlier diagnostic, and near the 5.3156 the cache simulator gives with no prefetcher ([the simulated-cache result](#simulated-cache-result)). This is an association between two measurements, not an identity.
+- On repetitions 1–3, no repetition reads 0. N's per-process mean of `l1d.hwpf_miss` is 3.23–4.02 per insert in run 1 and 3.94–4.02 in run 2. The one run-1 repetition at 4.02 L1D misses per insert has that run's lowest count, 1.72.
+- The 18:20 launch's preflight saw the same thing. Its two `judy_4m` cross-check processes, one self-counted and one under `perf stat`, both read 0 on the event, at 21.8 M and 21.9 M L1D misses (5.2 per insert).
+
+**Cycles per operation**, reported, BCa 95% over process means:
+
+| Shape | Run | N/S, repetition 0 | N/S, repetitions 1–3 |
+|---|---|---|---|
+| `judy_4m` | 1 | 1.0150 [0.9994, 1.0295] | 1.0101 [1.0087, 1.0129] |
+| `judy_4m` | 2 | 1.0153 [0.9995, 1.0304] | 1.0071 [1.0051, 1.0082] |
+| `del_4m` | 1 | 1.0173 [1.0131, 1.0230] | 1.0191 [1.0178, 1.0201] |
+| `del_4m` | 2 | 1.0172 [1.0134, 1.0223] | 1.0183 [1.0167, 1.0196] |
+
+On repetition 0, N's L1D-miss loads and cycles per insert correlate at ρ 0.979 and 0.937.
+
+**Where this leaves the 4 Mi gap.**
+- **Slice hash:** not ruled out and not identified. The frame measure fell between the pre-registered thresholds on deletes, and the insert shape was not read.
+- **Prefetching:** associated. On deletes this is the pre-registered association. On the first insert pass the observed association is stronger: in N's high-miss processes the `L1D.HWPF_MISS` count is zero. It is not established as the cause, because switching the prefetchers off to test it is a host configuration change outside the owner's terms. Why the count is zero in some processes' first pass and not in others is not measured.
+- **Replacement state:** not tested; no counter observes it.
+- **What remains without the state.** On repetitions 1–3, every N insert process is in the low-miss state, yet N still takes 1.007–1.010× S's cycles per insert. Deletes take 1.018–1.019×, with every interval above 1. That remainder is not explained by the per-process state, and its cause is unidentified.
 
 ## Reproduce
 
