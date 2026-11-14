@@ -485,8 +485,6 @@ static int judy1_oscillate(long repeats)
 			sink += (uint64_t)rc;
 		}
 		clock_gettime(CLOCK_MONOTONIC, &t1);
-		if (sc_end(r) != 0)
-			return 2;
 		perf_ctl("disable\n");
 		phase_ns += ns_between(&t0, &t1);
 		if (a != NULL)
@@ -587,6 +585,8 @@ static int judy_delete(uint64_t n, long repeats)
 				return 2;
 		}
 		clock_gettime(CLOCK_MONOTONIC, &t1);
+		if (sc_end(r) != 0)
+			return 2;
 		perf_ctl("disable\n");
 		phase_ns += (uint64_t)(t1.tv_sec - t0.tv_sec) * 1000000000ULL
 			+ (uint64_t)t1.tv_nsec - (uint64_t)t0.tv_nsec;
