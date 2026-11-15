@@ -205,6 +205,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py",
     "docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py",
     "docs/benchmarks/stressng_comparison/scripts/diag_increment_analyze.py",
+    # The zmap x JudyHS evaluation record (#1681): per-arm and two-sample
+    # E/S intervals over a run's rounds, printed with their construction.
+    "docs/benchmarks/zmap_comparison/scripts/analyze.py",
     "scripts/compare_shift.py",
     "scripts/bench_baseline.py",
     "scripts/bench_counters.py",
