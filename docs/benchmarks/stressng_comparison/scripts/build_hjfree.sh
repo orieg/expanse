@@ -43,7 +43,7 @@ PY
 # Exactly the six added lines, in that one file, and nothing removed.
 d="$(diff -r b-hjctl b-hjfree | grep -c '^>' || true)"
 r="$(diff -r b-hjctl b-hjfree | grep -c '^<' || true)"
-f="$(diff -rq b-hjctl b-hjfree | wc -l)"
+f="$(diff -rq b-hjctl b-hjfree | wc -l || true)"
 [ "${d}" = 6 ] && [ "${r}" = 0 ] && [ "${f}" = 1 ] \
   || { echo "the intervention is not the six-line JLFA edit (added ${d}, removed ${r}, files ${f})" >&2; exit 1; }
 diff -r b-hjctl b-hjfree || true
