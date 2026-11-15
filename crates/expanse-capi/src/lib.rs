@@ -702,6 +702,154 @@ mod oracle {
         }
     }
 
+    /// zmap's dedup window (#1672): JudyHS as a fixed-capacity LRU index.
+    /// Each arrival is tested with `JudyHSGet`; a miss evicts the oldest key
+    /// with `JudyHSDel` once the window is full and inserts the arrival, so
+    /// evicted keys recur and are inserted again. Both libraries run the same
+    /// sequence in lockstep against one model, and every return is compared:
+    /// `Get` presence and value, `Del`'s 0/1, the fresh slot `Ins` hands
+    /// back, and whether the array word is null. Key shapes: zmap's 8-byte
+    /// `target_t {ip, port, status}` (libexpanse's short-key tries), 0..=8
+    /// byte keys differing only in trailing zeros, and 16- and 40-byte keys
+    /// (the hashed path). The integration test
+    /// `tests/test_judyhs_lru.rs` runs the same pattern on libexpanse alone.
+    #[test]
+    fn judyhs_lru_evict_reinsert_matches_stock_libjudy() {
+        use std::collections::{BTreeMap, VecDeque};
+        let lib = Lib::open();
+        let o_ins: FHsIns = lib.sym(c"JudyHSIns");
+        let o_del: FHsDel = lib.sym(c"JudyHSDel");
+        let o_get: FHsGet = lib.sym(c"JudyHSGet");
+        let o_free: FFree = lib.sym(c"JudyHSFreeArray");
+
+        fn target_t(i: u64) -> Vec<u8> {
+            let ip = 0x0A00_0000u32 + (i / 3) as u32;
+            let port = [80u16, 443, 0][(i % 3) as usize];
+            let status = u16::from(i.is_multiple_of(7));
+            let mut k = ip.to_ne_bytes().to_vec();
+            k.extend_from_slice(&port.to_ne_bytes());
+            k.extend_from_slice(&status.to_ne_bytes());
+            k
+        }
+        fn zero_padded(i: u64) -> Vec<u8> {
+            let Some(j) = i.checked_sub(1) else {
+                return Vec::new();
+            };
+            let mut k = vec![0u8; 1 + (j % 8) as usize];
+            k[0] = (j / 8) as u8;
+            k
+        }
+        fn target_t_16(i: u64) -> Vec<u8> {
+            let mut k = target_t(i);
+            k.resize(16, 0);
+            k
+        }
+        fn wide_40(i: u64) -> Vec<u8> {
+            let mut k = vec![0u8; 40];
+            k[32..].copy_from_slice(&i.wrapping_mul(0x9E37_79B9_7F4A_7C15).to_be_bytes());
+            k
+        }
+        /// Every slot read and write goes through these two, so the null
+        /// check sits with the dereference. `p` is null or a live slot with
+        /// no change to its array since the call that returned it.
+        unsafe fn read(p: *mut c_void) -> Option<Word> {
+            assert_ne!(p as usize, usize::MAX, "PJERR returned");
+            // SAFETY: per the contract above; `as_ref` maps null to `None`.
+            unsafe { p.cast::<Word>().as_ref().copied() }
+        }
+        unsafe fn write(p: *mut c_void, v: Word) {
+            assert_ne!(p as usize, usize::MAX, "PJERR returned");
+            // SAFETY: per the contract above; `as_mut` maps null to `None`.
+            let slot = unsafe { p.cast::<Word>().as_mut() }.expect("JudyHSIns returned null");
+            *slot = v;
+        }
+        type KeyFn = fn(u64) -> Vec<u8>;
+        let shapes: [(&str, KeyFn, u64); 4] = [
+            ("target_t", target_t, 3000),
+            ("zero_padded", zero_padded, 1 + 8 * 256),
+            ("target_t_16", target_t_16, 3000),
+            ("wide_40", wide_40, 3000),
+        ];
+        for (shape, key, pool) in shapes {
+            let keys: Vec<Vec<u8>> = (0..pool).map(key).collect();
+            let wide = keys.len() / 3;
+            for (capacity, seed) in [(1usize, 0x1672u64), (37, 0x1673), (wide, 0x1674)] {
+                let mut rng = XorShift(seed | 1);
+                let mut ours: *mut c_void = null_mut();
+                let mut theirs: *mut c_void = null_mut();
+                let mut model: BTreeMap<&[u8], Word> = BTreeMap::new();
+                let mut order: VecDeque<&[u8]> = VecDeque::new();
+                let mut reinserts = 0usize;
+                let mut evicted: BTreeMap<&[u8], ()> = BTreeMap::new();
+                let at = |s: &str, step: usize| format!("{shape} cap {capacity} step {step}: {s}");
+                // SAFETY: both stacks driven per the C contract with live
+                // (pointer, length) byte strings; a slot pointer is used
+                // only before the next call that changes its array.
+                unsafe {
+                    for step in 0..20_000usize {
+                        let k: &[u8] = &keys[(rng.next() % pool) as usize];
+                        let (kp, kl) = (k.as_ptr().cast::<c_void>(), k.len() as Word);
+                        let g1 = read(JudyHSGet(ours, kp, kl));
+                        let g2 = read(o_get(theirs, kp, kl));
+                        assert_eq!(g1, g2, "{}", at("get", step));
+                        let want = model.get(k).copied();
+                        assert_eq!(g1, want, "{}", at("get vs model", step));
+                        if want.is_some() {
+                            continue;
+                        }
+                        if order.len() == capacity {
+                            let old = order.pop_front().expect("window is full");
+                            let (op, ol) = (old.as_ptr().cast::<c_void>(), old.len() as Word);
+                            let d1 = JudyHSDel(&raw mut ours, op, ol, null_mut());
+                            let d2 = o_del(&raw mut theirs, op, ol, null_mut());
+                            assert_eq!((d1, d2), (1, 1), "{}", at("evict", step));
+                            assert_eq!(ours.is_null(), theirs.is_null(), "{}", at("word", step));
+                            let r1 = JudyHSDel(&raw mut ours, op, ol, null_mut());
+                            let r2 = o_del(&raw mut theirs, op, ol, null_mut());
+                            assert_eq!((r1, r2), (0, 0), "{}", at("re-delete", step));
+                            model.remove(old);
+                            evicted.insert(old, ());
+                        }
+                        if evicted.remove(k).is_some() {
+                            reinserts += 1;
+                        }
+                        let s1 = JudyHSIns(&raw mut ours, kp, kl, null_mut());
+                        let s2 = o_ins(&raw mut theirs, kp, kl, null_mut());
+                        let fresh = (read(s1), read(s2));
+                        assert_eq!(fresh, (Some(0), Some(0)), "{}", at("fresh slot", step));
+                        let v = (step as Word) << 1 | 1;
+                        write(s1, v);
+                        write(s2, v);
+                        model.insert(k, v);
+                        order.push_back(k);
+                    }
+                    assert!(reinserts > 0, "{shape} cap {capacity}: no re-insert");
+                    // Drain oldest first: both words empty to null together.
+                    while let Some(old) = order.pop_front() {
+                        let (op, ol) = (old.as_ptr().cast::<c_void>(), old.len() as Word);
+                        let d1 = JudyHSDel(&raw mut ours, op, ol, null_mut());
+                        let d2 = o_del(&raw mut theirs, op, ol, null_mut());
+                        assert_eq!((d1, d2), (1, 1), "{shape} cap {capacity}: drain");
+                        assert_eq!(ours.is_null(), theirs.is_null(), "{shape}: drain word");
+                    }
+                    assert!(ours.is_null() && theirs.is_null(), "{shape}: emptied word");
+                    // Refill and free whole; byte totals are D4, only
+                    // emptiness semantics are compared.
+                    for k in keys.iter().take(capacity) {
+                        let (kp, kl) = (k.as_ptr().cast::<c_void>(), k.len() as Word);
+                        write(JudyHSIns(&raw mut ours, kp, kl, null_mut()), 7);
+                        write(o_ins(&raw mut theirs, kp, kl, null_mut()), 7);
+                    }
+                    assert!(JudyHSFreeArray(&raw mut ours, null_mut()) > 0);
+                    assert!(o_free(&raw mut theirs, null_mut()) > 0);
+                    assert!(ours.is_null() && theirs.is_null());
+                    assert_eq!(JudyHSFreeArray(&raw mut ours, null_mut()), 0);
+                    assert_eq!(o_free(&raw mut theirs, null_mut()), 0);
+                }
+            }
+        }
+    }
+
     #[test]
     fn judy1_matches_stock_libjudy() {
         let lib = Lib::open();
