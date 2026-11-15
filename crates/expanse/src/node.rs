@@ -1154,4 +1154,42 @@ mod tests {
         assert!(bl.bitmap.is_empty());
         assert!(bl.values.iter().all(|p| p.is_null()));
     }
+
+    /// Cache lines of a `BranchB` that one descent step through `digit`
+    /// reads, given the byte offsets of its `level` field and of its
+    /// `subarrays` array. A step reads three things in the node: the 32-bit
+    /// bitmap word holding `digit` (`Bitmap256` is at offset 0, so that word
+    /// is at `4 * (digit / 32)`), the node's `level`, and the subarray
+    /// pointer of `digit`'s 32-digit subexpanse. The child edge it then
+    /// follows is in a separate allocation and is not counted.
+    fn branch_b_lines_read(level_off: usize, subarrays_off: usize, digit: u8) -> usize {
+        let sub = usize::from(digit) / 32;
+        let mut lines = [
+            4 * sub / CACHE_LINE,
+            level_off / CACHE_LINE,
+            (subarrays_off + 8 * sub) / CACHE_LINE,
+        ];
+        lines.sort_unstable();
+        1 + usize::from(lines[1] != lines[0]) + usize::from(lines[2] != lines[1])
+    }
+
+    /// The line bound behind the `BranchB` field order: with `level` on
+    /// line 1 (offset 116, `subarrays` at 32) every step reads both lines
+    /// of the node; with `level` on line 0 (offset 36, `subarrays` at 40) a
+    /// step through a digit below 96 reads one line and the rest read two.
+    #[test]
+    fn branch_b_lines_read_by_field_order() {
+        let total = |level_off, subarrays_off| -> usize {
+            (0..=255u8)
+                .map(|d| branch_b_lines_read(level_off, subarrays_off, d))
+                .sum()
+        };
+        // `level` on line 1: two lines for every digit.
+        assert!((0..=255u8).all(|d| branch_b_lines_read(116, 32, d) == 2));
+        assert_eq!(total(116, 32), 512);
+        // `level` on line 0, three pointers beside it.
+        assert!((0..96u8).all(|d| branch_b_lines_read(36, 40, d) == 1));
+        assert!((96..=255u8).all(|d| branch_b_lines_read(36, 40, d) == 2));
+        assert_eq!(total(36, 40), 96 + 2 * 160);
+    }
 }
