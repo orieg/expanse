@@ -2619,6 +2619,54 @@ The concurrency `sync_*` paths are outside the change (the OCC reader keeps `map
 
 The record, with the x86-64-v3 diagnostic and the mispredict counts, is `docs/benchmarks/stressng_comparison/README.md`, "Negative: the lookup walks' keys offset from a table" (measured: reference host Intel Core i9-12900F, `b05bc0295` against `9b4df014a`; artifacts `docs/benchmarks/stressng_comparison/results/diagnostic_increment_keyoff_ref_run{1,2}.json`).
 
+#### Pre-registration: a `BranchB`'s level on its first cache line ([#1679](https://github.com/orieg/expanse/issues/1679), [#1680](https://github.com/orieg/expanse/issues/1680))
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. The change under test is the field order of `BranchB` in `crates/expanse/src/node.rs`: `bitmap`, `version`, `level`, padding, `subarrays`, `pop_counts`, where `subarrays` and `pop_counts` stood before `version` and `level`. The node stays 128 bytes at 64-byte alignment. No algorithm, instruction sequence, API or protocol changes: `BranchB.version` stays the node's OCC version carrier at a new offset, and the 32-bit engine (`BranchB32`) is not touched.
+
+**Observed before this commit, and therefore not evidence for it.** `crates/expanse/benches/instructions.rs` at main `aacc1add4` under Callgrind's cache simulator with the reference host's P-core geometry (`--D1=49152,12,64 --LL=1310720,10,64 --I1=32768,8,64`; Callgrind 3.22.0, rustc 1.99.1, Ubuntu 24.04 container, `CARGO_PROFILE_BENCH_DEBUG=1`; the model has no prefetcher). On `map_ins_slot/gen_4m`, 4,194,304 inserts read-miss L1D 22,942,584 times, 5.470 per insert. Three loads hold 80.6% of those misses (`callgrind_annotate --auto=yes --inclusive=no`):
+
+| load | simulated L1D read misses | per insert |
+|---|---|---|
+| a `BranchB`'s `level` (`branch_form_level`, `mutate.rs`), the node's second line | 6,311,029 | 1.505 |
+| the bitmap word of the digit (`Bitmap256`, `bits.rs`), the node's first line | 6,311,286 | 1.505 |
+| the tag of the child edge followed next (`Edge::tag_byte`, `node.rs`) | 5,863,342 | 1.398 |
+
+The lookup walks read `BranchB.level` as well (`get.rs`). The candidate's layout has not been built or measured.
+
+**Derived before the runs** (`node::tests::branch_b_lines_read_by_field_order`, commit `5685bd9d7`). A descent step reads the digit's bitmap word, `level` and the subexpanse's subarray pointer. With `level` at offset 116 it reads both of the node's lines for every digit. With `level` at 36 and `subarrays` at 40 it reads one line for digits below 96 and two for the rest. So the change removes at most the 1.505 `level` misses per insert, less the steps whose subarray pointer now sits on the second line (digits 96–127). Projected, not measured: about 1.2 fewer per insert.
+
+**Definitions.**
+- *D1mr*: Callgrind's simulated L1D read misses of an `instructions.rs` arm under the geometry above, head against merge base, built and run in one container.
+- *G/M, G/S, M/S*: the stress-ng arms of `docs/benchmarks/stressng_comparison/scripts/diag_increment.py` — G the head's library, M the merge base's, S stock — as two-sample BCa 95% intervals of the ratio of means over each run's 12 rounds, every cell of that suite's METHODOLOGY.md §5. Verdicts are that METHODOLOGY.md's §8 rule over both runs.
+- *Shift* and *side*: `scripts/compare_shift.py` over the `compare` runs, on every Expanse cell of `map_get`, `map_get_cold_dram`, `set_lookup` and `map_iter`.
+- *Instruction change*: an arm's change against main in the CI job named; for wasm fuel, against main's run at the merge base.
+
+**Target, all of which must hold.**
+- T1, deterministic: `map_ins_slot/gen_4m` D1mr at most 4.470 per insert (a fall of at least 1.0), and `map_remove_revgen/gen_4m` D1mr below the merge base's.
+- T2, stress-ng on the reference host: `sng_judy_4m` insert rate and delete rate G/M lower end above 1.0 in both runs at every W.
+- T3, the second host (AMD Ryzen 9 9955HX): the same as T2. If that host's bench lock is not free, T3 is pending and the verdict says so.
+
+**Bounds, every one of which must hold.** No exemption is sought: no arm is named for a cost.
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| x86-64 deterministic, x86-64 smoke, AArch64 Callgrind | every arm | ≤ +0.1%, and no `allow-regression:` line |
+| wasm32, wasm64 fuel | every arm, against main's run at the merge base | ≤ +0.1% |
+| Callgrind cache simulator | every `map_get*`, `set_contains*`, `map_ins*`, `map_remove*` and `sync_*` arm of `instructions.rs` | D1mr + D1mw at most the merge base's + 0.5% |
+| stress-ng, both hosts | every primary cell-metric (L1) | not SLOWER against stock (G/S) where M/S is FASTER or EQUIVALENT |
+| stress-ng, both hosts | every primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| `compare` | every lookup and iteration cell (C1) | not SLOWER against a competitor at the head where FASTER or EQUIVALENT at the base |
+| `compare` | every lookup and iteration cell (C2) | shift lower end not above 1.02 in both pairings |
+| `memory-budget` | every row | unchanged |
+| CI | full workspace tests (`PROPTEST_CASES=500`), Tier-1 Miri, the differential oracle against stock | pass |
+| `git diff` | `crates/expanse-capi`, `include/` | empty |
+
+The `concurrency` wall-clock suite is reported, not gated; the `sync_*` Callgrind arms are bounded above.
+
+**The comparison with stock, reported under its own label.** The change is judged against its merge base, not against stock. Separately, on the same runs: *BEAT* at 4 Mi if `sng_judy_4m` `bogo-ops-per-second-real-time` G/S has its lower end above 1.0 in both runs at every W on both hosts; *INTERMEDIATE* if that holds on one host or at some W only; *NOT MET* otherwise. Not predicted: on main M/S reads 0.963–0.993.
+
+**Verdict.** PASS only if every target holds and every bound holds. Otherwise FAIL: the change is reverted and recorded with the cell that broke its bound, and no bound is moved (§8.19). A PASS with T3 pending is recorded as PASS on the reference host only.
+
 **Trie-adversarial key classes (workload: `core_compare`)** *(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0, `performance` governor, pinned to CPUs 0-15; commit `4659016f`; runs [43126394060](https://github.com/orieg/expanse/actions/runs/43126394060) and [43133695465](https://github.com/orieg/expanse/actions/runs/43133695465), host guard quiet; artifacts [`results/baseline_compare_adversarial.json`](../results/baseline_compare_adversarial.json) and [`results/baseline_compare_adversarial_run2.json`](../results/baseline_compare_adversarial_run2.json))*. The `set_lookup` and `map_get` groups also run the five classes of [Barrett's Judy versus hash-table comparison](https://www.nothings.org/computer/judy/) (`workload_common::KeyGen`): `rand22`, 22 random bits in the low bytes (a dense random $2^{22}$ sub-range; 890,427 distinct keys of 1M draws, 9,986 of 10k); `rand22_bswap`, the same keys byte-reversed into the top bytes; `ascii_upper` and `ascii_alnum`, one character per byte; and `stride64`, `i * 64`. `map_get` gained a `miss` arm on every distribution, listed below for the four TESTING.md classes too. Misses come from the population's own generator resumed at N and rejected on membership (AGENTS.md §8.6). Cells and ratios are built as in the tables above: unions of the two runs' BCa intervals, † where a cell's two run intervals do not overlap; every ratio interval is a plain BCa interval (`bca`) in both runs. Worst foreign load in any arm's window: 0.02 core-equivalents in run 1 and 0.03 in run 2. Only the new arms are published from this pair; the other arms it re-measured are in the artifacts, and the tables above stay on the 82eb56af pair. `HashSet`/`HashMap` here are `std::collections`'s, with SipHash-1-3.
 
 **`ExpanseSet`, 10,000 keys** (ns per lookup; ratios are Expanse's time over the competitor's):
