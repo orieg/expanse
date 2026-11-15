@@ -1,0 +1,5 @@
+e2e e1 STOCK: JudyHS ~12.4 MiB, ~25 B/entry
+e2e e1 EXPANSE: JudyHS ~62.0 MiB, ~124 B/entry
+micro m1 STOCK: JudyHS ~16.6 MiB, ~17 B/entry
+micro m1 EXPANSE: JudyHS ~117.7 MiB, ~123 B/entry
+full default window, extra RSS for EXPANSE vs STOCK: ~101 MiB

@@ -1,0 +1,18 @@
+# dedup_oracle.py over each live correctness run (host run, 2026-11-09 ~07:20 UTC)
+corr-e1-expanse-113.csv window=1000000 rows=524286 repeats=0 mismatches=0 first=None
+corr-e1-stock+swap-118.csv window=1000000 rows=524285 repeats=0 mismatches=0 first=None
+corr-e1-stock-108.csv window=1000000 rows=517019 repeats=0 mismatches=0 first=None
+corr-e2-expanse-128.csv window=1000000 rows=1048574 repeats=524287 mismatches=0 first=None
+corr-e2-stock+swap-133.csv window=1000000 rows=1048574 repeats=524287 mismatches=0 first=None
+corr-e2-stock-123.csv window=1000000 rows=1048572 repeats=524286 mismatches=0 first=None
+corr-evict-expanse-143.csv window=65536 rows=1048574 repeats=524287 mismatches=0 first=None
+corr-evict-stock+swap-148.csv window=65536 rows=1048570 repeats=524285 mismatches=0 first=None
+corr-evict-stock-138.csv window=65536 rows=1048574 repeats=524287 mismatches=0 first=None
+corr-evict1-expanse-158.csv window=65536 rows=524287 repeats=0 mismatches=0 first=None
+corr-evict1-stock+swap-163.csv window=65536 rows=524283 repeats=0 mismatches=0 first=None
+corr-evict1-stock-153.csv window=65536 rows=524287 repeats=0 mismatches=0 first=None
+# note: corr-e1-stock had pcap_drop=7267 (first run in that container); its oracle check is still exact on the stream it received
+# diff_churn.c (200,000-key pool, window 65,536, 4,000,000 ops)
+stock: ops=4000000 hits=1297196 seqhash=b38819d521ed1b43
+expanse: ops=4000000 hits=1297196 seqhash=b38819d521ed1b43
+swap: ops=4000000 hits=1297196 seqhash=b38819d521ed1b43

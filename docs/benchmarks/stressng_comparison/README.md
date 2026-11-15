@@ -2032,3 +2032,19 @@ for m in hj_main hj_leak hj_perf; do docs/benchmarks/stressng_comparison/run.sh 
 ```bash
 for m in hj_main hj_leak hj_perf; do python3 docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py ref "/var/tmp/stressng-eval/results/diag_${m}_ref_run1" "/var/tmp/stressng-eval/results/diag_${m}_ref_run2"; done
 ```
+
+## Evaluation record: resident memory per small array (0.18.0, `82eb56af`)
+
+The first stress-ng evaluation, at v0.18.0, measured resident memory per small JudyL array outside stress-ng. Its pre-registration declared this a memory census, not subject to the interval rules. That pre-registration predates this suite's `METHODOLOGY.md` and is not committed. `scripts/memprobe.c` builds N JudyL arrays of K distinct keys drawn from `[0, range)`, verifies every value, deletes every key, then calls `JLFA` on every array. After each phase it prints the RSS delta from `/proc/self/statm`, divided by N, and the `JudyLMemUsed` sum divided by N. One binary, compiled against the distro `Judy.h`, ran under each library by `LD_LIBRARY_PATH` (`scripts/memprobe_run.sh`).
+
+*(measured: build host, 2× Intel Xeon E5-2697 v4, ubuntu:22.04 container, libexpanse `82eb56af`, stock libjudydebian1 1.0.5-5; [`results/memprobe_small_arrays_82eb56af.json`](results/memprobe_small_arrays_82eb56af.json), which carries the probe's output lines verbatim. The host attribution comes from the evaluation report; the probe's output records no host facts. One process per shape and arm, no rounds, so no interval.)*
+
+| Shape (arrays × keys, key range) | Stock RSS B/array | libexpanse RSS B/array | Stock `JudyLMemUsed` B/array | libexpanse `JudyLMemUsed` B/array |
+|---|---:|---:|---:|---:|
+| 100,000 × 1, `[0, 500)` | 47.8 | 4,958.0 | 24.0 | 728.0 |
+| 100,000 × 20, `[0, 500)` (`hashjudy` default shape) | 399.3 | 22,128.8 | 376.0 | 1,096.0 |
+| 100,000 × 10, `[0, 100,000)` (`hashjudy` big shape) | 207.4 | 21,585.6 | 184.0 | 904.0 |
+| 10,000 × 1,000, `[0, 100,000)` | 18,589.7 | 73,223.8 | 16,093.6 | 16,284.4 |
+| 100 × 100,000, `[0, 2³²)` | 2,137,415.7 | 2,496,593.9 | 1,865,696.3 | 1,846,093.1 |
+
+The libexpanse column describes v0.18.0, not main: the small-array floor on main is the deterministic `mem_held` accounting in [COMPAT.md](../../COMPAT.md#what-judy1memused--judylmemused-count-and-the-small-array-floor). The stock column is what this record adds, the resident cost of stock libJudy per small array, which no other committed artifact measures.
