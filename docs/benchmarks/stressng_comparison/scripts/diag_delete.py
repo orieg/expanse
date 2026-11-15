@@ -51,6 +51,7 @@ import itertools
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 import time
@@ -113,6 +114,7 @@ ORDERS = list(itertools.permutations(ARMS))
 ROUNDS = int(os.environ.get("SNG_DELETE_ROUNDS", "24" if len(ARMS) == 4 else "12"))
 STOCK = driver.ARMS["S"]
 PERF = SET == "hj_perf"
+KERNEL_ADDR = re.compile(r"\[k\] 0x[0-9a-f]{8,16}")
 
 
 def library_proof():
@@ -169,7 +171,10 @@ def object_shares(cells):
                 out = subprocess.run(["perf", "report", "-i", data, "--stdio", "--no-children",
                                       "--sort", sort, "--percent-limit", "0.5", "-q"],
                                      check=True, capture_output=True, text=True).stdout
-                rows[key] = [{"pct": float(p[0][:-1]), "row": " ".join(p[1:])}
+                # Kernel samples resolve to raw kernel addresses here, which
+                # reveal the kernel's randomised base; they are withheld.
+                rows[key] = [{"pct": float(p[0][:-1]),
+                              "row": KERNEL_ADDR.sub("[k] <kernel address withheld>", " ".join(p[1:]))}
                              for p in (line.split() for line in out.splitlines())
                              if len(p) >= 2 and p[0].endswith("%")]
                 if not rows[key]:
