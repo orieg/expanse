@@ -1809,6 +1809,43 @@ On repetition 0, N's L1D-miss loads and cycles per insert correlate at ρ 0.979 
   - The leak's removal raises the user-instruction ratio, since `JLFA` adds work on both arms and more on N.
   - Which of these the floor causes is not measured.
 
+## Increment: a 512 B first slab page per class (verdict FAIL)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `50379ff42`, binary `490c0595…`; artifacts `results/diagnostic_increment_first_page_512_ref_run{1,2}.json`) (workloads: every cell of METHODOLOGY.md §5)
+
+The change is pre-registered in METHODOLOGY.md §11 and **fails it**: instruction bounds break on x86-64, AArch64 and wasm64 (CI [run 43751893016](https://github.com/orieg/expanse/actions/runs/43751893016)), and the stress-ng bounds L1b and L2 break on the plain `judy` delete cells below. It is not landed and no bound is moved (AGENTS.md §8.19). These runs are kept because they measure how much of the hashjudy gap is the per-array page floor.
+
+Arms: G, the change (`976348246`, libexpanse sha256 `3ca53187…`); M, main's engine (`9b42a88b…`); S, stock (`76f121a8…`). Run 1 ran 20:01:49–20:11:42 UTC on 2026-11-15 and run 2 21:01:28–21:11:22, each under the bench lock; 720 processes per run, none discarded; max load1 4.77 and 5.03 against a void limit of 12; largest foreign load in any window 0.10 core-equivalents.
+
+**The hashjudy cells: the §11 targets are met.** G/M, BCa 95%, run 1 | run 2:
+
+| cell | W | puts/s | max-rss | bogo-ops/s | wall |
+|---|---|---|---|---|---|
+| `big` | 1 | 2.697 [2.675, 2.722] \| 2.703 [2.679, 2.726] | 0.188 [0.188, 0.188] \| 0.188 [0.188, 0.188] | 2.068 [2.057, 2.080] \| 2.070 [2.058, 2.082] | 0.472 [0.468, 0.475] \| 0.470 [0.466, 0.473] |
+| `big` | 4 | 2.580 [2.571, 2.590] \| 2.571 [2.558, 2.582] | 0.188 [0.188, 0.188] \| 0.188 [0.188, 0.188] | 1.880 [1.875, 1.886] \| 1.873 [1.865, 1.879] | 0.516 [0.515, 0.518] \| 0.518 [0.516, 0.520] |
+| `default` | 1 | 3.279 [3.244, 3.302] \| 3.226 [3.189, 3.262] | 0.198 [0.198, 0.198] \| 0.198 [0.198, 0.198] | 2.640 [2.618, 2.654] \| 2.606 [2.583, 2.628] | 0.376 [0.373, 0.380] \| 0.380 [0.376, 0.384] |
+| `default` | 4 | 3.340 [3.319, 3.362] \| 3.333 [3.300, 3.361] | 0.198 [0.198, 0.198] \| 0.198 [0.198, 0.198] | 2.698 [2.684, 2.713] \| 2.693 [2.672, 2.710] | 0.371 [0.369, 0.373] \| 0.370 [0.367, 0.373] |
+
+Gets G/M: 1.100 and 1.138–1.143 on `big`, 1.006–1.015 on `default`.
+
+**Against stock: NOT MET.** The floor is a large part of the gap and not all of it. G/S (M/S on the same runs in parentheses): puts 0.284–0.328 on `big` (0.105–0.127) and 0.490–0.505 on `default` (0.147–0.154); max-rss 14.5× on `big` (77.1–77.2×) and 9.8× on `default` (49.3–49.5×).
+
+**What breaks on the stress-ng side.** G/M on the plain `judy` delete rate, run 1 | run 2:
+
+| cell | W | delete rate G/M | bound broken |
+|---|---|---|---|
+| `sng_judy_1k` | 1 | 0.941 [0.939, 0.943] \| 0.939 [0.936, 0.943] | L2, and L1b (M/S FASTER, G/S SLOWER) |
+| `sng_judy_1k` | 2 | 0.934 [0.928, 0.938] \| 0.940 [0.933, 0.946] | L2, L1b |
+| `sng_judy_1k` | 4 | 0.929 [0.923, 0.935] \| 0.936 [0.930, 0.941] | L2, L1b |
+| `sng_judy_1k` | 8 | 0.930 [0.928, 0.932] \| 0.933 [0.931, 0.934] | L2, L1b |
+| `sng_judy_256k` | 4 | 0.971 [0.966, 0.976] \| 0.975 [0.969, 0.980] | L2 |
+| `sng_judy_256k` | 8 | 0.978 [0.976, 0.980] \| 0.978 [0.976, 0.979] | L2 |
+| `sng_judy_4m` | 8 | 0.974 [0.973, 0.976] \| 0.974 [0.973, 0.976] | L2 |
+
+On the same cells the insert rate at 1 Ki rises (1.062–1.084) and the find rate rises at 1 Ki and 256 Ki (1.025–1.064). Why the delete rate falls is not attributed here.
+
+**Not run.** The `compare` pairings, the second host and zmap's sparse-responder resident memory: the verdict was FAIL before them.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
