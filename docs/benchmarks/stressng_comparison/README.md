@@ -1648,6 +1648,35 @@ On repetition 0, N's L1D-miss loads and cycles per insert correlate at ρ 0.979 
 - **Replacement state:** not tested; no counter observes it.
 - **What remains without the state.** On repetitions 1–3, every N insert process is in the low-miss state, yet N still takes 1.007–1.010× S's cycles per insert. Deletes take 1.018–1.019×, with every interval above 1. That remainder is not explained by the per-process state, and its cause is unidentified.
 
+## Increment: a `BranchB`'s level on its first cache line
+
+**A pre-registered candidate** (#1679, #1680). The pre-registration is `docs/BENCHMARKING.md`, "Pre-registration: a `BranchB`'s level on its first cache line" (`b80a06ef9`), with the line bound behind it in `node::tests::branch_b_lines_read_by_field_order` (`5685bd9d7`). The change is `3ca8ccdd7`: `BranchB`'s field order becomes `bitmap`, `version`, `level`, `subarrays`, `pop_counts`. This section records the deterministic instruments. The stress-ng runs (T2, T3, L1, L2), the `compare` runs and CI are not run yet, so there is no verdict.
+
+### Where the 4 Mi inserts miss (main)
+
+(measured: Callgrind 3.22.0 cache simulator, `--D1=49152,12,64 --LL=1310720,10,64 --I1=32768,8,64`, rustc 1.99.1, Ubuntu 24.04 container on an x86-64 host, `instructions.rs` at main `aacc1add4`; `callgrind_annotate --auto=yes --inclusive=no`; per-arm totals in `results/branchb_line0/cachesim_arms.json`, the per-line rows are not committed) (workload: core_instructions)
+
+[The simulated-cache control](#diagnostic-the-4-mi-phases-under-a-simulated-cache) gave N 5.3156 simulated L1D read misses per insert through the C ABI and did not say which loads miss. The bench arm `map_ins_slot/gen_4m` reads 5.470 per insert, and three loads hold 80.6% of them:
+
+| Load | Simulated L1D read misses | Per insert |
+|---|---|---|
+| a `BranchB`'s `level` (`branch_form_level`), the node's second line | 6,311,029 | 1.505 |
+| the digit's bitmap word (`Bitmap256`), the node's first line | 6,311,286 | 1.505 |
+| the tag of the child edge followed next (`Edge::tag_byte`) | 5,863,342 | 1.398 |
+
+Every walk through a `BranchB` reads its bitmap and its `level`, and those sat on different lines. The model has no prefetcher, so these are lines touched, not the hardware's misses.
+
+### Deterministic result, head against base
+
+(measured: the same instrument and container, base `aacc1add4` against head `3ca8ccdd7`, each built in its own target directory; artifact `results/branchb_line0/cachesim_arms.json`, written by `scripts/cachesim_arms.py`) (workload: core_instructions)
+
+- **Instructions: identical on all 305 arms.** No arm's `Ir` differs between base and head. This is the x86-64 `instructions.rs` replica only; the smoke, AArch64 and wasm-fuel bounds are CI's and are not read yet.
+- **T1 holds.** `map_ins_slot/gen_4m` reads 4.401 simulated L1D misses per insert at the head against 5.470 at the base (18,459,780 against 22,942,584), under the 4.470 the target sets. `map_remove_revgen/gen_4m` reads 6.692 per delete against 7.656 (28,067,397 against 32,110,230).
+- **The cache-simulator bound holds.** Of the 114 `map_get*`, `set_contains*`, `map_ins*`, `map_remove*` and `sync_*` arms, none has more simulated L1D misses (read plus write) than the base + 0.5%. Over all 305 arms the largest rise is +0.05% (`map_insert/small`, 19,961 to 19,970).
+- **Other arms that fall**, reported and not a target: `short_bytesmap_get/zmap` 570,367 to 524,837 (−7.98%), `sync_map_count_after_write/random` −6.06%, `map_get/random` −3.85%, `set_contains/random` −3.75%.
+
+The fall on inserts is 1.069 per insert against the 1.2 projected. Stock's simulated figure through the C ABI is 3.2622 per insert, so the head still touches more lines per insert than stock in this model.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
