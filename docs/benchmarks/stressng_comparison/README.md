@@ -1913,6 +1913,26 @@ L1 as first registered would break here a second time; L1b does not, because G/M
 
 The G/S lower end is above 1.0 at W = 8 only.
 
+### Second gate, `compare` pairings (reference host)
+
+(measured: reference host Intel Core i9-12900F, bench_baremetal `compare`; head `6959537d5` in runs [43742517572](https://github.com/orieg/expanse/actions/runs/43742517572) and [43751776373](https://github.com/orieg/expanse/actions/runs/43751776373), base `ceff5aee3` in runs [43746616527](https://github.com/orieg/expanse/actions/runs/43746616527) and [43757439004](https://github.com/orieg/expanse/actions/runs/43757439004); artifact `results/branchb_line0/compare_shift_rereg.json`) (workload: `core_compare`)
+
+`scripts/compare_shift.py` over the 82 Expanse cells of `map_get`, `map_get_cold_dram`, `set_lookup` and `map_iter`, head run i paired with base run i. All four runs report load status `ok` with no load finding. The first head run (17:41–18:24 UTC) spans the host's hourly rsync at :17; the driver's load record keeps it valid (largest on-pin foreign load in any window 0.24 core-equivalents, three windows above 0.1), so it is kept as the pre-registration requires of a valid run.
+
+**C1 holds.** No (cell, competitor) that is FASTER or EQUIVALENT at the base is SLOWER at the head. One side changes, in the head's favour: `map_get/clustered/1000000/hit` against the hash map, SLOWER at the base and EQUIVALENT at the head.
+
+**C2 holds.** No cell has its shift lower end above 1.02 in both pairings. Three cells are slower in both pairings, all under the ceiling:
+
+| cell | shift, pairing 1 \| pairing 2 |
+|---|---|
+| `map_get/rand22/1000000/hit` | 1.007 [1.004, 1.011] \| 1.018 [1.016, 1.022] |
+| `set_lookup/sparse/1000000/hit` | 1.006 [1.002, 1.011] \| 1.009 [1.005, 1.012] |
+| `map_iter/random/10000` | 1.003 [1.002, 1.003] \| 1.002 [1.001, 1.004] |
+
+21 cells are faster in both pairings. The largest are the 1 M-key `ascii_upper` lookups: `set_lookup` miss 0.858 [0.856, 0.861] \| 0.829 [0.826, 0.831], `map_get` miss 0.862 [0.859, 0.864] \| 0.868 [0.865, 0.870], `set_lookup` hit 0.872 [0.869, 0.875] \| 0.859 [0.857, 0.862], `map_get` hit 0.926 [0.923, 0.928] \| 0.910 [0.907, 0.913].
+
+**Standing under the second gate: INTERMEDIATE on the reference host.** Every target and bound read there holds. Pending: the second host (T3), whose bench lock was held by another job, and the deterministic bounds on this branch's head in CI.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
