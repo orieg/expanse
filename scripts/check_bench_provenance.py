@@ -22,14 +22,15 @@ arms measured against them, the `ordered_readers_*`, `count_cells_*` and `branch
 `provenance.estimators`, load snapshots with a busy-CPU delta and per-cell
 `rounds_raw`, **unless it is grandfathered below**.
 
-Six repository-root artifacts are governed as well, under a relative path
+Seven repository-root artifacts are governed as well, under a relative path
 prefixed `results/`: `results/baseline_comparative.json`, the `compare`
 suite's pair `results/baseline_compare.json` / `results/baseline_compare_run2.json`
 and its trie-adversarial pair `results/baseline_compare_adversarial.json` /
 `results/baseline_compare_adversarial_run2.json` (#1693),
-the criterion harvests `scripts/bench_baseline.py` writes, and
-`results/baseline_vs_libjudy.json`, the paired-ratio series of
-`bench_vs_libjudy` (#1214). Their cells are not under
+the criterion harvests `scripts/bench_baseline.py` writes, and the pair
+`results/baseline_vs_libjudy.json` / `results/baseline_vs_libjudy_run2.json`,
+the paired-ratio series of `bench_vs_libjudy` (#1214), folded by
+`scripts/harvest_vs_libjudy.py` (#1662). Their cells are not under
 a `CELL_KEYS` key: a harvest keeps its arms under `arms`, each with its
 per-iteration `samples_ns`, and the vs-libjudy series under `series`, each with
 its per-round `ratios` — the raw rows a published interval is recomputed from,
@@ -132,7 +133,8 @@ RESULTS = REPO_ROOT / "results"
 # load window to carry. The relative path a finding names is `results/<name>`.
 ROOT_ARTIFACTS = ("baseline_comparative.json", "baseline_compare.json",
                   "baseline_compare_run2.json", "baseline_compare_adversarial.json",
-                  "baseline_compare_adversarial_run2.json", "baseline_vs_libjudy.json")
+                  "baseline_compare_adversarial_run2.json", "baseline_vs_libjudy.json",
+                  "baseline_vs_libjudy_run2.json")
 ROOT_PREFIX = "results/"
 
 # The cell lists of a root artifact, and the raw rows each cell carries in
@@ -160,6 +162,8 @@ CI_METHOD_PRODUCERS = {
     # The #1257 W3 encoding timing: per-arm intervals and paired per-round
     # ratios, each recorded with its `ci_method`.
     "scripts/leaf_layout_timing.py",
+    # bench_vs_libjudy (#1662): BCa per paired-ratio series, with its `ci_method`.
+    "scripts/harvest_vs_libjudy.py",
     "docs/benchmarks/art_comparison/scripts/recompute_and_patch_json.py",
     "docs/benchmarks/concurrency/scripts/ablations.py",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py",
@@ -336,13 +340,6 @@ GRANDFATHERED = {
     # `bench_baseline.py` with the windowed driver's `--provenance-json`
     # carries all of it and drops this entry.
     "results/baseline_comparative.json": ("7ab53cc8",),
-    # No `provenance` block at all: host, commit and a start load average are
-    # top-level fields, there is no busy-CPU delta and no window per cell. Its
-    # series carry their per-round `ratios`. A re-measurement is taken through
-    # `bench_windowed.py --example bench_vs_libjudy`, whose per-cell windows
-    # (`load-vs_libjudy.json`) the artifact then carries. Pinned by its
-    # top-level `commit`, the one it records.
-    "results/baseline_vs_libjudy.json": ("4c4e852a51719f705116c0c1e05fc8d9b21c96b7",),
 }
 
 # A cell list under this key is a memory census: exact byte counts, no rounds
@@ -1498,12 +1495,14 @@ def _self_test() -> int:
     del series["series"][0]["ratios"]
     expect("a vs-libjudy series without its ratios", series, "carry no `ratios`",
            rel="results/baseline_vs_libjudy.json")
-    # A vs-libjudy artifact in the old shape (no provenance block) at another
-    # commit is a re-measurement and is not exempt.
-    old_shape = {"commit": "0000000", "series": []}
-    exempt, note = grandfather_status("results/baseline_vs_libjudy.json", old_shape)
-    if exempt or not note:
-        failures.append("a re-measured vs-libjudy artifact in the old shape was exempt")
+    # The vs-libjudy artifact was re-measured (#1662) and is no longer
+    # grandfathered, so one in the old shape (no provenance block, even at the
+    # commit it was once pinned to) is held to the full check.
+    old_shape = {"commit": "4c4e852a51719f705116c0c1e05fc8d9b21c96b7", "series": []}
+    if grandfather_status("results/baseline_vs_libjudy.json", old_shape)[0]:
+        failures.append("a vs-libjudy artifact in the old shape was exempt")
+    expect("a vs-libjudy artifact in the old shape", old_shape, "no `provenance` block",
+           rel="results/baseline_vs_libjudy.json")
     # The grandfathered root artifacts are exempt at their recorded commits;
     # the others are held to the full check by `run()`.
     for name in ROOT_ARTIFACTS:

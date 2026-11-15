@@ -58,32 +58,72 @@ What the simulated columns can and cannot answer is a narrower point, and the on
 
 ### Measured: libexpanse vs stock libjudy
 
-First run of the repaired harness on the reference host. Ratios are `expanse_dl / stock`; below 1.000 means libexpanse is faster. `expanse_dl` is the like-for-like arm — both sides `dlopen`'d through the identical C surface.
+Two runs of the harness on the reference host, same commit, same harness (workload: `capi_bench_vs_libjudy`). Ratios are `expanse_dl / stock`; below 1.000 means libexpanse is faster. `expanse_dl` is the like-for-like arm — both sides `dlopen`'d through the identical C surface. The last column is the figure this table carried before the re-run, measured at commit `4c4e852a`; it is superseded, kept beside its replacement so the correction is visible (AGENTS.md §8.7).
 
-| dist | pop | metric | ratio | BCa 95% CI | |
-|---|---:|---|---:|---|---|
-| `sequential` | 100,000 | ins | 0.603 | [0.588, 0.610] | win |
-| `sequential` | 100,000 | get | 1.095 | [0.987, 1.124] | not a difference |
-| `sequential` | 1,000,000 | ins | 0.545 | [0.544, 0.546] | win |
-| `sequential` | 1,000,000 | get | 0.872 | [0.869, 0.877] | win |
-| `random` | 100,000 | ins | 1.009 | [1.005, 1.013] | **loss** |
-| `random` | 100,000 | get | 0.961 | [0.958, 0.964] | win |
-| `random` | 1,000,000 | ins | 0.804 | [0.802, 0.807] | win |
-| `random` | 1,000,000 | get | 1.031 | [1.024, 1.038] | **loss** |
-| `clustered` | 100,000 | ins | 0.979 | [0.974, 0.984] | win |
-| `clustered` | 100,000 | get | 0.919 | [0.917, 0.921] | win |
-| `clustered` | 1,000,000 | ins | 0.933 | [0.932, 0.935] | win |
-| `clustered` | 1,000,000 | get | 0.904 | [0.902, 0.908] | win |
+| dist | pop | metric | run 1: ratio [BCa 95% CI] | run 2: ratio [BCa 95% CI] | verdict | superseded (`4c4e852a`) |
+|---|---:|---|---|---|---|---|
+| `sequential` | 100,000 | ins | 0.442 [0.439, 0.444] | 0.441 [0.435, 0.451] | win | 0.603 [0.588, 0.610] |
+| `sequential` | 100,000 | get | 1.102 [1.099, 1.107] | 1.098 [1.097, 1.100] | **loss** | 1.095 [0.987, 1.124], not a difference |
+| `sequential` | 1,000,000 | ins | 0.379 [0.378, 0.380] | 0.379 [0.378, 0.380] | win | 0.545 [0.544, 0.546] |
+| `sequential` | 1,000,000 | get | 0.853 [0.850, 0.855] | 0.849 [0.845, 0.853] | win | 0.872 [0.869, 0.877] |
+| `random` | 100,000 | ins | 0.913 [0.896, 0.935] | 0.915 [0.899, 0.937] | win | 1.009 [1.005, 1.013], loss |
+| `random` | 100,000 | get | 0.978 [0.972, 0.983] | 0.983 [0.978, 0.991] | win | 0.961 [0.958, 0.964] |
+| `random` | 1,000,000 | ins | 0.786 [0.783, 0.788] | 0.785 [0.783, 0.787] | win | 0.804 [0.802, 0.807] |
+| `random` | 1,000,000 | get | 0.825 [0.821, 0.827] | 0.828 [0.825, 0.832] | win | 1.031 [1.024, 1.038], loss |
+| `clustered` | 100,000 | ins | 0.824 [0.821, 0.827] | 0.829 [0.824, 0.835] | win | 0.979 [0.974, 0.984] |
+| `clustered` | 100,000 | get | 0.893 [0.891, 0.895] | 0.891 [0.889, 0.894] | win | 0.919 [0.917, 0.921] |
+| `clustered` | 1,000,000 | ins | 0.794 [0.792, 0.796] | 0.796 [0.793, 0.797] | win | 0.933 [0.932, 0.935] |
+| `clustered` | 1,000,000 | get | 0.884 [0.881, 0.892] | 0.879 [0.876, 0.882] | win | 0.904 [0.902, 0.908] |
 
-*(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0; commit `4c4e852`; [run 33151981386](https://github.com/orieg/expanse/actions/runs/33151981386); load average 0.16 at start; 15 paired rounds, 50% hit rate, `2 × population` distinct probes at reuse 1.0.)*
+*(measured: Intel Core i9-12900F reference host, `cbbc762a` — the engine of `main` at `aacc1add`, with only this harness's output changed; run 1 [43689413621](https://github.com/orieg/expanse/actions/runs/43689413621), run 2 [43689749825](https://github.com/orieg/expanse/actions/runs/43689749825); 15 paired rounds per run, 50% hit rate, `2 × population` distinct probes at reuse 1.0; one load window per cell, worst foreign load 0.07 core-equivalents across both runs. Superseded column: commit `4c4e852a`, run 33151981386.)*
 
-Per-round ratios and every interval are committed in [`results/baseline_vs_libjudy.json`](../results/baseline_vs_libjudy.json), so each figure here can be re-derived with `scripts/bca_bootstrap.py` without re-running the benchmark.
+Per-round ratios, every interval with the construction that produced it, the per-cell load windows and the byte counts are committed in [`results/baseline_vs_libjudy.json`](../results/baseline_vs_libjudy.json) (run 1) and [`results/baseline_vs_libjudy_run2.json`](../results/baseline_vs_libjudy_run2.json) (run 2), folded by `scripts/harvest_vs_libjudy.py`, so each figure here can be re-derived with `scripts/bca_bootstrap.py` without re-running the benchmark.
 
-**Three arms are real losses** — CI lower bound above 1.000, so parity is excluded: random 1M `get` (1.031), the same arm under `expanse_rlib` (1.028), and random 100k `ins` (1.009). Everything else is a win or indistinguishable.
+**One arm is a real loss in both runs** — CI lower bound above 1.000, so parity is excluded: sequential 100k `get`, 1.102 [1.099, 1.107] and 1.098 [1.097, 1.100]; the `expanse_rlib` arm loses there too, at 1.050 [1.047, 1.055] and 1.056 [1.052, 1.060]. At `4c4e852a` that cell's interval spanned 1.000. Every other cell is a win in both runs.
 
-**The random 1M `get` deficit is 3%, not the ~11% previously published.** That figure came from the harness before its repair — 4,096 probes reused eight times at a 100% hit rate with the value slot never dereferenced. It is superseded, not adjusted: the two numbers do not describe the same workload. [#455](https://github.com/orieg/expanse/issues/455) proposes descent changes scoped against the old figure and should be re-read against this one.
+**The two losses the superseded table recorded are now wins in both runs** (workload: `capi_bench_vs_libjudy`): random 1M `get` moved from 1.031 [1.024, 1.038] to 0.825 [0.821, 0.827] and 0.828 [0.825, 0.832], and random 100k `ins` from 1.009 [1.005, 1.013] to 0.913 [0.896, 0.935] and 0.915 [0.899, 0.937]. The stock arm's own nanoseconds are the denominator of every ratio, and the runs are separated by the engine changes between `4c4e852a` and `aacc1add` on the lookup, insert and allocation paths. Which of those changes moved which cell is **unmeasured**: no run between the two commits isolates them, and no counter run covers these arms.
 
-Linkage makes almost no difference here: `expanse_rlib` (statically linked, LTO) and `expanse_dl` land at 1.028 and 1.031 on the arm where it would matter most.
+**Bytes per key** are exact `JudyLMemUsed` accounting, identical in every round of both runs, so they carry no interval (§8.4). `expanse_dl` over stock: sequential 1.019× (100k) and 1.029× (1M), random 0.996× and 0.995×, clustered 0.973× and 0.925×. The B/key figures published before this re-run had no committed source (#1662); the random 1M figure among them, 16.70 B/key against 17.67, is superseded by 17.58 against 17.67.
+
+Linkage makes almost no difference on most arms: `expanse_rlib` (statically linked, LTO) and `expanse_dl` land at 0.812 [0.809, 0.815] and 0.825 [0.821, 0.827] on random 1M `get` in run 1, and within 0.02 of each other on every 1M cell of run 1; the widest 100k gap is sequential `get`, 1.050 against 1.102.
+
+#### Instructions retired, same surface (workload: `capi_vs_stock`)
+
+Callgrind counts through the same C ABI, in millions of instructions, from `crates/expanse-capi/benches/vs_stock.rs`. `.so` is `libexpanse.so` `dlopen`'d exactly as stock is, the like-for-like arm; `rlib` is the Rust library linked into the harness with LTO. Counts are exact integers, so they carry no interval. libexpanse's JudyHS hashes with a per-process `RandomState` seed, so its `JudyHS*` counts can move between runs; every other count is reproducible.
+
+| Operation | Keys | libexpanse `.so` | libexpanse rlib | stock libjudy | `.so` / stock | rlib / stock |
+|---|---:|---:|---:|---:|---:|---:|
+| `JudyLIns`, sequential | 30,000 | **6.14** | 6.00 | 14.71 | **0.417×** | 0.408× |
+| `JudyLIns`, random | 30,000 | **17.11** | 16.67 | 18.98 | **0.901×** | 0.878× |
+| `JudyLIns`, clustered | 30,000 | **11.05** | 10.74 | 13.37 | **0.827×** | 0.804× |
+| `JudyLGet`, sequential | 30,000 | **4.20** | 4.35 | 6.69 | **0.628×** | 0.650× |
+| `JudyLGet`, random | 30,000 | **3.67** | 3.82 | 6.77 | **0.543×** | 0.565× |
+| `JudyLGet`, clustered | 30,000 | **3.48** | 3.63 | 5.86 | **0.594×** | 0.619× |
+| `JudyLGet`, random | 1,500,000 | **296.27** | 303.77 | 478.17 | **0.620×** | 0.635× |
+| `JudyL` churn (upsert, insert neighbour, delete it), random | 30,000 | **38.36** | 36.72 | 56.30 | **0.681×** | 0.652× |
+| `Judy1Set`, random | 30,000 | **14.18** | 14.27 | 17.26 | **0.822×** | 0.827× |
+| `Judy1Set`, clustered | 30,000 | **6.79** | 6.87 | 11.90 | **0.571×** | 0.577× |
+| `Judy1Test`, random | 30,000 | **3.88** | 3.88 | 5.77 | **0.673×** | 0.673× |
+| `Judy1` breadth-first colouring | 10,000 vertices | **22.19** | 22.30 | 28.19 | **0.787×** | 0.791× |
+| `Judy1` breadth-first colouring | 100,000 vertices | **254.77** | 255.23 | 336.28 | **0.758×** | 0.759× |
+| `JudySLIns`, sequential | 30,000 | **26.57** | 25.11 | 33.84 | **0.785×** | 0.742× |
+| `JudySLIns`, random | 30,000 | **40.80** | 39.48 | 43.78 | **0.932×** | 0.902× |
+| `JudySLIns`, clustered | 30,000 | **30.07** | 28.34 | 41.25 | **0.729×** | 0.687× |
+| `JudySLGet`, sequential | 30,000 | **16.16** | 15.59 | 20.36 | **0.794×** | 0.765× |
+| `JudySLGet`, random | 30,000 | **14.56** | 14.14 | 16.63 | **0.875×** | 0.850× |
+| `JudySLGet`, clustered | 30,000 | **20.67** | 20.10 | 27.21 | **0.760×** | 0.739× |
+| `JudyHSIns`, fixed 8-byte keys | 30,000 | **25.20** | 24.72 | 28.92 | **0.871×** | 0.855× |
+| `JudyHSGet`, fixed 8-byte keys | 30,000 | **12.98** | 13.16 | 25.40 | **0.511×** | 0.518× |
+| `JudyHSDel`, fixed 8-byte keys | 30,000 | **20.77** | 19.73 | 44.86 | **0.463×** | 0.440× |
+| `JudyHSIns`, route keys | 30,000 | 48.45 | 47.17 | **45.04** | 1.076×, **loss** | 1.047×, **loss** |
+| `JudyHSGet`, route keys | 30,000 | **29.38** | 29.37 | 45.43 | **0.647×** | 0.647× |
+| `JudyHSDel`, route keys | 30,000 | **50.97** | 50.18 | 75.98 | **0.671×** | 0.660× |
+
+*(measured: Intel Core i9-12900F reference host, `cbbc762a`, [run 43689888414](https://github.com/orieg/expanse/actions/runs/43689888414); [`results/baseline_vs_stock.json`](../results/baseline_vs_stock.json), 75 arms.)*
+
+One arm retires more instructions than stock: `JudyHSIns` on route keys, 1.076× through the `.so` and 1.047× through the rlib. Every other arm retires fewer.
+
+**Correction.** `results/baseline_vs_stock.json` previously held 33 arms at commit `d1fde746` ([run 33422776469](https://github.com/orieg/expanse/actions/runs/33422776469)); it is replaced by the 75-arm run above, which adds the `JudySL*`, `JudyHS*` and `Judy1` colouring arms. On the 33 arms the two runs share, the stock counts agree to within 0.01%, every libexpanse `JudyLIns`, `JudyLGet`, churn and `Judy1Set` count is lower, and `Judy1Test` is within 0.005% (179 instructions): `.so` `JudyLGet` random 30k went from 4.10 M to 3.67 M, `JudyLIns` sequential from 6.43 M to 6.14 M, and `JudyLGet` random 1.5M from 306.52 M to 296.27 M. The `d1fde746` counts are superseded, not adjusted.
 
 ### Measured: the batched descent (`get_batch` / `contains_batch`)
 
@@ -2727,21 +2767,21 @@ out of a throwaway probe is tracked in issue #1.
 
 A wall-clock table of `bench_vs_libjudy` ratios taken on a 2-core GitHub `ubuntu-latest` runner stood here. It is withdrawn: it named no commit, carried no intervals and had no committed artifact, and it labelled wall-clock ratios as an instruction baseline. The wall-clock reference is the quiet-host table below; the instruction reference is the `capi_vs_stock` Callgrind suite (`crates/expanse-capi/benches/vs_stock.rs`, artifact [`results/baseline_vs_stock.json`](../results/baseline_vs_stock.json)).
 
-### libexpanse vs stock libjudy, JudyL surface — dedicated quiet host *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0, commit `4c4e852a`, [run 33151981386](https://github.com/orieg/expanse/actions/runs/33151981386); harness `crates/expanse-capi/examples/bench_vs_libjudy.rs`, 15 paired rounds with arms interleaved per round, load average 0.16 at start; stock `libJudy.so.1` `dlopen`'d; workload: `capi_bench_vs_libjudy`)*
+### libexpanse vs stock libjudy, JudyL surface — dedicated quiet host *(measured: Intel Core i9-12900F reference host, 24 threads, 30 MiB L3, Linux 6.8.0, `cbbc762a` — the engine of `main` at `aacc1add`; run 1 [43689413621](https://github.com/orieg/expanse/actions/runs/43689413621), run 2 [43689749825](https://github.com/orieg/expanse/actions/runs/43689749825); harness `crates/expanse-capi/examples/bench_vs_libjudy.rs`, 15 paired rounds per run with arms interleaved per round, one load window per cell; stock `libJudy.so.1` `dlopen`'d; workload: `capi_bench_vs_libjudy`)*
 
-Wall-clock ns per operation, 1,000,000-key populations, `expanse_dl` (the like-for-like `dlopen`'d arm) over stock; `< 1.00` = libexpanse faster / smaller:
+Wall-clock ns per operation, 1,000,000-key populations, `expanse_dl` (the like-for-like `dlopen`'d arm) over stock, run 1; `< 1.00` = libexpanse faster / smaller:
 
 | dist | insert ours / stock (ratio [BCa 95% CI]) | get ours / stock (ratio [BCa 95% CI]) | B/key ours / stock (ratio) |
 |---|---|---|---|
-| **sequential 1M** | **12.2 / 22.4 ns (0.545× [0.544, 0.546])** | **12.4 / 14.2 ns (0.872× [0.869, 0.877])** | 8.56 / 8.32 (1.03×) |
-| **random 1M** | **56.8 / 70.6 ns (0.804× [0.802, 0.807])** | 41.0 / 39.8 ns (**1.031× [1.024, 1.038]**) | 16.70 / 17.67 (**0.95×**) |
-| **clustered 1M** | **20.1 / 21.5 ns (0.933× [0.932, 0.935])** | **13.1 / 14.4 ns (0.904× [0.902, 0.908])** | 8.61 / 9.32 (**0.92×**) |
+| **sequential 1M** | **8.5 / 22.4 ns (0.379× [0.378, 0.380])** | **11.9 / 14.0 ns (0.853× [0.850, 0.855])** | 8.56 / 8.32 (1.03×) |
+| **random 1M** | **55.2 / 70.2 ns (0.786× [0.783, 0.788])** | **32.4 / 39.3 ns (0.825× [0.821, 0.827])** | **17.58 / 17.67 (0.99×)** |
+| **clustered 1M** | **17.1 / 21.6 ns (0.794× [0.792, 0.796])** | **12.7 / 14.4 ns (0.884× [0.881, 0.892])** | **8.61 / 9.32 (0.92×)** |
 
-Every ratio and interval is the `expanse_dl_over_stock` series of [`results/baseline_vs_libjudy.json`](../results/baseline_vs_libjudy.json) (BCa over the 15 per-round paired ratios); the ns and B/key figures are the `expanse_dl` and `stock` rows of the same run's step log, since the artifact holds ratios only. B/key is deterministic allocator accounting (`JudyLMemUsed`), so it carries no interval. The ns columns are per-arm medians and their quotient need not equal the paired ratio, which is the figure to cite.
+Every ratio and interval is the `expanse_dl_over_stock` series of [`results/baseline_vs_libjudy.json`](../results/baseline_vs_libjudy.json); run 2 ([`results/baseline_vs_libjudy_run2.json`](../results/baseline_vs_libjudy_run2.json)) reproduces each 1M ratio within 0.005, with the intervals in [Measured: libexpanse vs stock libjudy](#measured-libexpanse-vs-stock-libjudy). B/key is the artifacts' `memory` list — exact `JudyLMemUsed` accounting, the same count in every round of both runs, so it carries no interval. The ns columns are per-arm means over the 15 rounds, from the runs' step logs (the artifacts hold ratios and byte counts, not nanoseconds); their quotient need not equal the paired ratio, which is the figure to cite.
 
-Honest reading: libexpanse wins insert across all three distributions (0.545×–0.933×) and wins sequential/clustered lookup (0.872× / 0.904×). It is **slower on random 1M lookup, 1.031× [1.024, 1.038]**; the pre-repair harness recorded a larger deficit here, which is superseded. Why random costs more than sequential is **unmeasured**: no counter run covers this arm, and the two mechanisms with emitted-code evidence are tracked in [#455](https://github.com/orieg/expanse/issues/455). It is the engine's weak arm on this surface. On the `x86-64-v1` CI runner above, without the SIMD leaf/branch kernels, the same operations are slower than stock. The swing between the two tables is the microarchitecture tier, not a code change (per-routine v1→v3 instruction deltas span −1.9% to −42.6% — [`docs/visualizer_data.json`](visualizer_data.json)). The 100k-population rows are in [Measured: libexpanse vs stock libjudy](#measured-libexpanse-vs-stock-libjudy).
+Honest reading: libexpanse wins insert and lookup on all three distributions at 1M, in both runs. The one loss on this surface is at 100k: sequential `get`, 1.102× [1.099, 1.107] and 1.098× [1.097, 1.100]. What sets either the wins or that loss is **unmeasured**: no counter run covers these arms. On the `x86-64-v1` CI runner above, without the SIMD leaf/branch kernels, the same operations were slower than stock; that comparison has not been re-run since, so it is not evidence about this engine. The 100k-population rows are in [Measured: libexpanse vs stock libjudy](#measured-libexpanse-vs-stock-libjudy).
 
-The sequential and random rows previously carried figures from commit `43b46f38` (5-round medians, no intervals) that the repaired harness does not reproduce — sequential lookup was published at 0.68× against 0.872× [0.869, 0.877] here. Those figures are superseded and registered in `.github/superseded-figures.json`.
+**Correction (#1662).** This table previously carried commit `4c4e852a` (run 33151981386): sequential 1M insert 0.545× and get 0.872×, random 1M insert 0.804× and get **1.031× [1.024, 1.038], a loss**, clustered 1M insert 0.933× and get 0.904×, and B/key 16.70 / 17.67 on random 1M. Those figures are superseded by the table above: the engine changed on the measured paths between the two commits, which invalidates a published number until it is re-measured (AGENTS.md §8.7). The random 1M lookup loss does not reproduce at `cbbc762a`. The B/key cells had no committed source; they now resolve to the artifact. Before that, the sequential and random rows carried figures from commit `43b46f38` (5-round medians, no intervals) that the repaired harness did not reproduce — sequential lookup was published at 0.68× against 0.872× [0.869, 0.877] at `4c4e852a`. Those are superseded and registered in `.github/superseded-figures.json`.
 
 ## Microarchitecture Scaling: x86-64-v1 vs v2 vs v3 vs v4
 
