@@ -27,11 +27,11 @@ PAIRS_BY_SET = {"gets": [("N", "S"), ("N64", "S"), ("N64", "N")], "delete": [("D
                 "promote2": [("P", "M"), ("P", "S"), ("M", "S")],
                 "big_main": [("N", "S"), ("N", "E"), ("E", "S")],
                 "big_layout": [("N", "S"), ("NR", "SR"), ("N", "NR")],
-                "big_pfn": [("N", "S")]}
+                "big_pfn": [("N", "S")], "big_pf": [("N", "S")]}
 NAME_BY_SET = {"gets": "phase_counters", "delete": "delete_phase", "delete_fe": "delete_fe",
                "delete_ms": "delete_ms", "delete_acct": "delete_acct",
                "promote2": "promote2", "big_main": "big_main",
-               "big_layout": "big_layout", "big_pfn": "big_pfn"}
+               "big_layout": "big_layout", "big_pfn": "big_pfn", "big_pf": "big_pf"}
 # The delete_acct set's rule (README.md, "Diagnostic: unlocked accounting on
 # the delete phase"): the share of D's cycle excess over S that A removes, at
 # which the locked counters are said to matter.
@@ -316,6 +316,144 @@ def pfn_reading(prefixes):
             print(f"  {shape} {p}: N rho {a} / {b} -> {'ASSOCIATED' if sep else 'not associated'}")
 
 
+# The big_pf set's rule (README.md, "Diagnostic: the 4 Mi phases repeated in
+# one process"): thresholds fixed before its runs.
+L1MISS = "mem_load_retired.l1_miss"
+PF_EVENTS = ("mem_load_retired.fb_hit", "l1d.replacement", "l1d.hwpf_miss")
+ICC_FIXED, ICC_VARIES = 0.9, 0.5
+SAME_FRAMES, CHANGED_FRAMES = 0.99, 0.5
+
+
+def icc1(groups):
+    """One-way intraclass correlation ICC(1) of equal-sized groups."""
+    k, p = len(groups[0]), len(groups)
+    if k < 2 or p < 2 or any(len(g) != k for g in groups):
+        raise ValueError("icc1 needs at least two equal groups of at least two")
+    means = [math.fsum(g) / k for g in groups]
+    grand = math.fsum(means) / p
+    msb = k * math.fsum((m - grand) ** 2 for m in means) / (p - 1)
+    msw = math.fsum((x - m) ** 2 for g, m in zip(groups, means) for x in g) / (p * (k - 1))
+    den = msb + (k - 1) * msw
+    return None if den == 0 else (msb - msw) / den
+
+
+# Pinned at import. Spearman: (1..5) against (2,1,4,3,5) is 1 - 6*4/120 = 0.8.
+# ICC(1): Shrout & Fleiss (1979), "Intraclass correlations: uses in assessing
+# rater reliability", Psychological Bulletin 86(2): their worked example of
+# six targets rated by four judges, ICC(1,1) = .17.
+assert abs(spearman([1, 2, 3, 4, 5], [2, 1, 4, 3, 5]) - 0.8) < 1e-12
+assert round(icc1([[9, 2, 5, 8], [6, 1, 3, 2], [8, 4, 6, 8], [7, 1, 2, 6], [10, 5, 6, 9],
+                   [6, 2, 4, 7]]), 2) == 0.17
+
+
+def pf_reading(prefixes):
+    """Spread on repetition 0 and on repetitions 1-3, persistence (ICC over
+    repetitions 1-3), frames, and the prefetch-counter association. Returns
+    the reported cycle intervals, recorded in the per-repetition artifact."""
+    per, reported = {}, []
+    for n, prefix in enumerate(prefixes, 1):
+        recs = [json.loads(ln) for ln in open(f"{prefix}.jsonl")]
+        for shape in sorted({r["cell"] for r in recs}):
+            for arm in ("N", "S"):
+                xs = [r for r in recs if r["cell"] == shape and r["arm"] == arm and valid(r)]
+                ops = xs[0]["ops"] // len(xs[0]["reps"])
+                miss = [[q["counters"][L1MISS] / ops for q in r["reps"]] for r in xs]
+                ins = [[q["counters"]["instructions"] for q in r["reps"]] for r in xs]
+                drift = max(max(i) / min(i) - 1 for i in ins)
+                later = [m[1:] for m in miss]
+                # Frames: the share of repetition r's present pages on the
+                # previous repetition's frame, for r = 2, 3 (within 1-3).
+                same = [min(f["same"] / f["pages"] for f in r["frames"][2:]) for r in xs]
+                same.sort()
+                med = same[len(same) // 2] if len(same) % 2 else (same[len(same) // 2 - 1] + same[len(same) // 2]) / 2
+                same01 = [r["frames"][1]["same"] / r["frames"][1]["pages"] for r in xs]
+                pm = [math.fsum(m) / len(m) for m in later]
+                per[(shape, arm, n)] = dict(
+                    n=len(xs), r0=[m[0] for m in miss], later=later, pm=pm,
+                    icc=icc1(later), drift=drift, same_med=med, same_min=same[0],
+                    same01_min=min(same01), same01_max=max(same01),
+                    cpus=[q["cpu"] for r in xs for q in r["reps"]],
+                    pf={e: [math.fsum(q["counters"][e] for q in r["reps"][1:]) / ((len(r["reps"]) - 1) * ops)
+                            for r in xs] for e in PF_EVENTS},
+                    cyc=[[q["counters"]["cycles"] / ops for q in r["reps"]] for r in xs],
+                    h0=[r["reps"][0]["counters"]["l1d.hwpf_miss"] / ops for r in xs],
+                    miss_all=[x for m in miss for x in m],
+                    cpu_all=[q["cpu"][0] for r in xs for q in r["reps"]])
+                v = per[(shape, arm, n)]
+                print(f"  {shape} run {n} {arm}: n={v['n']}; L1D-miss/op rep 0 {min(v['r0']):.2f}-{max(v['r0']):.2f}, "
+                      f"reps 1-3 {min(min(m) for m in later):.2f}-{max(max(m) for m in later):.2f}; "
+                      f"ICC(reps 1-3) {v['icc']}; instructions drift within a process {v['drift']:.5f}; "
+                      f"frames kept reps 1->2->3 median {med:.4f} min {same[0]:.4f}; rep 0->1 "
+                      f"{v['same01_min']:.4f}-{v['same01_max']:.4f}; migrated reps "
+                      f"{sum(a != b for a, b in v['cpus'])}")
+    for shape in sorted({k[0] for k in per}):
+        print(f"  {shape}:")
+        # Reported, not read: cycles per operation on repetition 0 and on
+        # repetitions 1-3, and N/S on each (BCa 95% over process means).
+        for n in (1, 2):
+            for lab, sel in (("rep 0", lambda r: r[:1]), ("reps 1-3", lambda r: r[1:])):
+                cyc = {a: [math.fsum(sel(c)) / len(sel(c)) for c in per[(shape, a, n)]["cyc"]] for a in ("N", "S")}
+                ratio, lo, hi, how = bca_bootstrap_ratio_ci_with_method(cyc["N"], cyc["S"], num_resamples=2000, seed=42)
+                reported.append({"workload_id": f"phase_{shape}", "run": n, "repetitions": lab,
+                                 "metric": "cycles", "pair": "N/S", "ratio": ratio,
+                                 "ci_lower": lo, "ci_upper": hi, "ci_method": how})
+                print(f"    reported, run {n}, cycles/op {lab}: N {min(cyc['N']):.1f}-{max(cyc['N']):.1f}, "
+                      f"S {min(cyc['S']):.1f}-{max(cyc['S']):.1f}; N/S {ratio:.4f} [{lo:.4f}, {hi:.4f}] ({how})")
+            v = per[(shape, "N", n)]
+            print(f"    reported, run {n}, N rep 0: rho(L1D-miss/op, cycles/op) "
+                  f"{spearman(v['r0'], [c[0] for c in v['cyc']])}")
+        # Observed, outside the pre-registration (README.md, "The 4 Mi phases
+        # repeated in one process"): l1d.hwpf_miss against L1D-miss loads on
+        # repetition 0, where rules 2-4 do not look.
+        for n in (1, 2):
+            for arm in ("N", "S"):
+                v = per[(shape, arm, n)]
+                print(f"    observed, run {n} {arm} rep 0: l1d.hwpf_miss/op {min(v['h0']):.3f}-{max(v['h0']):.3f}, "
+                      f"zero in {sum(x == 0 for x in v['h0'])} processes; rho with L1D-miss/op "
+                      f"{spearman(v['h0'], v['r0'])}")
+        rng = lambda xs: max(xs) - min(xs)
+        sp0 = [rng(per[(shape, "N", n)]["r0"]) > 2 * rng(per[(shape, "S", n)]["r0"]) for n in (1, 2)]
+        spl = [rng([x for m in per[(shape, "N", n)]["later"] for x in m])
+               > 2 * rng([x for m in per[(shape, "S", n)]["later"] for x in m]) for n in (1, 2)]
+        print(f"    rule 1, spread: repetition 0 {sp0}, repetitions 1-3 {spl}")
+        for n in (1, 2):
+            a, b = per[(shape, "N", n)], per[(shape, "S", n)]
+            print(f"      run {n} mean L1D-miss/op, rep 0 vs reps 1-3: N {math.fsum(a['r0']) / a['n']:.3f} vs "
+                  f"{math.fsum(a['pm']) / a['n']:.3f}; S {math.fsum(b['r0']) / b['n']:.3f} vs {math.fsum(b['pm']) / b['n']:.3f}")
+        if not all(spl):
+            print("    repetitions 1-3 do not carry N's spread in both runs: rules 2-4 not read")
+            continue
+        icc = [per[(shape, "N", n)]["icc"] for n in (1, 2)]
+        state = ("PERSISTS" if all(x is not None and x >= ICC_FIXED for x in icc)
+                 else "VARIES" if all(x is not None and x <= ICC_VARIES for x in icc) else "MIXED")
+        print(f"    rule 2, persistence: N ICC {icc} -> {state}; S ICC "
+              f"{[per[(shape, 'S', n)]['icc'] for n in (1, 2)]}")
+        med = [per[(shape, "N", n)]["same_med"] for n in (1, 2)]
+        if state == "VARIES" and all(m >= SAME_FRAMES for m in med):
+            frames = "RULED OUT: the state changes between repetitions on the same frames"
+        elif state == "PERSISTS" and all(m <= CHANGED_FRAMES for m in med):
+            frames = "RULED OUT: the state persists while the frames change"
+        elif state == "PERSISTS" and all(m >= SAME_FRAMES for m in med):
+            frames = "NOT RULED OUT: state and frames both fixed per process; not identified"
+        else:
+            frames = "NO READING"
+        print(f"    rule 3, physical frames (slice hash): median frames kept {med} -> {frames}")
+        for e in PF_EVENTS:
+            rho = [spearman(per[(shape, "N", n)]["pf"][e], per[(shape, "N", n)]["pm"]) for n in (1, 2)]
+            ctl = [spearman(per[(shape, "S", n)]["pf"][e], per[(shape, "S", n)]["pm"]) for n in (1, 2)]
+            assoc = (all(x is not None and abs(x) >= PFN_RHO for x in rho) and (rho[0] > 0) == (rho[1] > 0))
+            print(f"    rule 4, {e}/op: N rho {rho} -> {'ASSOCIATED' if assoc else 'not associated'}; S rho {ctl}; "
+                  f"N range run 1 {min(per[(shape, 'N', 1)]['pf'][e]):.3f}-{max(per[(shape, 'N', 1)]['pf'][e]):.3f}")
+        for n in (1, 2):
+            by = defaultdict(list)
+            v = per[(shape, "N", n)]
+            for c, x in zip(v["cpu_all"], v["miss_all"]):
+                by[c].append(x)
+            print(f"    reported, run {n}, N L1D-miss/op by CPU: " + "; ".join(
+                f"cpu {c}: n={len(xs)} {min(xs):.2f}-{max(xs):.2f}" for c, xs in sorted(by.items())))
+    return reported
+
+
 def layout_reading(prefixes):
     """The big_layout set's per-process rule (README.md, "Diagnostic: the 4 Mi
     phases' per-process layout"): treatment check, huge pages, collapse."""
@@ -386,6 +524,32 @@ def main():
         print("\nreading rule (README.md), A against D and S per shape:")
         for shape in sorted({k[0] for k in keyed[0]}):
             acct_reading(keyed, shape)
+        return
+    if arts[0]["provenance"].get("phase_set") == "big_pf":
+        print("\nreading rule (README.md), per process and repetition:")
+        reported = pf_reading(prefixes)
+        # The per-repetition records the reading uses: counters, the CPU
+        # before and after the phase, and the frame counts (no frame numbers).
+        reps = []
+        for n, prefix in enumerate(prefixes, 1):
+            for ln in open(f"{prefix}.jsonl"):
+                r = json.loads(ln)
+                reps.append({"run": n, "round": r["round"], "shape": r["cell"], "arm": r["arm"],
+                             "ops_per_rep": r["ops"] // len(r["reps"]), "reps": r["reps"], "frames": r["frames"]})
+        p0 = arts[0]["provenance"]
+        dest = RESULTS / f"diagnostic_big_pf_{host}_reps.json"
+        dest.write_text(json.dumps({"provenance": {
+            "diagnostic": "the 4 Mi phases repeated in one process; per-repetition records",
+            "harness": p0["commit"], "host": p0["host"],
+            "loads": [ld for a in arts for ld in a["provenance"]["loads"]],
+            "estimators": {"ratio": "none: no ratio is published from this file",
+                           "columns": "Per repetition: the probe's self-counted user-mode cpu_core counters, the CPU "
+                                      "before and after the phase, time enabled and running (cumulative over the "
+                                      "process), and per repetition the [heap] present pages, pages whose frame reads "
+                                      "0 and pages on the previous repetition's frame. No frame numbers."},
+            "runs": [a["provenance"]["run"] for a in arts]}, "reported_cycles": reported,
+            "processes": reps}, indent=0) + "\n")
+        print(f"per-repetition records -> {shown(dest)}")
         return
     if arts[0]["provenance"].get("phase_set") == "big_pfn":
         print("\nreading rule (README.md), per process:")

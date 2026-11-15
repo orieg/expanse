@@ -1,0 +1,7013 @@
+{
+ "provenance": {
+  "suite": "stressng_comparison",
+  "issue": 1680,
+  "commit": "3b42b7bac",
+  "host": {
+   "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+   "cpus_online": 24,
+   "cpu_core_cpus": "0-15",
+   "cpu_atom_cpus": "16-23",
+   "cpu0_thread_siblings": "0-1",
+   "scaling_driver": "intel_pstate",
+   "scaling_governor": "powersave",
+   "scaling_governor_by_cpu": {
+    "0": "powersave",
+    "2": "powersave",
+    "4": "powersave",
+    "6": "powersave",
+    "8": "powersave",
+    "10": "powersave",
+    "12": "powersave",
+    "14": "powersave"
+   },
+   "scaling_governor_pin_set": "0,2,4,6,8,10,12,14",
+   "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+   "transparent_hugepage": "always [madvise] never",
+   "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+   "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+  },
+  "estimators": {
+   "ratio": "N/S, N64/S and N64/N: the ratio of two arms' means of one user-mode counter over the measured phase, with a two-sample BCa 95% interval over the run's rounds",
+   "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+   "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+  },
+  "core_pin": "0,2,4,6,8,10,12,14",
+  "loads": [
+   {
+    "label": "start",
+    "since": null,
+    "load1": 0.85,
+    "load5": 0.34,
+    "load15": 0.13,
+    "at": "2026-11-14T20:22:09Z",
+    "stat_busy_jiffies": 62782298,
+    "stat_total_jiffies": 6167119161,
+    "child_cpu_s": 8.547,
+    "monotonic_s": 2570555.808,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r0",
+    "since": "start",
+    "load1": 0.85,
+    "load5": 0.34,
+    "load15": 0.13,
+    "at": "2026-11-14T20:22:10Z",
+    "stat_busy_jiffies": 62782406,
+    "stat_total_jiffies": 6167121790,
+    "child_cpu_s": 9.628,
+    "monotonic_s": 2570556.905,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 0.99,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r0",
+    "since": "cell:judy_4m:pf:N:r0",
+    "load1": 0.85,
+    "load5": 0.34,
+    "load15": 0.13,
+    "at": "2026-11-14T20:22:11Z",
+    "stat_busy_jiffies": 62782467,
+    "stat_total_jiffies": 6167123231,
+    "child_cpu_s": 10.228,
+    "monotonic_s": 2570557.505,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:pf:N:r0",
+    "since": "cell:judy_4m:pf:S:r0",
+    "load1": 0.85,
+    "load5": 0.34,
+    "load15": 0.13,
+    "at": "2026-11-14T20:22:12Z",
+    "stat_busy_jiffies": 62782529,
+    "stat_total_jiffies": 6167124720,
+    "child_cpu_s": 10.848,
+    "monotonic_s": 2570558.126,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:S:r0",
+    "since": "cell:del_4m:pf:N:r0",
+    "load1": 0.86,
+    "load5": 0.35,
+    "load15": 0.13,
+    "at": "2026-11-14T20:22:13Z",
+    "stat_busy_jiffies": 62782650,
+    "stat_total_jiffies": 6167127610,
+    "child_cpu_s": 12.051,
+    "monotonic_s": 2570559.33,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:S:r1",
+    "since": "cell:del_4m:pf:S:r0",
+    "load1": 0.86,
+    "load5": 0.35,
+    "load15": 0.13,
+    "at": "2026-11-14T20:22:14Z",
+    "stat_busy_jiffies": 62782768,
+    "stat_total_jiffies": 6167130461,
+    "child_cpu_s": 13.239,
+    "monotonic_s": 2570560.519,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:pf:N:r1",
+    "since": "cell:del_4m:pf:S:r1",
+    "load1": 0.86,
+    "load5": 0.35,
+    "load15": 0.13,
+    "at": "2026-11-14T20:22:15Z",
+    "stat_busy_jiffies": 62782887,
+    "stat_total_jiffies": 6167133315,
+    "child_cpu_s": 14.428,
+    "monotonic_s": 2570561.708,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r1",
+    "since": "cell:del_4m:pf:N:r1",
+    "load1": 0.86,
+    "load5": 0.35,
+    "load15": 0.13,
+    "at": "2026-11-14T20:22:16Z",
+    "stat_busy_jiffies": 62783010,
+    "stat_total_jiffies": 6167136235,
+    "child_cpu_s": 15.643,
+    "monotonic_s": 2570562.925,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r1",
+    "since": "cell:judy_4m:pf:S:r1",
+    "load1": 0.86,
+    "load5": 0.35,
+    "load15": 0.13,
+    "at": "2026-11-14T20:22:17Z",
+    "stat_busy_jiffies": 62783072,
+    "stat_total_jiffies": 6167137723,
+    "child_cpu_s": 16.263,
+    "monotonic_s": 2570563.545,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r2",
+    "since": "cell:judy_4m:pf:N:r1",
+    "load1": 0.86,
+    "load5": 0.35,
+    "load15": 0.13,
+    "at": "2026-11-14T20:22:18Z",
+    "stat_busy_jiffies": 62783133,
+    "stat_total_jiffies": 6167139176,
+    "child_cpu_s": 16.868,
+    "monotonic_s": 2570564.151,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r2",
+    "since": "cell:del_4m:pf:N:r2",
+    "load1": 0.87,
+    "load5": 0.36,
+    "load15": 0.14,
+    "at": "2026-11-14T20:22:19Z",
+    "stat_busy_jiffies": 62783253,
+    "stat_total_jiffies": 6167142056,
+    "child_cpu_s": 18.067,
+    "monotonic_s": 2570565.351,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r2",
+    "since": "cell:del_4m:pf:S:r2",
+    "load1": 0.87,
+    "load5": 0.36,
+    "load15": 0.14,
+    "at": "2026-11-14T20:22:20Z",
+    "stat_busy_jiffies": 62783372,
+    "stat_total_jiffies": 6167144902,
+    "child_cpu_s": 19.252,
+    "monotonic_s": 2570566.537,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r2",
+    "since": "cell:judy_4m:pf:N:r2",
+    "load1": 0.87,
+    "load5": 0.36,
+    "load15": 0.14,
+    "at": "2026-11-14T20:22:21Z",
+    "stat_busy_jiffies": 62783433,
+    "stat_total_jiffies": 6167146378,
+    "child_cpu_s": 19.867,
+    "monotonic_s": 2570567.153,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r3",
+    "since": "cell:judy_4m:pf:S:r2",
+    "load1": 0.87,
+    "load5": 0.36,
+    "load15": 0.14,
+    "at": "2026-11-14T20:22:21Z",
+    "stat_busy_jiffies": 62783495,
+    "stat_total_jiffies": 6167147860,
+    "child_cpu_s": 20.484,
+    "monotonic_s": 2570567.77,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r3",
+    "since": "cell:del_4m:pf:S:r3",
+    "load1": 0.87,
+    "load5": 0.36,
+    "load15": 0.14,
+    "at": "2026-11-14T20:22:22Z",
+    "stat_busy_jiffies": 62783614,
+    "stat_total_jiffies": 6167150718,
+    "child_cpu_s": 21.674,
+    "monotonic_s": 2570568.962,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r3",
+    "since": "cell:del_4m:pf:N:r3",
+    "load1": 0.88,
+    "load5": 0.37,
+    "load15": 0.14,
+    "at": "2026-11-14T20:22:24Z",
+    "stat_busy_jiffies": 62783735,
+    "stat_total_jiffies": 6167153605,
+    "child_cpu_s": 22.876,
+    "monotonic_s": 2570570.165,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r3",
+    "since": "cell:judy_4m:pf:S:r3",
+    "load1": 0.88,
+    "load5": 0.37,
+    "load15": 0.14,
+    "at": "2026-11-14T20:22:24Z",
+    "stat_busy_jiffies": 62783797,
+    "stat_total_jiffies": 6167155095,
+    "child_cpu_s": 23.496,
+    "monotonic_s": 2570570.785,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r4",
+    "since": "cell:judy_4m:pf:N:r3",
+    "load1": 0.88,
+    "load5": 0.37,
+    "load15": 0.14,
+    "at": "2026-11-14T20:22:25Z",
+    "stat_busy_jiffies": 62783858,
+    "stat_total_jiffies": 6167156538,
+    "child_cpu_s": 24.097,
+    "monotonic_s": 2570571.386,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r4",
+    "since": "cell:del_4m:pf:N:r4",
+    "load1": 0.88,
+    "load5": 0.37,
+    "load15": 0.14,
+    "at": "2026-11-14T20:22:26Z",
+    "stat_busy_jiffies": 62783978,
+    "stat_total_jiffies": 6167159445,
+    "child_cpu_s": 25.308,
+    "monotonic_s": 2570572.599,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r4",
+    "since": "cell:del_4m:pf:S:r4",
+    "load1": 0.88,
+    "load5": 0.37,
+    "load15": 0.14,
+    "at": "2026-11-14T20:22:27Z",
+    "stat_busy_jiffies": 62784098,
+    "stat_total_jiffies": 6167162294,
+    "child_cpu_s": 26.494,
+    "monotonic_s": 2570573.785,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r4",
+    "since": "cell:judy_4m:pf:N:r4",
+    "load1": 0.89,
+    "load5": 0.39,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:28Z",
+    "stat_busy_jiffies": 62784158,
+    "stat_total_jiffies": 6167163732,
+    "child_cpu_s": 27.093,
+    "monotonic_s": 2570574.385,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r5",
+    "since": "cell:judy_4m:pf:S:r4",
+    "load1": 0.89,
+    "load5": 0.39,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:29Z",
+    "stat_busy_jiffies": 62784220,
+    "stat_total_jiffies": 6167165217,
+    "child_cpu_s": 27.711,
+    "monotonic_s": 2570575.004,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r5",
+    "since": "cell:judy_4m:pf:S:r5",
+    "load1": 0.89,
+    "load5": 0.39,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:29Z",
+    "stat_busy_jiffies": 62784282,
+    "stat_total_jiffies": 6167166706,
+    "child_cpu_s": 28.331,
+    "monotonic_s": 2570575.625,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:S:r5",
+    "since": "cell:judy_4m:pf:N:r5",
+    "load1": 0.89,
+    "load5": 0.39,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:30Z",
+    "stat_busy_jiffies": 62784342,
+    "stat_total_jiffies": 6167168150,
+    "child_cpu_s": 28.932,
+    "monotonic_s": 2570576.226,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r5",
+    "since": "cell:del_4m:pf:S:r5",
+    "load1": 0.89,
+    "load5": 0.39,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:31Z",
+    "stat_busy_jiffies": 62784462,
+    "stat_total_jiffies": 6167171004,
+    "child_cpu_s": 30.121,
+    "monotonic_s": 2570577.416,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r6",
+    "since": "cell:del_4m:pf:N:r5",
+    "load1": 0.89,
+    "load5": 0.39,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:32Z",
+    "stat_busy_jiffies": 62784583,
+    "stat_total_jiffies": 6167173894,
+    "child_cpu_s": 31.324,
+    "monotonic_s": 2570578.62,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r6",
+    "since": "cell:judy_4m:pf:N:r6",
+    "load1": 0.9,
+    "load5": 0.4,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:33Z",
+    "stat_busy_jiffies": 62784643,
+    "stat_total_jiffies": 6167175339,
+    "child_cpu_s": 31.926,
+    "monotonic_s": 2570579.223,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r6",
+    "since": "cell:judy_4m:pf:S:r6",
+    "load1": 0.9,
+    "load5": 0.4,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:33Z",
+    "stat_busy_jiffies": 62784706,
+    "stat_total_jiffies": 6167176826,
+    "child_cpu_s": 32.545,
+    "monotonic_s": 2570579.842,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:pf:S:r6",
+    "since": "cell:del_4m:pf:N:r6",
+    "load1": 0.9,
+    "load5": 0.4,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:35Z",
+    "stat_busy_jiffies": 62784827,
+    "stat_total_jiffies": 6167179740,
+    "child_cpu_s": 33.758,
+    "monotonic_s": 2570581.057,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:S:r7",
+    "since": "cell:del_4m:pf:S:r6",
+    "load1": 0.9,
+    "load5": 0.4,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:36Z",
+    "stat_busy_jiffies": 62784946,
+    "stat_total_jiffies": 6167182602,
+    "child_cpu_s": 34.95,
+    "monotonic_s": 2570582.25,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r7",
+    "since": "cell:del_4m:pf:S:r7",
+    "load1": 0.9,
+    "load5": 0.4,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:37Z",
+    "stat_busy_jiffies": 62785066,
+    "stat_total_jiffies": 6167185452,
+    "child_cpu_s": 36.137,
+    "monotonic_s": 2570583.437,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r7",
+    "since": "cell:del_4m:pf:N:r7",
+    "load1": 0.91,
+    "load5": 0.41,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:38Z",
+    "stat_busy_jiffies": 62785187,
+    "stat_total_jiffies": 6167188354,
+    "child_cpu_s": 37.346,
+    "monotonic_s": 2570584.647,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r7",
+    "since": "cell:judy_4m:pf:S:r7",
+    "load1": 0.91,
+    "load5": 0.41,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:39Z",
+    "stat_busy_jiffies": 62785249,
+    "stat_total_jiffies": 6167189840,
+    "child_cpu_s": 37.964,
+    "monotonic_s": 2570585.266,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r8",
+    "since": "cell:judy_4m:pf:N:r7",
+    "load1": 0.91,
+    "load5": 0.41,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:39Z",
+    "stat_busy_jiffies": 62785310,
+    "stat_total_jiffies": 6167191309,
+    "child_cpu_s": 38.576,
+    "monotonic_s": 2570585.878,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:S:r8",
+    "since": "cell:del_4m:pf:N:r8",
+    "load1": 0.91,
+    "load5": 0.41,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:41Z",
+    "stat_busy_jiffies": 62785432,
+    "stat_total_jiffies": 6167194230,
+    "child_cpu_s": 39.793,
+    "monotonic_s": 2570587.096,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r8",
+    "since": "cell:del_4m:pf:S:r8",
+    "load1": 0.91,
+    "load5": 0.41,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:42Z",
+    "stat_busy_jiffies": 62785552,
+    "stat_total_jiffies": 6167197104,
+    "child_cpu_s": 40.99,
+    "monotonic_s": 2570588.294,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r8",
+    "since": "cell:judy_4m:pf:N:r8",
+    "load1": 0.91,
+    "load5": 0.41,
+    "load15": 0.15,
+    "at": "2026-11-14T20:22:42Z",
+    "stat_busy_jiffies": 62785614,
+    "stat_total_jiffies": 6167198568,
+    "child_cpu_s": 41.599,
+    "monotonic_s": 2570588.904,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r9",
+    "since": "cell:judy_4m:pf:S:r8",
+    "load1": 0.92,
+    "load5": 0.42,
+    "load15": 0.16,
+    "at": "2026-11-14T20:22:43Z",
+    "stat_busy_jiffies": 62785676,
+    "stat_total_jiffies": 6167200060,
+    "child_cpu_s": 42.221,
+    "monotonic_s": 2570589.526,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r9",
+    "since": "cell:judy_4m:pf:S:r9",
+    "load1": 0.92,
+    "load5": 0.42,
+    "load15": 0.16,
+    "at": "2026-11-14T20:22:44Z",
+    "stat_busy_jiffies": 62785738,
+    "stat_total_jiffies": 6167201562,
+    "child_cpu_s": 42.846,
+    "monotonic_s": 2570590.152,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r9",
+    "since": "cell:judy_4m:pf:N:r9",
+    "load1": 0.92,
+    "load5": 0.42,
+    "load15": 0.16,
+    "at": "2026-11-14T20:22:44Z",
+    "stat_busy_jiffies": 62785799,
+    "stat_total_jiffies": 6167203012,
+    "child_cpu_s": 43.45,
+    "monotonic_s": 2570590.756,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:N:r9",
+    "since": "cell:del_4m:pf:S:r9",
+    "load1": 0.92,
+    "load5": 0.42,
+    "load15": 0.16,
+    "at": "2026-11-14T20:22:45Z",
+    "stat_busy_jiffies": 62785919,
+    "stat_total_jiffies": 6167205873,
+    "child_cpu_s": 44.641,
+    "monotonic_s": 2570591.948,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:N:r10",
+    "since": "cell:del_4m:pf:N:r9",
+    "load1": 0.92,
+    "load5": 0.42,
+    "load15": 0.16,
+    "at": "2026-11-14T20:22:47Z",
+    "stat_busy_jiffies": 62786040,
+    "stat_total_jiffies": 6167208757,
+    "child_cpu_s": 45.842,
+    "monotonic_s": 2570593.15,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r10",
+    "since": "cell:del_4m:pf:N:r10",
+    "load1": 0.92,
+    "load5": 0.43,
+    "load15": 0.16,
+    "at": "2026-11-14T20:22:48Z",
+    "stat_busy_jiffies": 62786161,
+    "stat_total_jiffies": 6167211674,
+    "child_cpu_s": 47.057,
+    "monotonic_s": 2570594.366,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r10",
+    "since": "cell:del_4m:pf:S:r10",
+    "load1": 0.92,
+    "load5": 0.43,
+    "load15": 0.16,
+    "at": "2026-11-14T20:22:49Z",
+    "stat_busy_jiffies": 62786280,
+    "stat_total_jiffies": 6167214523,
+    "child_cpu_s": 48.244,
+    "monotonic_s": 2570595.554,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r10",
+    "since": "cell:judy_4m:pf:N:r10",
+    "load1": 0.92,
+    "load5": 0.43,
+    "load15": 0.16,
+    "at": "2026-11-14T20:22:50Z",
+    "stat_busy_jiffies": 62786342,
+    "stat_total_jiffies": 6167216001,
+    "child_cpu_s": 48.859,
+    "monotonic_s": 2570596.17,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r11",
+    "since": "cell:judy_4m:pf:S:r10",
+    "load1": 0.92,
+    "load5": 0.43,
+    "load15": 0.16,
+    "at": "2026-11-14T20:22:50Z",
+    "stat_busy_jiffies": 62786404,
+    "stat_total_jiffies": 6167217488,
+    "child_cpu_s": 49.478,
+    "monotonic_s": 2570596.789,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r11",
+    "since": "cell:del_4m:pf:S:r11",
+    "load1": 0.92,
+    "load5": 0.43,
+    "load15": 0.16,
+    "at": "2026-11-14T20:22:51Z",
+    "stat_busy_jiffies": 62786523,
+    "stat_total_jiffies": 6167220334,
+    "child_cpu_s": 50.663,
+    "monotonic_s": 2570597.975,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r11",
+    "since": "cell:del_4m:pf:N:r11",
+    "load1": 0.93,
+    "load5": 0.44,
+    "load15": 0.17,
+    "at": "2026-11-14T20:22:53Z",
+    "stat_busy_jiffies": 62786645,
+    "stat_total_jiffies": 6167223244,
+    "child_cpu_s": 51.875,
+    "monotonic_s": 2570599.188,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r11",
+    "since": "cell:judy_4m:pf:S:r11",
+    "load1": 0.93,
+    "load5": 0.44,
+    "load15": 0.17,
+    "at": "2026-11-14T20:22:53Z",
+    "stat_busy_jiffies": 62786707,
+    "stat_total_jiffies": 6167224734,
+    "child_cpu_s": 52.495,
+    "monotonic_s": 2570599.809,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r12",
+    "since": "cell:judy_4m:pf:N:r11",
+    "load1": 0.93,
+    "load5": 0.44,
+    "load15": 0.17,
+    "at": "2026-11-14T20:22:54Z",
+    "stat_busy_jiffies": 62786768,
+    "stat_total_jiffies": 6167226211,
+    "child_cpu_s": 53.11,
+    "monotonic_s": 2570600.425,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r12",
+    "since": "cell:del_4m:pf:N:r12",
+    "load1": 0.93,
+    "load5": 0.44,
+    "load15": 0.17,
+    "at": "2026-11-14T20:22:55Z",
+    "stat_busy_jiffies": 62786889,
+    "stat_total_jiffies": 6167229109,
+    "child_cpu_s": 54.317,
+    "monotonic_s": 2570601.633,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r12",
+    "since": "cell:del_4m:pf:S:r12",
+    "load1": 0.93,
+    "load5": 0.44,
+    "load15": 0.17,
+    "at": "2026-11-14T20:22:56Z",
+    "stat_busy_jiffies": 62787009,
+    "stat_total_jiffies": 6167231970,
+    "child_cpu_s": 55.508,
+    "monotonic_s": 2570602.825,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r12",
+    "since": "cell:judy_4m:pf:N:r12",
+    "load1": 0.93,
+    "load5": 0.44,
+    "load15": 0.17,
+    "at": "2026-11-14T20:22:57Z",
+    "stat_busy_jiffies": 62787070,
+    "stat_total_jiffies": 6167233440,
+    "child_cpu_s": 56.121,
+    "monotonic_s": 2570603.438,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r13",
+    "since": "cell:judy_4m:pf:S:r12",
+    "load1": 0.93,
+    "load5": 0.44,
+    "load15": 0.17,
+    "at": "2026-11-14T20:22:58Z",
+    "stat_busy_jiffies": 62787132,
+    "stat_total_jiffies": 6167234932,
+    "child_cpu_s": 56.742,
+    "monotonic_s": 2570604.06,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r13",
+    "since": "cell:judy_4m:pf:S:r13",
+    "load1": 0.94,
+    "load5": 0.45,
+    "load15": 0.17,
+    "at": "2026-11-14T20:22:58Z",
+    "stat_busy_jiffies": 62787195,
+    "stat_total_jiffies": 6167236430,
+    "child_cpu_s": 57.365,
+    "monotonic_s": 2570604.684,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r13",
+    "since": "cell:judy_4m:pf:N:r13",
+    "load1": 0.94,
+    "load5": 0.45,
+    "load15": 0.17,
+    "at": "2026-11-14T20:22:59Z",
+    "stat_busy_jiffies": 62787257,
+    "stat_total_jiffies": 6167237908,
+    "child_cpu_s": 57.98,
+    "monotonic_s": 2570605.3,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:N:r13",
+    "since": "cell:del_4m:pf:S:r13",
+    "load1": 0.94,
+    "load5": 0.45,
+    "load15": 0.17,
+    "at": "2026-11-14T20:23:00Z",
+    "stat_busy_jiffies": 62787376,
+    "stat_total_jiffies": 6167240761,
+    "child_cpu_s": 59.169,
+    "monotonic_s": 2570606.489,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r14",
+    "since": "cell:del_4m:pf:N:r13",
+    "load1": 0.94,
+    "load5": 0.45,
+    "load15": 0.17,
+    "at": "2026-11-14T20:23:01Z",
+    "stat_busy_jiffies": 62787499,
+    "stat_total_jiffies": 6167243673,
+    "child_cpu_s": 60.381,
+    "monotonic_s": 2570607.702,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r14",
+    "since": "cell:judy_4m:pf:N:r14",
+    "load1": 0.94,
+    "load5": 0.45,
+    "load15": 0.17,
+    "at": "2026-11-14T20:23:02Z",
+    "stat_busy_jiffies": 62787560,
+    "stat_total_jiffies": 6167245146,
+    "child_cpu_s": 60.995,
+    "monotonic_s": 2570608.317,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:pf:N:r14",
+    "since": "cell:judy_4m:pf:S:r14",
+    "load1": 0.94,
+    "load5": 0.45,
+    "load15": 0.17,
+    "at": "2026-11-14T20:23:02Z",
+    "stat_busy_jiffies": 62787624,
+    "stat_total_jiffies": 6167246636,
+    "child_cpu_s": 61.615,
+    "monotonic_s": 2570608.937,
+    "busy_cpus_since_prev": 1.03,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "cell:del_4m:pf:S:r14",
+    "since": "cell:del_4m:pf:N:r14",
+    "load1": 0.94,
+    "load5": 0.45,
+    "load15": 0.18,
+    "at": "2026-11-14T20:23:04Z",
+    "stat_busy_jiffies": 62787744,
+    "stat_total_jiffies": 6167249522,
+    "child_cpu_s": 62.816,
+    "monotonic_s": 2570610.14,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:S:r15",
+    "since": "cell:del_4m:pf:S:r14",
+    "load1": 0.94,
+    "load5": 0.45,
+    "load15": 0.18,
+    "at": "2026-11-14T20:23:05Z",
+    "stat_busy_jiffies": 62787862,
+    "stat_total_jiffies": 6167252373,
+    "child_cpu_s": 64.004,
+    "monotonic_s": 2570611.328,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:pf:N:r15",
+    "since": "cell:del_4m:pf:S:r15",
+    "load1": 0.94,
+    "load5": 0.45,
+    "load15": 0.18,
+    "at": "2026-11-14T20:23:06Z",
+    "stat_busy_jiffies": 62787982,
+    "stat_total_jiffies": 6167255230,
+    "child_cpu_s": 65.194,
+    "monotonic_s": 2570612.519,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r15",
+    "since": "cell:del_4m:pf:N:r15",
+    "load1": 0.94,
+    "load5": 0.45,
+    "load15": 0.18,
+    "at": "2026-11-14T20:23:07Z",
+    "stat_busy_jiffies": 62788103,
+    "stat_total_jiffies": 6167258114,
+    "child_cpu_s": 66.394,
+    "monotonic_s": 2570613.721,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r15",
+    "since": "cell:judy_4m:pf:S:r15",
+    "load1": 0.95,
+    "load5": 0.46,
+    "load15": 0.18,
+    "at": "2026-11-14T20:23:08Z",
+    "stat_busy_jiffies": 62788164,
+    "stat_total_jiffies": 6167259600,
+    "child_cpu_s": 67.013,
+    "monotonic_s": 2570614.34,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r16",
+    "since": "cell:judy_4m:pf:N:r15",
+    "load1": 0.95,
+    "load5": 0.46,
+    "load15": 0.18,
+    "at": "2026-11-14T20:23:08Z",
+    "stat_busy_jiffies": 62788226,
+    "stat_total_jiffies": 6167261073,
+    "child_cpu_s": 67.626,
+    "monotonic_s": 2570614.954,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r16",
+    "since": "cell:judy_4m:pf:N:r16",
+    "load1": 0.95,
+    "load5": 0.46,
+    "load15": 0.18,
+    "at": "2026-11-14T20:23:09Z",
+    "stat_busy_jiffies": 62788288,
+    "stat_total_jiffies": 6167262547,
+    "child_cpu_s": 68.24,
+    "monotonic_s": 2570615.568,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:N:r16",
+    "since": "cell:judy_4m:pf:S:r16",
+    "load1": 0.95,
+    "load5": 0.46,
+    "load15": 0.18,
+    "at": "2026-11-14T20:23:10Z",
+    "stat_busy_jiffies": 62788349,
+    "stat_total_jiffies": 6167264030,
+    "child_cpu_s": 68.858,
+    "monotonic_s": 2570616.187,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r16",
+    "since": "cell:del_4m:pf:N:r16",
+    "load1": 0.95,
+    "load5": 0.46,
+    "load15": 0.18,
+    "at": "2026-11-14T20:23:11Z",
+    "stat_busy_jiffies": 62788471,
+    "stat_total_jiffies": 6167266948,
+    "child_cpu_s": 70.073,
+    "monotonic_s": 2570617.403,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:S:r17",
+    "since": "cell:del_4m:pf:S:r16",
+    "load1": 0.95,
+    "load5": 0.46,
+    "load15": 0.18,
+    "at": "2026-11-14T20:23:12Z",
+    "stat_busy_jiffies": 62788589,
+    "stat_total_jiffies": 6167269795,
+    "child_cpu_s": 71.259,
+    "monotonic_s": 2570618.589,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:pf:N:r17",
+    "since": "cell:del_4m:pf:S:r17",
+    "load1": 0.95,
+    "load5": 0.47,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:13Z",
+    "stat_busy_jiffies": 62788709,
+    "stat_total_jiffies": 6167272645,
+    "child_cpu_s": 72.445,
+    "monotonic_s": 2570619.777,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r17",
+    "since": "cell:del_4m:pf:N:r17",
+    "load1": 0.95,
+    "load5": 0.47,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:14Z",
+    "stat_busy_jiffies": 62788830,
+    "stat_total_jiffies": 6167275547,
+    "child_cpu_s": 73.654,
+    "monotonic_s": 2570620.986,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r17",
+    "since": "cell:judy_4m:pf:S:r17",
+    "load1": 0.95,
+    "load5": 0.47,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:15Z",
+    "stat_busy_jiffies": 62788892,
+    "stat_total_jiffies": 6167277033,
+    "child_cpu_s": 74.273,
+    "monotonic_s": 2570621.606,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r18",
+    "since": "cell:judy_4m:pf:N:r17",
+    "load1": 0.95,
+    "load5": 0.47,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:16Z",
+    "stat_busy_jiffies": 62788954,
+    "stat_total_jiffies": 6167278510,
+    "child_cpu_s": 74.887,
+    "monotonic_s": 2570622.221,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r18",
+    "since": "cell:del_4m:pf:N:r18",
+    "load1": 0.95,
+    "load5": 0.47,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:17Z",
+    "stat_busy_jiffies": 62789075,
+    "stat_total_jiffies": 6167281387,
+    "child_cpu_s": 76.085,
+    "monotonic_s": 2570623.42,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r18",
+    "since": "cell:del_4m:pf:S:r18",
+    "load1": 0.96,
+    "load5": 0.48,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:18Z",
+    "stat_busy_jiffies": 62789193,
+    "stat_total_jiffies": 6167284233,
+    "child_cpu_s": 77.271,
+    "monotonic_s": 2570624.607,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r18",
+    "since": "cell:judy_4m:pf:N:r18",
+    "load1": 0.96,
+    "load5": 0.48,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:19Z",
+    "stat_busy_jiffies": 62789254,
+    "stat_total_jiffies": 6167285705,
+    "child_cpu_s": 77.883,
+    "monotonic_s": 2570625.22,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r19",
+    "since": "cell:judy_4m:pf:S:r18",
+    "load1": 0.96,
+    "load5": 0.48,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:19Z",
+    "stat_busy_jiffies": 62789316,
+    "stat_total_jiffies": 6167287193,
+    "child_cpu_s": 78.503,
+    "monotonic_s": 2570625.84,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r19",
+    "since": "cell:del_4m:pf:S:r19",
+    "load1": 0.96,
+    "load5": 0.48,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:21Z",
+    "stat_busy_jiffies": 62789435,
+    "stat_total_jiffies": 6167290039,
+    "child_cpu_s": 79.689,
+    "monotonic_s": 2570627.026,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r19",
+    "since": "cell:del_4m:pf:N:r19",
+    "load1": 0.96,
+    "load5": 0.48,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:22Z",
+    "stat_busy_jiffies": 62789557,
+    "stat_total_jiffies": 6167292941,
+    "child_cpu_s": 80.897,
+    "monotonic_s": 2570628.236,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r19",
+    "since": "cell:judy_4m:pf:S:r19",
+    "load1": 0.96,
+    "load5": 0.48,
+    "load15": 0.19,
+    "at": "2026-11-14T20:23:22Z",
+    "stat_busy_jiffies": 62789618,
+    "stat_total_jiffies": 6167294429,
+    "child_cpu_s": 81.517,
+    "monotonic_s": 2570628.856,
+    "busy_cpus_since_prev": 0.98,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.02
+   },
+   {
+    "label": "cell:del_4m:pf:N:r20",
+    "since": "cell:judy_4m:pf:N:r19",
+    "load1": 0.96,
+    "load5": 0.49,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:23Z",
+    "stat_busy_jiffies": 62789678,
+    "stat_total_jiffies": 6167295869,
+    "child_cpu_s": 82.116,
+    "monotonic_s": 2570629.456,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:S:r20",
+    "since": "cell:del_4m:pf:N:r20",
+    "load1": 0.96,
+    "load5": 0.49,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:24Z",
+    "stat_busy_jiffies": 62789799,
+    "stat_total_jiffies": 6167298751,
+    "child_cpu_s": 83.316,
+    "monotonic_s": 2570630.657,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r20",
+    "since": "cell:del_4m:pf:S:r20",
+    "load1": 0.96,
+    "load5": 0.49,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:25Z",
+    "stat_busy_jiffies": 62789918,
+    "stat_total_jiffies": 6167301601,
+    "child_cpu_s": 84.503,
+    "monotonic_s": 2570631.845,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r20",
+    "since": "cell:judy_4m:pf:N:r20",
+    "load1": 0.96,
+    "load5": 0.49,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:26Z",
+    "stat_busy_jiffies": 62789978,
+    "stat_total_jiffies": 6167303050,
+    "child_cpu_s": 85.106,
+    "monotonic_s": 2570632.449,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r21",
+    "since": "cell:judy_4m:pf:S:r20",
+    "load1": 0.96,
+    "load5": 0.49,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:27Z",
+    "stat_busy_jiffies": 62790040,
+    "stat_total_jiffies": 6167304535,
+    "child_cpu_s": 85.724,
+    "monotonic_s": 2570633.068,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r21",
+    "since": "cell:judy_4m:pf:S:r21",
+    "load1": 0.96,
+    "load5": 0.49,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:27Z",
+    "stat_busy_jiffies": 62790102,
+    "stat_total_jiffies": 6167306022,
+    "child_cpu_s": 86.343,
+    "monotonic_s": 2570633.688,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:S:r21",
+    "since": "cell:judy_4m:pf:N:r21",
+    "load1": 0.96,
+    "load5": 0.5,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:28Z",
+    "stat_busy_jiffies": 62790163,
+    "stat_total_jiffies": 6167307480,
+    "child_cpu_s": 86.95,
+    "monotonic_s": 2570634.295,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:del_4m:pf:N:r21",
+    "since": "cell:del_4m:pf:S:r21",
+    "load1": 0.96,
+    "load5": 0.5,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:29Z",
+    "stat_busy_jiffies": 62790282,
+    "stat_total_jiffies": 6167310334,
+    "child_cpu_s": 88.139,
+    "monotonic_s": 2570635.485,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r22",
+    "since": "cell:del_4m:pf:N:r21",
+    "load1": 0.96,
+    "load5": 0.5,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:30Z",
+    "stat_busy_jiffies": 62790403,
+    "stat_total_jiffies": 6167313254,
+    "child_cpu_s": 89.355,
+    "monotonic_s": 2570636.702,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r22",
+    "since": "cell:judy_4m:pf:N:r22",
+    "load1": 0.96,
+    "load5": 0.5,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:31Z",
+    "stat_busy_jiffies": 62790466,
+    "stat_total_jiffies": 6167314730,
+    "child_cpu_s": 89.969,
+    "monotonic_s": 2570637.317,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:pf:N:r22",
+    "since": "cell:judy_4m:pf:S:r22",
+    "load1": 0.96,
+    "load5": 0.5,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:31Z",
+    "stat_busy_jiffies": 62790529,
+    "stat_total_jiffies": 6167316215,
+    "child_cpu_s": 90.587,
+    "monotonic_s": 2570637.936,
+    "busy_cpus_since_prev": 1.02,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.02
+   },
+   {
+    "label": "cell:del_4m:pf:S:r22",
+    "since": "cell:del_4m:pf:N:r22",
+    "load1": 0.96,
+    "load5": 0.5,
+    "load15": 0.2,
+    "at": "2026-11-14T20:23:33Z",
+    "stat_busy_jiffies": 62790649,
+    "stat_total_jiffies": 6167319121,
+    "child_cpu_s": 91.798,
+    "monotonic_s": 2570639.148,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:S:r23",
+    "since": "cell:del_4m:pf:S:r22",
+    "load1": 0.97,
+    "load5": 0.51,
+    "load15": 0.21,
+    "at": "2026-11-14T20:23:34Z",
+    "stat_busy_jiffies": 62790769,
+    "stat_total_jiffies": 6167321972,
+    "child_cpu_s": 92.984,
+    "monotonic_s": 2570640.335,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:judy_4m:pf:N:r23",
+    "since": "cell:judy_4m:pf:S:r23",
+    "load1": 0.97,
+    "load5": 0.51,
+    "load15": 0.21,
+    "at": "2026-11-14T20:23:34Z",
+    "stat_busy_jiffies": 62790831,
+    "stat_total_jiffies": 6167323470,
+    "child_cpu_s": 93.609,
+    "monotonic_s": 2570640.96,
+    "busy_cpus_since_prev": 0.99,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": -0.01
+   },
+   {
+    "label": "cell:del_4m:pf:S:r23",
+    "since": "cell:judy_4m:pf:N:r23",
+    "load1": 0.97,
+    "load5": 0.51,
+    "load15": 0.21,
+    "at": "2026-11-14T20:23:35Z",
+    "stat_busy_jiffies": 62790892,
+    "stat_total_jiffies": 6167324920,
+    "child_cpu_s": 94.212,
+    "monotonic_s": 2570641.564,
+    "busy_cpus_since_prev": 1.01,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.01
+   },
+   {
+    "label": "cell:del_4m:pf:N:r23",
+    "since": "cell:del_4m:pf:S:r23",
+    "load1": 0.97,
+    "load5": 0.51,
+    "load15": 0.21,
+    "at": "2026-11-14T20:23:36Z",
+    "stat_busy_jiffies": 62791011,
+    "stat_total_jiffies": 6167327773,
+    "child_cpu_s": 95.4,
+    "monotonic_s": 2570642.753,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   },
+   {
+    "label": "end",
+    "since": "cell:del_4m:pf:N:r23",
+    "load1": 0.97,
+    "load5": 0.51,
+    "load15": 0.21,
+    "at": "2026-11-14T20:23:37Z",
+    "stat_busy_jiffies": 62791132,
+    "stat_total_jiffies": 6167330690,
+    "child_cpu_s": 96.615,
+    "monotonic_s": 2570643.969,
+    "busy_cpus_since_prev": 1.0,
+    "own_busy_cpus_since_prev": 1.0,
+    "foreign_busy_cpus_since_prev": 0.0
+   }
+  ],
+  "host_label": "ref",
+  "run": 2,
+  "rounds": 24,
+  "diagnostic": "phase counters on the shapes Expanse loses, outside METHODOLOGY.md's pre-registration",
+  "probe": "scripts/phase_probe.c",
+  "phase_set": "big_pf",
+  "shapes": [
+   [
+    "judy_4m",
+    4,
+    16777216
+   ],
+   [
+    "del_4m",
+    4,
+    16777216
+   ]
+  ],
+  "arms": {
+   "N": "/var/tmp/stressng-eval/expcompat-c386578f8/lib",
+   "S": "/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu"
+  },
+  "arm_orders": [
+   "NS",
+   "SN"
+  ],
+  "pmu": "cpu_core",
+  "perf_version": "perf version 6.8.12",
+  "event_groups": {
+   "pf": [
+    "cycles",
+    "instructions",
+    "mem_load_retired.l1_miss",
+    "mem_load_retired.fb_hit",
+    "l1d.replacement",
+    "l1d.hwpf_miss"
+   ]
+  },
+  "cell_isolation": "process",
+  "sha256": {
+   "probe": "01d29c8e2f0ea57f8afc437fe0c9ac0ba138bed696729e8a07fc37fedce14015",
+   "arm_N": "9b42a88ba3e9a39a52219d202f6f583e1b2695f92de6cfe20415f261b9e9edf6",
+   "arm_S": "76f121a81b7d8b019e7c5f3bc43e8ead5f7f6a99b377ea7afb9f1d6ff483d731"
+  },
+  "library_proof": {
+   "N": [
+    "/var/tmp/stressng-eval/expcompat-c386578f8/lib/libexpanse.so.1.0.0"
+   ],
+   "S": [
+    "/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu/libJudy.so.1.0.3"
+   ]
+  },
+  "privilege": "sudo -n on each per-process phase_probe command",
+  "numa_nodes": 1,
+  "randomize_va_space": "2",
+  "thp_enabled": "always [madvise] never",
+  "norand_arms": [],
+  "preflight": {
+   "mem_load_retired.l1_miss": {
+    "group": "pf",
+    "alone": 5157075.0,
+    "in_group": 5127949.0
+   },
+   "mem_load_retired.fb_hit": {
+    "group": "pf",
+    "alone": 6328701.0,
+    "in_group": 6205868.0
+   },
+   "l1d.replacement": {
+    "group": "pf",
+    "alone": 11684474.0,
+    "in_group": 10781139.0
+   },
+   "l1d.hwpf_miss": {
+    "group": "pf",
+    "alone": 5252487.0,
+    "in_group": 4217539.0
+   },
+   "selfcount_crosscheck": {
+    "perf": {
+     "cycles": 742321844.0,
+     "instructions": 2706048933.0,
+     "mem_load_retired.l1_miss": 21867140.0,
+     "mem_load_retired.fb_hit": 18263125.0,
+     "l1d.replacement": 26189140.0,
+     "l1d.hwpf_miss": 0.0
+    },
+    "self": {
+     "cycles": 740010340.0,
+     "instructions": 2706234377.0,
+     "mem_load_retired.l1_miss": 21824018.0,
+     "mem_load_retired.fb_hit": 18226231.0,
+     "l1d.replacement": 26117806.0,
+     "l1d.hwpf_miss": 0.0
+    }
+   }
+  },
+  "void": {
+   "void": false,
+   "max_load1": 0.97,
+   "limit": 12.0
+  }
+ },
+ "cells": [
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "cycles",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 3202910418.4583335,
+   "mean_S": 3146209915.75,
+   "per_op_N": 190.9083377396067,
+   "per_op_S": 187.52872441709042,
+   "ratio": 1.018021843496357,
+   "ci_lower": 1.0164739546763355,
+   "ci_upper": 1.0194826466235796,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3203833132.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2037528287619352
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3143123332.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1880892189219594
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3218652258.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2165396809577942
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3142365641.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1889856583438814
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3188344983.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2001260439865291
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3145167962.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1852315375581384
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3198201173.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2025667480193079
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3150687589.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1908592148683965
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3201750071.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.211958923842758
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3144026984.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1862615183927119
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3205951836.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2038522977381945
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3148694762.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1891586082056165
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3202646923.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2146397922188044
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3154067687.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1923252097330987
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3202809834.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2091772500425577
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3140105559.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.187076041009277
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3218734459.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2173117292113602
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3169578249.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1972411298193038
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3188131183.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2015057858079672
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3162411605.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1914869858883321
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3197972657.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2156081390567124
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3143269160.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1869466621428728
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3195674044.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2121462090872228
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3141696357.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1855108798481524
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3196546964.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2077554063871503
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3143625765.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.191514098085463
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3197480816.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2127921753562987
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3142769040.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1888522957451642
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3200487612.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.20265060570091
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3142936099.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1877582878805697
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3194052485.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2014244589954615
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3149447157.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.19010366871953
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3226619525.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2155583472922444
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3142732583.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185933609958738
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3207621610.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2090808097273111
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3142898696.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.18676966894418
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3188550469.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1985931429080665
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3139825915.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1860524378716946
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3198930826.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.208864205982536
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3141143788.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185580600053072
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3201876368.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2007007687352598
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3141238902.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1871650340035558
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3211815385.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.21683450601995
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3141607373.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1893160082399845
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 3210455115.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.2110981629230082
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 3145622953.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1869899188168347
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 3212710315.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2157385861501098
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 3149994820.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1887642815709114
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "instructions",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 12536950340.916666,
+   "mean_S": 13678171388.333334,
+   "per_op_N": 747.2604716370503,
+   "per_op_S": 815.28254677852,
+   "ratio": 0.9165662561890355,
+   "ci_lower": 0.9165662561070456,
+   "ci_upper": 0.9165662562870229,
+   "ci_method": "bc",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950342.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2037528287619352
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171387.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1880892189219594
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950344.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2165396809577942
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171387.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1889856583438814
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950339.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2001260439865291
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171388.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1852315375581384
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950340.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2025667480193079
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171389.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1908592148683965
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950344.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.211958923842758
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171389.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1862615183927119
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950343.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2038522977381945
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171390.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1891586082056165
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950340.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2146397922188044
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171389.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1923252097330987
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950342.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2091772500425577
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171386.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.187076041009277
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950345.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2173117292113602
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171396.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1972411298193038
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950338.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2015057858079672
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171389.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1914869858883321
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950341.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2156081390567124
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171388.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1869466621428728
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950339.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2121462090872228
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171387.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1855108798481524
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950339.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2077554063871503
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171386.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.191514098085463
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950338.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2127921753562987
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171388.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1888522957451642
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950340.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.20265060570091
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171387.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1877582878805697
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950337.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2014244589954615
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171389.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.19010366871953
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950349.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2155583472922444
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171388.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185933609958738
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950338.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2090808097273111
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171388.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.18676966894418
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950341.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1985931429080665
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171386.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1860524378716946
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950342.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.208864205982536
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171387.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185580600053072
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950339.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2007007687352598
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171389.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1871650340035558
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950340.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.21683450601995
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171388.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1893160082399845
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 12536950340.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.2110981629230082
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13678171389.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1869899188168347
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 12536950342.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2157385861501098
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13678171390.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1887642815709114
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "l1d.hwpf_miss",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 95715031.29166667,
+   "mean_S": 67724056.0,
+   "per_op_N": 5.70506043980519,
+   "per_op_S": 4.036668300628662,
+   "ratio": 1.4133091983100756,
+   "ci_lower": 1.3936714086909099,
+   "ci_upper": 1.4263282472915528,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 97409328.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2037528287619352
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67812944.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1880892189219594
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 90805551.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2165396809577942
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67252655.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1889856583438814
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 97657173.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2001260439865291
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67822025.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1852315375581384
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 97409684.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2025667480193079
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67561836.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1908592148683965
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 96862406.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.211958923842758
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67723677.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1862615183927119
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 97145204.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2038522977381945
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67892122.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1891586082056165
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 95041219.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2146397922188044
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67702500.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1923252097330987
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 96977979.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2091772500425577
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67600683.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.187076041009277
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 90429290.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2173117292113602
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67634217.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1972411298193038
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 98041117.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2015057858079672
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67774926.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1914869858883321
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 94887640.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2156081390567124
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67721536.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1869466621428728
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 97431531.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2121462090872228
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67841463.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1855108798481524
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 96800553.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2077554063871503
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67636165.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.191514098085463
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 97367021.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2127921753562987
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67718015.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1888522957451642
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 97354233.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.20265060570091
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67639242.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1877582878805697
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 98013412.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2014244589954615
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67593608.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.19010366871953
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 88809232.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2155583472922444
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67773688.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185933609958738
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 96408434.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2090808097273111
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67831724.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.18676966894418
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 97162754.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1985931429080665
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67759467.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1860524378716946
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 97369379.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.208864205982536
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67643191.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185580600053072
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 97074959.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2007007687352598
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67869721.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1871650340035558
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 93037106.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.21683450601995
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67939865.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1893160082399845
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 96499650.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.2110981629230082
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 67653170.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1869899188168347
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 91165896.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2157385861501098
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 67978904.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1887642815709114
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "l1d.replacement",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 157693425.625,
+   "mean_S": 111302026.45833333,
+   "per_op_N": 9.399260617792606,
+   "per_op_S": 6.634117749830087,
+   "ratio": 1.4168064198187227,
+   "ci_lower": 1.4135553997151358,
+   "ci_upper": 1.4191899760237732,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 158174835.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2037528287619352
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111438470.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1880892189219594
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 156670393.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2165396809577942
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 110791357.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1889856583438814
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 158178755.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2001260439865291
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111474899.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1852315375581384
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 157979908.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2025667480193079
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111190694.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1908592148683965
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 158072005.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.211958923842758
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111171474.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1862615183927119
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 158044739.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2038522977381945
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111429160.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1891586082056165
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 157354988.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2146397922188044
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111384247.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1923252097330987
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 157870163.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2091772500425577
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111154891.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.187076041009277
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 156204194.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2173117292113602
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111288114.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1972411298193038
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 158332502.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2015057858079672
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111285764.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1914869858883321
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 157315750.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2156081390567124
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111446300.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1869466621428728
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 158107860.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2121462090872228
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111412591.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1855108798481524
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 157752844.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2077554063871503
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111064742.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.191514098085463
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 158403602.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2127921753562987
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111282017.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1888522957451642
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 158238834.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.20265060570091
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111324358.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1877582878805697
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 158435264.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2014244589954615
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111300790.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.19010366871953
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 155742677.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2155583472922444
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111287536.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185933609958738
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 157881367.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2090808097273111
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111330704.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.18676966894418
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 158061422.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1985931429080665
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111341610.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1860524378716946
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 157838881.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.208864205982536
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111254250.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185580600053072
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 158166818.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2007007687352598
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111518992.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1871650340035558
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 156974155.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.21683450601995
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111386829.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1893160082399845
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 158302642.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.2110981629230082
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 111184559.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1869899188168347
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 156537617.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2157385861501098
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 111504287.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1887642815709114
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "mem_load_retired.fb_hit",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 97202174.625,
+   "mean_S": 162268453.41666666,
+   "per_op_N": 5.793701089918613,
+   "per_op_S": 9.671953524152437,
+   "ratio": 0.5990207743917298,
+   "ci_lower": 0.5952204676569994,
+   "ci_upper": 0.6041953181932648,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 95944218.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2037528287619352
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 162051352.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1880892189219594
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 100708859.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2165396809577942
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162208239.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1889856583438814
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 95866184.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2001260439865291
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 162531144.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1852315375581384
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 96010160.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2025667480193079
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162161217.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1908592148683965
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 95929812.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.211958923842758
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 162185761.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1862615183927119
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 96332763.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2038522977381945
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162175498.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1891586082056165
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 97926988.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2146397922188044
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 162415852.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1923252097330987
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 96053339.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2091772500425577
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 161417966.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.187076041009277
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 100299118.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2173117292113602
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 162633347.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1972411298193038
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 96216433.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2015057858079672
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162619112.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1914869858883321
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 97757720.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2156081390567124
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 162409123.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1869466621428728
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 96504995.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2121462090872228
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162382535.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1855108798481524
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 96727096.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2077554063871503
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 161759790.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.191514098085463
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 96640149.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2127921753562987
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162432102.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1888522957451642
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 96223960.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.20265060570091
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 162350783.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1877582878805697
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 96202337.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2014244589954615
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162288162.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.19010366871953
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 101446056.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2155583472922444
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 162380616.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185933609958738
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 95863234.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2090808097273111
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162568529.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.18676966894418
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 95864373.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1985931429080665
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 161525692.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1860524378716946
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 96347347.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.208864205982536
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162413591.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185580600053072
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 95495276.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2007007687352598
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 162392833.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1871650340035558
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 99406171.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.21683450601995
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162230705.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1893160082399845
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 96655532.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.2110981629230082
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 162314410.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1869899188168347
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 100430071.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2157385861501098
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 162594523.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1887642815709114
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_del_4m",
+   "metric": "mem_load_retired.l1_miss",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 56758975.333333336,
+   "mean_S": 38479971.458333336,
+   "per_op_N": 3.383098562558492,
+   "per_op_S": 2.2935850297411284,
+   "ratio": 1.4750264405677318,
+   "ci_lower": 1.4606847011013924,
+   "ci_upper": 1.4964198692675426,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 55678778.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2037528287619352
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38459499.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1880892189219594
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 60028247.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2165396809577942
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38430750.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1889856583438814
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 55560056.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2001260439865291
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38497506.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1852315375581384
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 55617357.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2025667480193079
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38436576.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1908592148683965
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 56126896.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.211958923842758
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38445680.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1862615183927119
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 55775285.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2038522977381945
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38480840.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1891586082056165
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 57045463.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2146397922188044
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38526699.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1923252097330987
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 55733942.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2091772500425577
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38365007.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.187076041009277
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 59918915.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2173117292113602
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38522000.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1972411298193038
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 55329015.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2015057858079672
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38492606.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1914869858883321
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 56940958.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2156081390567124
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38520884.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1869466621428728
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 55717168.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2121462090872228
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38507078.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1855108798481524
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 55848118.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2077554063871503
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38405449.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.191514098085463
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 55929712.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2127921753562987
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38541686.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1888522957451642
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 55841809.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.20265060570091
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38540257.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.1877582878805697
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 55376305.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2014244589954615
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38542197.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.19010366871953
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 61087922.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2155583472922444
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38474413.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185933609958738
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 56388079.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2090808097273111
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38480999.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.18676966894418
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 55955274.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1985931429080665
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38392495.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1860524378716946
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 55439489.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.208864205982536
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38486092.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.185580600053072
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 56137122.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.2007007687352598
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38499614.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1871650340035558
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 58462254.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.21683450601995
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38459669.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1893160082399845
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 56690170.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 1.2110981629230082
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 38509519.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 1.1869899188168347
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 59587074.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.2157385861501098
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 38501800.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 1.1887642815709114
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "cycles",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 2723815283.75,
+   "mean_S": 2698933760.0416665,
+   "per_op_N": 162.35204242169857,
+   "per_op_S": 160.8689880395929,
+   "ratio": 1.0092190197761466,
+   "ci_lower": 1.0051755368480693,
+   "ci_upper": 1.013321084719392,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2689072040.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.5998173248954117
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2698972736.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6206631795503199
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2713616260.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6049125101417303
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2699284555.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.619837658945471
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2752027006.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.615181339904666
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2691228072.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6174461641348898
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2695397277.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6005681161768734
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2700671359.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6202791309915483
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2682267818.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5990108139812946
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2690949185.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6187182357534766
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2689523279.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6014349600300193
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2699222593.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6203657882288098
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2692589159.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6019121981225908
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2693923236.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6190284551121294
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2742801700.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6122163250111043
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2695676768.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.618853276129812
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2730482325.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6094661359675229
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2703336414.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6218750770203769
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2702584428.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6039968011900783
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2716239174.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6256395094096661
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2758489657.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.615658266004175
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2693306732.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.61923000914976
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2754269487.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6153340227901936
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2698849108.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6209244327619672
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2736866698.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6125698438845575
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2704677775.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6214749296195805
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2753150106.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6154769356362522
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2714288075.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6238057161681354
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2743056187.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6139024132862687
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2698490647.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.619989147875458
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2743931623.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6133135538548231
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2693035055.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6191579587757587
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2749130292.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.613739606924355
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2693313176.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6184358461759984
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2748541074.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6148955314420164
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2695535522.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6192204421386123
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2743288575.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6131218867376447
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2695438286.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6201131381094456
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2683078260.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5996810737997293
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2697798519.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.6201143260113895
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2697310386.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6037595462985337
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2692851068.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6185984457843006
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2717131839.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6071753441356122
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2695438702.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6193260229192674
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 2752628922.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6143560241907835
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 2689836834.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6184265962801874
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 2700332412.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.603404653724283
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 2722046650.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6245128610171378
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "instructions",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 10867510056.541666,
+   "mean_S": 13121754573.833334,
+   "per_op_N": 647.7540765131513,
+   "per_op_S": 782.1175202031931,
+   "ratio": 0.8282055570687966,
+   "ci_lower": 0.8282055565816188,
+   "ci_upper": 0.8282055575315649,
+   "ci_method": "bc",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510034.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.5998173248954117
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754569.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6206631795503199
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510042.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6049125101417303
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754576.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.619837658945471
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510046.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.615181339904666
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754569.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6174461641348898
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510057.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6005681161768734
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754585.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6202791309915483
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510029.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5990108139812946
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754573.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6187182357534766
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510032.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6014349600300193
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754574.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6203657882288098
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510063.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6019121981225908
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754572.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6190284551121294
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510048.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6122163250111043
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754576.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.618853276129812
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510078.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6094661359675229
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754573.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6218750770203769
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510067.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6039968011900783
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754578.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6256395094096661
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510072.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.615658266004175
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754579.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.61923000914976
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510074.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6153340227901936
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754573.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6209244327619672
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510043.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6125698438845575
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754574.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6214749296195805
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510043.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6154769356362522
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754577.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6238057161681354
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510077.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6139024132862687
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754575.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.619989147875458
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510065.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6133135538548231
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754578.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6191579587757587
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510067.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.613739606924355
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754568.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6184358461759984
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510073.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6148955314420164
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754574.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6192204421386123
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510038.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6131218867376447
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754570.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6201131381094456
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510056.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5996810737997293
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754580.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.6201143260113895
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510060.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6037595462985337
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754573.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6185984457843006
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510059.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6071753441356122
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754564.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6193260229192674
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 10867510080.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6143560241907835
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 13121754570.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6184265962801874
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 10867510054.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.603404653724283
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 13121754572.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6245128610171378
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "l1d.hwpf_miss",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 57500837.25,
+   "mean_S": 48455478.5,
+   "per_op_N": 3.427316978573799,
+   "per_op_S": 2.8881715834140778,
+   "ratio": 1.1866736028620581,
+   "ci_lower": 1.1251140735672678,
+   "ci_upper": 1.252740806443484,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 66226243.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.5998173248954117
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 45915578.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6206631795503199
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 66102245.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6049125101417303
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 46903647.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.619837658945471
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 49859977.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.615181339904666
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 52320902.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6174461641348898
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 66673622.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6005681161768734
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 47394966.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6202791309915483
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 66604427.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5990108139812946
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 55039751.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6187182357534766
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 63356877.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6014349600300193
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 47446371.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6203657882288098
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 66089658.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6019121981225908
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 49236125.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6190284551121294
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 51513508.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6122163250111043
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 46781640.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.618853276129812
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 53562919.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6094661359675229
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 45356548.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6218750770203769
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 62634895.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6039968011900783
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 45060563.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6256395094096661
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 50777331.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.615658266004175
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 49618090.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.61923000914976
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 49929895.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6153340227901936
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 49277410.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6209244327619672
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 54643392.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6125698438845575
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 45174080.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6214749296195805
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 50011982.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6154769356362522
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 47096972.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6238057161681354
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 53957752.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6139024132862687
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 46102260.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.619989147875458
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 51604075.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6133135538548231
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 49849676.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6191579587757587
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 49753990.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.613739606924355
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 47472001.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6184358461759984
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 51134564.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6148955314420164
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 51117428.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6192204421386123
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 51167820.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6131218867376447
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 48909365.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6201131381094456
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 66523869.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5996810737997293
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 46940184.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.6201143260113895
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 63136151.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6037595462985337
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 49021792.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6185984457843006
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 60388794.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6071753441356122
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 47405912.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6193260229192674
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 49844594.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6143560241907835
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 49957265.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6184265962801874
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 64521514.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.603404653724283
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 53532958.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6245128610171378
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "l1d.replacement",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 119919031.125,
+   "mean_S": 94980438.0,
+   "per_op_N": 7.147731252014637,
+   "per_op_S": 5.661275267601013,
+   "ratio": 1.2625655729761953,
+   "ci_lower": 1.2532674670201613,
+   "ci_upper": 1.27134810635864,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 121920049.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.5998173248954117
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 93856207.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6206631795503199
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 121517936.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6049125101417303
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 94234435.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.619837658945471
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 118057040.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.615181339904666
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 96835417.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6174461641348898
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 122051546.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6005681161768734
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 94510317.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6202791309915483
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 121804227.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5990108139812946
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 97377919.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6187182357534766
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 121158537.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6014349600300193
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 94670064.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6203657882288098
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 121842265.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6019121981225908
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 95685790.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6190284551121294
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 118567929.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6122163250111043
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 94059275.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.618853276129812
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 119037451.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6094661359675229
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 93569908.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6218750770203769
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 121151995.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6039968011900783
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 93207035.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6256395094096661
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 118634738.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.615658266004175
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 95724707.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.61923000914976
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 118348581.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6153340227901936
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 95056723.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6209244327619672
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 119259337.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6125698438845575
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 93749484.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6214749296195805
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 118157677.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6154769356362522
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 93736351.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6238057161681354
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 119095320.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6139024132862687
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 93796386.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.619989147875458
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 118533394.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6133135538548231
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 95637252.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6191579587757587
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 118295269.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.613739606924355
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 94870623.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6184358461759984
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 118688701.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6148955314420164
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 96392272.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6192204421386123
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 118418452.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6131218867376447
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 95374305.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6201131381094456
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 121857285.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5996810737997293
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 94579502.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.6201143260113895
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 121204848.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6037595462985337
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 95008976.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6185984457843006
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 120638426.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6071753441356122
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 94304053.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6193260229192674
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 118174513.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6143560241907835
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 96077600.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6184265962801874
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 121641231.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.603404653724283
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 97215911.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6245128610171378
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "mem_load_retired.fb_hit",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 38917203.166666664,
+   "mean_S": 91163843.20833333,
+   "per_op_N": 2.3196460704008737,
+   "per_op_S": 5.433788490792115,
+   "ratio": 0.42689296323028675,
+   "ci_lower": 0.4064926946516244,
+   "ci_upper": 0.4469282111826384,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 34388858.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.5998173248954117
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 95376524.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6206631795503199
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 33208714.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6049125101417303
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 95492161.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.619837658945471
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 43236370.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.615181339904666
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 82733561.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6174461641348898
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 33584649.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6005681161768734
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 94958606.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6202791309915483
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 33604106.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5990108139812946
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 79324922.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6187182357534766
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 35233716.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6014349600300193
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 93012014.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6203657882288098
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 33663669.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6019121981225908
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 89427364.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6190284551121294
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 42488277.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6122163250111043
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 94046219.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.618853276129812
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 40578421.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6094661359675229
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 98372911.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6218750770203769
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 36865737.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6039968011900783
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 100668484.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6256395094096661
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 43018393.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.615658266004175
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 87960519.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.61923000914976
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 43353675.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6153340227901936
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 87817290.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6209244327619672
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 39880705.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6125698438845575
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 98396184.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6214749296195805
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 43297836.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6154769356362522
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 92179289.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6238057161681354
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 40146609.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6139024132862687
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 95833783.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.619989147875458
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 42437391.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6133135538548231
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 87662087.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6191579587757587
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 43258634.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.613739606924355
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 92940093.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6184358461759984
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 42806581.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6148955314420164
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 86251598.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6192204421386123
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 41675267.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6131218867376447
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 89833600.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6201131381094456
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 33545219.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5996810737997293
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 93954865.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.6201143260113895
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 36469769.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6037595462985337
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 89098962.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6185984457843006
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 38093455.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6071753441356122
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 92713263.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6193260229192674
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 43194229.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6143560241907835
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 88024060.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6184265962801874
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 35982596.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.603404653724283
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 81853878.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6245128610171378
+    }
+   ]
+  },
+  {
+   "workload_id": "phase_judy_4m",
+   "metric": "mem_load_retired.l1_miss",
+   "pair": "N/S",
+   "n_N": 24,
+   "n_S": 24,
+   "discarded": 0,
+   "mean_N": 48906555.666666664,
+   "mean_S": 33345783.291666668,
+   "per_op_N": 2.915057877699534,
+   "per_op_S": 1.9875635678569477,
+   "ratio": 1.4666488784771998,
+   "ci_lower": 1.4066433995798102,
+   "ci_upper": 1.525155183377044,
+   "ci_method": "bca",
+   "rounds_raw": [
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 43055085.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.5998173248954117
+    },
+    {
+     "round": 0,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 34261960.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6206631795503199
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 42657525.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6049125101417303
+    },
+    {
+     "round": 1,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 34245967.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.619837658945471
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 53987949.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.615181339904666
+    },
+    {
+     "round": 2,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 31618738.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6174461641348898
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 42612948.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6005681161768734
+    },
+    {
+     "round": 3,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 33872704.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6202791309915483
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 42600463.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5990108139812946
+    },
+    {
+     "round": 4,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 31091799.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6187182357534766
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 44897236.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6014349600300193
+    },
+    {
+     "round": 5,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 33612602.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6203657882288098
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 42839392.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6019121981225908
+    },
+    {
+     "round": 6,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 33068354.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6190284551121294
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 53055227.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6122163250111043
+    },
+    {
+     "round": 7,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 33740016.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.618853276129812
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 51633566.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6094661359675229
+    },
+    {
+     "round": 8,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 34583048.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6218750770203769
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 45787900.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6039968011900783
+    },
+    {
+     "round": 9,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 34784972.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6256395094096661
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 53502084.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.615658266004175
+    },
+    {
+     "round": 10,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 32839952.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.61923000914976
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 54036478.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6153340227901936
+    },
+    {
+     "round": 11,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 33146620.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6209244327619672
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 50800943.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6125698438845575
+    },
+    {
+     "round": 12,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 34626781.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6214749296195805
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 53918121.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6154769356362522
+    },
+    {
+     "round": 13,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 33314811.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6238057161681354
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 51406024.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6139024132862687
+    },
+    {
+     "round": 14,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 34063891.0,
+     "foreign_busy_cpus": 0.03,
+     "wall_s": 0.619989147875458
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 52902115.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6133135538548231
+    },
+    {
+     "round": 15,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 32650839.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6191579587757587
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 54159026.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.613739606924355
+    },
+    {
+     "round": 16,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 33843368.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6184358461759984
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 53282560.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.6148955314420164
+    },
+    {
+     "round": 17,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 32791387.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6192204421386123
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 53185992.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6131218867376447
+    },
+    {
+     "round": 18,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 33115073.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6201131381094456
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 42418790.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.5996810737997293
+    },
+    {
+     "round": 19,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 33968095.0,
+     "foreign_busy_cpus": -0.02,
+     "wall_s": 0.6201143260113895
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 45349389.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6037595462985337
+    },
+    {
+     "round": 20,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 32832449.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6185984457843006
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 47272505.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6071753441356122
+    },
+    {
+     "round": 21,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 33604469.0,
+     "foreign_busy_cpus": 0.0,
+     "wall_s": 0.6193260229192674
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "N",
+     "order": "NS",
+     "value": 53894260.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6143560241907835
+    },
+    {
+     "round": 22,
+     "group": "pf",
+     "arm": "S",
+     "order": "NS",
+     "value": 33390018.0,
+     "foreign_busy_cpus": 0.02,
+     "wall_s": 0.6184265962801874
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "N",
+     "order": "SN",
+     "value": 44501758.0,
+     "foreign_busy_cpus": 0.01,
+     "wall_s": 0.603404653724283
+    },
+    {
+     "round": 23,
+     "group": "pf",
+     "arm": "S",
+     "order": "SN",
+     "value": 31230886.0,
+     "foreign_busy_cpus": -0.01,
+     "wall_s": 0.6245128610171378
+    }
+   ]
+  }
+ ]
+}
