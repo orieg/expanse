@@ -775,24 +775,24 @@ impl BranchL7 {
 /// Two-cache-line bitmap branch: 256-bit membership bitmap over eight
 /// packed child-edge subarrays (one per 32-digit subexpanse).
 ///
-/// Line 0 holds the bitmap and the first four subarray pointers — a lookup
-/// that hits subexpanses 0x00..0x7F touches one line before the child edge.
-/// Line 1 holds the remaining pointers, cached per-subexpanse population
-/// counts (rank acceleration for `Count`/`ByCount`), and the OCC version.
+/// Line 0 holds what a descent step reads: the bitmap, the OCC version, the
+/// level and the first three subarray pointers, so a step through a digit in
+/// 0x00..0x5F reads one line before the child edge. Line 1 holds the other
+/// pointers and the per-subexpanse population counts (`Count`/`ByCount`).
 #[derive(Debug)]
 #[repr(C, align(64))]
 pub struct BranchB {
     /// Membership bitmap over the 256 possible digits.
     pub bitmap: Bitmap256,
-    /// Packed edge subarrays, one per 32-digit subexpanse; null when empty.
-    pub subarrays: [*mut Edge; 8],
-    /// Cached population count of each subexpanse's subarray.
-    pub pop_counts: [u16; 8],
     /// Phase 7 OCC version counter.
     pub version: u32,
     /// The node's own level (see `BranchHeader::level`).
     pub level: u8,
-    _pad: [u8; 11],
+    _pad: [u8; 3],
+    /// Packed edge subarrays, one per 32-digit subexpanse; null when empty.
+    pub subarrays: [*mut Edge; 8],
+    /// Cached population count of each subexpanse's subarray.
+    pub pop_counts: [u16; 8],
 }
 
 impl BranchB {
@@ -801,11 +801,11 @@ impl BranchB {
     pub const fn new(level: u8) -> Self {
         Self {
             bitmap: Bitmap256::new(),
-            subarrays: [core::ptr::null_mut(); 8],
-            pop_counts: [0; 8],
             version: 0,
             level,
-            _pad: [0; 11],
+            _pad: [0; 3],
+            subarrays: [core::ptr::null_mut(); 8],
+            pop_counts: [0; 8],
         }
     }
 }
@@ -1029,11 +1029,12 @@ const _: () = {
     assert!(size_of::<Bitmap256>() == 32);
     assert!(size_of::<BranchB>() == 2 * CACHE_LINE);
     assert!(align_of::<BranchB>() == CACHE_LINE);
-    // Line 0: bitmap + first half of the subarray pointers.
-    assert!(offset_of!(BranchB, subarrays) == 32);
-    // Line 1: second half + rank cache + version.
-    assert!(offset_of!(BranchB, pop_counts) == 96);
-    assert!(offset_of!(BranchB, version) == 112);
+    // Line 0: bitmap, version, level, the first three subarray pointers.
+    assert!(offset_of!(BranchB, version) == 32);
+    assert!(offset_of!(BranchB, level) == 36);
+    assert!(offset_of!(BranchB, subarrays) == 40);
+    // Line 1: the remaining pointers and the rank cache.
+    assert!(offset_of!(BranchB, pop_counts) == 104);
 
     assert!(size_of::<BranchU>() == 4096 + CACHE_LINE);
     assert!(align_of::<BranchU>() == CACHE_LINE);

@@ -79,7 +79,7 @@ Geometry note: the naive "8 B header + 4 edges" one-line branch is arithmeticall
 - **BranchL7** (128 B = 2 lines): 16 B header + 7 edges. Overflow → BranchB.
 
 Both linear forms keep the presence filter. `BranchHeader::find` rejects an absent digit on it before scanning the 8-byte digit array (`bits::find_byte_8`: scalar compares for up to 3 children, one SSE2/NEON 8-byte compare above that); the single-threaded lookup uses it for `BranchL7`, and the shared-tree walks (`BranchHeader::find_at`) for both forms.
-- **BranchB** (128 B = 2 lines): line 0 = 256-bit bitmap (32 B) + first 4 of 8 subarray pointers; line 1 = remaining pointers + cached per-subexpanse pop counts (`[u16; 8]`, rank acceleration) + OCC version. Slot lookup = bitmap test + popcount rank. A BranchB holds up to 192 populated digits (`BITMAP_TO_UNCOMPRESSED_THRESHOLD`); the 193rd converts it to BranchU.
+- **BranchB** (128 B = 2 lines): line 0 = 256-bit bitmap (32 B) + OCC version + level + first 3 of 8 subarray pointers; line 1 = remaining pointers + cached per-subexpanse pop counts (`[u16; 8]`, rank acceleration). Slot lookup = bitmap test + popcount rank. A BranchB holds up to 192 populated digits (`BITMAP_TO_UNCOMPRESSED_THRESHOLD`); the 193rd converts it to BranchU.
 - **BranchU** (4 KiB + 1 line): a header line (OCC version; a `BranchU` never skips, so no level) + flat 256 edges, direct index. The diagnostic `ablation-branchu-header-count` feature (#1202) adds a child count to the header line, beside the version, kept only on shared trees: a branch built on a shared tree starts counted, one built before its tree was shared is counted under its lock the first time an optimistic removal meets it, and the plain walks never touch it. The default header carries only the version.
 
 **Known cost: Judy1 lookups through narrow branches on a small key range (#1682).** MariaDB OQGraph keeps a breadth-first search's vertex colours in two Judy1 arrays (`crates/expanse-capi/examples/colour_map.rs` replays one search's calls; workload: `capi_colour_map`). Its vertex ids sit far below $`2^{32}`$, so every lookup crosses a level-8 top node with one child (level-8 slots never skip, §6 step 3) and then `BranchL3` nodes whose digit compares the key decides. libexpanse retires fewer instructions per call than stock libjudy there and still takes more cycles. Per Judy1 call, libexpanse minus stock, two runs of 10 paired processes each, BCa 95% *(measured: i9-12900F P-cores, Linux 6.8, perf 6.8.12, commit 5e64fcf17, `results/colour_topdown_5e64fcf17.json` from `results/counters_colour_topdown_5e64fcf17_run{1,2}.json`; pre-registered in `results/colour_map_1682_preregistration.yaml`)*:
@@ -1282,7 +1282,7 @@ Both bitmap branches and bitmap map-leaves partition those 256 values into **eig
 - `subexpanse_count` (`crates/expanse/src/bits.rs:893`) is the length of one subexpanse's packed array.
 - `rank` (`crates/expanse/src/bits.rs:823`) is the *global* count of members below `idx`, used for ordered navigation rather than slot addressing; `select` (`crates/expanse/src/bits.rs:908`) inverts it and is the `ByCount` primitive.
 
-**`BranchB`** (`crates/expanse/src/node.rs:784`) is 128 bytes: the bitmap at offset 0, `subarrays: [*mut Edge; 8]` at offset 32, `pop_counts: [u16; 8]` at offset 96, `version` at 112. Line 0 therefore holds the bitmap plus the first four subarray pointers, so a lookup landing in digits `0x00..0x7F` touches one line before the child edge. Reaching a child is: `test_and_subexpanse_rank(digit)` → `subarrays[digit >> 5]` → `.add(rank)`.
+**`BranchB`** (`crates/expanse/src/node.rs:784`) is 128 bytes: the bitmap at offset 0, `version` at 32, `level` at 36, `subarrays: [*mut Edge; 8]` at offset 40, `pop_counts: [u16; 8]` at offset 104. Line 0 therefore holds the bitmap, the version, the level and the first three subarray pointers, so a descent step landing in digits `0x00..0x5F` reads one line of the node before the child edge; a step in `0x60..0xFF` reads both. Reaching a child is: `test_and_subexpanse_rank(digit)` → `subarrays[digit >> 5]` → `.add(rank)`.
 
 **`LeafBitmapL`** (`crates/expanse/src/node.rs:968`) is the map-flavor bitmap leaf, also 128 bytes: bitmap at 0, `values: [*mut u64; 8]` at offset 32, `version` at 96. Reaching a value is the same three steps against the value subarrays — bitmap test, subexpanse rank, index into `values[digit >> 5]`.
 
@@ -1301,7 +1301,7 @@ Each version word is a plain `u32` seqlock counter: even means stable, odd means
 | Node type | Field | Byte offset | In the read protocol? |
 |---|---|---|---|
 | `BranchL3` / `BranchL7` | `hdr.version` | 0 | yes — `crates/expanse/src/sync.rs:326` |
-| `BranchB` | `version` | 112 | yes |
+| `BranchB` | `version` | 32 | yes |
 | `BranchU` | `version` | 0 | yes |
 | `LeafBitmap1` | `version` | 32 | no — field present, never bracketed |
 | `LeafBitmapL` | `version` | 96 | no — field present, never bracketed |
@@ -1342,15 +1342,15 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `size_of::<BranchL7>()` | 128 | `crates/expanse/src/node.rs:1025` |
 | `offset_of!(BranchL7, edges)` | 16 | `crates/expanse/src/node.rs:1027` |
 | `size_of::<BranchB>()` | 128 | `crates/expanse/src/node.rs:1030` |
-| `offset_of!(BranchB, subarrays)` | 32 | `crates/expanse/src/node.rs:1033` |
-| `offset_of!(BranchB, pop_counts)` | 96 | `crates/expanse/src/node.rs:1035` |
-| `offset_of!(BranchB, version)` | 112 | `crates/expanse/src/node.rs:1036` |
-| `size_of::<BranchU>()` | 4160 | `crates/expanse/src/node.rs:1038` |
+| `offset_of!(BranchB, subarrays)` | 40 | `crates/expanse/src/node.rs:1035` |
+| `offset_of!(BranchB, pop_counts)` | 104 | `crates/expanse/src/node.rs:1037` |
+| `offset_of!(BranchB, version)` | 32 | `crates/expanse/src/node.rs:1033` |
+| `size_of::<BranchU>()` | 4160 | `crates/expanse/src/node.rs:1039` |
 | `offset_of!(BranchU, version)` | 0 | `crates/expanse/src/node.rs:821` |
-| `size_of::<LeafBitmap1>()` | 64 | `crates/expanse/src/node.rs:1045` |
+| `size_of::<LeafBitmap1>()` | 64 | `crates/expanse/src/node.rs:1046` |
 | `offset_of!(LeafBitmap1, version)` | 32 | `crates/expanse/src/node.rs:940` |
-| `size_of::<LeafBitmapL>()` | 128 | `crates/expanse/src/node.rs:1046` |
-| `offset_of!(LeafBitmapL, values)` | 32 | `crates/expanse/src/node.rs:1047` |
+| `size_of::<LeafBitmapL>()` | 128 | `crates/expanse/src/node.rs:1047` |
+| `offset_of!(LeafBitmapL, values)` | 32 | `crates/expanse/src/node.rs:1048` |
 | `offset_of!(LeafBitmapL, version)` | 96 | `crates/expanse/src/node.rs:974` |
 | `size_of::<Bitmap256>()` | 32 | `crates/expanse/src/node.rs:1029` |
 | `size_of::<ValueSlot>()` | 8 | `crates/expanse/src/slot.rs:171` |
