@@ -1811,7 +1811,7 @@ On repetition 0, N's L1D-miss loads and cycles per insert correlate at ρ 0.979 
 
 ## Increment: a `BranchB`'s level on its first cache line
 
-**A pre-registered candidate** (#1679, #1680). The pre-registration is `docs/BENCHMARKING.md`, "Pre-registration: a `BranchB`'s level on its first cache line" (`b80a06ef9`), with the line bound behind it in `node::tests::branch_b_lines_read_by_field_order` (`5685bd9d7`). The change is `3ca8ccdd7`: `BranchB`'s field order becomes `bitmap`, `version`, `level`, `subarrays`, `pop_counts`. This section records the deterministic instruments. The stress-ng runs (T2, T3, L1, L2), the `compare` runs and CI are not run yet, so there is no verdict.
+**A pre-registered candidate** (#1679, #1680). The pre-registration is `docs/BENCHMARKING.md`, "Pre-registration: a `BranchB`'s level on its first cache line" (`b80a06ef9`), with the line bound behind it in `node::tests::branch_b_lines_read_by_field_order` (`5685bd9d7`). The change is `3ca8ccdd7`: `BranchB`'s field order becomes `bitmap`, `version`, `level`, `subarrays`, `pop_counts`. This section records the deterministic instruments first and the reference-host stress-ng runs after them. The verdict is **FAIL** on bound L1, at one cell.
 
 ### Where the 4 Mi inserts miss (main)
 
@@ -1837,6 +1837,39 @@ Every walk through a `BranchB` reads its bitmap and its `level`, and those sat o
 - **Other arms that fall**, reported and not a target: `short_bytesmap_get/zmap` 570,367 to 524,837 (−7.98%), `sync_map_count_after_write/random` −6.06%, `map_get/random` −3.85%, `set_contains/random` −3.75%.
 
 The fall on inserts is 1.069 per insert against the 1.2 projected. Stock's simulated figure through the C ABI is 3.2622 per insert, so the head still touches more lines per insert than stock in this model.
+
+### Increment runs (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `21a17c650`, binary `490c0595…`; artifacts `results/diagnostic_increment_branchb_line0_ref_run{1,2}.json`) (workloads: every cell of METHODOLOGY.md §5)
+
+Arms: G, the head `21a17c650` (the commits above rebased onto main, engine source unchanged; libexpanse sha256 `b9437992…`); M, its merge base `f22da01db` (`9b42a88b…`, the same file as `aacc1add4`'s); S, stock (`76f121a8…`).
+
+**Hygiene.** Run 1 ran 10:46:31–10:56:27 UTC on 2026-11-15 and run 2 10:57:55–11:07:50, each under the bench lock, on libraries built under the lock before run 1. 720 processes per run and none discarded; max load1 4.85 and 4.99 against a void limit of 12; the largest foreign load in any window is 0.09 core-equivalents in both runs.
+
+**T2 met.** `sng_judy_4m` G/M, BCa 95%, run 1 | run 2:
+
+| W | insert rate | delete rate |
+|---|---|---|
+| 1 | 1.025 [1.019, 1.030] \| 1.028 [1.020, 1.034] | 1.037 [1.029, 1.046] \| 1.039 [1.030, 1.049] |
+| 2 | 1.032 [1.023, 1.039] \| 1.027 [1.015, 1.033] | 1.041 [1.034, 1.051] \| 1.042 [1.035, 1.049] |
+| 4 | 1.028 [1.023, 1.035] \| 1.024 [1.018, 1.031] | 1.041 [1.036, 1.048] \| 1.038 [1.034, 1.042] |
+| 8 | 1.021 [1.018, 1.023] \| 1.023 [1.020, 1.026] | 1.039 [1.037, 1.043] \| 1.039 [1.038, 1.041] |
+
+**L2 holds.** No primary cell-metric has its G/M upper end below 0.98 in both runs. The lowest reading is `sng_judy_256k` W = 1 inserts, 0.976 [0.960, 0.993] and 0.992 [0.971, 1.013].
+
+**L1 fails at one cell.** `sng_sm_judy_big` W = 8 gets, run 1 | run 2:
+
+| pair | ratio | verdict over both runs |
+|---|---|---|
+| G/S | 0.998 [0.997, 0.999] \| 0.998 [0.997, 0.999] | SLOWER |
+| M/S | 0.999 [0.998, 0.999] \| 1.000 [0.998, 1.008] | EQUIVALENT |
+| G/M | 1.000 [0.999, 1.000] \| 0.998 [0.990, 1.000] | — |
+
+M/S has its upper end below 1 in run 1 and not in run 2, so the base reads EQUIVALENT and the head SLOWER. G/M does not separate from 1 in either run. The bound is applied as registered: the verdict is FAIL, and the bound is not moved (AGENTS.md §8.19).
+
+**Against stock at 4 Mi, under its own label: NOT MET.** `bogo-ops-per-second-real-time` G/S has its lower end above 1.0 at W = 8 only (1.025 [1.024, 1.026] in both runs); W = 1 reads 0.981 [0.975, 0.988] and 0.984 [0.976, 0.993], W = 2 0.992 [0.984, 0.999] and 0.991 [0.984, 0.998], W = 4 1.001 [0.996, 1.007] and 0.994 [0.989, 1.000]. M/S on the same runs is 0.952–0.970 at W = 1, 2 and 4 and 0.998–0.999 at W = 8. Insert rate G/S is 0.981–0.992 at W = 1, 2 and 4 (M/S 0.953–0.965) and 1.010–1.011 at W = 8; delete rate G/S is 0.969–0.985 (M/S 0.934–0.946) and 1.014 at W = 8.
+
+**Not run.** The verdict was FAIL before them, so the `compare` pairings (C1, C2), the second host (T3) and the `concurrency` report were not run for this change.
 
 ## Reproduce
 
