@@ -2667,6 +2667,32 @@ The `concurrency` wall-clock suite is reported, not gated; the `sync_*` Callgrin
 
 **Verdict.** PASS only if every target holds and every bound holds. Otherwise FAIL: the change is reverted and recorded with the cell that broke its bound, and no bound is moved (§8.19). A PASS with T3 pending is recorded as PASS on the reference host only.
 
+#### Second pre-registration: a `BranchB`'s level on its first cache line, the stock-side bound restated ([#1679](https://github.com/orieg/expanse/issues/1679), [#1680](https://github.com/orieg/expanse/issues/1680))
+
+A frozen record (§8.8 commit 2), written after the first pre-registration above returned FAIL. That verdict stands and is not revised here. This is a new gate on the same change, formed after seeing the first runs, so **no result under it is labelled above INTERMEDIATE** (§8.19), and it is decided on fresh runs only.
+
+**Observed before this commit, and therefore not evidence for it.** The reference-host runs of the first pre-registration (`docs/benchmarks/stressng_comparison/results/diagnostic_increment_branchb_line0_ref_run{1,2}.json`): T2 met, L2 held, and L1 broke at `sng_sm_judy_big` W = 8 `judy-gets-per-sec`, where G/S read 0.998 [0.997, 0.999] in both runs, M/S 0.999 [0.998, 0.999] and 1.000 [0.998, 1.008], and G/M 1.000 [0.999, 1.000] and 0.998 [0.990, 1.000]. Under the bound restated below that cell would hold, since the G/M upper ends are 1.0004 and 1.0001. The restated bound was written with those numbers in view.
+
+**Why L1 is restated.** L1 compares two verdict categories, G/S and M/S, each decided by which side of 1.0 an interval's ends fall. Where both arms sit within a fraction of a percent of stock, the two categories can differ with no measured difference between the arms: M/S read EQUIVALENT only because one run's interval was wide enough to cross 1.0. L1 as written therefore reports a category change, not a slowdown of the head against its base.
+
+**The change under test** is the one above, unchanged. The engine source at this commit equals `21a17c650`'s (`git diff 21a17c650 -- crates include` is empty), and main's engine source equals the merge base `f22da01db`'s, so the runs reuse the two libraries the first runs measured (sha256 `b9437992…` and `9b42a88b…`), checked by hash in each run's provenance.
+
+**Target.** T2 and T3 as above, unchanged.
+
+**Bounds.** Every bound of the first pre-registration, unchanged, except L1, which is replaced by:
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| stress-ng, both hosts | every primary cell-metric (L1b) | not all three of: M/S FASTER or EQUIVALENT; G/S SLOWER; G/M SLOWER (upper end below 1.0 in both runs) |
+
+L2, C1, C2, the deterministic bounds, `memory-budget`, CI and the empty `crates/expanse-capi` and `include/` diff are as registered. The deterministic bounds were read at `21a17c650` and are exact for an unchanged engine source; they are re-read on this branch's head in CI.
+
+**Runs, fixed here.** Two fresh runs per host of `run.sh <run> <host> increment`, 12 rounds, run numbers 3 and 4, analysed by `scripts/diag_increment_analyze.py --l1-separated` with the eight T2 targets. Verdict categories and the void rule are that suite's METHODOLOGY.md §7 and §8. A void run is discarded, disclosed and repeated; no valid run is repeated or dropped. The `compare` pairings and the second host follow only if the reference host holds.
+
+**The comparison with stock** keeps its own label and rule (BEAT, INTERMEDIATE, NOT MET), evaluated on the fresh runs.
+
+**Verdict.** INTERMEDIATE if every target and every bound holds (on the reference host only, if T3 is pending). Otherwise FAIL, recorded with the cell that broke it. The gate is not restated again for this change. An INTERMEDIATE is not a PASS: whether the change lands on it is the owner's decision.
+
 **Trie-adversarial key classes (workload: `core_compare`)** *(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0, `performance` governor, pinned to CPUs 0-15; commit `4659016f`; runs [43126394060](https://github.com/orieg/expanse/actions/runs/43126394060) and [43133695465](https://github.com/orieg/expanse/actions/runs/43133695465), host guard quiet; artifacts [`results/baseline_compare_adversarial.json`](../results/baseline_compare_adversarial.json) and [`results/baseline_compare_adversarial_run2.json`](../results/baseline_compare_adversarial_run2.json))*. The `set_lookup` and `map_get` groups also run the five classes of [Barrett's Judy versus hash-table comparison](https://www.nothings.org/computer/judy/) (`workload_common::KeyGen`): `rand22`, 22 random bits in the low bytes (a dense random $2^{22}$ sub-range; 890,427 distinct keys of 1M draws, 9,986 of 10k); `rand22_bswap`, the same keys byte-reversed into the top bytes; `ascii_upper` and `ascii_alnum`, one character per byte; and `stride64`, `i * 64`. `map_get` gained a `miss` arm on every distribution, listed below for the four TESTING.md classes too. Misses come from the population's own generator resumed at N and rejected on membership (AGENTS.md §8.6). Cells and ratios are built as in the tables above: unions of the two runs' BCa intervals, † where a cell's two run intervals do not overlap; every ratio interval is a plain BCa interval (`bca`) in both runs. Worst foreign load in any arm's window: 0.02 core-equivalents in run 1 and 0.03 in run 2. Only the new arms are published from this pair; the other arms it re-measured are in the artifacts, and the tables above stay on the 82eb56af pair. `HashSet`/`HashMap` here are `std::collections`'s, with SipHash-1-3.
 
 **`ExpanseSet`, 10,000 keys** (ns per lookup; ratios are Expanse's time over the competitor's):
