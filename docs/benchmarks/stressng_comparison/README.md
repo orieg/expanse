@@ -1648,6 +1648,58 @@ On repetition 0, N's L1D-miss loads and cycles per insert correlate at ρ 0.979 
 - **Replacement state:** not tested; no counter observes it.
 - **What remains without the state.** On repetitions 1–3, every N insert process is in the low-miss state, yet N still takes 1.007–1.010× S's cycles per insert. Deletes take 1.018–1.019×, with every interval above 1. That remainder is not explained by the per-process state, and its cause is unidentified.
 
+## The hashjudy cells on main
+
+**A re-measure against stock, outside METHODOLOGY.md's pre-registration** (#1666, #1669). The `sng_sm_hashjudy_*` rows of the primary table measure `6ec29a656` and were never re-measured: puts 0.105–0.154× stock, bogo-ops/s 0.175–0.283×, max-rss 49–77×. They are the largest gap to stock in this suite. This section re-measures them on main and asks how much of the gap is the small-array floor and how much is stress-ng's own leak.
+
+**The two things in the gap.**
+- **The floor.** A small tree holds one 4 KiB slab page for each slab class it has ever used: 20,864 B for a 20-key root leaf against 384 B used ([ARCHITECTURE.md](../../ARCHITECTURE.md), allocator row; #1669).
+- **The leak.** In stress-ng's source at the harness commit `d5f8133a` (`stress-sparsematrix.c`), `hashjudy_destroy` calls `JLMU` on every array, adds the result to its estimate, and frees only the table of array pointers. It never calls `JLFA`. Every bogo op therefore leaks one JudyL array per row, in both arms. (By contrast `judy_destroy`, the `judy` method's, calls `JLFA`.) The `del` operation of `hashjudy` sets the value to 0 through `JLG` and removes nothing.
+- **The cells' shapes** (derived from stress-ng's defaults and METHODOLOGY.md §5). `default` makes 10,000 draws over a 500 × 500 matrix: 500 arrays of about 19.6 distinct keys each (250,000 × (1 − e^(−0.04)) / 500). Its `--sparsematrix-ops 100·W` gives each worker 100 bogo ops, so a worker leaks about 50,000 arrays. `big` makes 1,000,000 draws over 100,000 rows: 100,000 arrays of about 10 keys. `--sparsematrix-ops 1·W` gives each worker **one** bogo op, so its single `destroy` follows the process's peak.
+- **The published figure is consistent with the floor times the leak** (derived): 50,000 arrays × 20,864 B = 1.04 × 10⁹ B, against E's published `default` max-rss of 1,083,162 KiB (1.11 × 10⁹ B; `results/baseline_ref_run1.json`). This is arithmetic on two figures, not a measurement of the split.
+
+**Design, fixed before the run** (`scripts/diag_delete.py` with `SNG_DELETE_SET=hj_main`, `hj_leak` and `hj_perf`; `run.sh <run> <host> hj_main|hj_leak|hj_perf`):
+- **Arms.**
+  - N: libexpanse built from a `git archive` of main at `aacc1add4` (`scripts/build_layout_lib.sh`, no RUSTFLAGS). No library source (`crates/expanse/src`, `crates/expanse-capi`) changes between it and this design's commit.
+  - E: the published comparison's library, `6ec29a656` (`da5814a7…`), the reference host's `expcompat/lib`, hash-checked by the provenance.
+  - S: stock (`76f121a8…`).
+  - Nf and Sf: N's and S's libraries under `b-hjfree`, a build of the harness's stress-ng source with one change: a `JLFA` on each array in `hashjudy_destroy`, after the `JLMU` already there (`scripts/build_hjfree.sh`, six added lines, checked by the script). In `hj_leak` and `hj_perf`, N and S run `b-hjctl`, the same source unchanged, built in the same container run as `b-hjfree`. Each pair then differs only in that edit, whether or not the toolchain image still reproduces the published binary.
+- **Cells.** Both `sng_sm_hashjudy_*` cells of METHODOLOGY.md §5 at its W values, 1 and 4, one process per arm per cell per round.
+- **Sets.**
+  - `hj_main`: arms E, N and S; 12 rounds per run, cycling the six orders of the three arms.
+  - `hj_leak`: arms N, S, Nf and Sf; 24 rounds per run, cycling the 24 orders of the four arms.
+  - `hj_perf`: `hj_leak`'s arms and rounds, each process under `perf stat` with `cpu_core/cycles/u`, `cpu_core/instructions/u`, `cpu_core/cycles/k`, `cpu_core/instructions/k`, `page-faults`, `minor-faults` and `major-faults`. They are whole-process counts, workers included; the cells' work is fixed by `--sparsematrix-ops` and the seed. A preflight process and every round stop the run if an event is not counted, ran below 100% of its enabled time, or if user cycles, kernel cycles or page faults read zero. After the rounds, one `perf record` of `cpu_core/cycles/` (user and kernel) per cell and arm gives the share of cycles per object (`--sort dso`) and per symbol. That is one process per arm, so these shares carry no interval and are descriptive. The allocator share is read from them as the `libc.so.6` object's share and its `malloc`/`free`/`memset` symbols.
+- **Runs.** Two independent runs on the reference host. Each run is `hj_main`, then `hj_leak`, then `hj_perf`, each invocation under the host bench lock and the comparison's pin `0,2,4,6,8,10,12,14`.
+- **Metrics.** `hashjudy-puts-per-sec`, `hashjudy-gets-per-sec`, `bogo-ops-per-second-real-time`, wall clock and `max-rss` (stress-ng's own report), and in `hj_perf` the counters above.
+- **Analysis.** `scripts/diag_delete_analyze.py` writes `results/diagnostic_hj_{main,leak,perf}_<host>_run{1,2}.json`.
+  - Two-sample BCa 95% intervals (2,000 resamples) on the ratio of two arms' means: N/S, N/E and E/S in `hj_main`; N/S, Nf/Sf, N/Nf and S/Sf in `hj_leak` and `hj_perf`.
+  - The **leak factor** L = (N/S)/(Nf/Sf), with a four-sample BCa 95% interval: each arm is resampled on its own, and the jackknife leaves out one process of one arm at a time. Its arithmetic is pinned by `diag_delete_analyze.py --self-test`.
+- **Void rules.** These are `sm_main`'s, unchanged:
+  - A process is discarded when its foreign load exceeds 0.5 core-equivalents.
+  - A cell-arm needs 8 valid processes for an interval.
+  - A run is void if load1 ever exceeded half the logical CPUs.
+  - `run.sh`'s refusals (containers, sibling workloads, free disk, load1) and the driver's 16 GiB `MemAvailable` floor apply.
+  - A discarded process or void run is disclosed, never reinterpreted.
+
+**Reading rule.**
+- **How far each cell is from stock on main.** N/S per cell-metric in `hj_main`, with METHODOLOGY.md §8's verdict on the three rates over both runs. Wall clock and max-rss are reported as ratios with their intervals, without a verdict.
+- **Changed side:** every rate cell whose N/S verdict differs from the published E/S verdict.
+- **N/E** is what changed since the published table. It combines every library change between the two files and any code placement, which this design cannot separate.
+- **Floor versus leak,** per cell and per metric (the three rates, wall clock, max-rss, and every `hj_perf` counter), on L in both runs. A rate's gap is N/S below 1; a cost's gap (wall clock, max-rss, counters) is N/S above 1.
+  - **LEAK WIDENS THE GAP:** L's interval lies wholly on the gap's side of 1 in both runs (below 1 on a rate, above 1 on a cost). Removing the leak narrows Expanse's gap to stock by L.
+  - **NO LEAK EFFECT:** L's interval lies within [0.95, 1.05] in both runs.
+  - **LEAK NARROWS THE GAP:** L's interval lies wholly on the other side of 1 in both runs.
+  - **INCONCLUSIVE:** anything else.
+  - The leak's share of the gap is ln L / ln(N/S), reported per run as a derived point figure, without an interval.
+  - **Nf/Sf** is the gap that remains with the leak removed. It holds the floor's cost on memory the allocator reuses together with any other per-operation engine cost, and **this design does not separate those two**. `hj_perf` reports kernel against user cycles, faults and object shares for each arm, descriptively. It attributes no remainder by subtraction (AGENTS.md §8.20.4).
+
+**Expected** (projected, from the shapes above; none quantified):
+- `big` max-rss: NO LEAK EFFECT. A worker's only `destroy` follows its peak, so the leak cannot raise the peak.
+- `default` max-rss: LEAK WIDENS THE GAP. With `JLFA`, each worker's peak holds about 500 arrays rather than about 50,000.
+- `big` puts and gets: NO LEAK EFFECT. Nothing is freed before the single op's put and get loops end.
+- `default` puts: LEAK WIDENS THE GAP, through fewer page faults when the freed memory is reused. Whether glibc returns that memory to the kernel rather than reusing it is not predicted.
+- N/S on puts stays below 1 in every cell, since the floor is unchanged on main. The magnitudes of L, Nf/Sf and N/E are not predicted.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -1848,4 +1900,26 @@ docs/benchmarks/stressng_comparison/run.sh 2 ref delete_main
 
 ```bash
 python3 docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py ref /var/tmp/stressng-eval/results/diag_delete_main_ref_run1 /var/tmp/stressng-eval/results/diag_delete_main_ref_run2
+```
+
+The hashjudy cells on main build N from a `git archive` export of main and the leak intervention's two stress-ng builds, then run the three sets in order, run 1 before run 2:
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh <export of aacc1add4> /var/tmp/stressng-eval/expcompat-aacc1add4/lib
+```
+
+```bash
+docs/benchmarks/stressng_comparison/scripts/build_hjfree.sh
+```
+
+```bash
+for m in hj_main hj_leak hj_perf; do docs/benchmarks/stressng_comparison/run.sh 1 ref "$m"; done
+```
+
+```bash
+for m in hj_main hj_leak hj_perf; do docs/benchmarks/stressng_comparison/run.sh 2 ref "$m"; done
+```
+
+```bash
+for m in hj_main hj_leak hj_perf; do python3 docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py ref "/var/tmp/stressng-eval/results/diag_${m}_ref_run1" "/var/tmp/stressng-eval/results/diag_${m}_ref_run2"; done
 ```
