@@ -125,3 +125,58 @@ The engine is unchanged on every path stress-ng calls (§2), so the reference-ho
   - writes `results/baseline_<host-label>_run{1,2}.json`, each carrying `provenance` (host facts, estimators, load snapshots with busy-CPU deltas) and per-cell `rounds_raw`, with every interval's `ci_method`;
   - prints the §8 verdict table that the README carries.
 - The independent, non-LLM review that #1666 item 4 requires before any statement to stress-ng or to distribution packagers is outside this suite. Its absence is stated in the README until it happens.
+
+## 11. Pre-registration: a 512 B first slab page per class ([#1669](https://github.com/orieg/expanse/issues/1669) option D, [#1742](https://github.com/orieg/expanse/issues/1742))
+
+A frozen record (AGENTS.md §8.8 commit 2), never reconciled in place with what the runs measure. It is written under the owner's exemption of 2026-11-15: a change may cost instructions on named Callgrind arms, up to a stated bound, when a cell measured in a real program gains wall clock or resident memory with a BCa 95% bound clear of 1 in two runs.
+
+**The change under test** is commit `976348246`: a tree's allocator carves a 512 B first page for each slab class of 256 B or less and 4 KiB pages after it; the page size is recorded per page; `NodeAlloc` gains one word of per-class bits, so `size_of::<ExpanseMap>()` goes from 712 B to 720 B. No API, C ABI, node encoding or OCC protocol changes. It is the approach of the closed PR [#1670](https://github.com/orieg/expanse/pull/1670) at `196f9003f`, ported to main without change.
+
+**Observed before this commit, and therefore not evidence for it.**
+- Deterministic allocator accounting on this commit (`cargo run --release -p expanse-trie --example bytes_per_key`): a 20-key JudyL array holds 2,944 B where main holds 20,864 B, and a 1-key array 512 B where main holds 4,096 B. `mem_used` is unchanged (384 B and 16 B).
+- Callgrind on the earlier base `467968370`, from #1670's body (an x86-64 build host, not CI; 283 arms): 90 arms moved by 0.1% or more; above 0.5%, 7 rose and 43 fell. The seven: `set_subtree_condense/wide` +4.06%, `strmap_oscillate/routes` +1.05%, `set_subtree_condense/h1` +0.84%, `strmap_prefix_seek/paths` +0.69%, `set_subtree_boundary_oscillate/band9` +0.65%, `set_insert/random` +0.53%, `set_refill/random` +0.52%. `map_small_tree/hashjudy` fell 77.57%. The allocator has changed on main since (#1719, #1720), and [#1675](https://github.com/orieg/expanse/issues/1675) records that the inlined carve moves arms through the code of the walks it is inlined into, so which arms move on this base is not known.
+- The hashjudy cells on main (README, "The hashjudy cells on main"): against stock, puts 0.105–0.157×, max-rss 49–77×.
+- Nothing has been measured on this commit beyond the accounting rows above: no instruction count, no stress-ng run, no zmap run.
+
+**Derived, not measured.** Per 20-key array the tree's pages and handle go from 20,864 + 712 = 21,576 B to 2,944 + 720 = 3,664 B, a ratio of 0.170. Process resident memory also holds stress-ng's own tables and allocator overhead, so the max-rss ratio is expected above 0.170 and well below 1. Against stock (about 400 B per array, #1666) the change is not expected to reach parity.
+
+**Definitions.** G, M, S, the intervals, the verdict categories and the void rule are those of `scripts/diag_increment.py` and §7–§8 above: G this change's library, M its merge base's, S stock, two-sample BCa 95% of the ratio of means over a run's 12 rounds. The real-program cells are `sng_sm_hashjudy_default` and `sng_sm_hashjudy_big`, each at W = 1 and W = 4.
+
+**Target, all of which must hold (the exemption's condition).**
+- T1, resident memory: `max-rss` G/M upper end below 1.0 in both runs, at all four hashjudy cells.
+- T2, rate: `hashjudy-puts-per-sec` G/M lower end above 1.0 in both runs, at all four hashjudy cells.
+- T3, deterministic: the `bytes_per_key` small-array rows read 512 B and 2,944 B `mem_held`.
+
+Reference host (Intel Core i9-12900F) first, two runs. The second host (AMD Ryzen 9 9955HX) is the same target; if its bench lock is not free it is pending and the verdict says so.
+
+**Instruction bounds.** They apply to the x86-64 deterministic, x86-64 smoke and AArch64 Callgrind jobs against main, and to wasm32 and wasm64 fuel against main's run at the merge base, by arm name.
+
+| arms | bound |
+|---|---|
+| `set_subtree_condense/wide` | ≤ +5.0% |
+| `set_subtree_condense/h1`, `strmap_oscillate/routes` | ≤ +1.5% each |
+| `strmap_prefix_seek/*`, `set_subtree_boundary_oscillate/*`, `set_insert/random`, `set_refill/random` | ≤ +1.0% each |
+| class W, every other arm that is not class R | ≤ +0.5% each |
+| class R, read-only arms: every arm whose group name contains `get`, `contains`, `iterate`, `nav`, `prev`, `range`, `count`, `scan`, `cursor`, `prefix_sum`, `prefix_bounded` or `mem_used`, and the C ABI harness's lookup, test, count and iteration arms | ≤ +0.1% each, the standing rule |
+| class W as a whole, x86-64 deterministic | the sum of its arms' instruction counts does not rise |
+| `map_small_tree/hashjudy` | falls by at least 50% |
+
+Class W is every arm whose measured region can allocate: the insert, remove, churn, oscillate, refill, clear, rebuild, compact, shrink, regrow, collect, clone, subtree, overwrite, update, compare-exchange, drain and reclaim groups of `instructions.rs` on every container, plain and `sync_*`, and the C ABI harness's insert and delete arms. Naming a class rather than a short list is deliberate and is the widest reading of the exemption: #1675 shows the cost is code generation spread over the walks the carve is inlined into, and no run on this base says which. An arm above its bound is a FAIL, whichever class it is in.
+
+**Other bounds, every one of which must hold.**
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| stress-ng, both hosts | every primary cell-metric (L1b) | not all three of: M/S FASTER or EQUIVALENT; G/S SLOWER; G/M SLOWER |
+| stress-ng, both hosts | every primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | `max-rss`, every cell | G/M lower end not above 1.02 in both runs |
+| `compare` | every lookup and iteration cell (C1, C2) | as `scripts/compare_shift.py` states them |
+| `memory-budget` | every row | no row rises; the handle's 8 B (`JudyLMemUsed` 728 → 736 B at 1 key, 1,096 → 1,104 B at 20) is the one named cost |
+| CI | full workspace tests (`PROPTEST_CASES=500`), Tier-1 Miri, the differential oracle against stock | pass |
+| `git diff` | `crates/expanse-capi`, `include/` | empty |
+
+**Reported, not gated.** zmap's peak resident memory on sparse responders, head against base, if its rig is available; the hashjudy cells against stock (G/S), under the labels BEAT (puts lower end above 1.0 and max-rss upper end below 1.0 at all four cells in both runs), NOT MET otherwise. Not predicted to be met.
+
+**Runs, fixed here.** Two runs per host of `run.sh <run> <host> increment`, 12 rounds, analysed by `scripts/diag_increment_analyze.py --l1-separated` with the T2 targets; T1 and the max-rss bound are read from the same artifacts. A void run is discarded, disclosed and repeated; no valid run is repeated or dropped.
+
+**Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not landed, and the record names the arm or cell that broke its bound. No bound is moved (AGENTS.md §8.19). A PASS with the second host pending is recorded as PASS on the reference host only. On a PASS the pull request carries an `allow-regression:` line naming the arms above the CI gate's thresholds and citing this section and the measuring runs.
