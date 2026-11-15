@@ -749,6 +749,20 @@ mod oracle {
             k[32..].copy_from_slice(&i.wrapping_mul(0x9E37_79B9_7F4A_7C15).to_be_bytes());
             k
         }
+        /// Every slot read and write goes through these two, so the null
+        /// check sits with the dereference. `p` is null or a live slot with
+        /// no change to its array since the call that returned it.
+        unsafe fn read(p: *mut c_void) -> Option<Word> {
+            assert_ne!(p as usize, usize::MAX, "PJERR returned");
+            // SAFETY: per the contract above; `as_ref` maps null to `None`.
+            unsafe { p.cast::<Word>().as_ref().copied() }
+        }
+        unsafe fn write(p: *mut c_void, v: Word) {
+            assert_ne!(p as usize, usize::MAX, "PJERR returned");
+            // SAFETY: per the contract above; `as_mut` maps null to `None`.
+            let slot = unsafe { p.cast::<Word>().as_mut() }.expect("JudyHSIns returned null");
+            *slot = v;
+        }
         type KeyFn = fn(u64) -> Vec<u8>;
         let shapes: [(&str, KeyFn, u64); 4] = [
             ("target_t", target_t, 3000),
@@ -775,15 +789,14 @@ mod oracle {
                     for step in 0..20_000usize {
                         let k: &[u8] = &keys[(rng.next() % pool) as usize];
                         let (kp, kl) = (k.as_ptr().cast::<c_void>(), k.len() as Word);
-                        let g1 = JudyHSGet(ours, kp, kl).cast::<Word>();
-                        let g2 = o_get(theirs, kp, kl).cast::<Word>();
-                        assert_eq!(g1.is_null(), g2.is_null(), "{}", at("get null-ness", step));
-                        if let Some(&v) = model.get(k) {
-                            assert!(!g1.is_null(), "{}", at("live key missing", step));
-                            assert_eq!((*g1, *g2), (v, v), "{}", at("get value", step));
+                        let g1 = read(JudyHSGet(ours, kp, kl));
+                        let g2 = read(o_get(theirs, kp, kl));
+                        assert_eq!(g1, g2, "{}", at("get", step));
+                        let want = model.get(k).copied();
+                        assert_eq!(g1, want, "{}", at("get vs model", step));
+                        if want.is_some() {
                             continue;
                         }
-                        assert!(g1.is_null(), "{}", at("absent key found", step));
                         if order.len() == capacity {
                             let old = order.pop_front().expect("window is full");
                             let (op, ol) = (old.as_ptr().cast::<c_void>(), old.len() as Word);
@@ -800,12 +813,13 @@ mod oracle {
                         if evicted.remove(k).is_some() {
                             reinserts += 1;
                         }
-                        let s1 = JudyHSIns(&raw mut ours, kp, kl, null_mut()).cast::<Word>();
-                        let s2 = o_ins(&raw mut theirs, kp, kl, null_mut()).cast::<Word>();
-                        assert_eq!((*s1, *s2), (0, 0), "{}", at("fresh slot", step));
+                        let s1 = JudyHSIns(&raw mut ours, kp, kl, null_mut());
+                        let s2 = o_ins(&raw mut theirs, kp, kl, null_mut());
+                        let fresh = (read(s1), read(s2));
+                        assert_eq!(fresh, (Some(0), Some(0)), "{}", at("fresh slot", step));
                         let v = (step as Word) << 1 | 1;
-                        *s1 = v;
-                        *s2 = v;
+                        write(s1, v);
+                        write(s2, v);
                         model.insert(k, v);
                         order.push_back(k);
                     }
@@ -823,8 +837,8 @@ mod oracle {
                     // emptiness semantics are compared.
                     for k in keys.iter().take(capacity) {
                         let (kp, kl) = (k.as_ptr().cast::<c_void>(), k.len() as Word);
-                        *JudyHSIns(&raw mut ours, kp, kl, null_mut()).cast::<Word>() = 7;
-                        *o_ins(&raw mut theirs, kp, kl, null_mut()).cast::<Word>() = 7;
+                        write(JudyHSIns(&raw mut ours, kp, kl, null_mut()), 7);
+                        write(o_ins(&raw mut theirs, kp, kl, null_mut()), 7);
                     }
                     assert!(JudyHSFreeArray(&raw mut ours, null_mut()) > 0);
                     assert!(o_free(&raw mut theirs, null_mut()) > 0);

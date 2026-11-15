@@ -73,6 +73,30 @@ fn wide_40(i: u64) -> Vec<u8> {
     k
 }
 
+/// The value behind a slot pointer `JudyHSGet` or `JudyHSIns` returned, or
+/// `None` if it is null. Every read of a slot goes through here, so the null
+/// check and the dereference sit together.
+///
+/// # Safety
+/// `p` is null or a live value slot, with no change to its array since the
+/// call that returned it (`docs/COMPAT.md` D10).
+unsafe fn read(p: *mut c_void) -> Option<Word> {
+    assert_ne!(p as usize, usize::MAX, "PJERR returned");
+    // SAFETY: per the caller contract; `as_ref` maps null to `None`.
+    unsafe { p.cast::<Word>().as_ref().copied() }
+}
+
+/// Stores `v` in a slot `JudyHSIns` returned; panics on a null slot.
+///
+/// # Safety
+/// As for [`read`].
+unsafe fn write(p: *mut c_void, v: Word) {
+    assert_ne!(p as usize, usize::MAX, "PJERR returned");
+    // SAFETY: per the caller contract; `as_mut` maps null to `None`.
+    let slot = unsafe { p.cast::<Word>().as_mut() }.expect("JudyHSIns returned null");
+    *slot = v;
+}
+
 /// One LRU run: keys drawn from a pool of `pool` keys (so evicted keys
 /// recur), a window of `capacity`, `steps` arrivals. Returns the number of
 /// re-inserts of a previously evicted key, so a case can assert the pattern
@@ -100,14 +124,13 @@ fn run(key: fn(u64) -> Vec<u8>, capacity: usize, pool: u64, steps: usize, seed: 
         for step in 0..steps {
             let k = &keys[(rng.next() % pool) as usize];
             let (kp, kl) = hs(k);
-            let slot = JudyHSGet(arr, kp, kl).cast::<Word>();
+            let got = read(JudyHSGet(arr, kp, kl));
             match model.get(k) {
                 Some(&v) => {
-                    assert!(!slot.is_null(), "step {step}: live key {k:02x?} missing");
-                    assert_eq!(*slot, v, "step {step}: value of {k:02x?}");
+                    assert_eq!(got, Some(v), "step {step}: live key {k:02x?}");
                     continue; // a hit: the window is unchanged
                 }
-                None => assert!(slot.is_null(), "step {step}: absent key {k:02x?} found"),
+                None => assert_eq!(got, None, "step {step}: absent key {k:02x?} found"),
             }
             if order.len() == capacity {
                 let old = order.pop_front().expect("window is full");
@@ -132,11 +155,15 @@ fn run(key: fn(u64) -> Vec<u8>, capacity: usize, pool: u64, steps: usize, seed: 
             if evicted.remove(k).is_some() {
                 reinserts += 1;
             }
-            let s = JudyHSIns(&raw mut arr, kp, kl, null_mut()).cast::<Word>();
-            assert!(!s.is_null(), "step {step}: insert {k:02x?} returned null");
-            assert_eq!(*s, 0, "step {step}: re-inserted {k:02x?} kept an old value");
+            let s = JudyHSIns(&raw mut arr, kp, kl, null_mut());
+            let fresh = read(s);
+            assert_eq!(
+                fresh,
+                Some(0),
+                "step {step}: re-inserted {k:02x?} kept an old value"
+            );
             let v = (step as Word) << 1 | 1;
-            *s = v;
+            write(s, v);
             model.insert(k.clone(), v);
             order.push_back(k.clone());
 
@@ -144,11 +171,8 @@ fn run(key: fn(u64) -> Vec<u8>, capacity: usize, pool: u64, steps: usize, seed: 
             if step % (steps / 8).max(1) == 0 {
                 for p in &keys {
                     let (pp, pl) = hs(p);
-                    let g = JudyHSGet(arr, pp, pl).cast::<Word>();
-                    match model.get(p) {
-                        Some(&v) => assert!(!g.is_null() && *g == v, "sweep {p:02x?}"),
-                        None => assert!(g.is_null(), "sweep: absent {p:02x?} found"),
-                    }
+                    let g = read(JudyHSGet(arr, pp, pl));
+                    assert_eq!(g, model.get(p).copied(), "sweep {p:02x?}");
                 }
             }
         }
@@ -173,13 +197,13 @@ fn run(key: fn(u64) -> Vec<u8>, capacity: usize, pool: u64, steps: usize, seed: 
         let refill: Vec<&Vec<u8>> = keys.iter().take(capacity).collect();
         for k in &refill {
             let (kp, kl) = hs(k);
-            let s = JudyHSIns(&raw mut arr, kp, kl, null_mut()).cast::<Word>();
-            assert_eq!(*s, 0, "refill {k:02x?} kept an old value");
-            *s = 7;
+            let s = JudyHSIns(&raw mut arr, kp, kl, null_mut());
+            assert_eq!(read(s), Some(0), "refill {k:02x?} kept an old value");
+            write(s, 7);
         }
         for k in &refill {
             let (kp, kl) = hs(k);
-            assert_eq!(*JudyHSGet(arr, kp, kl).cast::<Word>(), 7, "refill {k:02x?}");
+            assert_eq!(read(JudyHSGet(arr, kp, kl)), Some(7), "refill {k:02x?}");
         }
         assert!(
             JudyHSFreeArray(&raw mut arr, null_mut()) > 0,
