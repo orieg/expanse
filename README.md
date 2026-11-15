@@ -76,9 +76,9 @@ Naming the project after the mechanism honors the algorithm itself without inher
 
 ## Key Features
 
+- **Verified drop-in for libJudy**: swap `-lJudy` for `-lexpanse`, or `LD_PRELOAD` `libexpanse.so`, with no source change (Judy1, JudyL, JudySL, JudyHS; 64-bit builds). Four standing CI gates check it: a differential oracle against a `dlopen`'d stock libJudy on all four families, including zmap's JudyHS evict-and-reinsert window; the `php-judy` suite at 221/221 on Linux and macOS; the same suite built with Windows MSVC; and `LD_PRELOAD` transcripts identical to stock, among them a replay of MariaDB OQGraph's Judy1 colour map. Unmodified stress-ng, zmap and OQGraph have been run against it: [Verified in real projects](#verified-in-real-projects).
+- **Faster than stock libJudy on most measured shapes, not all**: through the identical C ABI at 1,000,000 keys, libexpanse takes 0.379–0.884× stock's time on sequential, random and clustered insert and lookup, every BCa 95% upper bound at or below 0.892 in two runs *(measured: Intel Core i9-12900F reference host, commit `cbbc762a`; [`results/baseline_vs_libjudy.json`](results/baseline_vs_libjudy.json), [`results/baseline_vs_libjudy_run2.json`](results/baseline_vs_libjudy_run2.json); workload: `capi_bench_vs_libjudy`)*. It is slower on sequential lookup at 100,000 keys, on stress-ng's 4 Mi-key inserts and deletes, on OQGraph's colour map, and by the widest margin on stress-ng's many-small-array `hashjudy` method (puts 0.105–0.157× stock's rate, 49–77× its peak memory); it also holds more memory on zmap's sparse window. Callgrind counts fewer instructions than stock on 24 of the 25 vs-stock operations and more on `JudyHSIns` with route keys (1.076×) *(measured: same host and commit, [`results/baseline_vs_stock.json`](results/baseline_vs_stock.json); workloads differ: `capi_vs_stock` vs `capi_bench_vs_libjudy`)*; an instruction count is not a timing. [Wins](#performance-vs-stock-libjudy) · [Losses](#where-libexpanse-is-slower-or-larger-than-stock).
 - **Pure Rust**: `std` by default on every target, and `no_std` + `alloc` with `default-features = false` (CI checks that build for `riscv32imac`, `riscv32imc` and `thumbv7em-none-eabihf`); zero external runtime dependencies. Checked under Miri and Loom in CI. The `Sync*` wrappers' two undefined-behaviour classes (an optimistic-read data race and `&T`/`&mut` aliasing over the engine, [#1086](https://github.com/orieg/expanse/issues/1086)) are closed on the 64-bit and 32-bit wrappers; a nightly Miri census runs each concurrent workload under the race detector and both aliasing models, and [`.github/miri-ub-sites.json`](.github/miri-ub-sites.json) records every entry clean, an observation at its seed range rather than a proof.
-- **Fewer Instructions than Stock Judy**: Lower Callgrind instruction counts than original `libjudy` on every measured arm (inserts, lookups, set tests, churn). Wall clock wins on insert and on sequential and clustered 1M lookup; the one measured loss is random 1M `get` at **1.031×, BCa 95% CI [1.024, 1.038]** *(measured: reference host, [`results/baseline_vs_libjudy.json`](results/baseline_vs_libjudy.json))*. [Full table](#performance-vs-stock-libjudy).
-- **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
 - **Hardware Acceleration & Portability**: SSE2 leaf and branch kernels on every x86-64 build, with runtime CPUID dispatch to `POPCNT` and BMI2 `PDEP` on x86-64 only; NEON byte-equality kernels on ARM64 (compile-time baseline, no runtime dispatch). Every other target — 64-bit RISC-V (`RV64GC`) and bare-metal 32-bit embedded (`RV32IMAC`, `Cortex-M4/M7`) — runs the portable scalar paths. `glibc-hwcaps` variants (`x86-64-v2`/`v3`/`v4`) are a build recipe, not part of the released packages ([docs/COMPAT.md](docs/COMPAT.md)).
 - **Concurrent Readers and Writers**: Every `Sync*` wrapper serves readers that **take no lock on the common path** and concurrent writers through optimistic lock coupling (a blocking protocol, not lock-free). `SyncExpanseMap` serves **322.8 M reads/s [322.1, 323.5] and 321.6 M reads/s [321.2, 322.1] at 16 threads** in two independent runs, BCa 95% over 18 rounds *(measured: reference host, commit `f9853201`; [`baseline_concurrent_mixed.json`](docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json), [`baseline_concurrent_mixed_run2.json`](docs/benchmarks/concurrency/results/baseline_concurrent_mixed_run2.json); workload: `core_concurrency`)*. [Tables, losses and competitors](#multithreaded-occ-concurrency-scalability).
 - **Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on dense and clustered 64-bit **sets** (`ExpanseSet`, key presence only) *(measured: `bytes_per_key` example)*. A **map** stores an 8-byte value word per key, so it cannot go below 8 B/key: `ExpanseMap` measures **8.56–8.61 bytes/key** on the same dense and clustered distributions at 1M keys *(measured: deterministic `mem_used()` accounting, host-independent; `bytes_per_key` example, workload `example_bytes_per_key`; gated copy `docs/visualizer_data.json` → `memory_budget`)* and **~0.31 bytes/key** on clustered 32-bit embedded sets *(measured: `bytes_per_key_32` example)*. On uniform random keys per-key set cost is a sawtooth in key density, **7.08–21.02 bytes/key** *(measured: `keyspace_density` example; [docs/ARCHITECTURE.md §3.5](docs/ARCHITECTURE.md#35-per-key-memory-is-a-sawtooth-in-expanse-occupancy-and-leaf_cap-sets-the-tooth))*.
@@ -257,47 +257,81 @@ Per-tier instruction counts are deterministic: [`docs/visualizer_data.json`](doc
 
 ---
 
-## Performance vs Stock libjudy
-
-Wall-clock latency and instructions retired through the identical C ABI on identical key streams. **Below 1.00 = libexpanse does less work / runs faster than original libjudy.**
-
-> **Provenance.** The wall-clock table (workload: `capi_bench_vs_libjudy`) is 15 paired rounds, arms interleaved, 50% hit rate, value slot dereferenced, ratios with BCa 95% intervals *(measured: reference host — Intel i9-12900F, [run 33151981386](https://github.com/orieg/expanse/actions/runs/33151981386); per-round data in [`results/baseline_vs_libjudy.json`](results/baseline_vs_libjudy.json))*. The `B/k` columns are deterministic `JudyLMemUsed` byte accounting from the same harness; that artifact does not record bytes/key, so they are unsourced pending a re-run that does (tracked in [#1662](https://github.com/orieg/expanse/issues/1662)).
->
-> **Random 1M lookup is the one measured wall-clock loss: 1.031× slower than stock libjudy, BCa 95% CI [1.024, 1.038]** (workload: `capi_bench_vs_libjudy`). Full matrix and intervals: [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
-
-| Benchmark Workload | Wall-Clock Latency (Expanse vs Stock) | Ratio (.so / stock) | Memory Overhead (Expanse vs Stock) | Status |
-|---|---|---:|---|---|
-| **Sequential 1,000,000 insert** | **12.2 ns** vs 22.4 ns (workload: `capi_bench_vs_libjudy`) | **0.545×** [0.544, 0.546] | **8.56 B/k** vs 8.32 B/k (1.03×) | 🟢 **~1.84× faster insert** |
-| **Random 1,000,000 lookup** | 41.0 ns vs **39.8 ns** (workload: `capi_bench_vs_libjudy`) | **1.031×** [1.024, 1.038] | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟡 **3% slower lookup, 5% less memory** |
-| **Clustered 1,000,000 insert** | **20.1 ns** vs 21.5 ns (workload: `capi_bench_vs_libjudy`) | **0.933×** [0.932, 0.935] | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **~7% faster insert, 8% less memory** |
-| **Clustered 1,000,000 lookup** | **13.1 ns** vs 14.4 ns (workload: `capi_bench_vs_libjudy`) | **0.904×** [0.902, 0.908] | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **~10% faster lookup** |
-
-Instructions retired, in millions, through the same C ABI. `.so` is `libexpanse.so` `dlopen`'d exactly as stock is, and is the like-for-like arm; `rlib` is the Rust library linked into the harness with LTO, a shape no C consumer gets. Callgrind counts are exact integers, so they carry no interval *(measured: reference host — Intel i9-12900F, commit `d1fde746`, [run 33422776469](https://github.com/orieg/expanse/actions/runs/33422776469); [`results/baseline_vs_stock.json`](results/baseline_vs_stock.json); harness [`crates/expanse-capi/benches/vs_stock.rs`](crates/expanse-capi/benches/vs_stock.rs); workload: `capi_vs_stock`)*. The artifact predates later engine changes, so the libexpanse columns describe the engine at `d1fde746`.
-
-| Operation (workload: `capi_vs_stock`) | Keys | libexpanse `.so` | libexpanse rlib | stock libjudy | `.so` / stock | rlib / stock |
-|---|---:|---:|---:|---:|---:|---:|
-| `JudyLIns`, sequential | 30,000 | **6.43** | 6.40 | 14.71 | **0.437×** | 0.435× |
-| `JudyLIns`, random | 30,000 | **17.71** | 17.54 | 18.98 | **0.933×** | 0.924× |
-| `JudyLIns`, clustered | 30,000 | **11.48** | 11.43 | 13.37 | **0.859×** | 0.855× |
-| `JudyLGet`, sequential | 30,000 | **4.62** | 4.62 | 6.69 | **0.690×** | 0.690× |
-| `JudyLGet`, random | 30,000 | **4.10** | 4.10 | 6.77 | **0.606×** | 0.606× |
-| `JudyLGet`, clustered | 30,000 | **3.90** | 3.90 | 5.86 | **0.666×** | 0.666× |
-| `JudyLGet`, random | 1,500,000 | **306.52** | 306.52 | 478.17 | **0.641×** | 0.641× |
-| `JudyL` churn (upsert, insert neighbour, delete it), random | 30,000 | **39.09** | 38.09 | 56.30 | **0.694×** | 0.677× |
-| `Judy1Set`, random | 30,000 | **15.10** | 15.11 | 17.26 | **0.875×** | 0.876× |
-| `Judy1Set`, clustered | 30,000 | **7.47** | 7.54 | 11.90 | **0.628×** | 0.634× |
-| `Judy1Test`, random | 30,000 | **3.88** | 3.88 | 5.77 | **0.673×** | 0.673× |
-
----
-
 ## Compatibility Gates (Standing CI, 100% Green)
 
 | Gate | Verification Target | Status |
 |---|---|---|
-| **G1: Differential Oracle** | Randomized operation sequences through `libexpanse` and stock `libjudy` must agree identically | 🟢 Passing |
+| **G1: Differential Oracle** | Randomized operation sequences through `libexpanse` and a `dlopen`'d stock `libjudy` must agree identically, on all four families; includes zmap's JudyHS window pattern (evict the oldest key with `JudyHSDel`, re-insert evicted keys) | 🟢 Passing |
 | **G2: `php-judy` Drop-in** | `php-judy` compiles unmodified against `libexpanse`; entire test suite passes (221/221 on Linux + macOS) | 🟢 Passing |
 | **G3: Windows Parity** | `php-judy` compiles on Windows MSVC against `expanse.dll` / `expanse.lib` and passes full suite | 🟢 Passing |
-| **G4: `LD_PRELOAD` Parity** | Unmodified binaries built against stock Judy run identically under `LD_PRELOAD=libexpanse.so` | 🟢 Passing |
+| **G4: `LD_PRELOAD` Parity** | Unmodified binaries built against stock Judy run identically under `LD_PRELOAD=libexpanse.so`; a replay of MariaDB OQGraph's two-Judy1 colour map runs the same way preloaded, relinked and rebuilt on the shipped `Judy.h` | 🟢 Passing |
+
+What each gate runs is in [docs/COMPAT.md](docs/COMPAT.md) (drop-in gates) and [docs/CI.md](docs/CI.md).
+
+### Verified in real projects
+
+Each project ran unmodified, with only the library behind `libJudy.so.1` (or the link line) changed. Ratios are libexpanse ÷ stock libJudy; for a rate, above 1 means libexpanse is faster, and for a time or a size, below 1 means it is. No independent, non-LLM review of these comparisons has been done.
+
+| Project | What was checked | Correctness | libexpanse better | libexpanse worse |
+|---|---|---|---|---|
+| **stress-ng** `judy` and `sparsematrix --sparsematrix-method judy` ([suite](docs/benchmarks/stressng_comparison/README.md)) | One stress-ng binary, its own per-phase rates and bogo-ops/s, 1 Ki, 256 Ki and 4 Mi keys at 1–8 workers; two runs of 12 rounds, two-sample BCa 95% | Runs unmodified. The suite measures rates; it keeps no separate correctness record beyond stress-ng's own verified-get phase in `sparsematrix` | bogo-ops/s 1.179–1.187× at 1 Ki keys (every lower bound ≥ 1.173) and 1.205–1.220× at 256 Ki (≥ 1.187), wall-clock time 0.847–0.851× and 0.822–0.832×; `sparsematrix` big 1.089–1.153× (≥ 1.088); `sparsematrix` default 1.003–1.006×, parity | 4 Mi keys: inserts 0.951–0.993× (every upper bound ≤ 0.997), deletes 0.927–0.962× (≤ 0.966), bogo-ops/s 0.963–0.993× ([#1679](https://github.com/orieg/expanse/issues/1679), [#1680](https://github.com/orieg/expanse/issues/1680)); `sparsematrix` default gets 0.936–0.937× (≤ 0.939) |
+| **stress-ng** `sparsematrix --sparsematrix-method hashjudy` (many small arrays; [suite](docs/benchmarks/stressng_comparison/README.md#the-hashjudy-cells-on-main)) | The same harness on the small-array shape: `default` is 500 JudyL arrays of about 20 keys, `big` 100,000 arrays of about 10, at 1 and 4 workers. A second set rebuilds stress-ng with `JLFA` added to `hashjudy_destroy`, which in stress-ng's own source frees no array, so every bogo op leaks its arrays with either library | Runs unmodified. The suite measures rates and peak memory; it keeps no separate correctness record | `default` gets 1.320–1.336× (every lower bound ≥ 1.314) | The largest gap in the suite. puts/s 0.105–0.127× on `big` (every upper bound ≤ 0.128) and 0.147–0.157× on `default` (≤ 0.158); bogo-ops/s 0.174–0.240× (≤ 0.241) and 0.270–0.288× (≤ 0.290); `big` gets 0.418–0.488× (≤ 0.491); max-rss 77.08–77.21× on `big` and 49.40–49.49× on `default`. With the leak removed, `default` at 4 workers is still 0.326× [0.324, 0.328] and 0.324× [0.322, 0.327] on puts, 0.517× [0.515, 0.520] and 0.515× [0.512, 0.518] on bogo-ops/s, and 4.61× [4.54, 4.68] and 4.63× [4.58, 4.69] on max-rss; on `big` removing it changes neither puts nor max-rss. How the remaining gap splits between the small-array floor and other engine cost is unmeasured ([#1738](https://github.com/orieg/expanse/pull/1738), [#1742](https://github.com/orieg/expanse/issues/1742)) |
+| **zmap** response dedup, a 1,000,000-entry JudyHS window on 8-byte keys ([§3.7](docs/ARCHITECTURE.md#37-string-and-byte-maps-key-domains-tail-collapse-and-ordered-arbitrary-byte-keys-808)) | The window's call pattern in CI, end-to-end scans, and the cachehash harness | The window's evict-and-reinsert pattern matches stock in the differential oracle (G1). End to end, 0 dedup mismatches in 12 live runs and an identical churn differential (reported in [#1681](https://github.com/orieg/expanse/issues/1681); records not committed) | Dense responders: peak RSS lower by 0.22–0.53 MB, every interval below zero. cachehash per-response time 0.754–0.884× (reported in [#1681](https://github.com/orieg/expanse/issues/1681), raw data not committed: unsourced pending a committed artifact) | Sparse responders with the window full: peak RSS +10.05 [9.87, 10.11] and +10.09 [9.96, 10.28] MB, about 10% of stock's peak, and +13.06 and +13.27 MB through eviction, a characterised limitation (upper bounds: every target in the rig answers). End-to-end receive time per response +0.45% to +0.63% on one of the two workloads, no difference detected on the other (reported in [#1681](https://github.com/orieg/expanse/issues/1681); unsourced pending a committed artifact) |
+| **MariaDB OQGraph**, two Judy1 arrays as a breadth-first search's colour map ([§3.2](docs/ARCHITECTURE.md#32-branches)) | The colour-map call pattern in CI (G4) and Callgrind, top-down counters per call, and the engine's `mtr` suite | The colour-map replay is identical to stock in CI (G4). The `mtr` suite's results are identical, 26/26 tests and 1,428 SQL result comparisons (evaluation record not committed: unsourced pending re-measurement, [#1682](https://github.com/orieg/expanse/issues/1682)) | 0.787× and 0.758× the instructions per search at 10k and 100k vertices (`Judy1` colouring rows below) | More cycles per Judy1 call despite fewer instructions: +6.34 [5.73, 6.97] and +7.56 [6.64, 8.29] at 10k vertices, +10.57 [9.81, 11.89] and +10.54 [9.57, 11.35] at 100k, from branch mispredicts and front-end stalls (`topdown-bad-spec`, `topdown-fe-bound`), a characterised limitation ([#1728](https://github.com/orieg/expanse/pull/1728)). Whole-query wall clock was 1.1–6.2% slower for the native port at 0.18.0 (`82eb56af`), not re-run since (evaluation record not committed: unsourced pending re-measurement, [#1682](https://github.com/orieg/expanse/issues/1682)) |
+| **Small arrays** (the per-array floor, [COMPAT.md](docs/COMPAT.md#what-judy1memused--judylmemused-count-and-the-small-array-floor)) | Allocator accounting of a 20-key JudyL array, gated by the `memory-budget` CI job | — | — | A 20-key array holds 20,864 B of slab pages (`mem_held`) for 384 B of live nodes; stock's resident cost is about 399 B per such array (evaluation record not committed: unsourced pending re-measurement, [#1666](https://github.com/orieg/expanse/issues/1666)) |
+
+*(stress-ng — measured: Intel Core i9-12900F reference host, P-cores pinned, libexpanse `5f4892932`; [`diagnostic_delete_main_ref_run1.json`](docs/benchmarks/stressng_comparison/results/diagnostic_delete_main_ref_run1.json), [`_run2`](docs/benchmarks/stressng_comparison/results/diagnostic_delete_main_ref_run2.json), [`diagnostic_sm_main_ref_run1.json`](docs/benchmarks/stressng_comparison/results/diagnostic_sm_main_ref_run1.json), [`_run2`](docs/benchmarks/stressng_comparison/results/diagnostic_sm_main_ref_run2.json); workloads: `sng_judy_1k`, `sng_judy_256k`, `sng_judy_4m`, `sng_sm_judy_default`, `sng_sm_judy_big`. These main-branch figures are a diagnostic re-measure outside the suite's pre-registration, taken on the reference host only; the second host (AMD Zen 5) has not been re-run on main. stress-ng hashjudy — measured: same host and pin, libexpanse `aacc1add4`; `diagnostic_hj_main_ref_run{1,2}.json` (main against stock) and `diagnostic_hj_leak_ref_run{1,2}.json` (with and without the leak) under `docs/benchmarks/stressng_comparison/results/`, two-sample BCa 95%; workloads: `sng_sm_hashjudy_default`, `sng_sm_hashjudy_big`; also a re-measure outside the pre-registration. zmap memory — measured: 2× Xeon E5-2697 v4 (sparse) and the reference host (dense), libexpanse `edee6bfa5`, [`results/zmap_judyhs_rss_edee6bfa.json`](results/zmap_judyhs_rss_edee6bfa.json). OQGraph cycles — measured: reference host P-cores, commit `5e64fcf17`, `results/colour_topdown_5e64fcf17.json`, two runs of 10 paired processes. Small array — measured: deterministic `bytes_per_key` small-array rows, gated by the `memory-budget` CI job.)*
+
+---
+
+## Performance vs Stock libjudy
+
+Wall-clock latency and instructions retired through the identical C ABI on identical key streams. **Below 1.00 = libexpanse does less work / runs faster than original libjudy.**
+
+> **Provenance.** Two runs of the harness at one commit (workload: `capi_bench_vs_libjudy`): 15 paired rounds per run, arms interleaved, 50% hit rate, value slot dereferenced, ratios `expanse_dl / stock` with BCa 95% intervals, `expanse_dl` being `libexpanse.so` `dlopen`'d exactly as stock is *(measured: Intel Core i9-12900F reference host, commit `cbbc762a`, run 1 [43689413621](https://github.com/orieg/expanse/actions/runs/43689413621), run 2 [43689749825](https://github.com/orieg/expanse/actions/runs/43689749825); per-round data, load windows and byte counts in [`results/baseline_vs_libjudy.json`](results/baseline_vs_libjudy.json) and [`results/baseline_vs_libjudy_run2.json`](results/baseline_vs_libjudy_run2.json))*. The `B/k` columns are exact `JudyLMemUsed` accounting from the same runs, identical in every round, so they carry no interval. Every cell, 100,000 keys included, is in [docs/BENCHMARKING.md](docs/BENCHMARKING.md#measured-libexpanse-vs-stock-libjudy).
+
+| Benchmark Workload (workload: `capi_bench_vs_libjudy`) | Ratio, run 1 [BCa 95%] | Ratio, run 2 [BCa 95%] | Bytes/key (Expanse vs Stock) | Status |
+|---|---:|---:|---|---|
+| **Sequential 1,000,000 insert** | **0.379×** [0.378, 0.380] | **0.379×** [0.378, 0.380] | 8.56 B/k vs **8.32 B/k** (1.03×) | 🟢 0.38× stock's time; 3% more memory |
+| **Sequential 1,000,000 lookup** | **0.853×** [0.850, 0.855] | **0.849×** [0.845, 0.853] | 8.56 B/k vs **8.32 B/k** (1.03×) | 🟢 0.85× stock's time; 3% more memory |
+| **Random 1,000,000 insert** | **0.786×** [0.783, 0.788] | **0.785×** [0.783, 0.787] | **17.58 B/k** vs 17.67 B/k (0.995×) | 🟢 0.79× stock's time; memory at parity |
+| **Random 1,000,000 lookup** | **0.825×** [0.821, 0.827] | **0.828×** [0.825, 0.832] | **17.58 B/k** vs 17.67 B/k (0.995×) | 🟢 0.83× stock's time; memory at parity |
+| **Clustered 1,000,000 insert** | **0.794×** [0.792, 0.796] | **0.796×** [0.793, 0.797] | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 0.80× stock's time; 8% less memory |
+| **Clustered 1,000,000 lookup** | **0.884×** [0.881, 0.892] | **0.879×** [0.876, 0.882] | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 0.88× stock's time; 8% less memory |
+| **Sequential 100,000 lookup** | 1.102× [1.099, 1.107] | 1.098× [1.097, 1.100] | 8.57 B/k vs **8.41 B/k** (1.02×) | 🔴 1.10× stock's time, a loss in both runs |
+
+Instructions retired, in millions, through the same C ABI. `.so` is `libexpanse.so` `dlopen`'d exactly as stock is, and is the like-for-like arm; `rlib` is the Rust library linked into the harness with LTO, a shape no C consumer gets. Callgrind counts are exact integers, so they carry no interval, and they are not timings: the sequential 100,000-key lookup above is a wall-clock loss although every `JudyLGet` arm here retires fewer instructions than stock *(measured: Intel Core i9-12900F reference host, commit `cbbc762a`, [run 43689888414](https://github.com/orieg/expanse/actions/runs/43689888414); [`results/baseline_vs_stock.json`](results/baseline_vs_stock.json), 75 arms; harness [`crates/expanse-capi/benches/vs_stock.rs`](crates/expanse-capi/benches/vs_stock.rs); workloads differ: `capi_vs_stock` vs `capi_bench_vs_libjudy`)*. The rows below are a subset; all 25 operations are in [docs/BENCHMARKING.md](docs/BENCHMARKING.md#instructions-retired-same-surface-workload-capi_vs_stock).
+
+| Operation (workload: `capi_vs_stock`) | Keys | libexpanse `.so` | libexpanse rlib | stock libjudy | `.so` / stock | rlib / stock | Instructions (`.so`) |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `JudyLIns`, sequential | 30,000 | **6.14** | 6.00 | 14.71 | **0.417×** | 0.408× | 58% fewer |
+| `JudyLIns`, random | 30,000 | **17.11** | 16.67 | 18.98 | **0.901×** | 0.878× | 10% fewer |
+| `JudyLIns`, clustered | 30,000 | **11.05** | 10.74 | 13.37 | **0.827×** | 0.804× | 17% fewer |
+| `JudyLGet`, sequential | 30,000 | **4.20** | 4.35 | 6.69 | **0.628×** | 0.650× | 37% fewer |
+| `JudyLGet`, random | 30,000 | **3.67** | 3.82 | 6.77 | **0.543×** | 0.565× | 46% fewer |
+| `JudyLGet`, clustered | 30,000 | **3.48** | 3.63 | 5.86 | **0.594×** | 0.619× | 41% fewer |
+| `JudyLGet`, random | 1,500,000 | **296.27** | 303.77 | 478.17 | **0.620×** | 0.635× | 38% fewer |
+| `JudyL` churn (upsert, insert neighbour, delete it), random | 30,000 | **38.36** | 36.72 | 56.30 | **0.681×** | 0.652× | 32% fewer |
+| `Judy1Set`, random | 30,000 | **14.18** | 14.27 | 17.26 | **0.822×** | 0.827× | 18% fewer |
+| `Judy1Set`, clustered | 30,000 | **6.79** | 6.87 | 11.90 | **0.571×** | 0.577× | 43% fewer |
+| `Judy1Test`, random | 30,000 | **3.88** | 3.88 | 5.77 | **0.673×** | 0.673× | 33% fewer |
+| `Judy1` breadth-first colouring | 10,000 vertices | **22.19** | 22.30 | 28.19 | **0.787×** | 0.791× | 21% fewer |
+| `Judy1` breadth-first colouring | 100,000 vertices | **254.77** | 255.23 | 336.28 | **0.758×** | 0.759× | 24% fewer |
+| `JudyHSIns`, fixed 8-byte keys | 30,000 | **25.20** | 24.72 | 28.92 | **0.871×** | 0.855× | 13% fewer |
+| `JudyHSIns`, route keys | 30,000 | 48.45 | 47.17 | **45.04** | 1.076× | 1.047× | 🔴 7.6% more |
+
+### Where libexpanse is slower or larger than stock
+
+Every loss measured so far, with its source:
+
+- **Sequential lookup at 100,000 keys**: 1.102× [1.099, 1.107] and 1.098× [1.097, 1.100] stock's time, a loss in both runs (workload: `capi_bench_vs_libjudy`, table above). At 1,000,000 keys the same lookup is a win.
+- **`JudyHSIns` on route keys** retires 1.076× stock's instructions through the `.so` and 1.047× through the rlib; every other vs-stock operation retires fewer (table above).
+- **stress-ng at 4 Mi keys**: inserts and deletes below stock's rate, and the `sparsematrix` default gets at 0.936–0.937× ([Verified in real projects](#verified-in-real-projects); [#1679](https://github.com/orieg/expanse/issues/1679), [#1680](https://github.com/orieg/expanse/issues/1680)).
+- **Many small arrays** (stress-ng `sparsematrix --sparsematrix-method hashjudy`): puts 0.105–0.157× stock's rate and peak memory 49–77×, and with stress-ng's own leak removed still 0.32× on puts and 4.6× on memory at 4 workers ([Verified in real projects](#verified-in-real-projects); [#1742](https://github.com/orieg/expanse/issues/1742)).
+- **Judy1 on a small key range** (MariaDB OQGraph's colour map): more cycles per call than stock despite fewer instructions ([docs/ARCHITECTURE.md §3.2](docs/ARCHITECTURE.md#32-branches), *Known cost*).
+- **JudyHS peak memory on sparse 8-byte keys** (zmap with a full window): about 10 MB more peak RSS ([docs/ARCHITECTURE.md §3.7](docs/ARCHITECTURE.md#37-string-and-byte-maps-key-domains-tail-collapse-and-ordered-arbitrary-byte-keys-808), *Known cost*).
+- **Small arrays**: a 20-key JudyL array holds 20,864 B of slab pages ([docs/COMPAT.md](docs/COMPAT.md#what-judy1memused--judylmemused-count-and-the-small-array-floor)).
+- **Sequential keys' memory**: 8.56 against 8.32 bytes/key at 1,000,000 keys, 1.03× (table above).
 
 ---
 
