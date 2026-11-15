@@ -22,7 +22,7 @@
         "deficit",
         "slower"
       ],
-      "replacement": "1.031×, BCa 95% CI [1.024, 1.038] (results/baseline_vs_libjudy.json)",
+      "replacement": "results/baseline_vs_libjudy.json and _run2 (commit cbbc762a, runs 43689413621 and 43689749825): random 1M get 0.825x [0.821, 0.827] and 0.828x [0.825, 0.832]",
       "provenance": "#463, #495",
       "rationale": "Pre-repair random 1M lookup deficit measured under load; quiet host measures 1.031x"
     },
@@ -1378,7 +1378,7 @@
         "insert",
         "lookup"
       ],
-      "replacement": "expanse_dl_over_stock series of results/baseline_vs_libjudy.json (commit 4c4e852a, run 33151981386): sequential 1M ins 0.545x [0.544, 0.546], get 0.872x [0.869, 0.877]; random 1M ins 0.804x [0.802, 0.807], get 1.031x [1.024, 1.038]",
+      "replacement": "expanse_dl_over_stock series of results/baseline_vs_libjudy.json and _run2 (commit cbbc762a, runs 43689413621 and 43689749825): sequential 1M ins 0.379x [0.378, 0.380] twice, get 0.853x [0.850, 0.855] and 0.849x [0.845, 0.853]; random 1M ins 0.786x [0.783, 0.788] and 0.785x [0.783, 0.787], get 0.825x [0.821, 0.827] and 0.828x [0.825, 0.832]",
       "provenance": "run 33151981386, results/baseline_vs_libjudy.json",
       "rationale": "Quiet-host sequential and random 1M rows from commit 43b46f38 (5-round medians, no intervals) do not match the repaired harness; sequential lookup was published at 0.68x against a measured 0.872x."
     },
@@ -1550,6 +1550,75 @@
       "replacement": "322.8 [322.1, 323.5] and 321.6 [321.2, 322.1] M reads/s (docs/benchmarks/concurrency/results/baseline_concurrent_mixed{,_run2}.json)",
       "provenance": "README.md Key Features",
       "rationale": "16-thread read figure that matches neither committed concurrent_mixed run"
+    },
+    {
+      "id": "vs_libjudy_4c4e852a_wallclock",
+      "patterns": [
+        "(?<![\\w.])1\\.031\\s*[x×]?\\s*(?:,?\\s*(?:BCa\\s*)?95%\\s*CI\\s*)?\\[1\\.024,\\s*1\\.038\\]",
+        "(?<![\\w.])1\\.031\\s*[x×]\\s*slower",
+        "(?<![\\w.])1\\.031\\s*[x×]\\s*(?:wall-clock\\s*)?loss",
+        "(?<![\\w.])1\\.009\\s*[x×]?\\s*\\[1\\.005,\\s*1\\.013\\]",
+        "(?<![\\w.])0\\.545\\s*[x×]?\\s*\\[0\\.544,\\s*0\\.546\\]",
+        "(?<![\\w.])0\\.933\\s*[x×]?\\s*\\[0\\.932,\\s*0\\.935\\]",
+        "(?<![\\w.])0\\.904\\s*[x×]?\\s*\\[0\\.902,\\s*0\\.908\\]",
+        "(?<![\\w.])~?1\\.84\\s*[x×]\\s*faster\\s*insert",
+        "(?<![\\w.])3%\\s*slower\\s*lookup"
+      ],
+      "context": [
+        "libjudy",
+        "stock",
+        "judy",
+        "lookup",
+        "insert",
+        "expanse_dl"
+      ],
+      "replacement": "results/baseline_vs_libjudy.json and _run2 (commit cbbc762a, runs 43689413621 and 43689749825): random 1M get 0.825x [0.821, 0.827] / 0.828x [0.825, 0.832]; random 100k ins 0.913x [0.896, 0.935] / 0.915x [0.899, 0.937]; sequential 1M ins 0.379x [0.378, 0.380] twice; clustered 1M ins 0.794x [0.792, 0.796] / 0.796x [0.793, 0.797], get 0.884x [0.881, 0.892] / 0.879x [0.876, 0.882]",
+      "provenance": "#1662, #1737; superseded run 33151981386 at commit 4c4e852a",
+      "rationale": "The 4c4e852a bench_vs_libjudy run (random 1M get 1.031x, random 100k insert 1.009x, sequential and clustered 1M rows) is superseded by the two-run re-measure at cbbc762a; the README table, its 'one measured loss' sentence and its status labels quoted it."
+    },
+    {
+      "id": "vs_libjudy_4c4e852a_bytes_per_key_and_ns",
+      "patterns": [
+        "(?<![\\w.])16\\.70\\s*B/k(?!ey)",
+        "(?<![\\w.])41\\.0\\s*ns\\b",
+        "(?<![\\w.])39\\.8\\s*ns\\b",
+        "(?<![\\w.])20\\.1\\s*ns\\s*vs\\s*21\\.5\\s*ns\\b",
+        "(?<![\\w.])13\\.1\\s*ns\\s*vs\\s*14\\.4\\s*ns\\b",
+        "(?<![\\w.])12\\.2\\s*ns\\*{0,2}\\s*vs\\s*22\\.4\\s*ns\\b"
+      ],
+      "context": [
+        "libjudy",
+        "stock",
+        "judy",
+        "b/k",
+        "bytes/key",
+        "expanse"
+      ],
+      "replacement": "Bytes/key from results/baseline_vs_libjudy.json memory records (cbbc762a): random 1M 17.58 vs 17.67 B/key. The cbbc762a artifacts carry ratios, not absolute nanoseconds, so no ns figure replaces the README's.",
+      "provenance": "#1662, #1737",
+      "rationale": "The README's B/k cells had no committed source (#1662) and the random 1M figure, 16.70 B/key, disagrees with the measured 17.58; the ns cells came from the superseded 4c4e852a run."
+    },
+    {
+      "id": "vs_stock_callgrind_d1fde746_readme",
+      "patterns": [
+        "(?<![\\w.])306\\.52\\b",
+        "(?<![\\w.])17\\.71\\s*\\*{0,2}\\s*\\|",
+        "(?<![\\w.])39\\.09\\s*\\*{0,2}\\s*\\|",
+        "(?<![\\w.])0\\.437\\s*[x×]",
+        "(?<![\\w.])0\\.641\\s*[x×]",
+        "(?<![\\w.])0\\.694\\s*[x×]"
+      ],
+      "context": [
+        "judyl",
+        "judy1",
+        "stock",
+        "libexpanse",
+        "callgrind",
+        "instructions"
+      ],
+      "replacement": "results/baseline_vs_stock.json (75 arms, commit cbbc762a, run 43689888414), e.g. JudyLGet random 1.5M 296.27 M vs 478.17 M, 0.620x",
+      "provenance": "#1737; superseded run 33422776469 at commit d1fde746",
+      "rationale": "The 33-arm d1fde746 Callgrind counts the README table carried are superseded by the 75-arm run at cbbc762a; docs/BENCHMARKING.md records the correction."
     }
   ]
 }
