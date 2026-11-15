@@ -14,15 +14,18 @@
 # ==============================================================================
 set -euo pipefail
 SNG_D="${SNG_D:-/var/tmp/stressng-eval}"
-STRESS_NG_COMMIT=d5f8133a0cc5d2fa91695c6ac5c28f5cc4a3bdf5
+# The host's stressng-src/stress-ng may be a plain copy without .git, so the
+# tree is checked against the upstream commit d5f8133a0cc5 by content: the
+# sha256 of `find . -type f | LC_ALL=C sort | xargs sha256sum` run inside it,
+# which equals the same listing of GitHub's tarball of that commit (1,335 files).
+TREE_DIGEST=53b9d5b98adbaccdbdafd6e662a45b81313c717d6fcc4408e2825aa7e519dadc
 cd "${SNG_D}"
-[ "$(git -C stressng-src/stress-ng rev-parse HEAD)" = "${STRESS_NG_COMMIT}" ] \
-  || { echo "stressng-src/stress-ng is not at ${STRESS_NG_COMMIT}" >&2; exit 1; }
-[ -z "$(git -C stressng-src/stress-ng status --porcelain --untracked-files=no)" ] \
-  || { echo "stressng-src/stress-ng has local changes" >&2; exit 1; }
+got="$(cd stressng-src/stress-ng && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1)"
+[ "${got}" = "${TREE_DIGEST}" ] \
+  || { echo "stressng-src/stress-ng does not match d5f8133a0cc5 (tree digest ${got})" >&2; exit 1; }
 rm -rf b-hjctl b-hjfree
-git -C stressng-src/stress-ng archive --prefix=b-hjctl/ HEAD | tar -x
-git -C stressng-src/stress-ng archive --prefix=b-hjfree/ HEAD | tar -x
+cp -a stressng-src/stress-ng b-hjctl
+cp -a stressng-src/stress-ng b-hjfree
 # The one edit: the line must occur exactly once, inside hashjudy_destroy.
 python3 - b-hjfree/stress-sparsematrix.c <<'PY'
 import re, sys

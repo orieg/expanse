@@ -1664,6 +1664,7 @@ On repetition 0, N's L1D-miss loads and cycles per insert correlate at ρ 0.979 
   - E: the published comparison's library, `6ec29a656` (`da5814a7…`), the reference host's `expcompat/lib`, hash-checked by the provenance.
   - S: stock (`76f121a8…`).
   - Nf and Sf: N's and S's libraries under `b-hjfree`, a build of the harness's stress-ng source with one change: a `JLFA` on each array in `hashjudy_destroy`, after the `JLMU` already there (`scripts/build_hjfree.sh`, six added lines, checked by the script). In `hj_leak` and `hj_perf`, N and S run `b-hjctl`, the same source unchanged, built in the same container run as `b-hjfree`. Each pair then differs only in that edit, whether or not the toolchain image still reproduces the published binary.
+    - *Amended before any round ran.* The first launch stopped in `build_hjfree.sh`, before any timed process, because the host's `stressng-src/stress-ng` is a plain copy with no `.git`, so the script's `git` commit check could not run. The script now checks the tree by content instead: a digest of every file's sha256, which equals the same listing of GitHub's tarball of `d5f8133a` (1,335 files, no difference). Nothing else changed.
 - **Cells.** Both `sng_sm_hashjudy_*` cells of METHODOLOGY.md §5 at its W values, 1 and 4, one process per arm per cell per round.
 - **Sets.**
   - `hj_main`: arms E, N and S; 12 rounds per run, cycling the six orders of the three arms.
