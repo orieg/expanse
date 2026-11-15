@@ -1811,7 +1811,7 @@ On repetition 0, N's L1D-miss loads and cycles per insert correlate at ρ 0.979 
 
 ## Increment: a `BranchB`'s level on its first cache line
 
-**A pre-registered candidate** (#1679, #1680). The pre-registration is `docs/BENCHMARKING.md`, "Pre-registration: a `BranchB`'s level on its first cache line" (`b80a06ef9`), with the line bound behind it in `node::tests::branch_b_lines_read_by_field_order` (`5685bd9d7`). The change is `3ca8ccdd7`: `BranchB`'s field order becomes `bitmap`, `version`, `level`, `subarrays`, `pop_counts`. This section records the deterministic instruments first and the reference-host stress-ng runs after them. The verdict is **FAIL** on bound L1, at one cell.
+**A pre-registered candidate** (#1679, #1680). The pre-registration is `docs/BENCHMARKING.md`, "Pre-registration: a `BranchB`'s level on its first cache line" (`b80a06ef9`), with the line bound behind it in `node::tests::branch_b_lines_read_by_field_order` (`5685bd9d7`). The change is `3ca8ccdd7`: `BranchB`'s field order becomes `bitmap`, `version`, `level`, `subarrays`, `pop_counts`. This section records the deterministic instruments first and the reference-host stress-ng runs after them. The verdict is **FAIL** on bound L1, at one cell. A second pre-registration, written after that FAIL, restates the bound and is read on fresh runs under an INTERMEDIATE ceiling; both records are below.
 
 ### Where the 4 Mi inserts miss (main)
 
@@ -1870,6 +1870,48 @@ M/S has its upper end below 1 in run 1 and not in run 2, so the base reads EQUIV
 **Against stock at 4 Mi, under its own label: NOT MET.** `bogo-ops-per-second-real-time` G/S has its lower end above 1.0 at W = 8 only (1.025 [1.024, 1.026] in both runs); W = 1 reads 0.981 [0.975, 0.988] and 0.984 [0.976, 0.993], W = 2 0.992 [0.984, 0.999] and 0.991 [0.984, 0.998], W = 4 1.001 [0.996, 1.007] and 0.994 [0.989, 1.000]. M/S on the same runs is 0.952–0.970 at W = 1, 2 and 4 and 0.998–0.999 at W = 8. Insert rate G/S is 0.981–0.992 at W = 1, 2 and 4 (M/S 0.953–0.965) and 1.010–1.011 at W = 8; delete rate G/S is 0.969–0.985 (M/S 0.934–0.946) and 1.014 at W = 8.
 
 **Not run.** The verdict was FAIL before them, so the `compare` pairings (C1, C2), the second host (T3) and the `concurrency` report were not run for this change.
+
+### Second gate, fresh runs (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `29a0594b2`, binary `490c0595…`; artifacts `results/diagnostic_increment_branchb_line0_rereg_ref_run{1,2}.json`, the suite's run numbers 3 and 4) (workloads: every cell of METHODOLOGY.md §5)
+
+The FAIL above stands. These runs are read against the second pre-registration in `docs/BENCHMARKING.md`, which was committed at `29a0594b2` before they started and restates the stock-side bound as L1b. The gate was changed after a FAIL, so the label cannot exceed **INTERMEDIATE** (AGENTS.md §8.19). On the reference host every target and every stress-ng bound holds; the `compare` pairings and the second host decide the rest.
+
+Arms: the same three libraries as the first runs, checked by hash in each run's provenance (G `b9437992…`, M `9b42a88b…`, S `76f121a8…`).
+
+**Hygiene.** Run 3 ran 16:59:43–17:09:50 UTC on 2026-11-15 and run 4 17:19:10–17:29:17, each under the bench lock. 720 processes per run and none discarded; max load1 4.72 and 5.42 against a void limit of 12; the largest foreign load in any window is 0.10 core-equivalents.
+
+**T2 met.** `sng_judy_4m` G/M, BCa 95%, run 3 | run 4:
+
+| W | insert rate | delete rate |
+|---|---|---|
+| 1 | 1.028 [1.021, 1.033] \| 1.031 [1.026, 1.037] | 1.042 [1.033, 1.051] \| 1.043 [1.035, 1.051] |
+| 2 | 1.025 [1.018, 1.032] \| 1.024 [1.020, 1.030] | 1.040 [1.033, 1.046] \| 1.033 [1.027, 1.040] |
+| 4 | 1.021 [1.015, 1.026] \| 1.024 [1.018, 1.031] | 1.035 [1.030, 1.042] \| 1.041 [1.036, 1.047] |
+| 8 | 1.021 [1.020, 1.022] \| 1.020 [1.019, 1.021] | 1.037 [1.032, 1.039] \| 1.036 [1.035, 1.038] |
+
+**L1b holds.** No primary cell-metric reads SLOWER on G/M: none has its G/M upper end below 1.0 in both runs. The cell that broke L1 shows the same category pattern again, `sng_sm_judy_big` W = 8 gets:
+
+| pair | run 3 \| run 4 | verdict over both runs |
+|---|---|---|
+| G/S | 0.998 [0.997, 0.999] \| 0.998 [0.997, 0.999] | SLOWER |
+| M/S | 0.999 [0.998, 1.002] \| 0.998 [0.997, 0.999] | EQUIVALENT |
+| G/M | 0.999 [0.997, 1.000] \| 1.000 [0.999, 1.001] | EQUIVALENT |
+
+L1 as first registered would break here a second time; L1b does not, because G/M does not read SLOWER. It is the only cell where M/S is FASTER or EQUIVALENT and G/S is SLOWER.
+
+**L2 holds.** No primary cell-metric has its G/M upper end below 0.98 in both runs.
+
+**Against stock at 4 Mi, under its own label: NOT MET on this host.** `bogo-ops-per-second-real-time` G/S | M/S per run:
+
+| W | G/S run 3 | G/S run 4 | M/S run 3 | M/S run 4 |
+|---|---|---|---|---|
+| 1 | 0.988 [0.982, 0.995] | 0.992 [0.985, 1.000] | 0.956 [0.948, 0.965] | 0.959 [0.951, 0.969] |
+| 2 | 0.998 [0.993, 1.003] | 0.987 [0.980, 0.995] | 0.968 [0.960, 0.975] | 0.968 [0.963, 0.974] |
+| 4 | 1.002 [0.995, 1.009] | 1.002 [0.996, 1.008] | 0.977 [0.970, 0.982] | 0.973 [0.967, 0.979] |
+| 8 | 1.024 [1.022, 1.025] | 1.025 [1.023, 1.026] | 0.998 [0.997, 0.999] | 1.000 [0.999, 1.001] |
+
+The G/S lower end is above 1.0 at W = 8 only.
 
 ## Reproduce
 
