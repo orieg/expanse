@@ -1,0 +1,6 @@
+# PREREG.lock as written at Mon Nov  9 07:43:28 UTC 2026; scratch path prefixes
+# reduced to the files' paths in the evaluation directory.
+0645934fe0ca76723ca1c927e1f5678ab3c9fbbab0fbc1ada1009c8201f8b3b9  PREREG.md
+9d7771258038ae1c653baea8c0fb8d659128050cfd0cb9e7fe5452f79034d4bc  bounds/amdahl.py
+cde3ce68bb25d3f7a59ae176c8d3b1e2e0f1333cb461156e618eee5794426561  bounds/test_amdahl.py
+a1270c481ee84b15f6bbf6c98a274f9550210364a0a6afa5464292f4f8a3d551  native/oqgraph-expanse-native.patch

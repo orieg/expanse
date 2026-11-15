@@ -1,0 +1,46 @@
+toolchain: cargo 1.98.1 clears the workspace floor 1.88
+core pin: benchmark shell confined to CPUs 0-15 (AGENTS.md section 8.4, #639)
+bench_pin applied: 0-15
+ldd A: 	libJudy.so.1 => /lib/x86_64-linux-gnu/libJudy.so.1
+ldd B: 	libJudy.so => /usr/local/lib/libJudy.so
+ldd C: 	libexpanse.so => /usr/local/lib/libexpanse.so
+round 0 A done
+round 0 B done
+round 0 C done
+round 0 B1 done
+round 1 B done
+round 1 A done
+round 1 C done
+round 1 B1 done
+round 2 A done
+round 2 B1 done
+round 2 C done
+round 2 B done
+round 3 C done
+round 3 B1 done
+round 3 A done
+round 3 B done
+round 4 B done
+round 4 B1 done
+round 4 A done
+round 4 C done
+round 5 B1 done
+round 5 B done
+round 5 C done
+round 5 A done
+round 6 B done
+round 6 A done
+round 6 C done
+round 6 B1 done
+round 7 B done
+round 7 B1 done
+round 7 C done
+round 7 A done
+round 8 B done
+round 8 C done
+round 8 B1 done
+round 8 A done
+round 9 B1 done
+round 9 A done
+round 9 C done
+round 9 B done

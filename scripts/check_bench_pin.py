@@ -260,6 +260,11 @@ LOCK_WRAPPER = "scripts/bench_lock.py"
 LOCK_EXEMPT_SUITES = {
     "stm32h747": "on-device timing; the host only flashes the board and reads its console, "
                  "and the measured region never runs on a host core",
+    "oqgraph_comparison": "a committed 0.18-era record (#1682): scripts/bench_ref.sh ran inside "
+                          "a container, which cannot reach the host's lock file, and the host "
+                          "side held /run/expanse-bench/expanse-bench.flock with plain flock "
+                          "for both runs (results/era_0_18_82eb56af/host_driver.log); the "
+                          "scripts are kept as run",
 }
 
 
