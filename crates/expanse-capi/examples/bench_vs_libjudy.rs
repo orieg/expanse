@@ -91,6 +91,14 @@
 //! `bca_bootstrap_ci` takes, so the interval printed here can be
 //! re-derived independently:
 //!
+//! The same file carries a `memory` list: one entry per (distribution,
+//! population, arm) with the exact `JudyLMemUsed` byte count of every
+//! round, the key count, and their quotient (`bytes_per_key`), so the B/key
+//! column has a committed source as well (#1662). It is exact accounting,
+//! not a sample, so it carries no interval (AGENTS.md §8.4);
+//! `deterministic` records whether every round of the cell reported the
+//! same count.
+//!
 //! ```python
 //! import json, sys; sys.path.insert(0, "scripts")
 //! from bca_bootstrap import bca_bootstrap_ci
@@ -510,7 +518,8 @@ mod bench {
     struct Sample {
         ins_ns: f64,
         get_ns: f64,
-        bytes_per_key: f64,
+        /// `JudyLMemUsed` after the build: an exact byte count.
+        bytes_used: Word,
     }
 
     /// One measured pass: build (timed), probe (timed), account, tear down.
@@ -545,13 +554,13 @@ mod bench {
             std::hint::black_box(acc);
             let get_ns = t0.elapsed().as_nanos() as f64 / w.probes.len() as f64;
 
-            let bytes_per_key = j.mem(arr) as f64 / w.ks.len() as f64;
+            let bytes_used = j.mem(arr);
             j.free(&raw mut arr);
 
             Sample {
                 ins_ns,
                 get_ns,
-                bytes_per_key,
+                bytes_used,
             }
         }
     }
@@ -694,6 +703,30 @@ mod bench {
         ratios: Vec<f64>,
     }
 
+    /// One `(cell, arm)` byte-accounting record. `JudyLMemUsed` is exact
+    /// accounting, so this is a count, not a sample (AGENTS.md §8.4).
+    struct Memory {
+        dist: &'static str,
+        pop: usize,
+        arm: &'static str,
+        keys: usize,
+        /// Every round's count, in round order.
+        bytes_used: Vec<Word>,
+    }
+
+    impl Memory {
+        fn deterministic(&self) -> bool {
+            self.bytes_used.windows(2).all(|w| w[0] == w[1])
+        }
+
+        /// Mean over rounds, divided by the key count; every round's own
+        /// quotient when `deterministic()` holds.
+        fn bytes_per_key(&self) -> f64 {
+            let total: f64 = self.bytes_used.iter().map(|b| *b as f64).sum();
+            total / self.bytes_used.len() as f64 / self.keys as f64
+        }
+    }
+
     /// Where the per-round ratios land. Under the gitignored build
     /// directory by default, so a smoke run can never overwrite a
     /// committed baseline (AGENTS.md §8.5).
@@ -705,7 +738,7 @@ mod bench {
             })
     }
 
-    fn write_ratios(path: &std::path::Path, rounds: usize, series: &[Series]) {
+    fn write_ratios(path: &std::path::Path, rounds: usize, series: &[Series], memory: &[Memory]) {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)
                 .unwrap_or_else(|e| panic!("cannot create {}: {e}", dir.display()));
@@ -740,6 +773,29 @@ mod bench {
                 ser.arm,
                 vals.join(", "),
                 if i + 1 == series.len() { "" } else { "," }
+            )
+            .unwrap();
+        }
+        writeln!(s, "  ],").unwrap();
+        writeln!(s, "  \"memory\": [").unwrap();
+        for (i, m) in memory.iter().enumerate() {
+            let counts: Vec<String> = m.bytes_used.iter().map(|b| b.to_string()).collect();
+            writeln!(
+                s,
+                "    {{\"id\": \"{}/{}/{}\", \"dist\": \"{}\", \"pop\": {}, \"arm\": \"{}\", \
+                 \"keys\": {}, \"bytes_used\": [{}], \"deterministic\": {}, \
+                 \"bytes_per_key\": {:.4}}}{}",
+                m.dist,
+                m.pop,
+                m.arm,
+                m.dist,
+                m.pop,
+                m.arm,
+                m.keys,
+                counts.join(", "),
+                m.deterministic(),
+                m.bytes_per_key(),
+                if i + 1 == memory.len() { "" } else { "," }
             )
             .unwrap();
         }
@@ -833,6 +889,7 @@ mod bench {
         );
 
         let mut all_series: Vec<Series> = Vec::new();
+        let mut all_memory: Vec<Memory> = Vec::new();
 
         for dist in DISTRIBUTIONS {
             for pop in POPULATIONS {
@@ -867,13 +924,23 @@ mod bench {
 
                 let denom_ins = take(ArmId::Stock, |s| s.ins_ns);
                 let denom_get = take(ArmId::Stock, |s| s.get_ns);
-                let denom_mem = take(ArmId::Stock, |s| s.bytes_per_key);
+                let denom_mem = take(ArmId::Stock, |s| s.bytes_used as f64);
                 let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
 
                 for id in ArmId::ALL {
                     let ins = take(id, |s| s.ins_ns);
                     let get = take(id, |s| s.get_ns);
-                    let mem = take(id, |s| s.bytes_per_key);
+                    let mem = take(id, |s| s.bytes_used as f64);
+                    all_memory.push(Memory {
+                        dist,
+                        pop,
+                        arm: id.label(),
+                        keys: w.ks.len(),
+                        bytes_used: samples
+                            .iter()
+                            .map(|row| row[id.index()].as_ref().expect("every arm ran").bytes_used)
+                            .collect(),
+                    });
 
                     let (ins_ci, get_ci, mem_ratio) = if id == ArmId::Stock {
                         (None, None, None)
@@ -915,7 +982,7 @@ mod bench {
                         fmt_ci(ins_ci),
                         mean(&get),
                         fmt_ci(get_ci),
-                        mean(&mem),
+                        mean(&mem) / w.ks.len() as f64,
                         match mem_ratio {
                             Some(r) => format!("{r:.2}"),
                             None => "—".to_string(),
@@ -927,12 +994,21 @@ mod bench {
         }
 
         let path = ratios_path();
-        write_ratios(&path, rounds, &all_series);
+        write_ratios(&path, rounds, &all_series, &all_memory);
+        for m in all_memory.iter().filter(|m| !m.deterministic()) {
+            println!(
+                "NOTE: {}/{}/{}: JudyLMemUsed differed between rounds ({:?}); \
+                 the B/key column is their mean",
+                m.dist, m.pop, m.arm, m.bytes_used
+            );
+        }
         println!(
-            "per-round paired ratios: {} ({} series; feed each `ratios` array to \
-             scripts/bca_bootstrap.py:bca_bootstrap_ci to re-derive the intervals)",
+            "per-round paired ratios: {} ({} series, {} memory records; feed each \
+             `ratios` array to scripts/bca_bootstrap.py:bca_bootstrap_ci to re-derive \
+             the intervals)",
             path.display(),
-            all_series.len()
+            all_series.len(),
+            all_memory.len()
         );
         println!(
             "B/key is deterministic JudyLMemUsed accounting and carries no interval; \
