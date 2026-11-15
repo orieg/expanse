@@ -30,6 +30,9 @@ D = os.environ.get("SNG_D", "/var/tmp/stressng-eval")
 BIN = f"{D}/b-stockbuild/stress-ng"
 ARMS = {"S": f"{D}/stock/usr/lib/x86_64-linux-gnu", "E": f"{D}/expcompat/lib"}
 ROUNDS = int(os.environ.get("SNG_ROUNDS", "10"))
+# An arm that runs another stress-ng build (diag_delete.py's `hj_leak`); every
+# other arm runs BIN.
+ARM_BIN = {}
 SEED = "12345"
 MEM_FLOOR_GIB = 16
 
@@ -90,6 +93,23 @@ def sha256(path):
     return h.hexdigest()
 
 
+def binary(arm):
+    """The stress-ng build an arm runs."""
+    return ARM_BIN.get(arm, BIN)
+
+
+def read_perf_csv(path):
+    """`perf stat -x,` rows as {event: (count or None, percent running or None)}."""
+    rows = {}
+    for line in Path(path).read_text().splitlines():
+        rec = line.split(",")
+        if len(rec) < 5 or line.startswith("#"):
+            continue
+        count = None if rec[0].startswith("<") else float(rec[0])
+        rows[rec[2]] = (count, float(rec[4]) if rec[4] else None)
+    return rows
+
+
 def mapped_objects(arm, libdir):
     """The Judy or Expanse objects one untimed `--judy 1` worker maps under `libdir`.
 
@@ -97,7 +117,7 @@ def mapped_objects(arm, libdir):
     and fails loudly if the arm shows none (AGENTS.md §8.1).
     """
     env = dict(os.environ, LD_LIBRARY_PATH=libdir)
-    p = subprocess.Popen([BIN, "--judy", "1", "--judy-size", "4194304", "--judy-ops", "12",
+    p = subprocess.Popen([binary(arm), "--judy", "1", "--judy-size", "4194304", "--judy-ops", "12",
                           "-t", "60"], env=env, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
     seen = set()
@@ -128,12 +148,17 @@ def library_proof():
     return proof
 
 
-def run_one(prov, run, rnd, cell, w, args, arm):
+def run_one(prov, run, rnd, cell, w, args, arm, perf_events=None):
+    """One stress-ng process; with `perf_events`, run under `perf stat` with those events."""
     if mem_available_gib() < MEM_FLOOR_GIB:
         sys.exit(f"STOP: MemAvailable below {MEM_FLOOR_GIB} GiB before {cell} W{w} {arm}")
     yaml = f"{D}/out/r{run}_{rnd}_{cell}_w{w}_{arm}.yaml"
     env = dict(os.environ, LD_LIBRARY_PATH=ARMS[arm])
-    cmd = [BIN] + args + ["--seed", SEED, "-t", "300", "--metrics", "--yaml", yaml]
+    cmd = [binary(arm)] + args + ["--seed", SEED, "-t", "300", "--metrics", "--yaml", yaml]
+    csv_path = yaml[:-5] + ".perf.csv"
+    if perf_events:
+        cmd = ["perf", "stat", "-x,", "--no-big-num", "-o", csv_path,
+               "-e", ",".join(perf_events), "--"] + cmd
     start = bp.begin_cell(prov, f"cell:{cell}:W{w}:{arm}:r{rnd}")
     t0 = time.monotonic()
     logpath = yaml[:-5] + ".log"
@@ -148,6 +173,10 @@ def run_one(prov, run, rnd, cell, w, args, arm):
                own_cpu=ru.ru_utime + ru.ru_stime, ru_maxrss_kb=ru.ru_maxrss, load=load,
                failed=("fail" in log.lower() and "failed: 0" not in log),
                metrics=parse_yaml_metrics(yaml) if os.path.exists(yaml) else {})
+    if perf_events:
+        rows = read_perf_csv(csv_path) if os.path.exists(csv_path) else {}
+        rec["counters"] = {e: rows.get(e, (None, None))[0] for e in perf_events}
+        rec["counter_pct_running"] = {e: rows.get(e, (None, None))[1] for e in perf_events}
     if rc != 0:
         rec["log_tail"] = log[-800:]
     return rec

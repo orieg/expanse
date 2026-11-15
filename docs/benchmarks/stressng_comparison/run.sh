@@ -2,7 +2,7 @@
 # ==============================================================================
 # One independent run of the stress-ng x Judy comparison (METHODOLOGY.md).
 #
-#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution|misp_increment|phase_big_main|phase_big_layout|phase_big_pfn|phase_big_pf|sm_main|increment]
+#   docs/benchmarks/stressng_comparison/run.sh <run_number> <host_label> [lib_ab|counters|layout|phase|delete|delete_main|phase_delete|phase_delete_fe|phase_delete_ms|phase_delete_acct|phase_promote2|ms_attribution|misp_attribution|misp_increment|phase_big_main|phase_big_layout|phase_big_pfn|phase_big_pf|sm_main|hj_main|hj_leak|hj_perf|increment]
 #
 # With `lib_ab`, the run is the old-vs-new library diagnostic of README.md
 # (scripts/diag_lib_ab.py) instead of the pre-registered comparison; it needs
@@ -119,6 +119,11 @@ case "${MODE}" in
                 "${SNG_D}/results/diag_promote2_${HOST_LABEL}_run${RUN}" ;;
   sm_main)    SNG_DELETE_SET=sm_main python3 "${SCRIPT_DIR}/scripts/diag_delete.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_sm_main_${HOST_LABEL}_run${RUN}" ;;
+  # The sparsematrix hashjudy cells on main (README.md, "The hashjudy cells on
+  # main"): arms E, N and S; then N, S, Nf and Sf with and without stress-ng's
+  # leak (scripts/build_hjfree.sh), timed and under `perf stat`.
+  hj_main|hj_leak|hj_perf) SNG_DELETE_SET="${MODE}" python3 "${SCRIPT_DIR}/scripts/diag_delete.py" "${RUN}" "${HOST_LABEL}" \
+                "${SNG_D}/results/diag_${MODE}_${HOST_LABEL}_run${RUN}" ;;
   # The 4 Mi insert and delete phases on main (SNG_MAIN; library built first).
   phase_big_main) SNG_PHASE_SET=big_main python3 "${SCRIPT_DIR}/scripts/diag_phase_counters.py" "${RUN}" "${HOST_LABEL}" \
                 "${SNG_D}/results/diag_big_main_${SNG_MAIN:?}_${HOST_LABEL}_run${RUN}" ;;
