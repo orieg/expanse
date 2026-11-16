@@ -1846,6 +1846,63 @@ On the same cells the insert rate at 1 Ki rises (1.062–1.084) and the find rat
 
 **Not run.** The `compare` pairings, the second host and zmap's sparse-responder resident memory: the verdict was FAIL before them.
 
+## Pre-registration: a small-array form in the `JudyL` shim ([#1742](https://github.com/orieg/expanse/issues/1742))
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. The change under test, design F of #1742: in `crates/expanse-capi` only, a `JudyL` array of up to 31 keys is one exact-size block, `[pop: u32, cap: u32][keys: u64 × cap][values: u64 × cap]`, keys sorted, capacity on the ladder 1, 2, 4, 8, 12, 16, 24, 32, grown by `realloc`. The array word is null, a small block (untagged), or a boxed `ExpanseMap` with bit 0 set. The insert that would make 32 keys builds an `ExpanseMap` by 32 `ins_slot_plain` calls in ascending order and frees the block; a full map does not demote. All 15 `JudyL*` entry points gain the small case. `Judy1*`, `JudySL*`, `JudyHS*`, `expanse_*`, `include/` and everything under `crates/expanse/` are not touched.
+
+**Scope fixed by the owner** (2026-11-15): no engine constructor and no public API change; the cost on arrays that grow past 31 keys is accepted under named bounds.
+
+**Owner exemption invoked** (2026-11-15): named Callgrind arms may exceed +0.1% up to the bounds below, on condition that the real-program cell gains with a BCa 95% bound clear of 1 in two runs. The arms, bounds and cell are named here, before any data of the F build.
+
+**Observed before this commit, and therefore not evidence for it.**
+
+- Bytes one array holds on main, `crates/expanse-capi/tests/test_judyl_small_array_bytes.rs` (PR 1748): 4,808 B at 1 key, 21,192 at 10, 21,576 at 20, 21,704 at 31.
+- `sng_sm_hashjudy_*` on main against stock (reference host, two runs): puts/s 0.105–0.154, `big` gets/s 0.419–0.486, `default` gets/s 1.327–1.328.
+- (workload: `capi_vs_stock`) `judyl_small_array` on main, x86-64 CI, instructions for 1,000 array lives, `libexpanse.so` against stock ([run 43813301782](https://github.com/orieg/expanse/actions/runs/43813301782), head `340bb22df` of PR 1748, which changes no engine or shim code): k1 7,894,832 against 819,933 (9.63×), k10 35,252,631 against 7,719,223 (4.57×), k20 45,311,028 against 15,334,481 (2.95×), k31 55,254,148 against 23,688,772 (2.33×), k32 111,775,846 against 42,162,589 (2.65×), k64 158,351,943 against 86,041,272 (1.84×).
+- A standalone prototype of the block form, not the shim (Callgrind, x86-64): one array life of build, one get per key and free retires 2,869 instructions at 10 keys, 5,954 at 20 and 10,170 at 31, against 34,479 and 38,536 through the engine at 10 and 20.
+- (workload: `capi_vs_stock`) An empty-index search from inside a 256-key run costs `libexpanse.so` about 418,000 instructions on x86-64 (196,099,040 / 469, `judyl_first_empty/clustered`, the same run), tracked by [#1749](https://github.com/orieg/expanse/issues/1749) and outside this change; the 340,000 in `vs_stock.rs` was a local AArch64 count.
+- The F build does not exist. No stress-ng cell and no Callgrind arm has been run on it.
+
+**Derived before the runs.**
+
+- The k32 and k64 bounds are one and a half times the derived cost above (7.7% and 5.4%), rounded up to a whole percent, and are fixed here.
+- Bytes requested per array under F: 8 + 16 × cap, so 24 B at 1 key (cap 1), 200 B at 10 (cap 12), 392 B at 20 (cap 24), 520 B at 31 (cap 32), one block each. The 10-, 20- and 31-key figures match a standalone prototype of the form; the 1-key figure is derived from the ladder only and was not prototyped.
+- An array that grows past 31 keys pays its small phase once, about 8,600 instructions (prototype figure, unmeasured in the shim). On `judyl_small_array` that is 7.7% of a k32 life (8,600 / 111,776) and 5.4% of a k64 life (8,600 / 158,352); on a 1,024-key build of the stress-ng `judy` key shape (533,637 instructions on main) it is +1.6%; on the 30,000-key `judyl_insert` arms it is under +0.1%.
+- The full-map path tests bit 0 where main tests for null and reads the map one byte lower. Its instruction count is expected unchanged; this is not built and not measured.
+
+**Definitions.** G, M, S, the cells, the metrics and the verdict rule are those of [`METHODOLOGY.md`](METHODOLOGY.md) §4–§8 and of `scripts/diag_increment.py`: two-sample BCa 95% intervals of the ratio of means over each run's 12 rounds, two independent runs per host. *Instruction change* is an arm's change against main in the named CI job.
+
+**Target, all of which must hold (the real-program cell).** `sng_sm_hashjudy_big` and `sng_sm_hashjudy_default`, W ∈ {1, 4}:
+
+- T1, reference host (Intel Core i9-12900F): `hashjudy-puts-per-sec` G/M lower end above 2.0 in both runs, and `max-rss` G/M upper end below 0.20 in both runs.
+- T2, second host (AMD Ryzen 9 9955HX): the same. If that host's bench lock is not free, T2 is pending and the verdict says so.
+- T3, deterministic: the bytes test reads exactly (1, 24 B, 1 block), (10, 200, 1), (20, 392, 1), (31, 520, 1).
+- T4, deterministic: `judyl_small_array` k1, k10, k20 and k31, `_expanse` and `_expanse_dl`, each below main's count.
+
+**Bounds, every one of which must hold.**
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| `git diff` | `crates/expanse/`, `include/` | empty |
+| `nm -C` of the engine's out-of-line functions, base against head | symbol set | unchanged |
+| x86-64 deterministic, AArch64 Callgrind, wasm32 and wasm64 fuel | every arm of `instructions.rs` and the other engine harnesses | 0 arms moved |
+| `vs_stock`, capi smoke | every `judy1_*`, `judysl_*`, `judyhs_*` arm | ≤ +0.1% |
+| `vs_stock`, capi smoke | read-only JudyL arms: `judyl_get`, `judyl_count`, `judyl_by_count`, `judyl_first`, `judyl_last`, `judyl_next`, `judyl_prev`, the four `judyl_*_empty`, `_expanse` and `_expanse_dl` | ≤ +0.1% |
+| `vs_stock`, capi smoke | named under the exemption: `judyl_insert`, `judyl_churn`, `judyl_del`, `judyl_free`, `_expanse` and `_expanse_dl`, every distribution | ≤ +0.5% |
+| `vs_stock` | named under the exemption: `judyl_small_array` k32, `_expanse` and `_expanse_dl` | ≤ +12% |
+| `vs_stock` | named under the exemption: `judyl_small_array` k64, `_expanse` and `_expanse_dl` | ≤ +8% |
+| stress-ng, both hosts | `sng_judy_1k` `judy-insert-operations-per-sec`, every W (L2, named as the likeliest falsifier) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every other primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every primary cell-metric (L1b) | not SLOWER against stock where the merge base is FASTER or EQUIVALENT and G/M is SLOWER |
+| stress-ng, both hosts | `sng_sm_hashjudy_*` `hashjudy-gets-per-sec` | G/M upper end not below 0.98; `default` stays FASTER against stock |
+| `memory-budget` | every row | unchanged |
+| CI | workspace tests (`PROPTEST_CASES=500`); Tier-1 Miri including a test of the tagged handle; `differential-oracle` including the 31/32-key promotion boundary; `php-judy-*` | pass |
+| MSRV | every strict-provenance method the handle uses | present in the 1.88 `library/` source; `Core / MSRV 1.88 Build` passes |
+
+**The comparison with stock, reported under its own label and not gated.** `hashjudy-puts-per-sec` and `max-rss` G/S on both hosts: *BEAT* if the puts lower end is above 1.0 and the max-rss upper end below 1.0 in both runs at every W on both hosts; *INTERMEDIATE* if that holds on one host, one metric or some W only; *NOT MET* otherwise. Not predicted.
+
+**Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved (§8.19). A PASS with T2 pending is recorded as PASS on the reference host only. The PR carries an `allow-regression:` line only if a named arm exceeds +0.1%, citing this record and the measuring run, and naming each such arm.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
@@ -2069,3 +2126,19 @@ for m in hj_main hj_leak hj_perf; do docs/benchmarks/stressng_comparison/run.sh 
 ```bash
 for m in hj_main hj_leak hj_perf; do python3 docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py ref "/var/tmp/stressng-eval/results/diag_${m}_ref_run1" "/var/tmp/stressng-eval/results/diag_${m}_ref_run2"; done
 ```
+
+## Evaluation record: resident memory per small array (0.18.0, `82eb56af`)
+
+The first stress-ng evaluation, at v0.18.0, measured resident memory per small JudyL array outside stress-ng. Its pre-registration declared this a memory census, not subject to the interval rules. That pre-registration predates this suite's `METHODOLOGY.md` and is not committed. `scripts/memprobe.c` builds N JudyL arrays of K distinct keys drawn from `[0, range)`, verifies every value, deletes every key, then calls `JLFA` on every array. After each phase it prints the RSS delta from `/proc/self/statm`, divided by N, and the `JudyLMemUsed` sum divided by N. One binary, compiled against the distro `Judy.h`, ran under each library by `LD_LIBRARY_PATH` (`scripts/memprobe_run.sh`).
+
+*(measured: build host, 2× Intel Xeon E5-2697 v4, ubuntu:22.04 container, libexpanse `82eb56af`, stock libjudydebian1 1.0.5-5; [`results/memprobe_small_arrays_82eb56af.json`](results/memprobe_small_arrays_82eb56af.json), which carries the probe's output lines verbatim. The host attribution comes from the evaluation report; the probe's output records no host facts. One process per shape and arm, no rounds, so no interval.)*
+
+| Shape (arrays × keys, key range) | Stock RSS B/array | libexpanse RSS B/array | Stock `JudyLMemUsed` B/array | libexpanse `JudyLMemUsed` B/array |
+|---|---:|---:|---:|---:|
+| 100,000 × 1, `[0, 500)` | 47.8 | 4,958.0 | 24.0 | 728.0 |
+| 100,000 × 20, `[0, 500)` (`hashjudy` default shape) | 399.3 | 22,128.8 | 376.0 | 1,096.0 |
+| 100,000 × 10, `[0, 100,000)` (`hashjudy` big shape) | 207.4 | 21,585.6 | 184.0 | 904.0 |
+| 10,000 × 1,000, `[0, 100,000)` | 18,589.7 | 73,223.8 | 16,093.6 | 16,284.4 |
+| 100 × 100,000, `[0, 2³²)` | 2,137,415.7 | 2,496,593.9 | 1,865,696.3 | 1,846,093.1 |
+
+The libexpanse column describes v0.18.0, not main: the small-array floor on main is the deterministic `mem_held` accounting in [COMPAT.md](../../COMPAT.md#what-judy1memused--judylmemused-count-and-the-small-array-floor). The stock column is what this record adds, the resident cost of stock libJudy per small array, which no other committed artifact measures.

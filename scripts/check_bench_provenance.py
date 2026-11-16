@@ -192,6 +192,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/hot_comparison/scripts/run_all.py",
     "docs/benchmarks/hot_comparison/scripts/run_strings.py",
     "docs/benchmarks/masstree_comparison/scripts/run_all.py",
+    # The MariaDB OQGraph x Judy1 evaluation record (#1682): per-cell paired
+    # log-ratio intervals over a run's rounds, each written with its `ci_method`.
+    "docs/benchmarks/oqgraph_comparison/scripts/analyze.py",
     "docs/benchmarks/rocksdb_memtable/scripts/concurrent_read_scaling.py",
     "docs/benchmarks/rocksdb_memtable/scripts/locate_profile.py",
     "docs/benchmarks/rocksdb_memtable/scripts/single_threaded_bench.py",
@@ -205,6 +208,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/stressng_comparison/scripts/diag_phase_counters_analyze.py",
     "docs/benchmarks/stressng_comparison/scripts/diag_delete_analyze.py",
     "docs/benchmarks/stressng_comparison/scripts/diag_increment_analyze.py",
+    # The zmap x JudyHS evaluation record (#1681): per-arm and two-sample
+    # E/S intervals over a run's rounds, printed with their construction.
+    "docs/benchmarks/zmap_comparison/scripts/analyze.py",
     "scripts/compare_shift.py",
     "scripts/bench_baseline.py",
     "scripts/bench_counters.py",

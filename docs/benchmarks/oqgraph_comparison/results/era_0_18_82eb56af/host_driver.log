@@ -1,0 +1,29 @@
+2026-11-09T08:50:30Z lock acquired
+2026-11-09T08:50:32Z init datadir
+ldd A: 	libJudy.so.1 => /lib/x86_64-linux-gnu/libJudy.so.1
+ldd B: 	libJudy.so => /usr/local/lib/libJudy.so
+ldd C: 	libexpanse.so => /usr/local/lib/libexpanse.so
+2026-11-09  8:50:32 0 [Warning] failed to retrieve the MAC address
+2026-11-09  8:50:32 0 [Warning] mariadbd: io_uring_queue_init() failed with EPERM: sysctl kernel.io_uring_disabled has the value 2, or 1 and the user of the process is not a member of sysctl kernel.io_uring_group. (see man 2 io_uring_setup).
+create_uring failed: falling back to libaio
+er_10000 edges 40000
+er_100000 edges 400000
+er_sid_10000 edges 40000
+er_sid_100000 edges 400000
+grid_10000 edges 39600
+grid_100000 edges 398160
+pl_10000 edges 40000
+pl_100000 edges 400000
+row estimates {'e_grid_100000': 397341, 'e_pl_10000': 39329, 'e_er_100000': 399126, 'e_pl_100000': 399126, 'e_grid_10000': 39984, 'e_er_sid_100000': 420627, 'e_er_10000': 40341, 'e_er_sid_10000': 40478}
+2026-11-09T08:50:38Z procs: 
+2026-11-09T08:50:43Z gate: containers=0 load1=0.13 busy=0.00
+2026-11-09T08:51:03Z gate: containers=0 load1=0.09 busy=0.01
+2026-11-09T08:51:24Z gate: containers=0 load1=0.06 busy=0.01
+2026-11-09T08:51:39Z start run1 load=0.05 0.75 1.21 1/549 1028372 governor=powersave
+2026-11-09T09:33:09Z end run1 rc=0 load=1.00 1.00 1.00 1/528 1030658
+2026-11-09T09:33:14Z gate: containers=0 load1=0.92 busy=0.00
+2026-11-09T09:33:34Z gate: containers=0 load1=0.66 busy=0.00
+2026-11-09T09:33:54Z gate: containers=0 load1=0.55 busy=0.01
+2026-11-09T09:34:09Z start run2 load=0.43 0.83 0.94 1/529 1030789 governor=powersave
+2026-11-09T10:15:40Z end run2 rc=0 load=1.00 1.00 1.00 1/529 1032013
+2026-11-09T10:15:40Z ALL-DONE
