@@ -1,0 +1,14 @@
+gate wait load1=0.25 busy=1 07:26:21
+gate ok load1=0.21 07:26:31
+== e2e run 1 start 07:26:31 load 0.21 0.13 0.24 1/529 1429893
+== e2e run 1 rc=0 end 07:32:50 load 1.13 0.77 0.49 1/536 1430395 lines 61
+gate ok load1=1.13 07:32:50
+== micro run 1 start 07:32:50 load 1.13 0.77 0.49 1/538 1430408
+== micro run 1 rc=0 end 07:33:26 load 1.07 0.80 0.51 1/537 1430585 lines 90
+gate ok load1=1.07 07:33:26
+== e2e run 2 start 07:33:26 load 1.07 0.80 0.51 1/538 1430597
+== e2e run 2 rc=0 end 07:39:45 load 1.02 0.91 0.65 1/539 1431099 lines 61
+gate ok load1=1.02 07:39:45
+== micro run 2 start 07:39:45 load 1.02 0.91 0.65 1/540 1431111
+== micro run 2 rc=0 end 07:40:20 load 1.01 0.92 0.66 1/543 1431290 lines 90
+DONE

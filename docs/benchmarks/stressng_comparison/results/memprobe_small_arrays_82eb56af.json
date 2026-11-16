@@ -1,0 +1,129 @@
+{
+  "record": "0.18-era evaluation record (libexpanse 82eb56af, v0.18.0), committed after the fact from the probe's own output; not re-measured",
+  "issue": 1666,
+  "measures": "resident memory per small JudyL array: the RSS delta from /proc/self/statm divided by the array count, after filling, after deleting every key and after JLFA; and JudyLMemUsed summed over the arrays and divided by the count",
+  "provenance": {
+    "host": "build host, 2x Intel Xeon E5-2697 v4 (72 threads), ubuntu:22.04 container",
+    "host_source": "the evaluation report's provenance line; the probe's output records no host facts",
+    "libexpanse_commit": "82eb56af1a8a9512d9ab1b3b335a6d9c12756e23",
+    "stock": "Ubuntu 22.04 libjudydebian1 1.0.5-5 (libJudy.so.1)",
+    "probe": "docs/benchmarks/stressng_comparison/scripts/memprobe.c, compiled once against the distro Judy.h and run under each library by LD_LIBRARY_PATH (scripts/memprobe_run.sh)",
+    "estimators": "none: one process per (shape, arm); a page-granular RSS census with no rounds and no interval (AGENTS.md section 8.4)",
+    "load_snapshot": "not recorded; the census is a byte count, not a timing",
+    "rounds": 1
+  },
+  "raw_output": [
+    "S arrays=100000 keys=1 range=500 rss_full_B_per_array=47.8 memused_B_per_array=24.0 rss_after_empty_B_per_array=47.8 rss_after_jlfa_B_per_array=47.8",
+    "E arrays=100000 keys=1 range=500 rss_full_B_per_array=4958.0 memused_B_per_array=728.0 rss_after_empty_B_per_array=22.8 rss_after_jlfa_B_per_array=22.8",
+    "S arrays=100000 keys=20 range=500 rss_full_B_per_array=399.3 memused_B_per_array=376.0 rss_after_empty_B_per_array=17.2 rss_after_jlfa_B_per_array=17.2",
+    "E arrays=100000 keys=20 range=500 rss_full_B_per_array=22128.8 memused_B_per_array=1096.0 rss_after_empty_B_per_array=24.9 rss_after_jlfa_B_per_array=24.9",
+    "S arrays=100000 keys=10 range=100000 rss_full_B_per_array=207.4 memused_B_per_array=184.0 rss_after_empty_B_per_array=17.2 rss_after_jlfa_B_per_array=17.2",
+    "E arrays=100000 keys=10 range=100000 rss_full_B_per_array=21585.6 memused_B_per_array=904.0 rss_after_empty_B_per_array=24.8 rss_after_jlfa_B_per_array=24.8",
+    "S arrays=10000 keys=1000 range=100000 rss_full_B_per_array=18589.7 memused_B_per_array=16093.6 rss_after_empty_B_per_array=18589.7 rss_after_jlfa_B_per_array=18589.7",
+    "E arrays=10000 keys=1000 range=100000 rss_full_B_per_array=73223.8 memused_B_per_array=16284.4 rss_after_empty_B_per_array=66832.4 rss_after_jlfa_B_per_array=66832.4",
+    "S arrays=100 keys=100000 range=4294967295 rss_full_B_per_array=2137415.7 memused_B_per_array=1865696.3 rss_after_empty_B_per_array=2137415.7 rss_after_jlfa_B_per_array=2137415.7",
+    "E arrays=100 keys=100000 range=4294967295 rss_full_B_per_array=2496593.9 memused_B_per_array=1846093.1 rss_after_empty_B_per_array=466903.0 rss_after_jlfa_B_per_array=466903.0"
+  ],
+  "rows": [
+    {
+      "arm": "stock",
+      "arrays": 100000,
+      "keys_per_array": 1,
+      "key_range": 500,
+      "rss_full_B_per_array": 47.8,
+      "judylmemused_B_per_array": 24.0,
+      "rss_after_empty_B_per_array": 47.8,
+      "rss_after_jlfa_B_per_array": 47.8
+    },
+    {
+      "arm": "libexpanse",
+      "arrays": 100000,
+      "keys_per_array": 1,
+      "key_range": 500,
+      "rss_full_B_per_array": 4958.0,
+      "judylmemused_B_per_array": 728.0,
+      "rss_after_empty_B_per_array": 22.8,
+      "rss_after_jlfa_B_per_array": 22.8
+    },
+    {
+      "arm": "stock",
+      "arrays": 100000,
+      "keys_per_array": 20,
+      "key_range": 500,
+      "rss_full_B_per_array": 399.3,
+      "judylmemused_B_per_array": 376.0,
+      "rss_after_empty_B_per_array": 17.2,
+      "rss_after_jlfa_B_per_array": 17.2
+    },
+    {
+      "arm": "libexpanse",
+      "arrays": 100000,
+      "keys_per_array": 20,
+      "key_range": 500,
+      "rss_full_B_per_array": 22128.8,
+      "judylmemused_B_per_array": 1096.0,
+      "rss_after_empty_B_per_array": 24.9,
+      "rss_after_jlfa_B_per_array": 24.9
+    },
+    {
+      "arm": "stock",
+      "arrays": 100000,
+      "keys_per_array": 10,
+      "key_range": 100000,
+      "rss_full_B_per_array": 207.4,
+      "judylmemused_B_per_array": 184.0,
+      "rss_after_empty_B_per_array": 17.2,
+      "rss_after_jlfa_B_per_array": 17.2
+    },
+    {
+      "arm": "libexpanse",
+      "arrays": 100000,
+      "keys_per_array": 10,
+      "key_range": 100000,
+      "rss_full_B_per_array": 21585.6,
+      "judylmemused_B_per_array": 904.0,
+      "rss_after_empty_B_per_array": 24.8,
+      "rss_after_jlfa_B_per_array": 24.8
+    },
+    {
+      "arm": "stock",
+      "arrays": 10000,
+      "keys_per_array": 1000,
+      "key_range": 100000,
+      "rss_full_B_per_array": 18589.7,
+      "judylmemused_B_per_array": 16093.6,
+      "rss_after_empty_B_per_array": 18589.7,
+      "rss_after_jlfa_B_per_array": 18589.7
+    },
+    {
+      "arm": "libexpanse",
+      "arrays": 10000,
+      "keys_per_array": 1000,
+      "key_range": 100000,
+      "rss_full_B_per_array": 73223.8,
+      "judylmemused_B_per_array": 16284.4,
+      "rss_after_empty_B_per_array": 66832.4,
+      "rss_after_jlfa_B_per_array": 66832.4
+    },
+    {
+      "arm": "stock",
+      "arrays": 100,
+      "keys_per_array": 100000,
+      "key_range": 4294967295,
+      "rss_full_B_per_array": 2137415.7,
+      "judylmemused_B_per_array": 1865696.3,
+      "rss_after_empty_B_per_array": 2137415.7,
+      "rss_after_jlfa_B_per_array": 2137415.7
+    },
+    {
+      "arm": "libexpanse",
+      "arrays": 100,
+      "keys_per_array": 100000,
+      "key_range": 4294967295,
+      "rss_full_B_per_array": 2496593.9,
+      "judylmemused_B_per_array": 1846093.1,
+      "rss_after_empty_B_per_array": 466903.0,
+      "rss_after_jlfa_B_per_array": 466903.0
+    }
+  ]
+}
