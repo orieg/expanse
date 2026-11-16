@@ -128,18 +128,29 @@ chunk-geometry fields) is `CorruptedHeader`, a different error.
 - **Cycle parity on every call pattern.** On a small Judy1 key range (MariaDB OQGraph's colour map) libexpanse retires fewer instructions per call than stock and still takes more cycles, from branch mispredicts and front-end stalls; the mechanism, the measured numbers and why an instruction-neutral fix is not in hand are in `docs/ARCHITECTURE.md` §3.2, *Known cost* (#1682).
 - **Peak-memory parity for JudyHS on every key shape.** With zmap's 1,000,000-entry dedup window full of responders spread over the address space, libexpanse's zmap holds about 10 MB (10.3–10.4%) more peak RSS than stock, and about 13 MB through eviction; on a dense key set it holds slightly less. The measurements, and why neither an allocator change nor an automatic reclaim is shipped, are in `docs/ARCHITECTURE.md` §3.7, *Known cost* (#1681).
 
-### What `Judy1MemUsed` / `JudyLMemUsed` count, and the small-array floor
+### What `Judy1MemUsed` / `JudyLMemUsed` count, and small arrays
 
-- **They return `mem_used` plus the handle**: the live node and leaf bytes (`ExpanseMap::mem_used`, an O(1) counter read) plus `size_of` the boxed `ExpanseMap` / `ExpanseSet` (712 B for the map). They do **not** count slab-page reservation. `expanse_map_mem_held` / `expanse_set_mem_held` (`expanse.h`) do, and they are the figures to compare with resident memory.
-- **Decision: they stay on `mem_used`.** It is what they have always returned, and a `Judy.h` symbol does not change what it reports (`AGENTS.md` §4.1). It grows with every insert, which is the monotonic behaviour the guarantee above names. It costs one counter read, where `mem_held` walks the allocator's pages and freelists. A consumer that needs the resident figure includes `expanse.h` beside `Judy.h`.
-- **The two differ most on small arrays.** A tree carves a whole 4 KiB slab page the first time it allocates from each size class of 256 B or less (`docs/ARCHITECTURE.md` §2, *Allocator* row). A root leaf growing to 20 keys passes through five classes and keeps each page after it moves on:
+- **A JudyL array of up to 31 keys is one block.** It holds `8 + 16 × capacity` bytes, the capacity climbing 1, 2, 4, 8, 12, 16, 24, 32 as keys arrive and never shrinking: no boxed handle and no slab page. `JudyLMemUsed` and `JudyLFreeArray` return exactly that figure, which is also what the array holds from the allocator:
 
-  | JudyL array (keys uniform on `[0, 500)`) | `mem_used` | `mem_held` | slab pages with no live block | `JudyLMemUsed` |
-  |---|---|---|---|---|
-  | 1 key | 16 B | 4,096 B | 0 B | 728 B |
-  | 20 keys | 384 B | 20,864 B | 20,480 B | 1,096 B |
+  | JudyL array | bytes held = `JudyLMemUsed` | allocations |
+  |---|---|---|
+  | 1 key | 24 B | 1 |
+  | 10 keys | 200 B | 1 |
+  | 20 keys | 392 B | 1 |
+  | 31 keys | 520 B | 1 |
 
-  Each row is per array, box excluded except in the last column. The values are deterministic allocator accounting from the `bytes_per_key` small-array rows, which the `memory-budget` CI job gates at exactly these values. An array emptied by deleting every key frees its tree, pages included. stress-ng's `sparsematrix hashjudy` method keeps one such array per matrix row, and the resident-memory comparison against stock libjudy that motivated these rows is tracked in [#1666](https://github.com/orieg/expanse/issues/1666). Its re-measure, with stress-ng's per-phase rates on two hosts, is the [`stressng_comparison`](benchmarks/stressng_comparison/README.md) suite.
+  The values are requested bytes, pinned as an exact equality by `crates/expanse-capi/tests/test_judyl_small_array_bytes.rs`. The insert that would make 32 keys moves the array into an `ExpanseMap`; it stays one as it shrinks, until the delete that empties it. An array emptied by deleting every key frees everything it held, in either form.
+- **The array word is opaque, and for a JudyL array of 32 or more keys it is not an address.** It is null, the address of the small block, or the address of the boxed `ExpanseMap` plus one. `Judy.h` gives the word no meaning beyond "pass it back". A tool that follows the word as a plain heap pointer, such as a leak checker's reachability scan, sees an interior pointer for the larger form; the effect on such tools is not verified.
+- **Past 31 keys, and for every Judy1 array, they return `mem_used` plus the handle**: the live node and leaf bytes (`ExpanseMap::mem_used`, an O(1) counter read) plus `size_of` the boxed `ExpanseMap` / `ExpanseSet` (712 B for the map). They do **not** count slab-page reservation. `expanse_map_mem_held` / `expanse_set_mem_held` (`expanse.h`) do, and they are the figures to compare with resident memory.
+- **Decision: they stay on `mem_used` there.** It grows with every insert, which is the monotonic behaviour the guarantee above names, and it costs one counter read, where `mem_held` walks the allocator's pages and freelists. A consumer that needs the resident figure includes `expanse.h` beside `Judy.h`.
+- **`mem_used` and `mem_held` differ most on a small tree.** A tree carves a whole 4 KiB slab page the first time it allocates from each size class of 256 B or less (`docs/ARCHITECTURE.md` §2, *Allocator* row). A root leaf growing to 20 keys passes through five classes and keeps each page after it moves on. This is the footprint of an `ExpanseMap` used directly or through `expanse_map_*`, not of a JudyL array, which is a block at these sizes:
+
+  | `ExpanseMap` (keys uniform on `[0, 500)`) | `mem_used` | `mem_held` | slab pages with no live block |
+  |---|---|---|---|
+  | 1 key | 16 B | 4,096 B | 0 B |
+  | 20 keys | 384 B | 20,864 B | 20,480 B |
+
+  Each row is per map, box excluded. The values are deterministic allocator accounting from the `bytes_per_key` small-array rows, which the `memory-budget` CI job gates at exactly these values. stress-ng's `sparsematrix hashjudy` method keeps one small JudyL array per matrix row; the comparison against stock libjudy that motivated the block form is tracked in [#1666](https://github.com/orieg/expanse/issues/1666) and [#1742](https://github.com/orieg/expanse/issues/1742), and measured by the [`stressng_comparison`](benchmarks/stressng_comparison/README.md) suite.
 - **Internal structure equality** — no attempt to match libjudy's node layouts, only its observable behavior.
 - **`JErrno` legacy globals** beyond what the documented macro layer requires.
 

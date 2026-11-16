@@ -2,14 +2,13 @@
 //!
 //! A hash table of JudyL buckets keeps most of its arrays at a handful of
 //! keys, so the bytes a 1-, 10-, 20- or 31-key array holds decide such a
-//! program's resident set. `JudyLMemUsed` reports live node bytes and leaves
-//! out what the array holds beyond them, so this test counts at the
-//! allocator instead: a counting global allocator records, for this test's
+//! program's resident set. This test counts at the allocator, not through
+//! `JudyLMemUsed`: a counting global allocator records, for this test's
 //! thread only, the bytes live after `JudyLIns` has inserted the keys.
 //!
 //! The table pins the figure exactly. Byte accounting is deterministic, so a
-//! change to the handle, the root leaf or the allocator's page policy shows
-//! here as a failed equality and is then a stated decision, not drift.
+//! change to the small block's layout or capacity ladder shows here as a
+//! failed equality and is then a stated decision, not drift.
 //!
 //! Excluded from Miri: it installs a global allocator, and what it checks is
 //! byte accounting that Miri's model does not change.

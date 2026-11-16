@@ -955,6 +955,177 @@ mod oracle {
         }
     }
 
+    /// The small form of a JudyL array and its promotion at 32 keys, against
+    /// stock: every entry point is compared after each insert from 1 to 40
+    /// keys, after each delete back to empty, and while the population
+    /// crosses 31/32 in both directions.
+    #[test]
+    fn judyl_small_form_boundary_matches_stock_libjudy() {
+        let lib = Lib::open();
+        let o_ins: FpIns = lib.sym(c"JudyLIns");
+        let o_del: F2i = lib.sym(c"JudyLDel");
+        let o_get: FpGet = lib.sym(c"JudyLGet");
+        let o_count: FCount = lib.sym(c"JudyLCount");
+        let o_byc: FpByC = lib.sym(c"JudyLByCount");
+        let o_free: FFree = lib.sym(c"JudyLFreeArray");
+        let o_nav: [FpNav; 4] = [
+            lib.sym(c"JudyLFirst"),
+            lib.sym(c"JudyLNext"),
+            lib.sym(c"JudyLLast"),
+            lib.sym(c"JudyLPrev"),
+        ];
+        let o_empty: [FNav; 4] = [
+            lib.sym(c"JudyLFirstEmpty"),
+            lib.sym(c"JudyLNextEmpty"),
+            lib.sym(c"JudyLLastEmpty"),
+            lib.sym(c"JudyLPrevEmpty"),
+        ];
+        type Nav = unsafe extern "C" fn(*const c_void, *mut Word, *mut JError) -> *mut c_void;
+        type Empty = unsafe extern "C" fn(*const c_void, *mut Word, *mut JError) -> c_int;
+        let nav: [Nav; 4] = [JudyLFirst, JudyLNext, JudyLLast, JudyLPrev];
+        let empty: [Empty; 4] = [
+            JudyLFirstEmpty,
+            JudyLNextEmpty,
+            JudyLLastEmpty,
+            JudyLPrevEmpty,
+        ];
+
+        // Every read-only entry point, on both arrays, over probes at and
+        // beside each present key and at both ends of the key space.
+        let compare = |ours: *const c_void, theirs: *const c_void, keys: &[Word], at: &str| {
+            let mut probes = vec![0, 1, Word::MAX - 1, Word::MAX];
+            for &k in keys {
+                probes.extend([k.wrapping_sub(1), k, k.wrapping_add(1)]);
+            }
+            // SAFETY: both arrays are live and neither is mutated here; a
+            // returned slot is read before the next call.
+            unsafe {
+                for &p in &probes {
+                    let (s1, s2) = (
+                        JudyLGet(ours, p, null_mut()).cast::<Word>(),
+                        o_get(theirs, p, null_mut()).cast::<Word>(),
+                    );
+                    assert_eq!(s1.is_null(), s2.is_null(), "{at}: get {p:#x}");
+                    if !s1.is_null() {
+                        assert_eq!(*s1, *s2, "{at}: get value {p:#x}");
+                    }
+                    for f in 0..4 {
+                        let (mut i1, mut i2) = (p, p);
+                        let s1 = nav[f](ours, &raw mut i1, null_mut()).cast::<Word>();
+                        let s2 = o_nav[f](theirs, &raw mut i2, null_mut()).cast::<Word>();
+                        assert_eq!(
+                            (s1.is_null(), i1),
+                            (s2.is_null(), i2),
+                            "{at}: nav {f} from {p:#x}"
+                        );
+                        if !s1.is_null() {
+                            assert_eq!(*s1, *s2, "{at}: nav {f} value from {p:#x}");
+                        }
+                        let (mut i1, mut i2) = (p, p);
+                        let r1 = empty[f](ours, &raw mut i1, null_mut());
+                        let r2 = o_empty[f](theirs, &raw mut i2, null_mut());
+                        assert_eq!((r1, i1), (r2, i2), "{at}: empty {f} from {p:#x}");
+                    }
+                    for &q in &[0, p, Word::MAX] {
+                        assert_eq!(
+                            JudyLCount(ours, p.min(q), p.max(q), null_mut()),
+                            o_count(theirs, p.min(q), p.max(q), null_mut()),
+                            "{at}: count {p:#x} {q:#x}"
+                        );
+                    }
+                }
+                for nth in 0..=keys.len() as Word + 1 {
+                    let (mut i1, mut i2) = (7 as Word, 7 as Word);
+                    let s1 = JudyLByCount(ours, nth, &raw mut i1, null_mut()).cast::<Word>();
+                    let s2 = o_byc(theirs, nth, &raw mut i2, null_mut()).cast::<Word>();
+                    assert_eq!(s1.is_null(), s2.is_null(), "{at}: bycount {nth}");
+                    if !s1.is_null() {
+                        assert_eq!((i1, *s1), (i2, *s2), "{at}: bycount {nth}");
+                    }
+                }
+            }
+        };
+
+        let shapes: [(&str, fn(usize) -> Word); 4] = [
+            ("dense", |i| i as Word),
+            ("spread", |i| {
+                (i as Word + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            }),
+            ("top", |i| Word::MAX - 3 * i as Word),
+            ("run", |i| 0x99_8877_6655_4400 + (i as Word * 5) % 256),
+        ];
+        for (shape, key) in shapes {
+            let mut ours: *mut c_void = null_mut();
+            let mut theirs: *mut c_void = null_mut();
+            let mut keys: Vec<Word> = Vec::new();
+            // SAFETY: standard JudyL usage on both libraries; each slot is
+            // written before the next call that mutates its array.
+            unsafe {
+                let put = |ours: &mut *mut c_void, theirs: &mut *mut c_void, k: Word| {
+                    let s1 = JudyLIns(ours, k, null_mut()).cast::<Word>();
+                    let s2 = o_ins(theirs, k, null_mut()).cast::<Word>();
+                    assert_eq!(*s1, *s2, "{shape}: ins existing value {k:#x}");
+                    *s1 = !k;
+                    *s2 = !k;
+                };
+                let del = |ours: &mut *mut c_void, theirs: &mut *mut c_void, k: Word| {
+                    assert_eq!(
+                        JudyLDel(ours, k, null_mut()),
+                        o_del(theirs, k, null_mut()),
+                        "{shape}: del {k:#x}"
+                    );
+                    assert_eq!(ours.is_null(), theirs.is_null(), "{shape}: null after del");
+                };
+                compare(ours, theirs, &keys, shape);
+                for i in 0..40 {
+                    let k = key(i);
+                    put(&mut ours, &mut theirs, k);
+                    keys.push(k);
+                    // A second insert of a present key, at every population.
+                    put(&mut ours, &mut theirs, keys[i / 2]);
+                    compare(ours, theirs, &keys, &format!("{shape} up {}", i + 1));
+                }
+                // Down through 32 and 31, in an order unlike the insertion's.
+                keys.rotate_left(13);
+                while keys.len() > 28 {
+                    let k = keys.pop().unwrap();
+                    del(&mut ours, &mut theirs, k);
+                    del(&mut ours, &mut theirs, k);
+                    compare(ours, theirs, &keys, &format!("{shape} down {}", keys.len()));
+                }
+                // Back up across the boundary, then down to empty.
+                for i in 40..46 {
+                    let k = key(i);
+                    put(&mut ours, &mut theirs, k);
+                    keys.push(k);
+                    compare(
+                        ours,
+                        theirs,
+                        &keys,
+                        &format!("{shape} again {}", keys.len()),
+                    );
+                }
+                while let Some(k) = keys.pop() {
+                    del(&mut ours, &mut theirs, k);
+                    compare(
+                        ours,
+                        theirs,
+                        &keys,
+                        &format!("{shape} drain {}", keys.len()),
+                    );
+                }
+                assert!(ours.is_null() && theirs.is_null(), "{shape}: emptied");
+                // A fresh small array, freed while small.
+                for i in 0..31 {
+                    put(&mut ours, &mut theirs, key(i));
+                }
+                assert!(JudyLFreeArray(&raw mut ours, null_mut()) > 0);
+                assert!(o_free(&raw mut theirs, null_mut()) > 0);
+                assert!(ours.is_null() && theirs.is_null());
+            }
+        }
+    }
+
     #[test]
     fn judyl_matches_stock_libjudy() {
         let lib = Lib::open();

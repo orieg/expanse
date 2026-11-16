@@ -1846,7 +1846,7 @@ jobs:
         if: matrix.shard == '4 of 4'
         run: |
           set -o pipefail
-          cargo miri test -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi 2>&1 | tee capi-miri.log
+          cargo miri test -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi --test test_judyl_small_form 2>&1 | tee capi-miri.log
           [ "$(grep -Ec 'test result: ok\. [1-9][0-9]* passed' capi-miri.log)" -eq 3 ] \
             || { echo "::error::an expanse-capi Miri test binary ran zero tests"; exit 1; }
       # Negative control for the exact-size node allocation `NodeAlloc` uses
@@ -1949,7 +1949,7 @@ jobs:
           RUSTFLAGS: "-Zsanitizer=address"
         run: |
           set -o pipefail
-          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi 2>&1 | tee capi-asan.log
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi --test test_judyl_small_form 2>&1 | tee capi-asan.log
           [ "$(grep -Ec 'test result: ok\. [1-9][0-9]* passed' capi-asan.log)" -eq 3 ] \
             || { echo "::error::an expanse-capi ASan test binary ran zero tests"; exit 1; }
 

@@ -217,7 +217,7 @@ cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: typ
   set::tests::occ_engine_single_thread_under_miri set::tests::warm_insert_path_across_a_move sync::miri_tests:: \
   sync::str_cursor_tests::tier1_ occ::tests::
 # ...and the C ABI layer over the shared containers (ci.yml `miri`, shard 2):
-cargo miri test -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi
+cargo miri test -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi --test test_judyl_small_form
 ```
 
 ### Benchmark Changes Require Direct Harness Execution
