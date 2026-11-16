@@ -719,6 +719,15 @@ Two DOIs are minted. Cite the **concept DOI** for the project as a whole — it 
 | Scope | DOI |
 |---|---|
 | Concept (all versions) | [`10.5281/zenodo.22152112`](https://doi.org/10.5281/zenodo.22152112) |
+| v0.19.0 | [`10.5281/zenodo.24267316`](https://doi.org/10.5281/zenodo.24267316) |
+| v0.18.0 | [`10.5281/zenodo.24074634`](https://doi.org/10.5281/zenodo.24074634) |
+| v0.17.0 | [`10.5281/zenodo.23874845`](https://doi.org/10.5281/zenodo.23874845) |
+| v0.16.0 | [`10.5281/zenodo.23654223`](https://doi.org/10.5281/zenodo.23654223) |
+| v0.15.0 | [`10.5281/zenodo.23482398`](https://doi.org/10.5281/zenodo.23482398) |
+| v0.14.0 | [`10.5281/zenodo.23448475`](https://doi.org/10.5281/zenodo.23448475) |
+| v0.13.0 | [`10.5281/zenodo.23383430`](https://doi.org/10.5281/zenodo.23383430) |
+| v0.12.0 | [`10.5281/zenodo.23325373`](https://doi.org/10.5281/zenodo.23325373) |
+| v0.11.2 | [`10.5281/zenodo.23250151`](https://doi.org/10.5281/zenodo.23250151) |
 | v0.11.1 | [`10.5281/zenodo.23175906`](https://doi.org/10.5281/zenodo.23175906) |
 | v0.11.0 | [`10.5281/zenodo.23143791`](https://doi.org/10.5281/zenodo.23143791) |
 | v0.10.2 | [`10.5281/zenodo.23123969`](https://doi.org/10.5281/zenodo.23123969) |
