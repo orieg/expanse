@@ -1917,6 +1917,45 @@ A frozen record, never reconciled in place with what the runs measure. Owner dec
 
 **Verdict.** INTERMEDIATE if every target and every bound holds, with T2 pending recorded as INTERMEDIATE on the reference host only. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved again. Whether an INTERMEDIATE change merges is the owner's decision, made on the recorded result. The PR then carries an `allow-regression:` line citing this record and the measuring run, and naming each arm over +0.1%.
 
+### Second record's result (reference host): FAIL
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness and G `8e6d2edc7` (head of PR 1751, sha256 `62d95025…`), M main `87ca5c134` (`8ef89940…`), S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_small_array_ref_run{1,2}.json`; Callgrind and fuel from [run 43913819533](https://github.com/orieg/expanse/actions/runs/43913819533)) (workloads: every cell of METHODOLOGY.md §5; `capi_vs_stock`)
+
+The verdict rule of the second record gives FAIL: the target T1 is met and two stress-ng bounds are broken. The change is not merged and no bound is moved. T2 was not run.
+
+**Hygiene.** Run 1 ran 18:01:43–18:11:28 UTC and run 2 18:19:08–18:28:52 on 2026-11-16, each under the host bench lock, on libraries built once under the same lock before run 1. 720 processes per run, none discarded; max load1 4.87 and 5.66 against a void limit of 12; worst foreign load in any window 0.09 and 0.10 core-equivalents. No bench workflow was in flight and no login was made to the host between the start of run 1 and the end of run 2.
+
+**Bounds broken**, G/M and the stock-side ratios, BCa 95%, run 1 | run 2:
+
+| cell, W | metric | G/M | G/S | M/S |
+|---|---|---|---|---|
+| `sng_sm_hashjudy_default`, 1 | `hashjudy-gets-per-sec` | 0.462 [0.460, 0.463] \| 0.461 [0.460, 0.463] | 0.615 [0.612, 0.619] \| 0.614 [0.612, 0.617] | 1.333 [1.328, 1.339] \| 1.332 [1.328, 1.336] |
+| `sng_sm_hashjudy_default`, 4 | `hashjudy-gets-per-sec` | 0.464 [0.462, 0.466] \| 0.464 [0.462, 0.466] | 0.613 [0.610, 0.616] \| 0.612 [0.609, 0.614] | 1.323 [1.316, 1.329] \| 1.318 [1.312, 1.323] |
+| `sng_judy_4m`, 8 | `judy-delete-operations-per-sec` | 0.953 [0.951, 0.954] \| 0.950 [0.948, 0.951] | SLOWER | SLOWER |
+
+- The `default` gets break their own bound (G/M upper end not below 0.98; stays FASTER against stock) and L1b at both W: the cell goes from FASTER to SLOWER against stock.
+- The 4 Mi delete at W = 8 breaks L2. At W = 1, 2 and 4 the same metric reads 0.992 to 1.007.
+- Why either loses is not measured, and no cause is stated.
+
+**Target T1 met**, G/M, BCa 95% (the max-rss intervals are the estimator's bias-corrected construction), run 1 | run 2:
+
+| cell, W | `hashjudy-puts-per-sec` (lower end above 2.0) | `max-rss` (upper end below 0.20) |
+|---|---|---|
+| `sng_sm_hashjudy_big`, 1 | 9.824 [9.771, 9.864] \| 9.798 [9.741, 9.846] | 0.013 [0.013, 0.013] \| 0.013 [0.013, 0.013] |
+| `sng_sm_hashjudy_big`, 4 | 8.435 [8.401, 8.472] \| 8.461 [8.435, 8.493] | 0.013 [0.013, 0.013] \| 0.013 [0.013, 0.013] |
+| `sng_sm_hashjudy_default`, 1 | 5.768 [5.728, 5.800] \| 5.745 [5.714, 5.778] | 0.032 [0.032, 0.033] \| 0.032 [0.032, 0.032] |
+| `sng_sm_hashjudy_default`, 4 | 6.109 [6.079, 6.143] \| 6.149 [6.122, 6.180] | 0.033 [0.033, 0.033] \| 0.033 [0.032, 0.033] |
+
+**Other bounds held.**
+
+- `sng_judy_1k` inserts, the named likeliest falsifier: G/M upper ends 0.981 to 0.995 over the four W and both runs, none below 0.98 in both runs; the ratios read 0.963 to 0.989.
+- No other primary cell-metric has its G/M upper end below 0.98 in both runs. `sng_sm_hashjudy_big` gets read G/M 1.660 [1.647, 1.673] | 1.668 [1.646, 1.684] at W = 1 and 1.809 [1.800, 1.817] | 1.810 [1.801, 1.818] at W = 4.
+- Callgrind at `8e6d2edc7`, exact counts against main: the re-registered arms read at most +0.711% (neighbour searches), +1.058% (`judyl_insert/sequential`, x86-64 smoke) and +0.755% (`judyl_del`); `judyl_get` unchanged on 8 arms; `judyl_small_array` k32 +6.094% and +5.401%, k64 +4.598% and +4.084%; T3 and T4 as in the first result; engine arms 0 of 303, 0 of 50 and 0 of 12 moved; `judy1_*` and `judysl_*` 0 of 33 moved.
+- The six `judyhs_long_*` arms read −0.143% to +0.089% against main. They are not exact on this instrument: three CI runs of the same shim code read three different counts. The six `judyhs_*` `fixed8` arms are identical.
+- wasm32 and wasm64 fuel: the 60 arm readings equal those of main's fuel run at `aacc1add4`, whose engine and wasm crates differ from `87ca5c134` by the version string only.
+
+**The comparison with stock, not gated: INTERMEDIATE.** `hashjudy-puts-per-sec` G/S reads 1.051 [1.043, 1.057] | 1.037 [1.029, 1.044] and 1.076 [1.072, 1.081] | 1.077 [1.074, 1.081] on `big`, and 0.906 [0.898, 0.913] | 0.901 [0.895, 0.908] and 0.905 [0.900, 0.910] | 0.905 [0.900, 0.909] on `default`. `max-rss` G/S reads 0.997 [0.992, 1.001] | 0.997 [0.993, 1.001] and 0.994 [0.992, 0.997] | 0.994 [0.992, 0.996] on `big`, and 1.606 [1.601, 1.611] | 1.604 [1.599, 1.609] and 1.608 [1.603, 1.611] | 1.610 [1.605, 1.614] on `default`. On main the same cells read puts 0.106 to 0.157 and max-rss 49.4 to 77.3.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
