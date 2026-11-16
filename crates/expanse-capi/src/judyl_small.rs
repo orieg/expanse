@@ -128,16 +128,19 @@ impl Small {
 
     /// Keys strictly below `k`: the position `k` holds or would take.
     fn rank(self, k: u64) -> usize {
-        let (mut lo, mut hi) = (0, self.pop());
-        while lo < hi {
-            let mid = lo + (hi - lo) / 2;
-            if self.key(mid) < k {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
+        // Branch-free: each step is a conditional move, so the only branches
+        // are the loop's, whose count depends on `pop` alone.
+        let (mut base, mut len) = (0, self.pop());
+        if len == 0 {
+            return 0;
         }
-        lo
+        while len > 1 {
+            let half = len / 2;
+            base =
+                core::hint::select_unpredictable(self.key(base + half - 1) < k, base + half, base);
+            len -= half;
+        }
+        base + usize::from(self.key(base) < k)
     }
 
     /// The position of `k`, if present.
