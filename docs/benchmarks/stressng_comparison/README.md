@@ -1866,6 +1866,56 @@ A frozen record (§8.8 commit 2), never reconciled in place with what the runs m
 
 **Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved (§8.19). A PASS with T2 pending is recorded as PASS on the reference host only. The PR carries an `allow-regression:` line only if a named arm exceeds +0.1%, citing this record and the measuring run, and naming each such arm.
 
+### Small-array form result: FAIL on the Callgrind bounds
+
+(measured: x86-64 CI runner and AArch64 Neoverse N2 CI runner, head `c7e382af6` of PR 1751, [run 43840223080](https://github.com/orieg/expanse/actions/runs/43840223080); main's counts from [run 43813301782](https://github.com/orieg/expanse/actions/runs/43813301782); exact instruction counts, so no interval applies) (workload: `capi_vs_stock`, and the capi smoke harness where named)
+
+The verdict rule above gives FAIL. Nine arm readings exceed their bounds; no bound was moved and the change was not merged. The stress-ng runs were not started, so T1, T2 and every stress-ng bound are unmeasured, as is wasm fuel.
+
+| bound | arm | `_expanse` | `_expanse_dl` |
+|---|---|---|---|
+| read-only ≤ +0.1% | `judyl_first/random` | +0.532% | +0.703% |
+| read-only ≤ +0.1% | `judyl_last/random` | +0.515% | +0.684% |
+| read-only ≤ +0.1% | `judyl_next/random` | +0.538% | +0.711% |
+| read-only ≤ +0.1% | `judyl_prev/random` | +0.521% | +0.691% |
+| named ≤ +0.5% | `judyl_insert/sequential` | +0.910% | +0.537% |
+| named ≤ +0.5% | `judyl_del/clustered` | +0.755% | −0.740% |
+| named ≤ +0.5% | `judyl_del/random` | +0.642% | −0.635% |
+| named ≤ +0.5% | smoke `judyl_insert/sequential`, x86-64 | +1.058% | not an arm |
+| named ≤ +0.5% | smoke `judyl_insert/sequential`, AArch64 | +0.573% | not an arm |
+
+- The neighbour searches retire 3 (`_expanse`) and 4 (`_expanse_dl`) more instructions per call on the full-map path, 90,000 and 120,000 over 30,000 calls. On AArch64 the disassembly shows the untagging of the array word and one more saved register; the x86-64 cause is not attributed.
+- The first record's derivation "its instruction count is expected unchanged" for the full-map path is refuted for the four neighbour searches, and holds for `judyl_get` (unchanged on every arm).
+- Held: engine arms 0 of 305 moved; `judy1_*` and `judysl_*` 0 moved; `judyl_count`, `judyl_by_count` and the four `judyl_*_empty` within −0.022% to +0.035%; `judyl_churn`, `judyl_free` and `judyl_insert` random and clustered within −0.557% to +0.000%; `judyl_small_array` k32 +6.094% and +5.401%, k64 +4.598% and +4.084%; T3 exact; T4 −91.7% to −65.5% (`_expanse`) and −92.1% to −67.1% (`_expanse_dl`); Tier-1 Miri, ASan, `memory-budget` and the oracle pass.
+
+## Second pre-registration: the small-array form with its measured full-map cost named ([#1742](https://github.com/orieg/expanse/issues/1742))
+
+A frozen record, never reconciled in place with what the runs measure. Owner decision (2026-11-16): re-register the change of the record above after its FAIL, with the arms that broke their bounds named under the exemption. The change under test is the same design at PR 1751.
+
+**What this record can and cannot conclude.** The bounds on the arms below are set after their counts were read, on an instrument that is exact and will read the same count on the same code. They are a cost the owner accepts, not a prediction, and they carry no evidential weight. For that reason the best label this record can give is **INTERMEDIATE** (§8.19); PASS is not available. What remains a prediction, made before any data, is the real-program cell (T1, T2), every stress-ng bound and wasm fuel: none has been run on this build.
+
+**Observed before this commit, and therefore not evidence for it.** Everything in the result section above, and everything the first record lists as observed.
+
+**Targets.** T1, T2, T3 and T4 of the first record, unchanged.
+
+**Bounds.** Every row of the first record's table stands, except that these arms leave their rows and are named here under the owner exemption (2026-11-15), `_expanse` and `_expanse_dl`, in `vs_stock` and the capi smoke harness on x86-64 and AArch64:
+
+| arm | first bound | bound here | reading it was rounded up from |
+|---|---|---|---|
+| `judyl_first`, `judyl_last`, `judyl_next`, `judyl_prev` | ≤ +0.1% | ≤ +1.0% | +0.711% |
+| `judyl_insert/sequential` | ≤ +0.5% | ≤ +1.25% | +1.058% |
+| `judyl_del`, every distribution | ≤ +0.5% | ≤ +1.0% | +0.755% |
+
+- `judyl_get`, `judyl_count`, `judyl_by_count` and the four `judyl_*_empty` stay at ≤ +0.1%. `judyl_insert` random and clustered, `judyl_churn` and `judyl_free` stay at ≤ +0.5%. `judyl_small_array` k32 and k64 stay at ≤ +12% and ≤ +8%.
+- The bounds apply to the head that is measured. A later commit to the PR is re-read against them, and none is raised.
+
+**Fresh measurements required.**
+
+- The Callgrind jobs (x86-64 deterministic, x86-64 smoke, AArch64) and wasm32 and wasm64 fuel on the PR head after it is brought up to date with main, against main's counts at that merge base.
+- The stress-ng increment runs of the first record, two independent runs per host, none of which exists.
+
+**Verdict.** INTERMEDIATE if every target and every bound holds, with T2 pending recorded as INTERMEDIATE on the reference host only. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved again. Whether an INTERMEDIATE change merges is the owner's decision, made on the recorded result. The PR then carries an `allow-regression:` line citing this record and the measuring run, and naming each arm over +0.1%.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
