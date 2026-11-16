@@ -105,12 +105,19 @@ fn held(keys: usize) -> (usize, usize) {
         // call that mutates the array.
         unsafe {
             for i in 0..keys {
-                *JudyLIns(&raw mut arr, key(i), null_mut()).cast::<Word>() = i;
+                let slot = JudyLIns(&raw mut arr, key(i), null_mut()).cast::<Word>();
+                assert!(
+                    !slot.is_null() && slot as usize != usize::MAX,
+                    "JudyLIns failed"
+                );
+                *slot = i;
             }
             observed = live();
             assert_eq!(JudyLCount(arr, 0, Word::MAX, null_mut()), keys);
             for i in 0..keys {
-                assert_eq!(*JudyLGet(arr, key(i), null_mut()).cast::<Word>(), i);
+                let slot = JudyLGet(arr, key(i), null_mut()).cast::<Word>();
+                assert!(!slot.is_null(), "{keys} keys: key {i} is absent");
+                assert_eq!(*slot, i);
             }
             if by_delete {
                 for i in 0..keys {
