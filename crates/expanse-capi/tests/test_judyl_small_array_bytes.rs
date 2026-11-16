@@ -116,8 +116,10 @@ fn held(keys: usize) -> (usize, usize) {
             assert_eq!(JudyLCount(arr, 0, Word::MAX, null_mut()), keys);
             for i in 0..keys {
                 let slot = JudyLGet(arr, key(i), null_mut()).cast::<Word>();
-                assert!(!slot.is_null(), "{keys} keys: key {i} is absent");
-                assert_eq!(*slot, i);
+                // An `if`, not an `assert!`: the null test has to dominate
+                // the read for a static analyser to see it as a guard.
+                let value = if slot.is_null() { None } else { Some(*slot) };
+                assert_eq!(value, Some(i), "{keys} keys: key {i}");
             }
             if by_delete {
                 for i in 0..keys {
