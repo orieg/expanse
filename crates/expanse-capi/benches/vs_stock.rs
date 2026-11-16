@@ -56,14 +56,14 @@
 //! |---|---|
 //! | `workload_id` | `capi_vs_stock` |
 //! | `group` | 1 |
-//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000`; the `judysl_*`, `judyhs_*` and `judyhs_long_*` arms use `POP`; the `judy1_colour_*` arms (#1682) replay one breadth-first search over 10k (`n10k`) or 100k (`n100k`) vertices |
-//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build; `judy1_colour_*` set vertex ids in breadth-first visit order |
-//! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0; `judy1_colour_*`: the search's 12n + 2 Judy1 calls, once |
-//! | `hit_rate` | 100% / mixed; `judyhs_get_*` and `judyhs_long_get_*` 50% (every present key and `POP` absent ones, shuffled together); `judy1_colour_*` as the search produces it |
-//! | `miss_gen_method` | Interleaved keys; `judyhs_get_*` continues `fixed8_stream` past the population, rejected on membership; `judyhs_long_get_*` continues `route_keys` past the population (an injective generator, so absent by construction) |
+//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000`; the `judysl_*`, `judyhs_*` and `judyhs_long_*` arms use `POP`; the `judy1_colour_*` arms (#1682) replay one breadth-first search over 10k (`n10k`) or 100k (`n100k`) vertices; the `judyl_small_array_*` arms (#1742) run 1,000 arrays of 1, 10, 20, 31, 32 or 64 keys (`k1` to `k64`) |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build; `judy1_colour_*` set vertex ids in breadth-first visit order; `judyl_small_array_*` inserts each array's keys as drawn |
+//! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0; `judy1_colour_*`: the search's 12n + 2 Judy1 calls, once; `judyl_next_*` and `judyl_prev_*` one whole traversal, the four `judyl_*_empty_*` families every 64th probe (469 searches), `judyl_free_*` one call; `judyl_small_array_*`: per array k inserts, 2k lookups, one traversal, one count, one by-count, one `JudyLMemUsed`, k or k/2 deletes and one `JudyLFreeArray` |
+//! | `hit_rate` | 100% / mixed; `judyhs_get_*` and `judyhs_long_get_*` 50% (every present key and `POP` absent ones, shuffled together); `judy1_colour_*` as the search produces it; `judyl_small_array_*` lookups 50% (each array's k keys and k absent ones) |
+//! | `miss_gen_method` | Interleaved keys; `judyhs_get_*` continues `fixed8_stream` past the population, rejected on membership; `judyhs_long_get_*` continues `route_keys` past the population (an injective generator, so absent by construction); `judyl_small_array_*` continues its key generator past the population, rejected on membership |
 //! | `value_dereference` | `*slot` dereferenced |
 //! | `key_shape` | `Word` for the `judyl_*`/`judy1_*` arms; NUL-terminated fixed-width strings for `judysl_*`, derived from the same `keys(dist)` so the three distributions carry over; 8-byte zmap response-dedup keys for `judyhs_*` (`fixed8_stream`: a 198.18.0.0/15 address and one of four ports, big-endian, status and padding zero, in a scan's pseudo-random order); ~40-byte route strings (`route_keys`: `/api/v2/tenants/{:06}/resources/{:04}`, the engine's `routes` shape) for `judyhs_long_*`, every key longer than 8 bytes. Absolute counts for the string arms include `strlen` on both sides and are **not** comparable to the `Word`-keyed arms; their ratio is. |
-//! | `measured_region` | Deliberately leaks to exclude drop |
+//! | `measured_region` | Deliberately leaks to exclude drop; `judyl_del_*`, `judyl_free_*` and `judyl_small_array_*` measure teardown itself, so they free |
 //! | `arm_symmetry` | **Three arms**: `*_expanse` (rlib, LTO-linked), `*_expanse_dl` (dlopen'd cdylib), and `*_stock` (dlopen'd libjudy). `*_expanse_dl` vs `*_stock` is symmetric; `*_expanse` vs `*_stock` is asymmetric (LTO bias). libexpanse's JudyHS hashes with a per-process `RandomState` seed, so the `judyhs_*_expanse*` counts can move between runs |
 //! | `statistics` | iai Callgrind exact counts (simulated 8 MiB LL) |
 //! | `verdict` | **PASS** `[verified: RUN (CI instruction-counts)]`: Carrying both `expanse` and `expanse_dl` isolates LTO delta; 1.5M population is load-bearing in #456. |
@@ -1536,6 +1536,610 @@ fn judy1_colour_stock(c: ColourTape) -> Word {
     black_box(unsafe { colour_map_common::replay(&c.tape, c.j) })
 }
 
+// ---- JudyL: the entry points beyond Ins / Get / churn (#1742) ----------
+//
+// Delete, count, by-count, the four neighbour searches, the four empty-index
+// searches and `JudyLFreeArray` had no arm. Each family below measures one
+// entry point over the `POP` array, and `judyl_small_array` measures whole
+// lives of arrays holding 1 to 64 keys, the shape a hash table of JudyL
+// buckets produces. Every arm reaches its library through one `JudyL` table
+// of entry points, so the three arms of a family run one body.
+
+type FlCount = unsafe extern "C" fn(*const c_void, Word, Word, *mut c_void) -> Word;
+type FlByCount = unsafe extern "C" fn(*const c_void, Word, *mut Word, *mut c_void) -> *mut c_void;
+type FlNav = unsafe extern "C" fn(*const c_void, *mut Word, *mut c_void) -> *mut c_void;
+type FlEmpty = unsafe extern "C" fn(*const c_void, *mut Word, *mut c_void) -> c_int;
+type FlMem = unsafe extern "C" fn(*const c_void) -> Word;
+
+/// One library's JudyL entry points, resolved ahead of the measured region.
+#[derive(Clone, Copy)]
+struct JudyL {
+    ins: FpIns,
+    get: FpGet,
+    del: FpDel,
+    count: FlCount,
+    by_count: FlByCount,
+    first: FlNav,
+    next: FlNav,
+    last: FlNav,
+    prev: FlNav,
+    first_empty: FlEmpty,
+    next_empty: FlEmpty,
+    last_empty: FlEmpty,
+    prev_empty: FlEmpty,
+    free: FFree1,
+    mem_used: FlMem,
+}
+
+impl Lib {
+    fn judyl(&self) -> JudyL {
+        JudyL {
+            ins: self.sym(c"JudyLIns"),
+            get: self.sym(c"JudyLGet"),
+            del: self.sym(c"JudyLDel"),
+            count: self.sym(c"JudyLCount"),
+            by_count: self.sym(c"JudyLByCount"),
+            first: self.sym(c"JudyLFirst"),
+            next: self.sym(c"JudyLNext"),
+            last: self.sym(c"JudyLLast"),
+            prev: self.sym(c"JudyLPrev"),
+            first_empty: self.sym(c"JudyLFirstEmpty"),
+            next_empty: self.sym(c"JudyLNextEmpty"),
+            last_empty: self.sym(c"JudyLLastEmpty"),
+            prev_empty: self.sym(c"JudyLPrevEmpty"),
+            free: self.sym(c"JudyLFreeArray"),
+            mem_used: self.sym(c"JudyLMemUsed"),
+        }
+    }
+}
+
+unsafe extern "C" fn rlib_jl_ins(p: *mut *mut c_void, k: Word, pj: *mut c_void) -> *mut c_void {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::JudyLIns(p, k, pj.cast()) }
+}
+unsafe extern "C" fn rlib_jl_get(p: *const c_void, k: Word, pj: *mut c_void) -> *mut c_void {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::JudyLGet(p, k, pj.cast()) }
+}
+unsafe extern "C" fn rlib_jl_del(p: *mut *mut c_void, k: Word, pj: *mut c_void) -> c_int {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::JudyLDel(p, k, pj.cast()) }
+}
+unsafe extern "C" fn rlib_jl_count(p: *const c_void, a: Word, b: Word, pj: *mut c_void) -> Word {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::JudyLCount(p, a, b, pj.cast()) }
+}
+unsafe extern "C" fn rlib_jl_by_count(
+    p: *const c_void,
+    nth: Word,
+    pi: *mut Word,
+    pj: *mut c_void,
+) -> *mut c_void {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::JudyLByCount(p, nth, pi, pj.cast()) }
+}
+unsafe extern "C" fn rlib_jl_free(p: *mut *mut c_void, pj: *mut c_void) -> Word {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::JudyLFreeArray(p, pj.cast()) }
+}
+unsafe extern "C" fn rlib_jl_mem_used(p: *const c_void) -> Word {
+    // SAFETY: forwarded unchanged.
+    unsafe { expanse::JudyLMemUsed(p) }
+}
+
+macro_rules! rlib_jl_search {
+    ($($wrapper:ident => $entry:ident -> $ret:ty;)*) => {$(
+        unsafe extern "C" fn $wrapper(p: *const c_void, pi: *mut Word, pj: *mut c_void) -> $ret {
+            // SAFETY: forwarded unchanged.
+            unsafe { expanse::$entry(p, pi, pj.cast()) }
+        }
+    )*};
+}
+rlib_jl_search! {
+    rlib_jl_first => JudyLFirst -> *mut c_void;
+    rlib_jl_next => JudyLNext -> *mut c_void;
+    rlib_jl_last => JudyLLast -> *mut c_void;
+    rlib_jl_prev => JudyLPrev -> *mut c_void;
+    rlib_jl_first_empty => JudyLFirstEmpty -> c_int;
+    rlib_jl_next_empty => JudyLNextEmpty -> c_int;
+    rlib_jl_last_empty => JudyLLastEmpty -> c_int;
+    rlib_jl_prev_empty => JudyLPrevEmpty -> c_int;
+}
+
+/// The rlib's entry points, linked into the harness.
+fn judyl_rlib() -> JudyL {
+    JudyL {
+        ins: rlib_jl_ins,
+        get: rlib_jl_get,
+        del: rlib_jl_del,
+        count: rlib_jl_count,
+        by_count: rlib_jl_by_count,
+        first: rlib_jl_first,
+        next: rlib_jl_next,
+        last: rlib_jl_last,
+        prev: rlib_jl_prev,
+        first_empty: rlib_jl_first_empty,
+        next_empty: rlib_jl_next_empty,
+        last_empty: rlib_jl_last_empty,
+        prev_empty: rlib_jl_prev_empty,
+        free: rlib_jl_free,
+        mem_used: rlib_jl_mem_used,
+    }
+}
+
+/// A `POP` array built through `j`, its shuffled probe order, and `j`.
+struct JlBuilt {
+    arr: *mut c_void,
+    probes: Vec<Word>,
+    j: JudyL,
+}
+
+// SAFETY: the array is created and consumed on the harness thread; the fn
+// pointers lead into a library that is never `dlclose`d.
+unsafe impl Send for JlBuilt {}
+
+fn jl_build(dist: &str, j: JudyL) -> JlBuilt {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudyL usage; the slot is written before the next call.
+    unsafe {
+        for &k in &ks {
+            *(j.ins)(&raw mut arr, k, null_mut()).cast::<Word>() = k;
+        }
+    }
+    JlBuilt { arr, probes, j }
+}
+fn jl_expanse(dist: &str) -> JlBuilt {
+    jl_build(dist, judyl_rlib())
+}
+fn jl_expanse_dl(dist: &str) -> JlBuilt {
+    jl_build(dist, Lib::ours().judyl())
+}
+fn jl_stock(dist: &str) -> JlBuilt {
+    jl_build(dist, Lib::stock().judyl())
+}
+
+/// Deletes every key in probe order; the last delete empties the array.
+fn jl_del(mut b: JlBuilt) -> Word {
+    let mut sink = 0usize;
+    // SAFETY: `b.arr` was built through `b.j`.
+    unsafe {
+        for &k in &b.probes {
+            sink += (b.j.del)(&raw mut b.arr, black_box(k), null_mut()) as Word;
+        }
+    }
+    black_box(sink ^ map_len_sentinel(b.arr))
+}
+
+/// One `JudyLCount` per probe, over the range between it and the next probe.
+fn jl_count(b: &JlBuilt) -> Word {
+    let n = b.probes.len();
+    let mut sink = 0usize;
+    // SAFETY: `b.arr` was built through `b.j`.
+    unsafe {
+        for i in 0..n {
+            let (x, y) = (b.probes[i], b.probes[(i + 1) % n]);
+            sink ^= (b.j.count)(b.arr, black_box(x.min(y)), black_box(x.max(y)), null_mut());
+        }
+    }
+    black_box(sink)
+}
+
+/// One `JudyLByCount` per probe, at a rank the probe selects.
+fn jl_by_count(b: &JlBuilt) -> Word {
+    let n = b.probes.len();
+    let mut sink = 0usize;
+    // SAFETY: `b.arr` was built through `b.j`; a returned slot is live until
+    // the next mutation.
+    unsafe {
+        for &k in &b.probes {
+            let mut idx: Word = 0;
+            let nth = black_box(k % n + 1);
+            let slot = (b.j.by_count)(b.arr, nth, &raw mut idx, null_mut()).cast::<Word>();
+            if !slot.is_null() {
+                sink ^= idx ^ *slot;
+            }
+        }
+    }
+    black_box(sink)
+}
+
+/// One neighbour search per probe, from the index one step past the probe:
+/// `step` is `1` for `JudyLFirst` and `-1` for `JudyLLast`.
+fn jl_seek(b: &JlBuilt, seek: FlNav, step: isize) -> Word {
+    let mut sink = 0usize;
+    // SAFETY: `b.arr` was built through `b.j`; a returned slot is live until
+    // the next mutation.
+    unsafe {
+        for &k in &b.probes {
+            let mut idx = black_box(k.wrapping_add_signed(step));
+            let slot = seek(b.arr, &raw mut idx, null_mut()).cast::<Word>();
+            if !slot.is_null() {
+                sink ^= idx ^ *slot;
+            }
+        }
+    }
+    black_box(sink)
+}
+
+/// One whole traversal: `start` from `from`, then `advance` until it misses.
+fn jl_walk(b: &JlBuilt, start: FlNav, advance: FlNav, from: Word) -> Word {
+    let mut sink = 0usize;
+    let mut idx = from;
+    // SAFETY: `b.arr` was built through `b.j`; a returned slot is live until
+    // the next mutation.
+    unsafe {
+        let mut slot = start(b.arr, &raw mut idx, null_mut()).cast::<Word>();
+        while !slot.is_null() {
+            sink ^= idx ^ *slot;
+            slot = advance(b.arr, &raw mut idx, null_mut()).cast::<Word>();
+        }
+    }
+    black_box(sink)
+}
+
+/// Every `EMPTY_STRIDE`th probe runs an empty-index search: 469 of `POP`.
+/// A search from inside a 256-key run costs libexpanse some 340,000
+/// instructions, so one per probe would be 10 billion per arm.
+const EMPTY_STRIDE: usize = 64;
+
+/// One empty-index search per sampled probe, starting at the probe (a
+/// present key inside a run of 256).
+fn jl_empty(b: &JlBuilt, search: FlEmpty) -> Word {
+    let mut sink = 0usize;
+    // SAFETY: `b.arr` was built through `b.j`.
+    unsafe {
+        for &k in b.probes.iter().step_by(EMPTY_STRIDE) {
+            let mut idx = black_box(k);
+            sink ^= search(b.arr, &raw mut idx, null_mut()) as Word ^ idx;
+        }
+    }
+    black_box(sink)
+}
+
+/// `JudyLFreeArray` of the whole `POP` array, once.
+fn jl_free(mut b: JlBuilt) -> Word {
+    // SAFETY: `b.arr` was built through `b.j` and is not used again.
+    black_box(unsafe { (b.j.free)(&raw mut b.arr, null_mut()) })
+}
+
+/// Arrays per `judyl_small_array` arm.
+const SMALL_ARRAYS: usize = 1_000;
+
+/// Keys and absent probes for `SMALL_ARRAYS` arrays of `k` keys each.
+struct JlSmall {
+    k: usize,
+    keys: Vec<Word>,
+    misses: Vec<Word>,
+    j: JudyL,
+}
+
+// SAFETY: fn pointers into a library that is never `dlclose`d; used only on
+// the harness thread that built the struct.
+unsafe impl Send for JlSmall {}
+
+fn jl_small_feed(k: usize, j: JudyL) -> JlSmall {
+    let mut rng = XorShift(0x5EED_0A11_A22A_1742);
+    let keys: Vec<Word> = (0..SMALL_ARRAYS * k).map(|_| rng.next() as Word).collect();
+    let present: std::collections::HashSet<Word> = keys.iter().copied().collect();
+    let mut misses = Vec::with_capacity(keys.len());
+    // The same generator, rejected on membership.
+    while misses.len() < keys.len() {
+        let m = rng.next() as Word;
+        if !present.contains(&m) {
+            misses.push(m);
+        }
+    }
+    JlSmall { k, keys, misses, j }
+}
+fn jl_small_expanse(k: usize) -> JlSmall {
+    jl_small_feed(k, judyl_rlib())
+}
+fn jl_small_expanse_dl(k: usize) -> JlSmall {
+    jl_small_feed(k, Lib::ours().judyl())
+}
+fn jl_small_stock(k: usize) -> JlSmall {
+    jl_small_feed(k, Lib::stock().judyl())
+}
+
+/// `SMALL_ARRAYS` whole array lives of `k` keys: insert `k`, look each up,
+/// probe `k` absent keys, traverse, count, take the median by rank, read
+/// `JudyLMemUsed`, then delete every key (even arrays, which the last delete
+/// empties) or half of them followed by `JudyLFreeArray` (odd arrays).
+/// Creation and teardown are the work measured, so nothing is leaked.
+fn jl_small(s: &JlSmall) -> Word {
+    let j = s.j;
+    let mut sink = 0usize;
+    let lives = s.keys.chunks_exact(s.k).zip(s.misses.chunks_exact(s.k));
+    // SAFETY: standard JudyL usage; each slot is used before the next call
+    // that mutates its array.
+    unsafe {
+        for (a, (ks, ms)) in lives.enumerate() {
+            let mut arr: *mut c_void = null_mut();
+            for &k in ks {
+                *(j.ins)(&raw mut arr, black_box(k), null_mut()).cast::<Word>() = k;
+            }
+            for &k in ks {
+                sink ^= *(j.get)(arr, black_box(k), null_mut()).cast::<Word>();
+            }
+            for &m in ms {
+                sink += (j.get)(arr, black_box(m), null_mut()).is_null() as Word;
+            }
+            let mut idx: Word = 0;
+            let mut slot = (j.first)(arr, &raw mut idx, null_mut()).cast::<Word>();
+            while !slot.is_null() {
+                sink ^= idx ^ *slot;
+                slot = (j.next)(arr, &raw mut idx, null_mut()).cast::<Word>();
+            }
+            sink ^= (j.count)(arr, 0, Word::MAX, null_mut());
+            let mut median: Word = 0;
+            if !(j.by_count)(arr, s.k / 2 + 1, &raw mut median, null_mut()).is_null() {
+                sink ^= median;
+            }
+            black_box((j.mem_used)(arr));
+            let deleted = if a % 2 == 0 { s.k } else { s.k / 2 };
+            for &k in ks[..deleted].iter().rev() {
+                sink += (j.del)(&raw mut arr, black_box(k), null_mut()) as Word;
+            }
+            sink += ((j.free)(&raw mut arr, null_mut()) != 0) as Word;
+        }
+    }
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse)]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse)]
+fn judyl_del_expanse(b: JlBuilt) -> Word {
+    jl_del(b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse_dl)]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse_dl)]
+fn judyl_del_expanse_dl(b: JlBuilt) -> Word {
+    jl_del(b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_stock)]
+#[bench::clustered(args = ("clustered",), setup = jl_stock)]
+fn judyl_del_stock(b: JlBuilt) -> Word {
+    jl_del(b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse)]
+fn judyl_count_expanse(b: JlBuilt) -> Word {
+    jl_count(&b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse_dl)]
+fn judyl_count_expanse_dl(b: JlBuilt) -> Word {
+    jl_count(&b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_stock)]
+fn judyl_count_stock(b: JlBuilt) -> Word {
+    jl_count(&b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse)]
+fn judyl_by_count_expanse(b: JlBuilt) -> Word {
+    jl_by_count(&b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse_dl)]
+fn judyl_by_count_expanse_dl(b: JlBuilt) -> Word {
+    jl_by_count(&b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_stock)]
+fn judyl_by_count_stock(b: JlBuilt) -> Word {
+    jl_by_count(&b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse)]
+fn judyl_first_expanse(b: JlBuilt) -> Word {
+    jl_seek(&b, b.j.first, 1)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse_dl)]
+fn judyl_first_expanse_dl(b: JlBuilt) -> Word {
+    jl_seek(&b, b.j.first, 1)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_stock)]
+fn judyl_first_stock(b: JlBuilt) -> Word {
+    jl_seek(&b, b.j.first, 1)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse)]
+fn judyl_last_expanse(b: JlBuilt) -> Word {
+    jl_seek(&b, b.j.last, -1)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse_dl)]
+fn judyl_last_expanse_dl(b: JlBuilt) -> Word {
+    jl_seek(&b, b.j.last, -1)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_stock)]
+fn judyl_last_stock(b: JlBuilt) -> Word {
+    jl_seek(&b, b.j.last, -1)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse)]
+fn judyl_next_expanse(b: JlBuilt) -> Word {
+    jl_walk(&b, b.j.first, b.j.next, 0)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse_dl)]
+fn judyl_next_expanse_dl(b: JlBuilt) -> Word {
+    jl_walk(&b, b.j.first, b.j.next, 0)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_stock)]
+fn judyl_next_stock(b: JlBuilt) -> Word {
+    jl_walk(&b, b.j.first, b.j.next, 0)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse)]
+fn judyl_prev_expanse(b: JlBuilt) -> Word {
+    jl_walk(&b, b.j.last, b.j.prev, Word::MAX)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse_dl)]
+fn judyl_prev_expanse_dl(b: JlBuilt) -> Word {
+    jl_walk(&b, b.j.last, b.j.prev, Word::MAX)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_stock)]
+fn judyl_prev_stock(b: JlBuilt) -> Word {
+    jl_walk(&b, b.j.last, b.j.prev, Word::MAX)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse)]
+fn judyl_first_empty_expanse(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.first_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse_dl)]
+fn judyl_first_empty_expanse_dl(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.first_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_stock)]
+fn judyl_first_empty_stock(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.first_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse)]
+fn judyl_next_empty_expanse(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.next_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse_dl)]
+fn judyl_next_empty_expanse_dl(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.next_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_stock)]
+fn judyl_next_empty_stock(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.next_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse)]
+fn judyl_last_empty_expanse(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.last_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse_dl)]
+fn judyl_last_empty_expanse_dl(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.last_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_stock)]
+fn judyl_last_empty_stock(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.last_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse)]
+fn judyl_prev_empty_expanse(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.prev_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse_dl)]
+fn judyl_prev_empty_expanse_dl(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.prev_empty)
+}
+
+#[library_benchmark]
+#[bench::clustered(args = ("clustered",), setup = jl_stock)]
+fn judyl_prev_empty_stock(b: JlBuilt) -> Word {
+    jl_empty(&b, b.j.prev_empty)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse)]
+fn judyl_free_expanse(b: JlBuilt) -> Word {
+    jl_free(b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_expanse_dl)]
+fn judyl_free_expanse_dl(b: JlBuilt) -> Word {
+    jl_free(b)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = jl_stock)]
+fn judyl_free_stock(b: JlBuilt) -> Word {
+    jl_free(b)
+}
+
+#[library_benchmark]
+#[bench::k1(args = (1,), setup = jl_small_expanse)]
+#[bench::k10(args = (10,), setup = jl_small_expanse)]
+#[bench::k20(args = (20,), setup = jl_small_expanse)]
+#[bench::k31(args = (31,), setup = jl_small_expanse)]
+#[bench::k32(args = (32,), setup = jl_small_expanse)]
+#[bench::k64(args = (64,), setup = jl_small_expanse)]
+fn judyl_small_array_expanse(s: JlSmall) -> Word {
+    jl_small(&s)
+}
+
+#[library_benchmark]
+#[bench::k1(args = (1,), setup = jl_small_expanse_dl)]
+#[bench::k10(args = (10,), setup = jl_small_expanse_dl)]
+#[bench::k20(args = (20,), setup = jl_small_expanse_dl)]
+#[bench::k31(args = (31,), setup = jl_small_expanse_dl)]
+#[bench::k32(args = (32,), setup = jl_small_expanse_dl)]
+#[bench::k64(args = (64,), setup = jl_small_expanse_dl)]
+fn judyl_small_array_expanse_dl(s: JlSmall) -> Word {
+    jl_small(&s)
+}
+
+#[library_benchmark]
+#[bench::k1(args = (1,), setup = jl_small_stock)]
+#[bench::k10(args = (10,), setup = jl_small_stock)]
+#[bench::k20(args = (20,), setup = jl_small_stock)]
+#[bench::k31(args = (31,), setup = jl_small_stock)]
+#[bench::k32(args = (32,), setup = jl_small_stock)]
+#[bench::k64(args = (64,), setup = jl_small_stock)]
+fn judyl_small_array_stock(s: JlSmall) -> Word {
+    jl_small(&s)
+}
+
 library_benchmark_group!(
     name = vs_stock;
     benchmarks =
@@ -1580,7 +2184,46 @@ library_benchmark_group!(
         judyhs_long_del_stock,
         judy1_colour_expanse,
         judy1_colour_expanse_dl,
-        judy1_colour_stock
+        judy1_colour_stock,
+        judyl_del_expanse,
+        judyl_del_expanse_dl,
+        judyl_del_stock,
+        judyl_count_expanse,
+        judyl_count_expanse_dl,
+        judyl_count_stock,
+        judyl_by_count_expanse,
+        judyl_by_count_expanse_dl,
+        judyl_by_count_stock,
+        judyl_first_expanse,
+        judyl_first_expanse_dl,
+        judyl_first_stock,
+        judyl_last_expanse,
+        judyl_last_expanse_dl,
+        judyl_last_stock,
+        judyl_next_expanse,
+        judyl_next_expanse_dl,
+        judyl_next_stock,
+        judyl_prev_expanse,
+        judyl_prev_expanse_dl,
+        judyl_prev_stock,
+        judyl_first_empty_expanse,
+        judyl_first_empty_expanse_dl,
+        judyl_first_empty_stock,
+        judyl_next_empty_expanse,
+        judyl_next_empty_expanse_dl,
+        judyl_next_empty_stock,
+        judyl_last_empty_expanse,
+        judyl_last_empty_expanse_dl,
+        judyl_last_empty_stock,
+        judyl_prev_empty_expanse,
+        judyl_prev_empty_expanse_dl,
+        judyl_prev_empty_stock,
+        judyl_free_expanse,
+        judyl_free_expanse_dl,
+        judyl_free_stock,
+        judyl_small_array_expanse,
+        judyl_small_array_expanse_dl,
+        judyl_small_array_stock
 );
 
 #[cfg(target_os = "linux")]
