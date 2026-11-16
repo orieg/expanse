@@ -1046,7 +1046,8 @@ mod oracle {
             }
         };
 
-        let shapes: [(&str, fn(usize) -> Word); 4] = [
+        type Shape = (&'static str, fn(usize) -> Word);
+        let shapes: [Shape; 4] = [
             ("dense", |i| i as Word),
             ("spread", |i| {
                 (i as Word + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)
@@ -1064,6 +1065,9 @@ mod oracle {
                 let put = |ours: &mut *mut c_void, theirs: &mut *mut c_void, k: Word| {
                     let s1 = JudyLIns(ours, k, null_mut()).cast::<Word>();
                     let s2 = o_ins(theirs, k, null_mut()).cast::<Word>();
+                    if s1.is_null() || s2.is_null() || s1 == PJERR.cast() || s2 == PJERR.cast() {
+                        panic!("{shape}: ins {k:#x} returned no slot");
+                    }
                     assert_eq!(*s1, *s2, "{shape}: ins existing value {k:#x}");
                     *s1 = !k;
                     *s2 = !k;

@@ -473,8 +473,14 @@ mod tests {
             if let Some(b) = g.0 {
                 assert_eq!(b.pop(), model.len());
                 for (k, v) in &model {
-                    // SAFETY: the slot is live until the next remove.
-                    assert_eq!(unsafe { *b.get(*k) }, *v);
+                    let slot = b.get(*k);
+                    let got = if slot.is_null() {
+                        None
+                    } else {
+                        // SAFETY: the slot is live until the next remove.
+                        Some(unsafe { *slot })
+                    };
+                    assert_eq!(got, Some(*v));
                 }
             }
         }

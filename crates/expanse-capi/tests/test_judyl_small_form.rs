@@ -38,6 +38,20 @@ fn is_map(arr: *const c_void) -> bool {
     arr.addr() & 1 != 0
 }
 
+/// The live slot behind a pointer an entry point returned. The null test is
+/// an `if`, which a static analyser reads as the guard of the dereference.
+///
+/// # Safety
+/// `slot` is null, `PJERR`, or a value slot that is live and unaliased for
+/// as long as the returned reference is used.
+unsafe fn live<'a>(slot: *mut Word) -> &'a mut Word {
+    if slot.is_null() || slot.addr() == usize::MAX {
+        panic!("a JudyL entry point returned no slot");
+    }
+    // SAFETY: per this function's contract, and not null or `PJERR`.
+    unsafe { &mut *slot }
+}
+
 /// Inserts `k` and writes `v` through the returned slot.
 ///
 /// # Safety
@@ -46,12 +60,7 @@ unsafe fn put(arr: &mut *mut c_void, k: Word, v: Word) {
     // SAFETY: per this function's contract; the slot is written before any
     // other call on the array.
     unsafe {
-        let slot = JudyLIns(arr, k, null_mut()).cast::<Word>();
-        assert!(
-            !slot.is_null() && slot.addr() != usize::MAX,
-            "JudyLIns failed"
-        );
-        *slot = v;
+        *live(JudyLIns(arr, k, null_mut()).cast()) = v;
     }
 }
 
@@ -65,8 +74,12 @@ unsafe fn check(arr: *const c_void, model: &BTreeMap<Word, Word>, at: &str) {
         probes.extend([k.wrapping_sub(1), k, k.wrapping_add(1)]);
     }
     let read = |slot: *mut c_void, idx: Word| {
-        // SAFETY: a non-null slot is live; nothing mutates the array here.
-        (!slot.is_null()).then(|| (idx, unsafe { *slot.cast::<Word>() }))
+        if slot.is_null() {
+            None
+        } else {
+            // SAFETY: a non-null slot is live; nothing mutates the array here.
+            Some((idx, unsafe { *slot.cast::<Word>() }))
+        }
     };
     let pair = |e: Option<(&Word, &Word)>| e.map(|(k, v)| (*k, *v));
     // SAFETY: per this function's contract; the array is not mutated.
@@ -239,18 +252,18 @@ fn a_slot_is_writable_until_the_next_insert_or_delete() {
     unsafe {
         for round in 0..40usize {
             let slot = JudyLIns(&raw mut arr, key(round), null_mut()).cast::<Word>();
-            assert_eq!(*slot, 0, "a new slot is zero");
-            *slot = round;
+            assert_eq!(*live(slot), 0, "a new slot is zero");
+            *live(slot) = round;
             // Lookups and searches between the insert and the next mutation
             // leave the slot valid and return the same slot.
             let again = JudyLGet(arr, key(round), null_mut()).cast::<Word>();
             assert_eq!(again, slot);
-            *again += 1;
-            assert_eq!(*slot, round + 1);
+            *live(again) += 1;
+            assert_eq!(*live(slot), round + 1);
         }
         for round in 0..40usize {
             assert_eq!(
-                *JudyLGet(arr, key(round), null_mut()).cast::<Word>(),
+                *live(JudyLGet(arr, key(round), null_mut()).cast()),
                 round + 1
             );
         }
