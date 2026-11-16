@@ -35,6 +35,33 @@ identifiers:
     value: "10.5281/zenodo.22152112"
     description: "Concept DOI — all versions; always resolves to the latest release"
   - type: doi
+    value: "10.5281/zenodo.24267316"
+    description: "Version DOI — v0.19.0"
+  - type: doi
+    value: "10.5281/zenodo.24074634"
+    description: "Version DOI — v0.18.0"
+  - type: doi
+    value: "10.5281/zenodo.23874845"
+    description: "Version DOI — v0.17.0"
+  - type: doi
+    value: "10.5281/zenodo.23654223"
+    description: "Version DOI — v0.16.0"
+  - type: doi
+    value: "10.5281/zenodo.23482398"
+    description: "Version DOI — v0.15.0"
+  - type: doi
+    value: "10.5281/zenodo.23448475"
+    description: "Version DOI — v0.14.0"
+  - type: doi
+    value: "10.5281/zenodo.23383430"
+    description: "Version DOI — v0.13.0"
+  - type: doi
+    value: "10.5281/zenodo.23325373"
+    description: "Version DOI — v0.12.0"
+  - type: doi
+    value: "10.5281/zenodo.23250151"
+    description: "Version DOI — v0.11.2"
+  - type: doi
     value: "10.5281/zenodo.23175906"
     description: "Version DOI — v0.11.1"
   - type: doi
