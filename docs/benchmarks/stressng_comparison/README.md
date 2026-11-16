@@ -1907,6 +1907,7 @@ A frozen record, never reconciled in place with what the runs measure. Owner dec
 | `judyl_del`, every distribution | ≤ +0.5% | ≤ +1.0% | +0.755% |
 
 - `judyl_get`, `judyl_count`, `judyl_by_count` and the four `judyl_*_empty` stay at ≤ +0.1%. `judyl_insert` random and clustered, `judyl_churn` and `judyl_free` stay at ≤ +0.5%. `judyl_small_array` k32 and k64 stay at ≤ +12% and ≤ +8%.
+- The three bound values were accepted by the owner (2026-11-16), before any fresh measurement.
 - The bounds apply to the head that is measured. A later commit to the PR is re-read against them, and none is raised.
 
 **Fresh measurements required.**
