@@ -726,34 +726,50 @@ macro_rules! judyl_nav {
             pindex: *mut Word,
             pj: *mut JError,
         ) -> *mut c_void {
+            /// The search on a small block, kept out of line so the map's
+            /// path through the entry point is laid out as it was.
+            ///
+            /// # Safety
+            /// `pindex` is a valid pointer to the caller's index.
+            #[inline(never)]
+            unsafe fn small_case(small: Small, pindex: *mut Word) -> *mut c_void {
+                // SAFETY: per this function's contract.
+                unsafe {
+                    match small.$method(*pindex as u64) {
+                        Some((k, slot)) => {
+                            *pindex = k as Word;
+                            slot.cast()
+                        }
+                        None => {
+                            *pindex = (*pindex).$step(1);
+                            null_mut()
+                        }
+                    }
+                }
+            }
             // SAFETY: forwarded C contract.
             unsafe {
                 if pindex.is_null() {
                     set_err(pj, JU_ERRNO_NULLPINDEX);
                     return PJERR;
                 }
-                let found = match judyl_ref(parray) {
-                    JudyLRef::Map(map) => map
-                        .$method(*pindex as u64)
-                        .map(|(k, _)| (k, slot_ptr(map.get_slot_ptr(k)))),
-                    JudyLRef::Small(small) => small
-                        .$method(*pindex as u64)
-                        .map(|(k, slot)| (k, slot.cast())),
-                    JudyLRef::Empty => return null_mut(),
-                };
-                match found {
-                    Some((k, slot)) => {
-                        *pindex = k as Word;
-                        slot
-                    }
-                    // A miss on a non-empty array leaves the index one
-                    // step past the probe in the search direction,
-                    // wrapping, as stock libjudy does; a null array returned
-                    // above with it untouched (COMPAT.md doc-gap D8).
-                    None => {
-                        *pindex = (*pindex).$step(1);
-                        null_mut()
-                    }
+                // A miss on a non-empty array leaves the index one step
+                // past the probe in the search direction, wrapping, as
+                // stock libjudy does; a null array returns with it
+                // untouched (COMPAT.md doc-gap D8).
+                match judyl_ref(parray) {
+                    JudyLRef::Map(map) => match map.$method(*pindex as u64) {
+                        Some((k, _)) => {
+                            *pindex = k as Word;
+                            slot_ptr(map.get_slot_ptr(k))
+                        }
+                        None => {
+                            *pindex = (*pindex).$step(1);
+                            null_mut()
+                        }
+                    },
+                    JudyLRef::Small(small) => small_case(small, pindex),
+                    JudyLRef::Empty => null_mut(),
                 }
             }
         }
