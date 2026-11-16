@@ -45,11 +45,17 @@ fn is_map(arr: *const c_void) -> bool {
 /// `slot` is null, `PJERR`, or a value slot that is live and unaliased for
 /// as long as the returned reference is used.
 unsafe fn live<'a>(slot: *mut Word) -> &'a mut Word {
-    if slot.is_null() || slot.addr() == usize::MAX {
+    assert_ne!(
+        slot.addr(),
+        usize::MAX,
+        "a JudyL entry point returned PJERR"
+    );
+    if slot.is_null() {
         panic!("a JudyL entry point returned no slot");
+    } else {
+        // SAFETY: per this function's contract, and not null or `PJERR`.
+        unsafe { &mut *slot }
     }
-    // SAFETY: per this function's contract, and not null or `PJERR`.
-    unsafe { &mut *slot }
 }
 
 /// Inserts `k` and writes `v` through the returned slot.

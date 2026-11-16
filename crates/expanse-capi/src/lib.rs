@@ -1065,12 +1065,18 @@ mod oracle {
                 let put = |ours: &mut *mut c_void, theirs: &mut *mut c_void, k: Word| {
                     let s1 = JudyLIns(ours, k, null_mut()).cast::<Word>();
                     let s2 = o_ins(theirs, k, null_mut()).cast::<Word>();
-                    if s1.is_null() || s2.is_null() || s1 == PJERR.cast() || s2 == PJERR.cast() {
+                    assert!(s1 != PJERR.cast() && s2 != PJERR.cast(), "{shape}: PJERR");
+                    // Plain null tests as the branch conditions, which a
+                    // static analyser reads as the guard of each write.
+                    if s1.is_null() {
                         panic!("{shape}: ins {k:#x} returned no slot");
+                    } else if s2.is_null() {
+                        panic!("{shape}: stock ins {k:#x} returned no slot");
+                    } else {
+                        assert_eq!(*s1, *s2, "{shape}: ins existing value {k:#x}");
+                        *s1 = !k;
+                        *s2 = !k;
                     }
-                    assert_eq!(*s1, *s2, "{shape}: ins existing value {k:#x}");
-                    *s1 = !k;
-                    *s2 = !k;
                 };
                 let del = |ours: &mut *mut c_void, theirs: &mut *mut c_void, k: Word| {
                     assert_eq!(
