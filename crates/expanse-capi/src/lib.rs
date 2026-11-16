@@ -38,6 +38,8 @@ pub mod blobmap;
 #[cfg(target_pointer_width = "64")]
 mod compat;
 #[cfg(target_pointer_width = "64")]
+mod judyl_small;
+#[cfg(target_pointer_width = "64")]
 pub use compat::*;
 pub mod modern;
 // The 32-bit-only concurrent surface: `sync32` needs no `std`, so this is
@@ -123,9 +125,10 @@ pub unsafe extern "C" fn expanse_validate(parray: *const c_void, is_map: c_int) 
         return 1;
     }
     if is_map != 0 {
-        // SAFETY: pointer is a valid ExpanseMap.
-        let map = unsafe { &*parray.cast::<ExpanseMap>() };
-        c_int::from(map.validate_defensive().is_ok())
+        // SAFETY: a non-null JudyL array word.
+        unsafe {
+            compat::judyl_inspect(parray, |map| c_int::from(map.validate_defensive().is_ok()))
+        }
     } else {
         // SAFETY: pointer is a valid ExpanseSet.
         let set = unsafe { &*parray.cast::<ExpanseSet>() };
@@ -147,9 +150,8 @@ pub unsafe extern "C" fn expanse_stats(
         return 0;
     }
     let stats = if is_map != 0 {
-        // SAFETY: pointer is a valid ExpanseMap.
-        let map = unsafe { &*parray.cast::<ExpanseMap>() };
-        map.stats()
+        // SAFETY: a non-null JudyL array word.
+        unsafe { compat::judyl_inspect(parray, ExpanseMap::stats) }
     } else {
         // SAFETY: pointer is a valid ExpanseSet.
         let set = unsafe { &*parray.cast::<ExpanseSet>() };

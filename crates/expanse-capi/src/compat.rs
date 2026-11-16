@@ -16,6 +16,7 @@
 
 #[cfg(not(feature = "std"))]
 use crate::core_alloc::boxed::Box;
+use crate::judyl_small::{Inserted, Removed, Small};
 use crate::{
     ExpanseMap, ExpanseSet, ExpanseStrMap, JError, JU_ERRNO_NONE, JU_ERRNO_NULLPINDEX,
     JU_ERRNO_NULLPPARRAY, Word,
@@ -413,35 +414,152 @@ pub unsafe extern "C" fn Judy1MemUsed(parray: *const c_void) -> Word {
 }
 
 // ---------------------------------------------------------------------
-// JudyL (word → word map) — backed by ExpanseMap
+// JudyL (word → word map) — one small block up to `SMALL_MAX` keys, an
+// `ExpanseMap` beyond
 // ---------------------------------------------------------------------
+//
+// The array word is null (empty), the address of a small block
+// (`judyl_small.rs`), or the address of a boxed `ExpanseMap` plus one. A
+// block and a box are both at least 8-aligned, so bit 0 tells them apart,
+// and it is the map that carries the tag: an entry point then tests bit 0
+// where it used to test for null, and the small form's handling sits behind
+// that test.
 
+/// Whether a JudyL array word is a tagged boxed map.
 #[inline(always)]
-unsafe fn map_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut ExpanseMap {
-    // SAFETY: per set_handle_mut's contract, for maps.
-    unsafe {
-        let arr = *pparray;
-        if !arr.is_null() {
-            &mut *arr.cast::<ExpanseMap>()
-        } else {
-            let boxed = Box::into_raw(Box::new(ExpanseMap::new())).cast();
-            *pparray = boxed;
-            &mut *boxed.cast::<ExpanseMap>()
-        }
-    }
+fn word_is_map(word: *const c_void) -> bool {
+    word.addr() & 1 != 0
+}
+
+/// The array word of a boxed map: its address plus one.
+#[inline(always)]
+fn map_word(boxed: *mut ExpanseMap) -> *mut c_void {
+    boxed.cast::<u8>().wrapping_add(1).cast()
+}
+
+/// The boxed map a tagged array word names.
+#[inline(always)]
+fn word_map(word: *const c_void) -> *mut ExpanseMap {
+    word.cast::<u8>()
+        .wrapping_sub(1)
+        .cast::<ExpanseMap>()
+        .cast_mut()
+}
+
+/// A JudyL array as its entry points read it.
+enum JudyLRef<'a> {
+    Map(&'a ExpanseMap),
+    Small(Small),
+    Empty,
 }
 
 /// JudyL handles are treated as shared references for read paths: the C contract
 /// returns writable value slots even from `Pcvoid_t` entry points, but read-only
 /// queries must not mutate internal state or create concurrent `&mut` aliasing.
+///
+/// # Safety
+/// `parray` is null or an array word produced by these entry points.
 #[inline(always)]
-unsafe fn map_handle<'a>(parray: *const c_void) -> Option<&'a ExpanseMap> {
-    // SAFETY: null or a handle produced by these entry points.
-    unsafe { parray.cast::<ExpanseMap>().as_ref() }
+unsafe fn judyl_ref<'a>(parray: *const c_void) -> JudyLRef<'a> {
+    if word_is_map(parray) {
+        // SAFETY: a tagged word names a live boxed map.
+        JudyLRef::Map(unsafe { &*word_map(parray) })
+    } else {
+        // SAFETY: an untagged word is null or a live small block.
+        match unsafe { Small::from_ptr(parray.cast_mut().cast()) } {
+            Some(small) => JudyLRef::Small(small),
+            None => JudyLRef::Empty,
+        }
+    }
+}
+
+/// Runs `f` on the array as an `ExpanseMap`: the map itself, or a temporary
+/// one holding a small array's entries. For `expanse_validate` and
+/// `expanse_stats`, which describe a JudyL array through the engine's types.
+///
+/// # Safety
+/// `parray` is a non-null array word produced by these entry points.
+pub(crate) unsafe fn judyl_inspect<R>(
+    parray: *const c_void,
+    f: impl FnOnce(&ExpanseMap) -> R,
+) -> R {
+    // SAFETY: per this function's contract.
+    match unsafe { judyl_ref(parray) } {
+        JudyLRef::Map(map) => f(map),
+        JudyLRef::Small(small) => {
+            let mut map = ExpanseMap::new();
+            let mut i = 0;
+            while let Some((k, slot)) = small.nth(i) {
+                // SAFETY: both slots are live; nothing mutates either array
+                // between the read and the write.
+                unsafe { map.ins_slot_plain(k).as_ptr().write(*slot) };
+                i += 1;
+            }
+            f(&map)
+        }
+        JudyLRef::Empty => f(&ExpanseMap::new()),
+    }
 }
 
 fn slot_ptr(slot: Option<NonNull<u64>>) -> *mut c_void {
     slot.map_or(null_mut(), |p| p.as_ptr().cast())
+}
+
+/// `JudyLIns` on an array that is empty or a small block.
+///
+/// # Safety
+/// `pparray` points at an array word that is null or a small block.
+#[inline(never)]
+unsafe fn judyl_ins_small(pparray: *mut *mut c_void, index: u64) -> *mut c_void {
+    // SAFETY: per this function's contract; the block's new address is
+    // stored before returning.
+    unsafe {
+        let small = Small::from_ptr((*pparray).cast());
+        match Small::insert(small, index) {
+            Inserted::Slot { block, slot } => {
+                *pparray = block.as_ptr().cast();
+                slot.cast()
+            }
+            Inserted::Full => judyl_promote(pparray, index),
+        }
+    }
+}
+
+/// Replaces a full small block by an `ExpanseMap` holding its entries and
+/// `index`, and returns `index`'s zeroed slot.
+///
+/// # Safety
+/// `pparray` points at an array word that is a small block of `SMALL_MAX`
+/// keys, none of them `index`.
+#[cold]
+#[inline(never)]
+unsafe fn judyl_promote(pparray: *mut *mut c_void, index: u64) -> *mut c_void {
+    // SAFETY: per this function's contract; the block is freed only after
+    // its last entry has been read.
+    unsafe {
+        let Some(small) = Small::from_ptr((*pparray).cast()) else {
+            return PJERR;
+        };
+        let mut map = Box::new(ExpanseMap::new());
+        let mut fresh_pending = true;
+        let mut i = 0;
+        // Ascending key order, the new key at its place among the old ones.
+        while let Some((k, slot)) = small.nth(i) {
+            if fresh_pending && index < k {
+                map.ins_slot_plain(index).as_ptr().write(0);
+                fresh_pending = false;
+            }
+            map.ins_slot_plain(k).as_ptr().write(*slot);
+            i += 1;
+        }
+        if fresh_pending {
+            map.ins_slot_plain(index).as_ptr().write(0);
+        }
+        small.free();
+        let boxed = Box::into_raw(map);
+        *pparray = map_word(boxed);
+        slot_ptr((*boxed).get_slot_ptr(index))
+    }
 }
 
 /// Inserts `index` (value slot zero-initialized if new) and returns a
@@ -459,11 +577,38 @@ pub unsafe extern "C" fn JudyLIns(
             set_err(pj, JU_ERRNO_NULLPPARRAY);
             return PJERR;
         }
-        // Single fused walk: insert-if-absent and slot in one descent.
-        map_handle_mut(pparray)
-            .ins_slot_plain(index as u64)
-            .as_ptr()
-            .cast()
+        let word = *pparray;
+        if word_is_map(word) {
+            // Single fused walk: insert-if-absent and slot in one descent.
+            (*word_map(word))
+                .ins_slot_plain(index as u64)
+                .as_ptr()
+                .cast()
+        } else {
+            judyl_ins_small(pparray, index as u64)
+        }
+    }
+}
+
+/// `JudyLDel` on an array that is empty or a small block.
+///
+/// # Safety
+/// `pparray` points at an array word that is null or a small block.
+#[inline(never)]
+unsafe fn judyl_del_small(pparray: *mut *mut c_void, index: u64) -> c_int {
+    // SAFETY: per this function's contract; a freed block's word is nulled.
+    unsafe {
+        let Some(small) = Small::from_ptr((*pparray).cast()) else {
+            return 0;
+        };
+        match small.remove(index) {
+            Removed::Absent => 0,
+            Removed::Kept => 1,
+            Removed::Emptied => {
+                *pparray = null_mut();
+                1
+            }
+        }
     }
 }
 
@@ -481,13 +626,14 @@ pub unsafe extern "C" fn JudyLDel(
             set_err(pj, JU_ERRNO_NULLPPARRAY);
             return JERR_INT;
         }
-        if (*pparray).is_null() {
-            return 0;
+        let word = *pparray;
+        if !word_is_map(word) {
+            return judyl_del_small(pparray, index as u64);
         }
-        let map = &mut *(*pparray).cast::<ExpanseMap>();
+        let map = &mut *word_map(word);
         let removed = map.remove_plain(index as u64).is_some();
         if removed && map.is_empty() {
-            drop(Box::from_raw((*pparray).cast::<ExpanseMap>()));
+            drop(Box::from_raw(word_map(word)));
             *pparray = null_mut();
         }
         c_int::from(removed)
@@ -503,13 +649,13 @@ pub unsafe extern "C" fn JudyLGet(
 ) -> *mut c_void {
     // SAFETY: forwarded C contract.
     unsafe {
-        if parray.is_null() {
-            return null_mut();
-        }
-        let map = &*parray.cast::<ExpanseMap>();
-        match map.get_slot_ptr(index as u64) {
-            Some(p) => p.as_ptr().cast(),
-            None => null_mut(),
+        match judyl_ref(parray) {
+            JudyLRef::Map(map) => match map.get_slot_ptr(index as u64) {
+                Some(p) => p.as_ptr().cast(),
+                None => null_mut(),
+            },
+            JudyLRef::Small(small) => small.get(index as u64).cast(),
+            JudyLRef::Empty => null_mut(),
         }
     }
 }
@@ -525,13 +671,16 @@ pub unsafe extern "C" fn JudyLCount(
 ) -> Word {
     // SAFETY: forwarded C contract.
     unsafe {
-        let n = map_handle(parray).map_or(0, |m| m.count_range(index1 as u64..=index2 as u64));
+        let n = match judyl_ref(parray) {
+            JudyLRef::Map(map) => map.count_range(index1 as u64..=index2 as u64),
+            JudyLRef::Small(small) => small.count_range(index1 as u64, index2 as u64),
+            JudyLRef::Empty => 0,
+        };
         count_result(n, pj)
     }
 }
 
-/// Locates the `nth` (1-based) key; returns its value slot and updates
-/// `*pindex`, or null if the population is smaller.
+/// Locates the `nth` key (1-based); returns its value slot.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JudyLByCount(
     parray: *const c_void,
@@ -545,18 +694,25 @@ pub unsafe extern "C" fn JudyLByCount(
             set_err(pj, JU_ERRNO_NULLPINDEX);
             return PJERR;
         }
-        let Some(map) = map_handle(parray) else {
-            return null_mut();
-        };
         if nth == 0 {
             return null_mut();
         }
-        match map.by_count(nth as u64 - 1) {
-            Some((k, _)) => {
-                *pindex = k as Word;
-                slot_ptr(map.get_slot_ptr(k))
-            }
-            None => null_mut(),
+        match judyl_ref(parray) {
+            JudyLRef::Map(map) => match map.by_count(nth as u64 - 1) {
+                Some((k, _)) => {
+                    *pindex = k as Word;
+                    slot_ptr(map.get_slot_ptr(k))
+                }
+                None => null_mut(),
+            },
+            JudyLRef::Small(small) => match small.nth(nth - 1) {
+                Some((k, slot)) => {
+                    *pindex = k as Word;
+                    slot.cast()
+                }
+                None => null_mut(),
+            },
+            JudyLRef::Empty => null_mut(),
         }
     }
 }
@@ -576,13 +732,19 @@ macro_rules! judyl_nav {
                     set_err(pj, JU_ERRNO_NULLPINDEX);
                     return PJERR;
                 }
-                let Some(map) = map_handle(parray) else {
-                    return null_mut();
+                let found = match judyl_ref(parray) {
+                    JudyLRef::Map(map) => map
+                        .$method(*pindex as u64)
+                        .map(|(k, _)| (k, slot_ptr(map.get_slot_ptr(k)))),
+                    JudyLRef::Small(small) => small
+                        .$method(*pindex as u64)
+                        .map(|(k, slot)| (k, slot.cast())),
+                    JudyLRef::Empty => return null_mut(),
                 };
-                match map.$method(*pindex as u64) {
-                    Some((k, _)) => {
+                match found {
+                    Some((k, slot)) => {
                         *pindex = k as Word;
-                        slot_ptr(map.get_slot_ptr(k))
+                        slot
                     }
                     // A miss on a non-empty array leaves the index one
                     // step past the probe in the search direction,
@@ -642,11 +804,16 @@ macro_rules! judyl_empty {
                 let Some(start) = ($adjust)(*pindex as u64) else {
                     return 0;
                 };
-                let found = match map_handle(parray) {
-                    None => Some(start),
-                    Some(map) => $absent(
+                let found = match judyl_ref(parray) {
+                    JudyLRef::Empty => Some(start),
+                    JudyLRef::Map(map) => $absent(
                         |k| map.contains_key(k),
                         |a, b| map.count_range(a..=b),
+                        start,
+                    ),
+                    JudyLRef::Small(small) => $absent(
+                        |k| small.contains_key(k),
+                        |a, b| small.count_range(a, b),
                         start,
                     ),
                 };
@@ -692,19 +859,39 @@ judyl_empty!(
 pub unsafe extern "C" fn JudyLFreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
     // SAFETY: forwarded C contract.
     unsafe {
-        free_array(pparray, pj, |mut boxed: Box<ExpanseMap>| {
+        if pparray.is_null() {
+            set_err(pj, JU_ERRNO_NULLPPARRAY);
+            return 0;
+        }
+        let word = *pparray;
+        let bytes = if word_is_map(word) {
+            let mut boxed = Box::from_raw(word_map(word));
             let bytes = boxed.mem_used() + size_of::<ExpanseMap>();
             boxed.clear_plain();
-            bytes as Word
-        })
+            bytes
+        } else {
+            match Small::from_ptr(word.cast()) {
+                Some(small) => small.free(),
+                None => return 0,
+            }
+        };
+        *pparray = null_mut();
+        bytes as Word
     }
 }
 
-/// Heap bytes used by the array (order-of-magnitude contract).
+/// Heap bytes used by the array (order-of-magnitude contract): a small
+/// array's block, or a map's live node bytes and its handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JudyLMemUsed(parray: *const c_void) -> Word {
     // SAFETY: forwarded C contract.
-    unsafe { map_handle(parray).map_or(0, |m| m.mem_used() + size_of::<ExpanseMap>()) as Word }
+    unsafe {
+        match judyl_ref(parray) {
+            JudyLRef::Map(map) => (map.mem_used() + size_of::<ExpanseMap>()) as Word,
+            JudyLRef::Small(small) => small.bytes() as Word,
+            JudyLRef::Empty => 0,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------

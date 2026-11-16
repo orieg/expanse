@@ -139,15 +139,11 @@ fn held(keys: usize) -> (usize, usize) {
 /// One test, so the table is read on one thread in one order.
 #[test]
 fn bytes_held_by_a_small_judyl_array() {
-    // (keys, bytes held, blocks held). The 712-byte boxed handle is one
-    // block; each 4 KiB slab page a leaf size class has touched is another,
-    // and the 384-byte leaf of 17 to 31 keys is served outside the slabs.
-    const EXPECTED: [(usize, usize, usize); 4] = [
-        (1, 4_808, 2),
-        (10, 21_192, 6),
-        (20, 21_576, 7),
-        (31, 21_704, 7),
-    ];
+    // (keys, bytes held, blocks held). An array of up to 31 keys is one
+    // block of 8 + 16 x capacity bytes, the capacity climbing 1, 2, 4, 8,
+    // 12, 16, 24, 32: no boxed handle and no slab page.
+    const EXPECTED: [(usize, usize, usize); 4] =
+        [(1, 24, 1), (10, 200, 1), (20, 392, 1), (31, 520, 1)];
     let got: Vec<(usize, usize, usize)> = EXPECTED
         .iter()
         .map(|&(keys, _, _)| {
