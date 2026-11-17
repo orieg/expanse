@@ -1619,6 +1619,24 @@
       "replacement": "results/baseline_vs_stock.json (75 arms, commit cbbc762a, run 43689888414), e.g. JudyLGet random 1.5M 296.27 M vs 478.17 M, 0.620x",
       "provenance": "#1737; superseded run 33422776469 at commit d1fde746",
       "rationale": "The 33-arm d1fde746 Callgrind counts the README table carried are superseded by the 75-arm run at cbbc762a; docs/BENCHMARKING.md records the correction."
+    },
+    {
+      "id": "stressng_judy_4m_brk_census_whole_lines",
+      "patterns": [
+        "(?<![\\w.,])3,886(?![\\w,])",
+        "(?<![\\w.,])10,872(?![\\w,])",
+        "(?<![\\w.,])66,675(?![\\w,])",
+        "(?<![\\w.,])131,273(?![\\w,])"
+      ],
+      "context": [
+        "brk",
+        "heap",
+        "shrink",
+        "given back"
+      ],
+      "replacement": "docs/benchmarks/stressng_comparison/results/diagnostic_increment_small_array_ref_run31.json: main's workers make 35,288 (W = 8) and 54,848 (W = 4) shrinking brk calls and give back 67,400 and 131,656 pages.",
+      "provenance": "#1680; recount of run 31's own strace output",
+      "rationale": "The first census counted only calls strace -f wrote on one line; 80% of the lines are split into an unfinished and a resumed line."
     }
   ]
 }
