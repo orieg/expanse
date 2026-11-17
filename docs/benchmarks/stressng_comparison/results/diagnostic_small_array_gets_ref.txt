@@ -1,0 +1,408 @@
+Diagnostic record: the `sng_sm_hashjudy_default` gets loss of the JudyL shim's
+small-array form (#1742). Reference host Intel Core i9-12900F, 2026-11-16, under
+the host bench lock. G = 8e6d2edc7 (head of PR 1751), M = main 87ca5c134,
+B = G with the small block's rank loop written with
+core::hint::select_unpredictable (a local diagnostic build, not shipped),
+B' = G with the same loop written with arithmetic, which the compiler turned
+back into a branch. Raw tool output, verbatim, in four parts.
+
+==== Part 1: Callgrind 3.27.1 --branch-sim=yes on stress-ng's hashjudy cell,
+==== collection toggled on hashjudy_get; one bogo op is 30,000 hashjudy_get calls
+# set -uo pipefail
+# D=/var/tmp/stressng-eval; W=$D/gets1742/cg; rm -rf $W; mkdir -p $W; cd $W
+# export PATH=$HOME/.local/bin:$PATH
+# BIN=$D/b-stockbuild/stress-ng
+# nm $BIN 2>/dev/null | grep -c ' hashjudy_get$'
+# for arm in M G; do
+#   case $arm in M) L=$D/expcompat-87ca5c134/lib;; G) L=$D/expcompat-8e6d2edc7/lib;; esac
+#   mkdir $arm; ( cd $arm && LD_LIBRARY_PATH=$L timeout 300 valgrind -q --tool=callgrind --trace-children=yes --branch-sim=yes --toggle-collect=hashjudy_get --callgrind-out-file=cg.%p.out \
+#     $BIN --sparsematrix 1 --sparsematrix-method hashjudy --sparsematrix-ops 1 --seed 12345 -t 300 > run.log 2>&1; echo "$arm rc=$?" )
+#   for f in $arm/cg.*.out; do t=$(grep -m1 '^totals:' $f || grep -m1 '^summary:' $f); echo "$f $t"; done
+#   big=$(ls -S $arm/cg.*.out | head -1)
+#   callgrind_annotate --inclusive=no --threshold=100 $big 2>/dev/null | sed -n 1,40p | cut -c1-200
+#   grep -E '^(calls|fn)=' $big | grep -A1 -E 'fn=.*JudyLGet' | head -4
+# done
+# date -u +%T
+1
+M rc=0
+M/cg.1629499.out totals: 0
+M/cg.1629500.out totals: 2379301 407300 19829 31242 10377
+--------------------------------------------------------------------------------
+Profile data file 'M/cg.1629500.out' (creator: callgrind-3.27.1)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 15033098
+Trigger: Program termination
+Profiled target:  /var/tmp/stressng-eval/b-stockbuild/stress-ng --sparsematrix 1 --sparsematrix-method hashjudy --sparsematrix-ops 1 --seed 12345 -t 300 (PID 1629500, part 1)
+Events recorded:  Ir Bc Bcm Bi Bim
+Events shown:     Ir Bc Bcm Bi Bim
+Event sort order: Ir Bc Bcm Bi Bim
+Thresholds:       100 0 0 0 0
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                 Bc               Bcm             Bi              Bim             
+--------------------------------------------------------------------------------
+2,379,301 (100.0%) 407,300 (100.0%) 19,829 (100.0%) 31,242 (100.0%) 10,377 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                 Bc               Bcm             Bi              Bim             file:function
+--------------------------------------------------------------------------------
+1,762,463 (74.07%) 337,751 (82.92%) 18,937 (95.50%)    292 ( 0.93%)     1 ( 0.01%)  ???:JudyLGet [/var/tmp/stressng-eval/expcompat-87ca5c134/lib/libexpanse.so.1.0.0]
+  499,402 (20.99%)  60,000 (14.73%)    155 ( 0.78%)      .              .           ???:hashjudy_get [/var/tmp/stressng-eval/b-stockbuild/stress-ng]
+   60,000 ( 2.52%)       0               0          30,000 (96.02%) 9,792 (94.36%)  ???:0x000000000408c090 [???]
+   32,059 ( 1.35%)   5,796 ( 1.42%)    325 ( 1.64%)    767 ( 2.46%)   584 ( 5.63%)  ???:expanse_trie::get::locate_slot_popcnt [/var/tmp/stressng-eval/expcompat-87ca5c134/lib/libexpanse.so.1.0.0]
+   23,625 ( 0.99%)   3,461 ( 0.85%)    412 ( 2.08%)    183 ( 0.59%)     .           ???:expanse_trie::leaf::search [/var/tmp/stressng-eval/expcompat-87ca5c134/lib/libexpanse.so.1.0.0]
+    1,752 ( 0.07%)     292 ( 0.07%)      .               .              .           ???:expanse_trie::get::locate_slot [/var/tmp/stressng-eval/expcompat-87ca5c134/lib/libexpanse.so.1.0.0]
+        .                .               .               .              .           ???:(below main) [/usr/lib/x86_64-linux-gnu/libc.so.6]
+        .                .               .               .              .           ???:0x00000000000202b0 [/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2]
+        .                .               .               .              .           ???:0x0000000000029d10 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+        .                .               .               .              .           ???:main [/var/tmp/stressng-eval/b-stockbuild/stress-ng]
+        .                .               .               .              .           ???:stress_run [???]
+        .                .               .               .              .           ???:stress_sparse_method_test [/var/tmp/stressng-eval/b-stockbuild/stress-ng]
+        .                .               .               .              .           ???:stress_sparsematrix [/var/tmp/stressng-eval/b-stockbuild/stress-ng]
+
+fn=(10618) JudyLGet
+calls=461 0 
+G rc=0
+G/cg.1629518.out totals: 0
+G/cg.1629519.out totals: 2257669 453059 73680 31242 10377
+--------------------------------------------------------------------------------
+Profile data file 'G/cg.1629519.out' (creator: callgrind-3.27.1)
+--------------------------------------------------------------------------------
+I1 cache: 
+D1 cache: 
+LL cache: 
+Timerange: Basic block 0 - 4599307
+Trigger: Program termination
+Profiled target:  /var/tmp/stressng-eval/b-stockbuild/stress-ng --sparsematrix 1 --sparsematrix-method hashjudy --sparsematrix-ops 1 --seed 12345 -t 300 (PID 1629519, part 1)
+Events recorded:  Ir Bc Bcm Bi Bim
+Events shown:     Ir Bc Bcm Bi Bim
+Event sort order: Ir Bc Bcm Bi Bim
+Thresholds:       100 0 0 0 0
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir                 Bc               Bcm             Bi              Bim             
+--------------------------------------------------------------------------------
+2,257,669 (100.0%) 453,059 (100.0%) 73,680 (100.0%) 31,242 (100.0%) 10,377 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                 Bc               Bcm             Bi              Bim             file:function
+--------------------------------------------------------------------------------
+1,640,831 (72.68%) 383,510 (84.65%) 72,908 (98.95%)    292 ( 0.93%)     1 ( 0.01%)  ???:JudyLGet [/var/tmp/stressng-eval/expcompat-8e6d2edc7/lib/libexpanse.so.1.0.0]
+  499,402 (22.12%)  60,000 (13.24%)     33 ( 0.04%)      .              .           ???:hashjudy_get [/var/tmp/stressng-eval/b-stockbuild/stress-ng]
+   60,000 ( 2.66%)       0               0          30,000 (96.02%) 9,792 (94.36%)  ???:0x000000000408c090 [???]
+   32,059 ( 1.42%)   5,796 ( 1.28%)    328 ( 0.45%)    767 ( 2.46%)   584 ( 5.63%)  ???:expanse_trie::get::locate_slot_popcnt [/var/tmp/stressng-eval/expcompat-8e6d2edc7/lib/libexpanse.so.1.0.0]
+   23,625 ( 1.05%)   3,461 ( 0.76%)    411 ( 0.56%)    183 ( 0.59%)     .           ???:expanse_trie::leaf::search [/var/tmp/stressng-eval/expcompat-8e6d2edc7/lib/libexpanse.so.1.0.0]
+    1,752 ( 0.08%)     292 ( 0.06%)      .               .              .           ???:expanse_trie::get::locate_slot [/var/tmp/stressng-eval/expcompat-8e6d2edc7/lib/libexpanse.so.1.0.0]
+        .                .               .               .              .           ???:(below main) [/usr/lib/x86_64-linux-gnu/libc.so.6]
+        .                .               .               .              .           ???:0x00000000000202b0 [/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2]
+        .                .               .               .              .           ???:0x0000000000029d10 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+        .                .               .               .              .           ???:main [/var/tmp/stressng-eval/b-stockbuild/stress-ng]
+        .                .               .               .              .           ???:stress_run [???]
+        .                .               .               .              .           ???:stress_sparse_method_test [/var/tmp/stressng-eval/b-stockbuild/stress-ng]
+        .                .               .               .              .           ???:stress_sparsematrix [/var/tmp/stressng-eval/b-stockbuild/stress-ng]
+
+fn=(10618) JudyLGet
+calls=461 0 
+19:04:15
+
+==== Part 2: the C replica of the cell shape (hjgets.c)
+/* Diagnostic: gets on 500 JudyL arrays of about 20 keys, the shape of
+ * stress-ng's sparsematrix hashjudy default cell (10,000 draws over 500 x 500).
+ * mode "hit": every get replays a put's (row, col). mode "rand": fresh draws. */
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+typedef unsigned long Word_t;
+extern void **JudyLIns(void **, Word_t, void *);
+extern void **JudyLGet(const void *, Word_t, void *);
+static uint64_t s = 0x9E3779B97F4A7C15ull;
+static inline uint64_t rnd(void) { s ^= s << 13; s ^= s >> 7; s ^= s << 17; return s; }
+#define ROWS 500
+#define DRAWS 10000
+int main(int argc, char **argv) {
+    int hit = argc > 1 && !strcmp(argv[1], "hit");
+    long reps = argc > 2 ? atol(argv[2]) : 2000;
+    static void *arr[ROWS];
+    static uint32_t px[DRAWS], py[DRAWS], gx[DRAWS], gy[DRAWS];
+    for (int i = 0; i < DRAWS; i++) {
+        px[i] = rnd() % ROWS; py[i] = rnd() % ROWS;
+        void **v = JudyLIns(&arr[px[i]], py[i], 0);
+        *(Word_t *)v = i + 1;
+    }
+    for (int i = 0; i < DRAWS; i++) {
+        if (hit) { int j = rnd() % DRAWS; gx[i] = px[j]; gy[i] = py[j]; }
+        else { gx[i] = rnd() % ROWS; gy[i] = rnd() % ROWS; }
+    }
+    uint64_t sum = 0, hits = 0;
+    for (long r = 0; r < reps; r++)
+        for (int i = 0; i < DRAWS; i++) {
+            void **v = JudyLGet(arr[gx[i]], gy[i], 0);
+            if (v) { sum += *(Word_t *)v; hits++; }
+        }
+    printf("%s reps=%ld gets=%ld hits=%lu sum=%lu\n", hit ? "hit" : "rand", reps, reps * DRAWS, hits, sum);
+    return 0;
+}
+
+==== Part 3: perf stat on the replica, one P-core, user mode; arms M, G, B
+# #!/usr/bin/env bash
+# set -euo pipefail
+# D=/var/tmp/stressng-eval; W=$D/gets1742; cd $W
+# export PATH=$HOME/.cargo/bin:$HOME/.local/bin:$PATH
+# if [ ! -e $D/expcompat-1742bl/lib/libJudy.so.1 ]; then
+#   rm -rf $D/inc-src-1742bl && cp -r $D/inc-src-8e6d2edc7 $D/inc-src-1742bl && cp $W/judyl_small.rs $D/inc-src-1742bl/crates/expanse-capi/src/judyl_small.rs
+#   cp -r $D/expcompat-8e6d2edc7-target $D/expcompat-1742bl-target
+#   bash $D/inc-src-8e6d2edc7/docs/benchmarks/stressng_comparison/scripts/build_layout_lib.sh $D/inc-src-1742bl $D/expcompat-1742bl/lib ""
+# fi
+# for rep in 1 2 3; do for arm in M G B; do
+#   case $arm in M) L=$D/expcompat-87ca5c134/lib;; G) L=$D/expcompat-8e6d2edc7/lib;; B) L=$D/expcompat-1742bl/lib;; esac
+#   for mode in hit rand; do
+#     echo "== $arm $mode rep$rep $(cut -d' ' -f1 /proc/loadavg)"
+#     LD_LIBRARY_PATH=$L taskset -c 0 perf stat -x, -e cpu_core/cycles/u,cpu_core/instructions/u,cpu_core/branches/u,cpu_core/branch-misses/u ./hjgets $mode 2000 2>&1
+#   done; done; done
+# ls -d $D/stock/usr/lib/*/ 2>/dev/null; ls $D/stock/usr/lib/x86_64-linux-gnu 2>/dev/null | head -5
+rustc 1.98.1 (48a229cea 2026-09-01)
+2749035f9f1a53999a1dd045f8f3f2f024af58c8c945e8ccba786e9870137285  /var/tmp/stressng-eval/expcompat-1742bl/lib/libexpanse.so.1.0.0
+== M hit rep1 0.23
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+790342862,,cpu_core/cycles/u,171466120,100.00,,
+1731763111,,cpu_core/instructions/u,171466120,100.00,,
+363631759,,cpu_core/branches/u,171466120,100.00,,
+5542737,,cpu_core/branch-misses/u,171466120,100.00,,
+== M rand rep1 0.23
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+783663569,,cpu_core/cycles/u,159356381,100.00,,
+1547447062,,cpu_core/instructions/u,159356381,100.00,,
+322741753,,cpu_core/branches/u,159356381,100.00,,
+5766706,,cpu_core/branch-misses/u,159356381,100.00,,
+== G hit rep1 0.23
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+1887970366,,cpu_core/cycles/u,379039532,100.00,,
+1559633589,,cpu_core/instructions/u,379039532,100.00,,
+405913256,,cpu_core/branches/u,379039532,100.00,,
+41494627,,cpu_core/branch-misses/u,379039532,100.00,,
+== G rand rep1 0.23
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+1980210416,,cpu_core/cycles/u,397594437,100.00,,
+1455239561,,cpu_core/instructions/u,397594437,100.00,,
+399081275,,cpu_core/branches/u,397594437,100.00,,
+43176905,,cpu_core/branch-misses/u,397594437,100.00,,
+== B hit rep1 0.29
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+579671572,,cpu_core/cycles/u,116602103,100.00,,
+1584221242,,cpu_core/instructions/u,116602103,100.00,,
+343631358,,cpu_core/branches/u,116602103,100.00,,
+3340100,,cpu_core/branch-misses/u,116602103,100.00,,
+== B rand rep1 0.29
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+660392306,,cpu_core/cycles/u,132830897,100.00,,
+1464513209,,cpu_core/instructions/u,132830897,100.00,,
+338099372,,cpu_core/branches/u,132830897,100.00,,
+5213918,,cpu_core/branch-misses/u,132830897,100.00,,
+== M hit rep2 0.29
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+806248580,,cpu_core/cycles/u,163732028,100.00,,
+1731763121,,cpu_core/instructions/u,163732028,100.00,,
+363631761,,cpu_core/branches/u,163732028,100.00,,
+5570600,,cpu_core/branch-misses/u,163732028,100.00,,
+== M rand rep2 0.29
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+781842469,,cpu_core/cycles/u,158752748,100.00,,
+1547447058,,cpu_core/instructions/u,158752748,100.00,,
+322741753,,cpu_core/branches/u,158752748,100.00,,
+5741182,,cpu_core/branch-misses/u,158752748,100.00,,
+== G hit rep2 0.29
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+1874842284,,cpu_core/cycles/u,376379406,100.00,,
+1559633589,,cpu_core/instructions/u,376379406,100.00,,
+405913254,,cpu_core/branches/u,376379406,100.00,,
+41383700,,cpu_core/branch-misses/u,376379406,100.00,,
+== G rand rep2 0.29
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+1986573640,,cpu_core/cycles/u,398857073,100.00,,
+1455239568,,cpu_core/instructions/u,398857073,100.00,,
+399081272,,cpu_core/branches/u,398857073,100.00,,
+43318173,,cpu_core/branch-misses/u,398857073,100.00,,
+== B hit rep2 0.29
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+576260432,,cpu_core/cycles/u,115915749,100.00,,
+1584221241,,cpu_core/instructions/u,115915749,100.00,,
+343631357,,cpu_core/branches/u,115915749,100.00,,
+3241986,,cpu_core/branch-misses/u,115915749,100.00,,
+== B rand rep2 0.29
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+656786351,,cpu_core/cycles/u,132034607,100.00,,
+1464513210,,cpu_core/instructions/u,132034607,100.00,,
+338099371,,cpu_core/branches/u,132034607,100.00,,
+5162360,,cpu_core/branch-misses/u,132034607,100.00,,
+== M hit rep3 0.29
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+790788693,,cpu_core/cycles/u,160625004,100.00,,
+1731763135,,cpu_core/instructions/u,160625004,100.00,,
+363631759,,cpu_core/branches/u,160625004,100.00,,
+5604652,,cpu_core/branch-misses/u,160625004,100.00,,
+== M rand rep3 0.29
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+781749264,,cpu_core/cycles/u,158838367,100.00,,
+1547447079,,cpu_core/instructions/u,158838367,100.00,,
+322741752,,cpu_core/branches/u,158838367,100.00,,
+5728263,,cpu_core/branch-misses/u,158838367,100.00,,
+== G hit rep3 0.29
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+1873587464,,cpu_core/cycles/u,376138125,100.00,,
+1559633566,,cpu_core/instructions/u,376138125,100.00,,
+405913251,,cpu_core/branches/u,376138125,100.00,,
+41389425,,cpu_core/branch-misses/u,376138125,100.00,,
+== G rand rep3 0.29
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+1981667910,,cpu_core/cycles/u,397956008,100.00,,
+1455239561,,cpu_core/instructions/u,397956008,100.00,,
+399081275,,cpu_core/branches/u,397956008,100.00,,
+43259083,,cpu_core/branch-misses/u,397956008,100.00,,
+== B hit rep3 0.29
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+582685625,,cpu_core/cycles/u,117178939,100.00,,
+1584221243,,cpu_core/instructions/u,117178939,100.00,,
+343631359,,cpu_core/branches/u,117178939,100.00,,
+3312899,,cpu_core/branch-misses/u,117178939,100.00,,
+== B rand rep3 0.29
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+653335042,,cpu_core/cycles/u,131364637,100.00,,
+1464513208,,cpu_core/instructions/u,131364637,100.00,,
+338099371,,cpu_core/branches/u,131364637,100.00,,
+5106181,,cpu_core/branch-misses/u,131364637,100.00,,
+/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu/
+libJudy.a
+libJudy.so
+libJudy.so.1
+libJudy.so.1.0.3
+rc=0
+19:02:40
+
+==== Part 4: the same with B = B' (the arithmetic form)
+rustc 1.98.1 (48a229cea 2026-09-01)
+71869b1b8cce004900c95e31eb4fc19c8495677956bc0877f6bf159c17ce0880  /var/tmp/stressng-eval/expcompat-1742bl/lib/libexpanse.so.1.0.0
+== M hit rep1 0.11
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+795274752,,cpu_core/cycles/u,170701904,100.00,,
+1731759623,,cpu_core/instructions/u,170701904,100.00,,
+363631261,,cpu_core/branches/u,170701904,100.00,,
+5498140,,cpu_core/branch-misses/u,170701904,100.00,,
+== M rand rep1 0.11
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+782859942,,cpu_core/cycles/u,159127649,100.00,,
+1547447046,,cpu_core/instructions/u,159127649,100.00,,
+322741755,,cpu_core/branches/u,159127649,100.00,,
+5762138,,cpu_core/branch-misses/u,159127649,100.00,,
+== G hit rep1 0.11
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+1874896796,,cpu_core/cycles/u,376453547,100.00,,
+1559633587,,cpu_core/instructions/u,376453547,100.00,,
+405913254,,cpu_core/branches/u,376453547,100.00,,
+41183654,,cpu_core/branch-misses/u,376453547,100.00,,
+== G rand rep1 0.11
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+1986563979,,cpu_core/cycles/u,398883495,100.00,,
+1455239557,,cpu_core/instructions/u,398883495,100.00,,
+399081272,,cpu_core/branches/u,398883495,100.00,,
+43250811,,cpu_core/branch-misses/u,398883495,100.00,,
+== B hit rep1 0.11
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+2158194040,,cpu_core/cycles/u,433223228,100.00,,
+1970712443,,cpu_core/instructions/u,433223228,100.00,,
+508986294,,cpu_core/branches/u,433223228,100.00,,
+46006618,,cpu_core/branch-misses/u,433223228,100.00,,
+== B rand rep1 0.11
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+2170612632,,cpu_core/cycles/u,435729325,100.00,,
+1841722396,,cpu_core/instructions/u,435729325,100.00,,
+499436294,,cpu_core/branches/u,435729325,100.00,,
+45685811,,cpu_core/branch-misses/u,435729325,100.00,,
+== M hit rep2 0.11
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+792656091,,cpu_core/cycles/u,161108556,100.00,,
+1731763112,,cpu_core/instructions/u,161108556,100.00,,
+363631756,,cpu_core/branches/u,161108556,100.00,,
+5611929,,cpu_core/branch-misses/u,161108556,100.00,,
+== M rand rep2 0.11
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+781969671,,cpu_core/cycles/u,158824628,100.00,,
+1547447062,,cpu_core/instructions/u,158824628,100.00,,
+322741753,,cpu_core/branches/u,158824628,100.00,,
+5745847,,cpu_core/branch-misses/u,158824628,100.00,,
+== G hit rep2 0.11
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+1903416889,,cpu_core/cycles/u,382196541,100.00,,
+1559633572,,cpu_core/instructions/u,382196541,100.00,,
+405913257,,cpu_core/branches/u,382196541,100.00,,
+42054708,,cpu_core/branch-misses/u,382196541,100.00,,
+== G rand rep2 0.11
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+1985896077,,cpu_core/cycles/u,398647317,100.00,,
+1455239560,,cpu_core/instructions/u,398647317,100.00,,
+399081274,,cpu_core/branches/u,398647317,100.00,,
+43300183,,cpu_core/branch-misses/u,398647317,100.00,,
+== B hit rep2 0.18
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+2148057114,,cpu_core/cycles/u,431169438,100.00,,
+1970712417,,cpu_core/instructions/u,431169438,100.00,,
+508986286,,cpu_core/branches/u,431169438,100.00,,
+45773304,,cpu_core/branch-misses/u,431169438,100.00,,
+== B rand rep2 0.18
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+2170632181,,cpu_core/cycles/u,435735355,100.00,,
+1841722392,,cpu_core/instructions/u,435735355,100.00,,
+499436292,,cpu_core/branches/u,435735355,100.00,,
+45466546,,cpu_core/branch-misses/u,435735355,100.00,,
+== M hit rep3 0.18
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+798285353,,cpu_core/cycles/u,162141788,100.00,,
+1731763106,,cpu_core/instructions/u,162141788,100.00,,
+363631756,,cpu_core/branches/u,162141788,100.00,,
+5515124,,cpu_core/branch-misses/u,162141788,100.00,,
+== M rand rep3 0.18
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+782911490,,cpu_core/cycles/u,158996132,100.00,,
+1547447072,,cpu_core/instructions/u,158996132,100.00,,
+322741755,,cpu_core/branches/u,158996132,100.00,,
+5765602,,cpu_core/branch-misses/u,158996132,100.00,,
+== G hit rep3 0.18
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+1891886121,,cpu_core/cycles/u,379778137,100.00,,
+1559633590,,cpu_core/instructions/u,379778137,100.00,,
+405913257,,cpu_core/branches/u,379778137,100.00,,
+41326945,,cpu_core/branch-misses/u,379778137,100.00,,
+== G rand rep3 0.18
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+1974420839,,cpu_core/cycles/u,396326963,100.00,,
+1455239558,,cpu_core/instructions/u,396326963,100.00,,
+399081272,,cpu_core/branches/u,396326963,100.00,,
+42966282,,cpu_core/branch-misses/u,396326963,100.00,,
+== B hit rep3 0.18
+hit reps=2000 gets=20000000 hits=20000000 sum=102248432000
+2150347329,,cpu_core/cycles/u,431648006,100.00,,
+1970712422,,cpu_core/instructions/u,431648006,100.00,,
+508986289,,cpu_core/branches/u,431648006,100.00,,
+45883787,,cpu_core/branch-misses/u,431648006,100.00,,
+== B rand rep3 0.18
+rand reps=2000 gets=20000000 hits=820000 sum=4365082000
+2178649023,,cpu_core/cycles/u,437326219,100.00,,
+1841722398,,cpu_core/instructions/u,437326219,100.00,,
+499436296,,cpu_core/branches/u,437326219,100.00,,
+45701933,,cpu_core/branch-misses/u,437326219,100.00,,
+/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu/
+libJudy.a
+libJudy.so
+libJudy.so.1
+libJudy.so.1.0.3
+rc=0
+19:01:39
