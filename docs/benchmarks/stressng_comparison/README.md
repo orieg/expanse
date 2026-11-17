@@ -1980,16 +1980,16 @@ Runs 11 and 12 repeat the cell under the registered harness settings with `perf 
 
 Kernel cycles per delete read M 10.75, G 17.76, S 6.69 at W = 8 and M 19.79, G 12.66, S 7.42 at W = 4 (run 11); no major fault in any process. The delete rate moves with the fault count at both W, in opposite directions.
 
-Run 31 is an untimed census of the same processes under `strace -f` on `brk`, `mmap`, `munmap`, `madvise` and `mremap` (6 rounds, 36 process trees, 22:19:31–22:20:21 UTC, worst foreign load 0.09). Summed over a process tree's W workers, mean of the rounds:
+Run 31 is an untimed census of the same processes under `strace -f` on `brk`, `mmap`, `munmap`, `madvise` and `mremap` (6 rounds, 36 process trees, 22:19:31–22:20:21 UTC, worst foreign load 0.09). Summed over a process tree's W workers, mean of the rounds. `strace -f` writes a call that another process interrupts as an unfinished and a resumed line, and 80% of the run's 1,466,028 trace lines are of that form; the table counts both. Its first published version counted whole-line calls only, which understated the shrinking calls by 1.07× to 15.15× and the page totals by 0.3% to 4.1%:
 
 | | W = 8 M | W = 8 G | W = 8 S | W = 4 M | W = 4 G | W = 4 S |
 |---|---|---|---|---|---|---|
-| `brk` calls that shrink the heap | 3,886 | 6,284 | 225 | 10,872 | 6,010 | 46 |
-| heap pages grown | 200,428 | 283,946 | 148,071 | 159,127 | 109,072 | 81,540 |
-| heap pages given back | 66,675 | 203,704 | 19,354 | 131,273 | 59,959 | 13,141 |
+| `brk` calls that shrink the heap | 35,288 | 95,208 | 240 | 54,848 | 27,580 | 68 |
+| heap pages grown | 202,048 | 285,928 | 148,648 | 159,532 | 109,640 | 82,112 |
+| heap pages given back | 67,400 | 207,112 | 19,584 | 131,656 | 60,484 | 13,684 |
 | page faults (whole tree) | 203,057 | 286,943 | 149,646 | 160,286 | 110,318 | 82,757 |
 
-- Pages grown, G over M, read 1.417 at W = 8 and 0.685 at W = 4, against the fault ratios 1.413 and 0.688. Pages given back read 3.06 and 0.457. The workers make no `mmap`, `munmap`, `madvise` or `mremap` call in any arm: the faults are heap regrowth after a trim.
+- Pages grown, G over M, read 1.415 at W = 8 and 0.687 at W = 4, against the fault ratios 1.413 and 0.688. Pages given back read 3.07 and 0.459. A shrinking call gives back 1.9 to 2.4 pages on average in M and G, and 82 and 201 in stock. The workers make no `mmap`, `munmap`, `madvise` or `mremap` call in any arm: the faults are heap regrowth after a trim.
 - The fault count depends on build and W, and it also moved with the command line in a census outside the driver; which input sets it is not established.
 
 **With heap trimming fixed off, the faults are equal and a smaller delete loss remains.** (workload: `sng_judy_4m`) Runs 21 and 22 set `MALLOC_TRIM_THRESHOLD_=1073741824` and `MALLOC_MMAP_THRESHOLD_=131072` in every arm, stock included (72 processes per run, none discarded, 22:21:19–22:22:41 and 22:24:09–22:25:31 UTC, max load1 4.66 and 4.91, worst foreign load 0.02). This harness setting was never registered; the numbers below change no verdict. BCa 95%, run 21 | run 22:
@@ -1999,12 +1999,12 @@ Run 31 is an untimed census of the same processes under `strace -f` on `brk`, `m
 | 8 | 140,047 / 139,963 / 140,334 \| 140,045 / 139,964 / 140,340 | 6.09 / 6.08 / 6.10 \| 6.08 / 6.09 / 6.12 | 0.980 [0.978, 0.981] \| 0.979 [0.977, 0.980] | 0.999 [0.997, 1.001] \| 1.000 [0.998, 1.002] | 1.009 [1.008, 1.010] \| 1.009 [1.009, 1.010] |
 | 4 | 70,190 / 70,146 / 70,336 \| 70,191 / 70,146 / 70,332 | 6.17 / 6.20 / 6.25 \| 6.15 / 6.18 / 6.23 | 0.978 [0.972, 0.984] \| 0.975 [0.970, 0.981] | 0.995 [0.989, 1.000] \| 0.992 [0.988, 0.996] | 1.010 [1.009, 1.011] \| 1.010 [1.009, 1.012] |
 
-- The census under these settings (run 32, 6 rounds, 22:26:59–22:27:45 UTC) reads 0 shrinking `brk` calls in every arm, and 137,614, 137,710 and 138,275 pages grown for M, G and S at W = 8.
+- The census under these settings (run 32, 6 rounds, 22:26:59–22:27:45 UTC) reads 0 shrinking `brk` calls in every arm, and 138,648, 138,712 and 139,144 pages grown for M, G and S at W = 8.
 - The residual delete loss is 0.975× to 0.980× at both W, where the registered settings read 0.951× at W = 8 and 1.007× to 1.015× at W = 4. G spends about 4 more user cycles per delete-op than M (416.9 against 420.7 at W = 8, 414.0 against 418.3 at W = 4, run 21). The cause of that residual is unmeasured in these runs.
 
 **Transparent huge pages are excluded.** The host's setting is `madvise` for both `enabled` and `defrag`. The census runs sampled every stress-ng process's `smaps_rollup` every 50 ms: `AnonHugePages` read 0 kB in all 11,211 samples, in every arm under both settings. One sample file of the 36 in each census run was unreadable.
 
-**Main against stock moves with the same setting.** (workload: `sng_judy_4m`) This compares runs taken in different sessions, so it is cross-run and not a paired claim. The delete rate M/S reads 0.977 [0.975, 0.979] | 0.976 [0.973, 0.978] at W = 8 and 0.946 [0.939, 0.953] | 0.938 [0.932, 0.944] at W = 4 under the registered settings (runs 11 | 12), and 0.993 [0.992, 0.995] | 0.992 [0.991, 0.994] and 0.999 [0.992, 1.005] | 0.998 [0.991, 1.004] with trimming fixed off (runs 21 | 22). In the default census main's workers give back 66,675 and 131,273 heap pages where stock's give back 19,354 and 13,141. The trim and regrow cost is therefore in main's allocation pattern as well, and the small-array form changes which W draws more of it. Why main's frees trim the heap more often than stock's is not measured here ([#1680](https://github.com/orieg/expanse/issues/1680)).
+**Main against stock moves with the same setting.** (workload: `sng_judy_4m`) This compares runs taken in different sessions, so it is cross-run and not a paired claim. The delete rate M/S reads 0.977 [0.975, 0.979] | 0.976 [0.973, 0.978] at W = 8 and 0.946 [0.939, 0.953] | 0.938 [0.932, 0.944] at W = 4 under the registered settings (runs 11 | 12), and 0.993 [0.992, 0.995] | 0.992 [0.991, 0.994] and 0.999 [0.992, 1.005] | 0.998 [0.991, 1.004] with trimming fixed off (runs 21 | 22). In the default census main's workers give back 67,400 and 131,656 heap pages where stock's give back 19,584 and 13,684. The trim and regrow cost is therefore in main's allocation pattern as well, and the small-array form changes which W draws more of it. Why main's frees trim the heap more often than stock's is not measured here ([#1680](https://github.com/orieg/expanse/issues/1680)).
 
 ## Reproduce
 
