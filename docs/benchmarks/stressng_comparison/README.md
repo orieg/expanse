@@ -1956,6 +1956,56 @@ The verdict rule of the second record gives FAIL: the target T1 is met and two s
 
 **The comparison with stock, not gated: INTERMEDIATE.** `hashjudy-puts-per-sec` G/S reads 1.051 [1.043, 1.057] | 1.037 [1.029, 1.044] and 1.076 [1.072, 1.081] | 1.077 [1.074, 1.081] on `big`, and 0.906 [0.898, 0.913] | 0.901 [0.895, 0.908] and 0.905 [0.900, 0.910] | 0.905 [0.900, 0.909] on `default`. `max-rss` G/S reads 0.997 [0.992, 1.001] | 0.997 [0.993, 1.001] and 0.994 [0.992, 0.997] | 0.994 [0.992, 0.996] on `big`, and 1.606 [1.601, 1.611] | 1.604 [1.599, 1.609] and 1.608 [1.603, 1.611] | 1.610 [1.605, 1.614] on `default`. On main the same cells read puts 0.106 to 0.157 and max-rss 49.4 to 77.3.
 
+### Attribution of the second record's two losses (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, G `8e6d2edc7` (sha256 `62d95025…`), M main `87ca5c134` (`8ef89940…`), S `76f121a8…`, stress-ng `490c0595…`, glibc 2.35, kernel 6.8.0; artifacts `results/diagnostic_increment_small_array_ref_run{11,12,21,22,31,32}.json` and `results/diagnostic_small_array_gets_ref.txt`) (workloads: `sng_sm_hashjudy_default`; `sng_judy_4m`)
+
+Diagnostics run after the FAIL, outside both registered records. The verdict stays FAIL under both, and no bound is moved. Runs 11 to 32 are scratch run numbers of the increment driver restricted to `sng_judy_4m` at W = 8 and W = 4 by a host-side wrapper that is not in the repository; runs 1 and 2 remain the second record's pair.
+
+**The `default` gets: the small block's search is a branch the predictor loses.** (workload: `sng_sm_hashjudy_default`)
+
+- Callgrind 3.27.1 with `--branch-sim=yes` on the cell's own program, collection toggled on `hashjudy_get`, one bogo op of 30,000 gets: G retires 2,257,669 instructions where M retires 2,379,301, and takes 73,680 simulated conditional mispredicts where M takes 19,829. Per function, the whole difference is in `JudyLGet`; `hashjudy_get`, `locate_slot_popcnt`, `leaf::search` and `locate_slot` read the same counts in both. So G executes fewer instructions per get and loses on mispredicts.
+- A C replica of the cell's shape (500 arrays, 10,000 draws, 20,000,000 gets per repeat, one P-core, user-mode `cpu_core` counters, three repeats, largest spread 2.0%, no interval), cycles and branch misses per get, replayed hits | fresh draws: M 39.8 | 39.1 cycles and 0.28 | 0.29 misses; G 93.9 | 99.1 and 2.07 | 2.16.
+- Intervention, same replica: G with the block's rank loop written with `core::hint::select_unpredictable` reads 29.0 | 32.8 cycles and 0.16 | 0.26 misses. The same loop written with arithmetic compiled back to a branch and reads 107.6 | 108.7 cycles and 2.29 | 2.28 misses.
+- The branch-free form is a local diagnostic build. It is not shipped, the stress-ng cell was not re-run with it, and the share of the cell's loss (G/M 0.462 [0.460, 0.463] in run 1) that it would recover is unmeasured.
+
+**The 4 Mi delete at W = 8: glibc gives the heap back and regrows it, and the kernel time follows the page faults.** (workload: `sng_judy_4m`)
+
+Runs 11 and 12 repeat the cell under the registered harness settings with `perf stat` on every process (72 processes per run, none discarded, 20:06:36–20:08:00 and 20:09:28–20:10:52 UTC on 2026-11-16, max load1 4.86 and 4.92, worst foreign load 0.05 core-equivalents). Counters are whole-process and divided by the process's deletes, so the insert and find phases are in every per-delete figure. G/M, BCa 95% (the page-fault intervals are the estimator's bias-corrected construction), run 11 | run 12:
+
+| W | delete rate | page faults | kernel cycles per delete | user cycles per delete |
+|---|---|---|---|---|
+| 8 | 0.951 [0.950, 0.953] \| 0.952 [0.950, 0.955] | 1.413 [1.413, 1.413] \| 1.413 [1.413, 1.413] | 1.652 [1.642, 1.659] \| 1.648 [1.639, 1.657] | 1.012 [1.011, 1.013] \| 1.012 [1.010, 1.013] |
+| 4 | 1.007 [1.000, 1.014] \| 1.015 [1.008, 1.022] | 0.688 [0.688, 0.688] \| 0.688 [0.688, 0.688] | 0.640 [0.637, 0.643] \| 0.637 [0.634, 0.641] | 1.005 [1.004, 1.007] \| 1.006 [1.004, 1.007] |
+
+Kernel cycles per delete read M 10.75, G 17.76, S 6.69 at W = 8 and M 19.79, G 12.66, S 7.42 at W = 4 (run 11); no major fault in any process. The delete rate moves with the fault count at both W, in opposite directions.
+
+Run 31 is an untimed census of the same processes under `strace -f` on `brk`, `mmap`, `munmap`, `madvise` and `mremap` (6 rounds, 36 process trees, 22:19:31–22:20:21 UTC, worst foreign load 0.09). Summed over a process tree's W workers, mean of the rounds:
+
+| | W = 8 M | W = 8 G | W = 8 S | W = 4 M | W = 4 G | W = 4 S |
+|---|---|---|---|---|---|---|
+| `brk` calls that shrink the heap | 3,886 | 6,284 | 225 | 10,872 | 6,010 | 46 |
+| heap pages grown | 200,428 | 283,946 | 148,071 | 159,127 | 109,072 | 81,540 |
+| heap pages given back | 66,675 | 203,704 | 19,354 | 131,273 | 59,959 | 13,141 |
+| page faults (whole tree) | 203,057 | 286,943 | 149,646 | 160,286 | 110,318 | 82,757 |
+
+- Pages grown, G over M, read 1.417 at W = 8 and 0.685 at W = 4, against the fault ratios 1.413 and 0.688. Pages given back read 3.06 and 0.457. The workers make no `mmap`, `munmap`, `madvise` or `mremap` call in any arm: the faults are heap regrowth after a trim.
+- The fault count depends on build and W, and it also moved with the command line in a census outside the driver; which input sets it is not established.
+
+**With heap trimming fixed off, the faults are equal and a smaller delete loss remains.** (workload: `sng_judy_4m`) Runs 21 and 22 set `MALLOC_TRIM_THRESHOLD_=1073741824` and `MALLOC_MMAP_THRESHOLD_=131072` in every arm, stock included (72 processes per run, none discarded, 22:21:19–22:22:41 and 22:24:09–22:25:31 UTC, max load1 4.66 and 4.91, worst foreign load 0.02). This harness setting was never registered; the numbers below change no verdict. BCa 95%, run 21 | run 22:
+
+| W | page faults M / G / S | kernel cycles per delete M / G / S | delete rate G/M | insert rate G/M | user cycles per delete G/M |
+|---|---|---|---|---|---|
+| 8 | 140,047 / 139,963 / 140,334 \| 140,045 / 139,964 / 140,340 | 6.09 / 6.08 / 6.10 \| 6.08 / 6.09 / 6.12 | 0.980 [0.978, 0.981] \| 0.979 [0.977, 0.980] | 0.999 [0.997, 1.001] \| 1.000 [0.998, 1.002] | 1.009 [1.008, 1.010] \| 1.009 [1.009, 1.010] |
+| 4 | 70,190 / 70,146 / 70,336 \| 70,191 / 70,146 / 70,332 | 6.17 / 6.20 / 6.25 \| 6.15 / 6.18 / 6.23 | 0.978 [0.972, 0.984] \| 0.975 [0.970, 0.981] | 0.995 [0.989, 1.000] \| 0.992 [0.988, 0.996] | 1.010 [1.009, 1.011] \| 1.010 [1.009, 1.012] |
+
+- The census under these settings (run 32, 6 rounds, 22:26:59–22:27:45 UTC) reads 0 shrinking `brk` calls in every arm, and 137,614, 137,710 and 138,275 pages grown for M, G and S at W = 8.
+- The residual delete loss is 0.975× to 0.980× at both W, where the registered settings read 0.951× at W = 8 and 1.007× to 1.015× at W = 4. G spends about 4 more user cycles per delete-op than M (416.9 against 420.7 at W = 8, 414.0 against 418.3 at W = 4, run 21). The cause of that residual is unmeasured in these runs.
+
+**Transparent huge pages are excluded.** The host's setting is `madvise` for both `enabled` and `defrag`. The census runs sampled every stress-ng process's `smaps_rollup` every 50 ms: `AnonHugePages` read 0 kB in all 11,211 samples, in every arm under both settings. One sample file of the 36 in each census run was unreadable.
+
+**Main against stock moves with the same setting.** (workload: `sng_judy_4m`) This compares runs taken in different sessions, so it is cross-run and not a paired claim. The delete rate M/S reads 0.977 [0.975, 0.979] | 0.976 [0.973, 0.978] at W = 8 and 0.946 [0.939, 0.953] | 0.938 [0.932, 0.944] at W = 4 under the registered settings (runs 11 | 12), and 0.993 [0.992, 0.995] | 0.992 [0.991, 0.994] and 0.999 [0.992, 1.005] | 0.998 [0.991, 1.004] with trimming fixed off (runs 21 | 22). In the default census main's workers give back 66,675 and 131,273 heap pages where stock's give back 19,354 and 13,141. The trim and regrow cost is therefore in main's allocation pattern as well, and the small-array form changes which W draws more of it. Why main's frees trim the heap more often than stock's is not measured here ([#1680](https://github.com/orieg/expanse/issues/1680)).
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
