@@ -16,7 +16,11 @@ with its `ci_method`, and `rounds_raw`. It then applies the pre-registered rule:
 
 PASS when the target and both bounds hold; otherwise FAIL, naming the cells.
 
-Usage: diag_increment_analyze.py <host> <tag> <run1_prefix> <run2_prefix> [--target cell:W:metric ...]
+`--l1-separated` applies L1 in the form a pre-registration may name instead: a
+cell breaks it only when, besides the two verdicts above, G/M is itself SLOWER
+(its upper bound below 1.0 in both runs).
+
+Usage: diag_increment_analyze.py <host> <tag> <run1_prefix> <run2_prefix> [--l1-separated] [--target cell:W:metric ...]
 """
 import json
 import math
@@ -79,6 +83,8 @@ def fmt(c):
 def main():
     args = sys.argv[1:]
     targets = []
+    l1_separated = "--l1-separated" in args
+    args = [a for a in args if a != "--l1-separated"]
     if "--target" in args:
         i = args.index("--target")
         targets = [tuple(t.split(":")) for t in args[i + 1:]]
@@ -120,8 +126,12 @@ def main():
         vgs = verdict([(c["ci_lower"], c["ci_upper"]) for c in gs])
         vms = verdict([(c["ci_lower"], c["ci_upper"]) for c in ms])
         print(f"| {cell} | {w} | `{metric}` | {fmt(gm[0])} | {fmt(gm[1])} | {vgs} | {vms} |")
+        vgm = verdict([(c["ci_lower"], c["ci_upper"]) for c in gm])
         if vms in ("FASTER", "EQUIVALENT") and vgs == "SLOWER":
-            failures.append(f"L1: {cell} W{w} {metric}: M/S {vms}, G/S SLOWER")
+            if not l1_separated or vgm == "SLOWER":
+                failures.append(f"L1: {cell} W{w} {metric}: M/S {vms}, G/S SLOWER, G/M {vgm}")
+            else:
+                print(f"L1 (separated form) holds at {cell} W{w} {metric}: M/S {vms}, G/S SLOWER, G/M {vgm}")
         if all(c["ci_upper"] < L2_FLOOR for c in gm):
             failures.append(f"L2: {cell} W{w} {metric}: G/M upper bound below {L2_FLOOR} in both runs")
     for cell, w, metric in targets:

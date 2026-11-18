@@ -1809,6 +1809,172 @@ On repetition 0, N's L1D-miss loads and cycles per insert correlate at ρ 0.979 
   - The leak's removal raises the user-instruction ratio, since `JLFA` adds work on both arms and more on N.
   - Which of these the floor causes is not measured.
 
+## Rejected increment: a `BranchB`'s level on its first cache line
+
+**A rejected candidate, not merged** (#1679, #1680; [orieg/expanse#1740](https://github.com/orieg/expanse/pull/1740), closed). `BranchB` on main keeps the field order `bitmap`, `subarrays`, `pop_counts`, `version`, `level`. This section is the record of what was tried, what each gate measured and why it failed (AGENTS.md §6).
+
+- **Tried.** `3ca8ccdd7` on that pull request's branch: the field order `bitmap`, `version`, `level`, `subarrays`, `pop_counts`, so a descent step through a digit below `0x60` reads one of the node's two cache lines where it reads both today. The line bound behind it is `node::tests::branch_b_lines_read_by_field_order` (`5685bd9d7`, on the same branch).
+- **First gate** (`docs/BENCHMARKING.md`, "Pre-registration: a `BranchB`'s level on its first cache line", `b80a06ef9`): **FAIL** on bound L1 at one reference-host cell, `sng_sm_judy_big` W = 8 gets. The deterministic target and the stress-ng target on that host were met.
+- **Second gate** (the second pre-registration there, `29a0594b2`, written after that FAIL with the bound restated and a label ceiling of INTERMEDIATE): **FAIL** on target T3. On the second host the 4 Mi insert rate does not separate from the merge base at W = 1, 4 and 8. The reference host met every target and bound read there.
+- **Why it failed.** The simulated-cache saving of 1.069 line reads per insert is real in the model, and on the Intel Core i9-12900F the 4 Mi insert rate rises 2.0% to 3.2% with it. On the AMD Ryzen 9 9955HX the same libraries read 0.998 to 1.008 on inserts, so the gain is not shown on both hosts, which is what the target required. Why the insert phase does not respond there was not measured.
+- **Not a reason to retry unchanged.** The gate is not restated again for this change (AGENTS.md §8.19). The delete rate (1.6% to 4.3% on both hosts) and the lookup-side `compare` cells did gain; a future candidate that targets those would need its own pre-registration.
+
+The subsections below are in the order the instruments were read, and "head" in them is the candidate's library, never main.
+
+### Where the 4 Mi inserts miss (main)
+
+(measured: Callgrind 3.22.0 cache simulator, `--D1=49152,12,64 --LL=1310720,10,64 --I1=32768,8,64`, rustc 1.99.1, Ubuntu 24.04 container on an x86-64 host, `instructions.rs` at main `aacc1add4`; `callgrind_annotate --auto=yes --inclusive=no`; per-arm totals in `results/branchb_line0/cachesim_arms.json`, the per-line rows are not committed) (workload: core_instructions)
+
+[The simulated-cache control](#diagnostic-the-4-mi-phases-under-a-simulated-cache) gave N 5.3156 simulated L1D read misses per insert through the C ABI and did not say which loads miss. The bench arm `map_ins_slot/gen_4m` reads 5.470 per insert, and three loads hold 80.6% of them:
+
+| Load | Simulated L1D read misses | Per insert |
+|---|---|---|
+| a `BranchB`'s `level` (`branch_form_level`), the node's second line | 6,311,029 | 1.505 |
+| the digit's bitmap word (`Bitmap256`), the node's first line | 6,311,286 | 1.505 |
+| the tag of the child edge followed next (`Edge::tag_byte`) | 5,863,342 | 1.398 |
+
+Every walk through a `BranchB` reads its bitmap and its `level`, and those sit on different lines. The model has no prefetcher, so these are lines touched, not the hardware's misses.
+
+### Deterministic result, head against base
+
+(measured: the same instrument and container, base `aacc1add4` against head `3ca8ccdd7`, each built in its own target directory; artifact `results/branchb_line0/cachesim_arms.json`, written by `scripts/cachesim_arms.py`) (workload: core_instructions)
+
+- **Instructions: identical on all 305 arms.** No arm's `Ir` differs between base and head. This is the x86-64 `instructions.rs` replica. CI on the candidate at `d2505d58e` (run [43693273896](https://github.com/orieg/expanse/actions/runs/43693273896)) read the same: 0 of 305 arms changed on the x86-64 deterministic job, and all 34 arms of the smoke and of the AArch64 job read no change.
+- **T1 holds.** `map_ins_slot/gen_4m` reads 4.401 simulated L1D misses per insert at the head against 5.470 at the base (18,459,780 against 22,942,584), under the 4.470 the target sets. `map_remove_revgen/gen_4m` reads 6.692 per delete against 7.656 (28,067,397 against 32,110,230).
+- **The cache-simulator bound holds.** Of the 114 `map_get*`, `set_contains*`, `map_ins*`, `map_remove*` and `sync_*` arms, none has more simulated L1D misses (read plus write) than the base + 0.5%. Over all 305 arms the largest rise is +0.05% (`map_insert/small`, 19,961 to 19,970).
+- **Other arms that fall**, reported and not a target: `short_bytesmap_get/zmap` 570,367 to 524,837 (−7.98%), `sync_map_count_after_write/random` −6.06%, `map_get/random` −3.85%, `set_contains/random` −3.75%.
+
+The fall on inserts is 1.069 per insert against the 1.2 projected. Stock's simulated figure through the C ABI is 3.2622 per insert, so the head still touches more lines per insert than stock in this model.
+
+### Increment runs (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `21a17c650`, binary `490c0595…`; artifacts `results/diagnostic_increment_branchb_line0_ref_run{1,2}.json`) (workloads: every cell of METHODOLOGY.md §5)
+
+Arms: G, the head `21a17c650` (the commits above rebased onto main, engine source unchanged; libexpanse sha256 `b9437992…`); M, its merge base `f22da01db` (`9b42a88b…`, the same file as `aacc1add4`'s); S, stock (`76f121a8…`).
+
+**Hygiene.** Run 1 ran 10:46:31–10:56:27 UTC on 2026-11-15 and run 2 10:57:55–11:07:50, each under the bench lock, on libraries built under the lock before run 1. 720 processes per run and none discarded; max load1 4.85 and 4.99 against a void limit of 12; the largest foreign load in any window is 0.09 core-equivalents in both runs.
+
+**T2 met.** `sng_judy_4m` G/M, BCa 95%, run 1 | run 2:
+
+| W | insert rate | delete rate |
+|---|---|---|
+| 1 | 1.025 [1.019, 1.030] \| 1.028 [1.020, 1.034] | 1.037 [1.029, 1.046] \| 1.039 [1.030, 1.049] |
+| 2 | 1.032 [1.023, 1.039] \| 1.027 [1.015, 1.033] | 1.041 [1.034, 1.051] \| 1.042 [1.035, 1.049] |
+| 4 | 1.028 [1.023, 1.035] \| 1.024 [1.018, 1.031] | 1.041 [1.036, 1.048] \| 1.038 [1.034, 1.042] |
+| 8 | 1.021 [1.018, 1.023] \| 1.023 [1.020, 1.026] | 1.039 [1.037, 1.043] \| 1.039 [1.038, 1.041] |
+
+**L2 holds.** No primary cell-metric has its G/M upper end below 0.98 in both runs. The lowest reading is `sng_judy_256k` W = 1 inserts, 0.976 [0.960, 0.993] and 0.992 [0.971, 1.013].
+
+**L1 fails at one cell.** `sng_sm_judy_big` W = 8 gets, run 1 | run 2:
+
+| pair | ratio | verdict over both runs |
+|---|---|---|
+| G/S | 0.998 [0.997, 0.999] \| 0.998 [0.997, 0.999] | SLOWER |
+| M/S | 0.999 [0.998, 0.999] \| 1.000 [0.998, 1.008] | EQUIVALENT |
+| G/M | 1.000 [0.999, 1.000] \| 0.998 [0.990, 1.000] | — |
+
+M/S has its upper end below 1 in run 1 and not in run 2, so the base reads EQUIVALENT and the head SLOWER. G/M does not separate from 1 in either run. The bound is applied as registered: the verdict is FAIL, and the bound is not moved (AGENTS.md §8.19).
+
+**Against stock at 4 Mi, under its own label: NOT MET.** `bogo-ops-per-second-real-time` G/S has its lower end above 1.0 at W = 8 only (1.025 [1.024, 1.026] in both runs); W = 1 reads 0.981 [0.975, 0.988] and 0.984 [0.976, 0.993], W = 2 0.992 [0.984, 0.999] and 0.991 [0.984, 0.998], W = 4 1.001 [0.996, 1.007] and 0.994 [0.989, 1.000]. M/S on the same runs is 0.952–0.970 at W = 1, 2 and 4 and 0.998–0.999 at W = 8. Insert rate G/S is 0.981–0.992 at W = 1, 2 and 4 (M/S 0.953–0.965) and 1.010–1.011 at W = 8; delete rate G/S is 0.969–0.985 (M/S 0.934–0.946) and 1.014 at W = 8.
+
+**Not run.** The verdict was FAIL before them, so the `compare` pairings (C1, C2), the second host (T3) and the `concurrency` report were not run for this change.
+
+### Second gate, fresh runs (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `29a0594b2`, binary `490c0595…`; artifacts `results/diagnostic_increment_branchb_line0_rereg_ref_run{1,2}.json`, the suite's run numbers 3 and 4) (workloads: every cell of METHODOLOGY.md §5)
+
+The FAIL above stands. These runs are read against the second pre-registration in `docs/BENCHMARKING.md`, which was committed at `29a0594b2` before they started and restates the stock-side bound as L1b. The gate was changed after a FAIL, so the label cannot exceed **INTERMEDIATE** (AGENTS.md §8.19). On the reference host every target and every stress-ng bound holds; the `compare` pairings and the second host decide the rest.
+
+Arms: the same three libraries as the first runs, checked by hash in each run's provenance (G `b9437992…`, M `9b42a88b…`, S `76f121a8…`).
+
+**Hygiene.** Run 3 ran 16:59:43–17:09:50 UTC on 2026-11-15 and run 4 17:19:10–17:29:17, each under the bench lock. 720 processes per run and none discarded; max load1 4.72 and 5.42 against a void limit of 12; the largest foreign load in any window is 0.10 core-equivalents.
+
+**T2 met.** `sng_judy_4m` G/M, BCa 95%, run 3 | run 4:
+
+| W | insert rate | delete rate |
+|---|---|---|
+| 1 | 1.028 [1.021, 1.033] \| 1.031 [1.026, 1.037] | 1.042 [1.033, 1.051] \| 1.043 [1.035, 1.051] |
+| 2 | 1.025 [1.018, 1.032] \| 1.024 [1.020, 1.030] | 1.040 [1.033, 1.046] \| 1.033 [1.027, 1.040] |
+| 4 | 1.021 [1.015, 1.026] \| 1.024 [1.018, 1.031] | 1.035 [1.030, 1.042] \| 1.041 [1.036, 1.047] |
+| 8 | 1.021 [1.020, 1.022] \| 1.020 [1.019, 1.021] | 1.037 [1.032, 1.039] \| 1.036 [1.035, 1.038] |
+
+**L1b holds.** No primary cell-metric reads SLOWER on G/M: none has its G/M upper end below 1.0 in both runs. The cell that broke L1 shows the same category pattern again, `sng_sm_judy_big` W = 8 gets:
+
+| pair | run 3 \| run 4 | verdict over both runs |
+|---|---|---|
+| G/S | 0.998 [0.997, 0.999] \| 0.998 [0.997, 0.999] | SLOWER |
+| M/S | 0.999 [0.998, 1.002] \| 0.998 [0.997, 0.999] | EQUIVALENT |
+| G/M | 0.999 [0.997, 1.000] \| 1.000 [0.999, 1.001] | EQUIVALENT |
+
+L1 as first registered would break here a second time; L1b does not, because G/M does not read SLOWER. It is the only cell where M/S is FASTER or EQUIVALENT and G/S is SLOWER.
+
+**L2 holds.** No primary cell-metric has its G/M upper end below 0.98 in both runs.
+
+**Against stock at 4 Mi, under its own label: NOT MET on this host.** `bogo-ops-per-second-real-time` G/S | M/S per run:
+
+| W | G/S run 3 | G/S run 4 | M/S run 3 | M/S run 4 |
+|---|---|---|---|---|
+| 1 | 0.988 [0.982, 0.995] | 0.992 [0.985, 1.000] | 0.956 [0.948, 0.965] | 0.959 [0.951, 0.969] |
+| 2 | 0.998 [0.993, 1.003] | 0.987 [0.980, 0.995] | 0.968 [0.960, 0.975] | 0.968 [0.963, 0.974] |
+| 4 | 1.002 [0.995, 1.009] | 1.002 [0.996, 1.008] | 0.977 [0.970, 0.982] | 0.973 [0.967, 0.979] |
+| 8 | 1.024 [1.022, 1.025] | 1.025 [1.023, 1.026] | 0.998 [0.997, 0.999] | 1.000 [0.999, 1.001] |
+
+The G/S lower end is above 1.0 at W = 8 only.
+
+### Second gate, `compare` pairings (reference host)
+
+(measured: reference host Intel Core i9-12900F, bench_baremetal `compare`; head `6959537d5` in runs [43742517572](https://github.com/orieg/expanse/actions/runs/43742517572) and [43751776373](https://github.com/orieg/expanse/actions/runs/43751776373), base `ceff5aee3` in runs [43746616527](https://github.com/orieg/expanse/actions/runs/43746616527) and [43757439004](https://github.com/orieg/expanse/actions/runs/43757439004); artifact `results/branchb_line0/compare_shift_rereg.json`) (workload: `core_compare`)
+
+`scripts/compare_shift.py` over the 82 Expanse cells of `map_get`, `map_get_cold_dram`, `set_lookup` and `map_iter`, head run i paired with base run i. All four runs report load status `ok` with no load finding. The first head run (17:41–18:24 UTC) spans the host's hourly rsync at :17; the driver's load record keeps it valid (largest on-pin foreign load in any window 0.24 core-equivalents, three windows above 0.1), so it is kept as the pre-registration requires of a valid run.
+
+**C1 holds.** No (cell, competitor) that is FASTER or EQUIVALENT at the base is SLOWER at the head. One side changes, in the head's favour: `map_get/clustered/1000000/hit` against the hash map, SLOWER at the base and EQUIVALENT at the head.
+
+**C2 holds.** No cell has its shift lower end above 1.02 in both pairings. Three cells are slower in both pairings, all under the ceiling:
+
+| cell | shift, pairing 1 \| pairing 2 |
+|---|---|
+| `map_get/rand22/1000000/hit` | 1.007 [1.004, 1.011] \| 1.018 [1.016, 1.022] |
+| `set_lookup/sparse/1000000/hit` | 1.006 [1.002, 1.011] \| 1.009 [1.005, 1.012] |
+| `map_iter/random/10000` | 1.003 [1.002, 1.003] \| 1.002 [1.001, 1.004] |
+
+21 cells are faster in both pairings. The largest are the 1 M-key `ascii_upper` lookups: `set_lookup` miss 0.858 [0.856, 0.861] \| 0.829 [0.826, 0.831], `map_get` miss 0.862 [0.859, 0.864] \| 0.868 [0.865, 0.870], `set_lookup` hit 0.872 [0.869, 0.875] \| 0.859 [0.857, 0.862], `map_get` hit 0.926 [0.923, 0.928] \| 0.910 [0.907, 0.913].
+
+### Second gate, fresh runs (second host)
+
+(measured: second host AMD Ryzen 9 9955HX (Zen 5, 16 cores, 32 threads), CPUs `0-7` pinned, governor `performance` on every CPU for the timed rounds (`amd-pstate-epp`), Linux 6.8, harness `29a0594b2`, the same stress-ng binary and G, M and stock files as the reference host, copied and hash-checked (sha256 `490c0595…`, `b9437992…`, `9b42a88b…`, `76f121a8…`); artifacts `results/diagnostic_increment_branchb_line0_rereg_zen5_run{1,2}.json`, the suite's run numbers 3 and 4) (workloads: every cell of METHODOLOGY.md §5)
+
+**T3 is not met, so the verdict under the second gate is FAIL.** T3 asks of this host what T2 asks of the reference host: `sng_judy_4m` insert rate and delete rate G/M with the lower end above 1.0 in both runs at every W. The delete rate meets it at every W. The insert rate meets it at W = 2 only; at W = 1, 4 and 8 its interval contains 1.0 in both runs. Every bound read on this host holds.
+
+**Hygiene.** Run 3 ran 00:19:22–00:28:49 UTC on 2026-11-18 and run 4 00:30:42–00:40:10, each under the bench lock, with that host's CI runner stopped and the governor changed for the timed rounds on the owner's approval (METHODOLOGY.md §3); both were restored after run 4. 720 processes per run and none discarded; max load1 5.13 and 5.01 against a void limit of 16; the largest foreign load in any window is 0.15 and 0.23 core-equivalents, with 6 and 5 windows above 0.1. Both runs are valid under §7 and neither is repeated.
+
+**T3.** `sng_judy_4m` G/M, BCa 95%, run 3 | run 4:
+
+| W | insert rate | delete rate |
+|---|---|---|
+| 1 | 0.998 [0.992, 1.005] \| 0.999 [0.992, 1.006] | 1.016 [1.008, 1.023] \| 1.018 [1.013, 1.025] |
+| 2 | 1.004 [1.001, 1.007] \| 1.008 [1.002, 1.014] | 1.021 [1.015, 1.028] \| 1.017 [1.009, 1.024] |
+| 4 | 1.001 [0.997, 1.004] \| 1.000 [0.995, 1.004] | 1.026 [1.021, 1.029] \| 1.021 [1.014, 1.028] |
+| 8 | 0.998 [0.989, 1.004] \| 0.999 [0.993, 1.005] | 1.018 [1.012, 1.023] \| 1.025 [1.021, 1.030] |
+
+The find rate, which is not a target, reads 1.007 to 1.019 with its lower end above 1.0 in seven of the eight run-cells (W = 8 run 4: 1.009 [0.997, 1.017]), and the cell's `bogo-ops-per-second-real-time` G/M reads 1.009 to 1.014 with every lower end above 1.0.
+
+**L1b holds.** No primary cell-metric has M/S FASTER or EQUIVALENT with G/S SLOWER, in either form of the bound. The cell that broke L1 on the reference host, `sng_sm_judy_big` W = 8 gets, reads G/S 1.053 [1.049, 1.058] \| 1.051 [1.048, 1.054] and M/S 1.058 [1.054, 1.062] \| 1.054 [1.050, 1.058] here, both FASTER.
+
+**L2 holds.** No primary cell-metric has its G/M upper end below 0.98 in both runs, and none has it below 1.0 in both runs. The lowest is that same cell, G/M 0.996 [0.993, 0.998] \| 0.997 [0.994, 1.001].
+
+**Against stock at 4 Mi, under its own label: INTERMEDIATE.** The G/S lower end is above 1.0 at every W in both runs on this host, and at W = 8 only on the reference host. The merge base is already ahead of stock here, so the label describes the standing of the library on this host more than the change. `bogo-ops-per-second-real-time` per run:
+
+| W | G/S run 3 | G/S run 4 | M/S run 3 | M/S run 4 |
+|---|---|---|---|---|
+| 1 | 1.136 [1.130, 1.141] | 1.141 [1.137, 1.146] | 1.125 [1.120, 1.131] | 1.128 [1.124, 1.133] |
+| 2 | 1.134 [1.130, 1.137] | 1.131 [1.127, 1.135] | 1.119 [1.116, 1.123] | 1.116 [1.111, 1.121] |
+| 4 | 1.132 [1.129, 1.135] | 1.133 [1.129, 1.137] | 1.118 [1.114, 1.120] | 1.120 [1.115, 1.124] |
+| 8 | 1.135 [1.131, 1.139] | 1.140 [1.136, 1.145] | 1.125 [1.122, 1.128] | 1.126 [1.121, 1.131] |
+
+The insert rate itself is behind stock on this host for both libraries (G/S 0.979 to 0.991, M/S 0.979 to 0.991, every upper end below 1.0); the cell's lead comes from the find and delete rates.
+
+**Verdict under the second gate: FAIL, and the candidate is not merged.** The cell that broke it is `sng_judy_4m` `judy-insert-operations-per-sec` on the second host at W = 1, 4 and 8 (T3). The reference host met every target and bound it was read against; the second host met every bound and the delete half of the target. The gate is not restated again for this change (AGENTS.md §8.19), and no bound is moved.
+
 ## Pre-registration: a small-array form in the `JudyL` shim ([#1742](https://github.com/orieg/expanse/issues/1742))
 
 A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. The change under test, design F of #1742: in `crates/expanse-capi` only, a `JudyL` array of up to 31 keys is one exact-size block, `[pop: u32, cap: u32][keys: u64 × cap][values: u64 × cap]`, keys sorted, capacity on the ladder 1, 2, 4, 8, 12, 16, 24, 32, grown by `realloc`. The array word is null, a small block (untagged), or a boxed `ExpanseMap` with bit 0 set. The insert that would make 32 keys builds an `ExpanseMap` by 32 `ins_slot_plain` calls in ascending order and frees the block; a full map does not demote. All 15 `JudyL*` entry points gain the small case. `Judy1*`, `JudySL*`, `JudyHS*`, `expanse_*`, `include/` and everything under `crates/expanse/` are not touched.
