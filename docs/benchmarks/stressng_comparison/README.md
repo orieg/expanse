@@ -1990,6 +1990,146 @@ A frozen record (§8.8 commit 2), never reconciled in place with what the runs m
 
 **Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved (§8.19). A PASS with T2 pending is recorded as PASS on the reference host only. The PR carries an `allow-regression:` line only if a named arm exceeds +0.1%, citing this record and the measuring run, and naming each such arm.
 
+### Small-array form result: FAIL on the Callgrind bounds
+
+(measured: x86-64 CI runner and AArch64 Neoverse N2 CI runner, head `c7e382af6` of PR 1751, [run 43840223080](https://github.com/orieg/expanse/actions/runs/43840223080); main's counts from [run 43813301782](https://github.com/orieg/expanse/actions/runs/43813301782); exact instruction counts, so no interval applies) (workload: `capi_vs_stock`, and the capi smoke harness where named)
+
+The verdict rule above gives FAIL. Nine arm readings exceed their bounds; no bound was moved and the change was not merged. The stress-ng runs were not started, so T1, T2 and every stress-ng bound are unmeasured, as is wasm fuel.
+
+| bound | arm | `_expanse` | `_expanse_dl` |
+|---|---|---|---|
+| read-only ≤ +0.1% | `judyl_first/random` | +0.532% | +0.703% |
+| read-only ≤ +0.1% | `judyl_last/random` | +0.515% | +0.684% |
+| read-only ≤ +0.1% | `judyl_next/random` | +0.538% | +0.711% |
+| read-only ≤ +0.1% | `judyl_prev/random` | +0.521% | +0.691% |
+| named ≤ +0.5% | `judyl_insert/sequential` | +0.910% | +0.537% |
+| named ≤ +0.5% | `judyl_del/clustered` | +0.755% | −0.740% |
+| named ≤ +0.5% | `judyl_del/random` | +0.642% | −0.635% |
+| named ≤ +0.5% | smoke `judyl_insert/sequential`, x86-64 | +1.058% | not an arm |
+| named ≤ +0.5% | smoke `judyl_insert/sequential`, AArch64 | +0.573% | not an arm |
+
+- The neighbour searches retire 3 (`_expanse`) and 4 (`_expanse_dl`) more instructions per call on the full-map path, 90,000 and 120,000 over 30,000 calls. On AArch64 the disassembly shows the untagging of the array word and one more saved register; the x86-64 cause is not attributed.
+- The first record's derivation "its instruction count is expected unchanged" for the full-map path is refuted for the four neighbour searches, and holds for `judyl_get` (unchanged on every arm).
+- Held: engine arms 0 of 305 moved; `judy1_*` and `judysl_*` 0 moved; `judyl_count`, `judyl_by_count` and the four `judyl_*_empty` within −0.022% to +0.035%; `judyl_churn`, `judyl_free` and `judyl_insert` random and clustered within −0.557% to +0.000%; `judyl_small_array` k32 +6.094% and +5.401%, k64 +4.598% and +4.084%; T3 exact; T4 −91.7% to −65.5% (`_expanse`) and −92.1% to −67.1% (`_expanse_dl`); Tier-1 Miri, ASan, `memory-budget` and the oracle pass.
+
+## Second pre-registration: the small-array form with its measured full-map cost named ([#1742](https://github.com/orieg/expanse/issues/1742))
+
+A frozen record, never reconciled in place with what the runs measure. Owner decision (2026-11-16): re-register the change of the record above after its FAIL, with the arms that broke their bounds named under the exemption. The change under test is the same design at PR 1751.
+
+**What this record can and cannot conclude.** The bounds on the arms below are set after their counts were read, on an instrument that is exact and will read the same count on the same code. They are a cost the owner accepts, not a prediction, and they carry no evidential weight. For that reason the best label this record can give is **INTERMEDIATE** (§8.19); PASS is not available. What remains a prediction, made before any data, is the real-program cell (T1, T2), every stress-ng bound and wasm fuel: none has been run on this build.
+
+**Observed before this commit, and therefore not evidence for it.** Everything in the result section above, and everything the first record lists as observed.
+
+**Targets.** T1, T2, T3 and T4 of the first record, unchanged.
+
+**Bounds.** Every row of the first record's table stands, except that these arms leave their rows and are named here under the owner exemption (2026-11-15), `_expanse` and `_expanse_dl`, in `vs_stock` and the capi smoke harness on x86-64 and AArch64:
+
+| arm | first bound | bound here | reading it was rounded up from |
+|---|---|---|---|
+| `judyl_first`, `judyl_last`, `judyl_next`, `judyl_prev` | ≤ +0.1% | ≤ +1.0% | +0.711% |
+| `judyl_insert/sequential` | ≤ +0.5% | ≤ +1.25% | +1.058% |
+| `judyl_del`, every distribution | ≤ +0.5% | ≤ +1.0% | +0.755% |
+
+- `judyl_get`, `judyl_count`, `judyl_by_count` and the four `judyl_*_empty` stay at ≤ +0.1%. `judyl_insert` random and clustered, `judyl_churn` and `judyl_free` stay at ≤ +0.5%. `judyl_small_array` k32 and k64 stay at ≤ +12% and ≤ +8%.
+- The three bound values were accepted by the owner (2026-11-16), before any fresh measurement.
+- The bounds apply to the head that is measured. A later commit to the PR is re-read against them, and none is raised.
+
+**Fresh measurements required.**
+
+- The Callgrind jobs (x86-64 deterministic, x86-64 smoke, AArch64) and wasm32 and wasm64 fuel on the PR head after it is brought up to date with main, against main's counts at that merge base.
+- The stress-ng increment runs of the first record, two independent runs per host, none of which exists.
+
+**Verdict.** INTERMEDIATE if every target and every bound holds, with T2 pending recorded as INTERMEDIATE on the reference host only. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved again. Whether an INTERMEDIATE change merges is the owner's decision, made on the recorded result. The PR then carries an `allow-regression:` line citing this record and the measuring run, and naming each arm over +0.1%.
+
+### Second record's result (reference host): FAIL
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness and G `8e6d2edc7` (head of PR 1751, sha256 `62d95025…`), M main `87ca5c134` (`8ef89940…`), S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_small_array_ref_run{1,2}.json`; Callgrind and fuel from [run 43913819533](https://github.com/orieg/expanse/actions/runs/43913819533)) (workloads: every cell of METHODOLOGY.md §5; `capi_vs_stock`)
+
+The verdict rule of the second record gives FAIL: the target T1 is met and two stress-ng bounds are broken. The change is not merged and no bound is moved. T2 was not run.
+
+**Hygiene.** Run 1 ran 18:01:43–18:11:28 UTC and run 2 18:19:08–18:28:52 on 2026-11-16, each under the host bench lock, on libraries built once under the same lock before run 1. 720 processes per run, none discarded; max load1 4.87 and 5.66 against a void limit of 12; worst foreign load in any window 0.09 and 0.10 core-equivalents. No bench workflow was in flight and no login was made to the host between the start of run 1 and the end of run 2.
+
+**Bounds broken**, G/M and the stock-side ratios, BCa 95%, run 1 | run 2:
+
+| cell, W | metric | G/M | G/S | M/S |
+|---|---|---|---|---|
+| `sng_sm_hashjudy_default`, 1 | `hashjudy-gets-per-sec` | 0.462 [0.460, 0.463] \| 0.461 [0.460, 0.463] | 0.615 [0.612, 0.619] \| 0.614 [0.612, 0.617] | 1.333 [1.328, 1.339] \| 1.332 [1.328, 1.336] |
+| `sng_sm_hashjudy_default`, 4 | `hashjudy-gets-per-sec` | 0.464 [0.462, 0.466] \| 0.464 [0.462, 0.466] | 0.613 [0.610, 0.616] \| 0.612 [0.609, 0.614] | 1.323 [1.316, 1.329] \| 1.318 [1.312, 1.323] |
+| `sng_judy_4m`, 8 | `judy-delete-operations-per-sec` | 0.953 [0.951, 0.954] \| 0.950 [0.948, 0.951] | SLOWER | SLOWER |
+
+- The `default` gets break their own bound (G/M upper end not below 0.98; stays FASTER against stock) and L1b at both W: the cell goes from FASTER to SLOWER against stock.
+- The 4 Mi delete at W = 8 breaks L2. At W = 1, 2 and 4 the same metric reads 0.992 to 1.007.
+- Why either loses is not measured, and no cause is stated.
+
+**Target T1 met**, G/M, BCa 95% (the max-rss intervals are the estimator's bias-corrected construction), run 1 | run 2:
+
+| cell, W | `hashjudy-puts-per-sec` (lower end above 2.0) | `max-rss` (upper end below 0.20) |
+|---|---|---|
+| `sng_sm_hashjudy_big`, 1 | 9.824 [9.771, 9.864] \| 9.798 [9.741, 9.846] | 0.013 [0.013, 0.013] \| 0.013 [0.013, 0.013] |
+| `sng_sm_hashjudy_big`, 4 | 8.435 [8.401, 8.472] \| 8.461 [8.435, 8.493] | 0.013 [0.013, 0.013] \| 0.013 [0.013, 0.013] |
+| `sng_sm_hashjudy_default`, 1 | 5.768 [5.728, 5.800] \| 5.745 [5.714, 5.778] | 0.032 [0.032, 0.033] \| 0.032 [0.032, 0.032] |
+| `sng_sm_hashjudy_default`, 4 | 6.109 [6.079, 6.143] \| 6.149 [6.122, 6.180] | 0.033 [0.033, 0.033] \| 0.033 [0.032, 0.033] |
+
+**Other bounds held.**
+
+- `sng_judy_1k` inserts, the named likeliest falsifier: G/M upper ends 0.981 to 0.995 over the four W and both runs, none below 0.98 in both runs; the ratios read 0.963 to 0.989.
+- No other primary cell-metric has its G/M upper end below 0.98 in both runs. `sng_sm_hashjudy_big` gets read G/M 1.660 [1.647, 1.673] | 1.668 [1.646, 1.684] at W = 1 and 1.809 [1.800, 1.817] | 1.810 [1.801, 1.818] at W = 4.
+- Callgrind at `8e6d2edc7`, exact counts against main: the re-registered arms read at most +0.711% (neighbour searches), +1.058% (`judyl_insert/sequential`, x86-64 smoke) and +0.755% (`judyl_del`); `judyl_get` unchanged on 8 arms; `judyl_small_array` k32 +6.094% and +5.401%, k64 +4.598% and +4.084%; T3 and T4 as in the first result; engine arms 0 of 303, 0 of 50 and 0 of 12 moved; `judy1_*` and `judysl_*` 0 of 33 moved.
+- The six `judyhs_long_*` arms read −0.143% to +0.089% against main. They are not exact on this instrument: three CI runs of the same shim code read three different counts. The six `judyhs_*` `fixed8` arms are identical.
+- wasm32 and wasm64 fuel: the 60 arm readings equal those of main's fuel run at `aacc1add4`, whose engine and wasm crates differ from `87ca5c134` by the version string only.
+
+**The comparison with stock, not gated: INTERMEDIATE.** `hashjudy-puts-per-sec` G/S reads 1.051 [1.043, 1.057] | 1.037 [1.029, 1.044] and 1.076 [1.072, 1.081] | 1.077 [1.074, 1.081] on `big`, and 0.906 [0.898, 0.913] | 0.901 [0.895, 0.908] and 0.905 [0.900, 0.910] | 0.905 [0.900, 0.909] on `default`. `max-rss` G/S reads 0.997 [0.992, 1.001] | 0.997 [0.993, 1.001] and 0.994 [0.992, 0.997] | 0.994 [0.992, 0.996] on `big`, and 1.606 [1.601, 1.611] | 1.604 [1.599, 1.609] and 1.608 [1.603, 1.611] | 1.610 [1.605, 1.614] on `default`. On main the same cells read puts 0.106 to 0.157 and max-rss 49.4 to 77.3.
+
+### Attribution of the second record's two losses (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, G `8e6d2edc7` (sha256 `62d95025…`), M main `87ca5c134` (`8ef89940…`), S `76f121a8…`, stress-ng `490c0595…`, glibc 2.35, kernel 6.8.0; artifacts `results/diagnostic_increment_small_array_ref_run{11,12,21,22,31,32}.json` and `results/diagnostic_small_array_gets_ref.txt`) (workloads: `sng_sm_hashjudy_default`; `sng_judy_4m`)
+
+Diagnostics run after the FAIL, outside both registered records. The verdict stays FAIL under both, and no bound is moved. Runs 11 to 32 are scratch run numbers of the increment driver restricted to `sng_judy_4m` at W = 8 and W = 4 by a host-side wrapper that is not in the repository; runs 1 and 2 remain the second record's pair.
+
+**The `default` gets: the small block's search is a branch the predictor loses.** (workload: `sng_sm_hashjudy_default`)
+
+- Callgrind 3.27.1 with `--branch-sim=yes` on the cell's own program, collection toggled on `hashjudy_get`, one bogo op of 30,000 gets: G retires 2,257,669 instructions where M retires 2,379,301, and takes 73,680 simulated conditional mispredicts where M takes 19,829. Per function, the whole difference is in `JudyLGet`; `hashjudy_get`, `locate_slot_popcnt`, `leaf::search` and `locate_slot` read the same counts in both. So G executes fewer instructions per get and loses on mispredicts.
+- A C replica of the cell's shape (500 arrays, 10,000 draws, 20,000,000 gets per repeat, one P-core, user-mode `cpu_core` counters, three repeats, largest spread 2.0%, no interval), cycles and branch misses per get, replayed hits | fresh draws: M 39.8 | 39.1 cycles and 0.28 | 0.29 misses; G 93.9 | 99.1 and 2.07 | 2.16.
+- Intervention, same replica: G with the block's rank loop written with `core::hint::select_unpredictable` reads 29.0 | 32.8 cycles and 0.16 | 0.26 misses. The same loop written with arithmetic compiled back to a branch and reads 107.6 | 108.7 cycles and 2.29 | 2.28 misses.
+- The branch-free form is a local diagnostic build. It is not shipped, the stress-ng cell was not re-run with it, and the share of the cell's loss (G/M 0.462 [0.460, 0.463] in run 1) that it would recover is unmeasured.
+
+**The 4 Mi delete at W = 8: glibc gives the heap back and regrows it, and the kernel time follows the page faults.** (workload: `sng_judy_4m`)
+
+Runs 11 and 12 repeat the cell under the registered harness settings with `perf stat` on every process (72 processes per run, none discarded, 20:06:36–20:08:00 and 20:09:28–20:10:52 UTC on 2026-11-16, max load1 4.86 and 4.92, worst foreign load 0.05 core-equivalents). Counters are whole-process and divided by the process's deletes, so the insert and find phases are in every per-delete figure. G/M, BCa 95% (the page-fault intervals are the estimator's bias-corrected construction), run 11 | run 12:
+
+| W | delete rate | page faults | kernel cycles per delete | user cycles per delete |
+|---|---|---|---|---|
+| 8 | 0.951 [0.950, 0.953] \| 0.952 [0.950, 0.955] | 1.413 [1.413, 1.413] \| 1.413 [1.413, 1.413] | 1.652 [1.642, 1.659] \| 1.648 [1.639, 1.657] | 1.012 [1.011, 1.013] \| 1.012 [1.010, 1.013] |
+| 4 | 1.007 [1.000, 1.014] \| 1.015 [1.008, 1.022] | 0.688 [0.688, 0.688] \| 0.688 [0.688, 0.688] | 0.640 [0.637, 0.643] \| 0.637 [0.634, 0.641] | 1.005 [1.004, 1.007] \| 1.006 [1.004, 1.007] |
+
+Kernel cycles per delete read M 10.75, G 17.76, S 6.69 at W = 8 and M 19.79, G 12.66, S 7.42 at W = 4 (run 11); no major fault in any process. The delete rate moves with the fault count at both W, in opposite directions.
+
+Run 31 is an untimed census of the same processes under `strace -f` on `brk`, `mmap`, `munmap`, `madvise` and `mremap` (6 rounds, 36 process trees, 22:19:31–22:20:21 UTC, worst foreign load 0.09). Summed over a process tree's W workers, mean of the rounds. `strace -f` writes a call that another process interrupts as an unfinished and a resumed line, and 80% of the run's 1,466,028 trace lines are of that form; the table counts both. Its first published version counted whole-line calls only, which understated the shrinking calls by 1.07× to 15.15× and the page totals by 0.3% to 4.1%:
+
+| | W = 8 M | W = 8 G | W = 8 S | W = 4 M | W = 4 G | W = 4 S |
+|---|---|---|---|---|---|---|
+| `brk` calls that shrink the heap | 35,288 | 95,208 | 240 | 54,848 | 27,580 | 68 |
+| heap pages grown | 202,048 | 285,928 | 148,648 | 159,532 | 109,640 | 82,112 |
+| heap pages given back | 67,400 | 207,112 | 19,584 | 131,656 | 60,484 | 13,684 |
+| page faults (whole tree) | 203,057 | 286,943 | 149,646 | 160,286 | 110,318 | 82,757 |
+
+- Pages grown, G over M, read 1.415 at W = 8 and 0.687 at W = 4, against the fault ratios 1.413 and 0.688. Pages given back read 3.07 and 0.459. A shrinking call gives back 1.9 to 2.4 pages on average in M and G, and 82 and 201 in stock. The workers make no `mmap`, `munmap`, `madvise` or `mremap` call in any arm: the faults are heap regrowth after a trim.
+- The fault count depends on build and W, and it also moved with the command line in a census outside the driver; which input sets it is not established.
+
+**With heap trimming fixed off, the faults are equal and a smaller delete loss remains.** (workload: `sng_judy_4m`) Runs 21 and 22 set `MALLOC_TRIM_THRESHOLD_=1073741824` and `MALLOC_MMAP_THRESHOLD_=131072` in every arm, stock included (72 processes per run, none discarded, 22:21:19–22:22:41 and 22:24:09–22:25:31 UTC, max load1 4.66 and 4.91, worst foreign load 0.02). This harness setting was never registered; the numbers below change no verdict. BCa 95%, run 21 | run 22:
+
+| W | page faults M / G / S | kernel cycles per delete M / G / S | delete rate G/M | insert rate G/M | user cycles per delete G/M |
+|---|---|---|---|---|---|
+| 8 | 140,047 / 139,963 / 140,334 \| 140,045 / 139,964 / 140,340 | 6.09 / 6.08 / 6.10 \| 6.08 / 6.09 / 6.12 | 0.980 [0.978, 0.981] \| 0.979 [0.977, 0.980] | 0.999 [0.997, 1.001] \| 1.000 [0.998, 1.002] | 1.009 [1.008, 1.010] \| 1.009 [1.009, 1.010] |
+| 4 | 70,190 / 70,146 / 70,336 \| 70,191 / 70,146 / 70,332 | 6.17 / 6.20 / 6.25 \| 6.15 / 6.18 / 6.23 | 0.978 [0.972, 0.984] \| 0.975 [0.970, 0.981] | 0.995 [0.989, 1.000] \| 0.992 [0.988, 0.996] | 1.010 [1.009, 1.011] \| 1.010 [1.009, 1.012] |
+
+- The census under these settings (run 32, 6 rounds, 22:26:59–22:27:45 UTC) reads 0 shrinking `brk` calls in every arm, and 138,648, 138,712 and 139,144 pages grown for M, G and S at W = 8.
+- The residual delete loss is 0.975× to 0.980× at both W, where the registered settings read 0.951× at W = 8 and 1.007× to 1.015× at W = 4. G spends about 4 more user cycles per delete-op than M (416.9 against 420.7 at W = 8, 414.0 against 418.3 at W = 4, run 21). The cause of that residual is unmeasured in these runs.
+
+**Transparent huge pages are excluded.** The host's setting is `madvise` for both `enabled` and `defrag`. The census runs sampled every stress-ng process's `smaps_rollup` every 50 ms: `AnonHugePages` read 0 kB in all 11,211 samples, in every arm under both settings. One sample file of the 36 in each census run was unreadable.
+
+**Main against stock moves with the same setting.** (workload: `sng_judy_4m`) This compares runs taken in different sessions, so it is cross-run and not a paired claim. The delete rate M/S reads 0.977 [0.975, 0.979] | 0.976 [0.973, 0.978] at W = 8 and 0.946 [0.939, 0.953] | 0.938 [0.932, 0.944] at W = 4 under the registered settings (runs 11 | 12), and 0.993 [0.992, 0.995] | 0.992 [0.991, 0.994] and 0.999 [0.992, 1.005] | 0.998 [0.991, 1.004] with trimming fixed off (runs 21 | 22). In the default census main's workers give back 67,400 and 131,656 heap pages where stock's give back 19,584 and 13,684. The trim and regrow cost is therefore in main's allocation pattern as well, and the small-array form changes which W draws more of it. Why main's frees trim the heap more often than stock's is not measured here ([#1680](https://github.com/orieg/expanse/issues/1680)).
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
