@@ -1931,7 +1931,41 @@ The G/S lower end is above 1.0 at W = 8 only.
 
 21 cells are faster in both pairings. The largest are the 1 M-key `ascii_upper` lookups: `set_lookup` miss 0.858 [0.856, 0.861] \| 0.829 [0.826, 0.831], `map_get` miss 0.862 [0.859, 0.864] \| 0.868 [0.865, 0.870], `set_lookup` hit 0.872 [0.869, 0.875] \| 0.859 [0.857, 0.862], `map_get` hit 0.926 [0.923, 0.928] \| 0.910 [0.907, 0.913].
 
-**Standing under the second gate: INTERMEDIATE on the reference host.** Every target and bound read there holds. Pending: the second host (T3), whose bench lock was held by another job, and the deterministic bounds on this branch's head in CI.
+### Second gate, fresh runs (second host)
+
+(measured: second host AMD Ryzen 9 9955HX (Zen 5, 16 cores, 32 threads), CPUs `0-7` pinned, governor `performance` on every CPU for the timed rounds (`amd-pstate-epp`), Linux 6.8, harness `29a0594b2`, the same stress-ng binary and G, M and stock files as the reference host, copied and hash-checked (sha256 `490c0595…`, `b9437992…`, `9b42a88b…`, `76f121a8…`); artifacts `results/diagnostic_increment_branchb_line0_rereg_zen5_run{1,2}.json`, the suite's run numbers 3 and 4) (workloads: every cell of METHODOLOGY.md §5)
+
+**T3 is not met, so the verdict under the second gate is FAIL.** T3 asks of this host what T2 asks of the reference host: `sng_judy_4m` insert rate and delete rate G/M with the lower end above 1.0 in both runs at every W. The delete rate meets it at every W. The insert rate meets it at W = 2 only; at W = 1, 4 and 8 its interval contains 1.0 in both runs. Every bound read on this host holds.
+
+**Hygiene.** Run 3 ran 00:19:22–00:28:49 UTC on 2026-11-18 and run 4 00:30:42–00:40:10, each under the bench lock, with that host's CI runner stopped and the governor changed for the timed rounds on the owner's approval (METHODOLOGY.md §3); both were restored after run 4. 720 processes per run and none discarded; max load1 5.13 and 5.01 against a void limit of 16; the largest foreign load in any window is 0.15 and 0.23 core-equivalents, with 6 and 5 windows above 0.1. Both runs are valid under §7 and neither is repeated.
+
+**T3.** `sng_judy_4m` G/M, BCa 95%, run 3 | run 4:
+
+| W | insert rate | delete rate |
+|---|---|---|
+| 1 | 0.998 [0.992, 1.005] \| 0.999 [0.992, 1.006] | 1.016 [1.008, 1.023] \| 1.018 [1.013, 1.025] |
+| 2 | 1.004 [1.001, 1.007] \| 1.008 [1.002, 1.014] | 1.021 [1.015, 1.028] \| 1.017 [1.009, 1.024] |
+| 4 | 1.001 [0.997, 1.004] \| 1.000 [0.995, 1.004] | 1.026 [1.021, 1.029] \| 1.021 [1.014, 1.028] |
+| 8 | 0.998 [0.989, 1.004] \| 0.999 [0.993, 1.005] | 1.018 [1.012, 1.023] \| 1.025 [1.021, 1.030] |
+
+The find rate, which is not a target, reads 1.007 to 1.019 with its lower end above 1.0 in seven of the eight run-cells (W = 8 run 4: 1.009 [0.997, 1.017]), and the cell's `bogo-ops-per-second-real-time` G/M reads 1.009 to 1.014 with every lower end above 1.0.
+
+**L1b holds.** No primary cell-metric has M/S FASTER or EQUIVALENT with G/S SLOWER, in either form of the bound. The cell that broke L1 on the reference host, `sng_sm_judy_big` W = 8 gets, reads G/S 1.053 [1.049, 1.058] \| 1.051 [1.048, 1.054] and M/S 1.058 [1.054, 1.062] \| 1.054 [1.050, 1.058] here, both FASTER.
+
+**L2 holds.** No primary cell-metric has its G/M upper end below 0.98 in both runs, and none has it below 1.0 in both runs. The lowest is that same cell, G/M 0.996 [0.993, 0.998] \| 0.997 [0.994, 1.001].
+
+**Against stock at 4 Mi, under its own label: INTERMEDIATE.** The G/S lower end is above 1.0 at every W in both runs on this host, and at W = 8 only on the reference host. The merge base is already ahead of stock here, so the label describes the standing of the library on this host more than the change. `bogo-ops-per-second-real-time` per run:
+
+| W | G/S run 3 | G/S run 4 | M/S run 3 | M/S run 4 |
+|---|---|---|---|---|
+| 1 | 1.136 [1.130, 1.141] | 1.141 [1.137, 1.146] | 1.125 [1.120, 1.131] | 1.128 [1.124, 1.133] |
+| 2 | 1.134 [1.130, 1.137] | 1.131 [1.127, 1.135] | 1.119 [1.116, 1.123] | 1.116 [1.111, 1.121] |
+| 4 | 1.132 [1.129, 1.135] | 1.133 [1.129, 1.137] | 1.118 [1.114, 1.120] | 1.120 [1.115, 1.124] |
+| 8 | 1.135 [1.131, 1.139] | 1.140 [1.136, 1.145] | 1.125 [1.122, 1.128] | 1.126 [1.121, 1.131] |
+
+The insert rate itself is behind stock on this host for both libraries (G/S 0.979 to 0.991, M/S 0.979 to 0.991, every upper end below 1.0); the cell's lead comes from the find and delete rates.
+
+**Verdict under the second gate: FAIL.** The cell that broke it is `sng_judy_4m` `judy-insert-operations-per-sec` on the second host at W = 1, 4 and 8 (T3). The reference host met every target and bound it was read against; the second host met every bound and the delete half of the target. The gate is not restated again for this change (AGENTS.md §8.19), and no bound is moved.
 
 ## Pre-registration: a small-array form in the `JudyL` shim ([#1742](https://github.com/orieg/expanse/issues/1742))
 
