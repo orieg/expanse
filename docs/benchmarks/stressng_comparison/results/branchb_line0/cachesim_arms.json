@@ -1,0 +1,3080 @@
+{
+ "provenance": {
+  "instrument": "Callgrind cache simulator, no prefetcher, virtual addresses",
+  "geometry": {
+   "D1": "49152,12,64",
+   "LL": "1310720,10,64",
+   "I1": "32768,8,64"
+  },
+  "bench": "crates/expanse/benches/instructions.rs (workload core_instructions)",
+  "base": "aacc1add4",
+  "head": "3ca8ccdd7",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "valgrind": "valgrind-3.22.0",
+  "container": "Ubuntu 24.04, iai-callgrind-runner 0.16.1, CARGO_PROFILE_BENCH_DEBUG=1"
+ },
+ "summary": {
+  "arms": 305,
+  "arms_ir_changed": 0,
+  "ir_worst_pct": 0.0,
+  "bounded_arms": 114,
+  "bounded_arms_over_d1_bound": [],
+  "d1_bound_pct": 0.5,
+  "gen_4m_ins_d1mr_per_op_base": 5.469938278198242,
+  "gen_4m_ins_d1mr_per_op_head": 4.401154518127441,
+  "gen_4m_remove_d1mr_per_op_base": 7.655675411224365,
+  "gen_4m_remove_d1mr_per_op_head": 6.691788911819458
+ },
+ "arms": [
+  {
+   "arm": "cost::blobmap32_scan.ipv4_routes",
+   "ir_base": 343888,
+   "ir_head": 343888,
+   "d1mr_base": 255,
+   "d1mr_head": 255,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::blobmap_churn.random",
+   "ir_base": 74651067,
+   "ir_head": 74651067,
+   "d1mr_base": 289592,
+   "d1mr_head": 283460,
+   "d1mw_base": 72685,
+   "d1mw_head": 72635,
+   "bounded": false
+  },
+  {
+   "arm": "cost::blobmap_compact.random",
+   "ir_base": 19439100,
+   "ir_head": 19439100,
+   "d1mr_base": 143666,
+   "d1mr_head": 143667,
+   "d1mw_base": 37647,
+   "d1mw_head": 37647,
+   "bounded": false
+  },
+  {
+   "arm": "cost::blobmap_get.random",
+   "ir_base": 10695234,
+   "ir_head": 10695234,
+   "d1mr_base": 187626,
+   "d1mr_head": 180357,
+   "d1mw_base": 3,
+   "d1mw_head": 3,
+   "bounded": false
+  },
+  {
+   "arm": "cost::blobmap_insert.random",
+   "ir_base": 31482593,
+   "ir_head": 31482593,
+   "d1mr_base": 163390,
+   "d1mr_head": 160876,
+   "d1mw_base": 64260,
+   "d1mw_head": 64227,
+   "bounded": false
+  },
+  {
+   "arm": "cost::blobmap_insert_inline.random",
+   "ir_base": 29081942,
+   "ir_head": 29081942,
+   "d1mr_base": 156283,
+   "d1mr_head": 153952,
+   "d1mw_base": 38668,
+   "d1mw_head": 38633,
+   "bounded": false
+  },
+  {
+   "arm": "cost::blobmap_insert_reclaiming.random",
+   "ir_base": 507505,
+   "ir_head": 507505,
+   "d1mr_base": 3,
+   "d1mr_head": 3,
+   "d1mw_base": 18,
+   "d1mw_head": 18,
+   "bounded": false
+  },
+  {
+   "arm": "cost::blobmap_overwrite.random",
+   "ir_base": 19587351,
+   "ir_head": 19587351,
+   "d1mr_base": 193819,
+   "d1mr_head": 185476,
+   "d1mw_base": 25016,
+   "d1mw_head": 25016,
+   "bounded": false
+  },
+  {
+   "arm": "cost::blobmap_remove.random",
+   "ir_base": 25867769,
+   "ir_head": 25867769,
+   "d1mr_base": 264037,
+   "d1mr_head": 261135,
+   "d1mw_base": 9461,
+   "d1mw_head": 9442,
+   "bounded": false
+  },
+  {
+   "arm": "cost::bytesmap_churn.routes",
+   "ir_base": 136891111,
+   "ir_head": 136891111,
+   "d1mr_base": 616688,
+   "d1mr_head": 609851,
+   "d1mw_base": 5402,
+   "d1mw_head": 5351,
+   "bounded": false
+  },
+  {
+   "arm": "cost::bytesmap_fixed8_get.zmap",
+   "ir_base": 41009274,
+   "ir_head": 41009274,
+   "d1mr_base": 681710,
+   "d1mr_head": 654922,
+   "d1mw_base": 16,
+   "d1mw_head": 16,
+   "bounded": false
+  },
+  {
+   "arm": "cost::bytesmap_fixed8_insert.zmap",
+   "ir_base": 71598986,
+   "ir_head": 71598986,
+   "d1mr_base": 258111,
+   "d1mr_head": 255027,
+   "d1mw_base": 110372,
+   "d1mw_head": 110351,
+   "bounded": false
+  },
+  {
+   "arm": "cost::bytesmap_fixed8_remove.zmap",
+   "ir_base": 79332119,
+   "ir_head": 79332119,
+   "d1mr_base": 904418,
+   "d1mr_head": 900738,
+   "d1mw_base": 14124,
+   "d1mw_head": 14107,
+   "bounded": false
+  },
+  {
+   "arm": "cost::bytesmap_get.routes",
+   "ir_base": 25364713,
+   "ir_head": 25364713,
+   "d1mr_base": 523684,
+   "d1mr_head": 512202,
+   "d1mw_base": 4,
+   "d1mw_head": 4,
+   "bounded": false
+  },
+  {
+   "arm": "cost::bytesmap_insert.routes",
+   "ir_base": 75161963,
+   "ir_head": 75161963,
+   "d1mr_base": 313693,
+   "d1mr_head": 310500,
+   "d1mw_base": 122929,
+   "d1mw_head": 122918,
+   "bounded": false
+  },
+  {
+   "arm": "cost::bytesmap_overwrite.routes",
+   "ir_base": 31585010,
+   "ir_head": 31585010,
+   "d1mr_base": 524489,
+   "d1mr_head": 512887,
+   "d1mw_base": 16,
+   "d1mw_head": 16,
+   "bounded": false
+  },
+  {
+   "arm": "cost::bytesmap_remove.routes",
+   "ir_base": 82422929,
+   "ir_head": 82422929,
+   "d1mr_base": 1218526,
+   "d1mr_head": 1214700,
+   "d1mw_base": 13856,
+   "d1mw_head": 13843,
+   "bounded": false
+  },
+  {
+   "arm": "cost::domain_dict_get.routes",
+   "ir_base": 51728958,
+   "ir_head": 51728958,
+   "d1mr_base": 656586,
+   "d1mr_head": 646019,
+   "d1mw_base": 30,
+   "d1mw_head": 30,
+   "bounded": false
+  },
+  {
+   "arm": "cost::domain_dict_insert.routes",
+   "ir_base": 87722542,
+   "ir_head": 87722542,
+   "d1mr_base": 147111,
+   "d1mr_head": 147115,
+   "d1mw_base": 71879,
+   "d1mw_head": 71877,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_compact_drained.random28",
+   "ir_base": 48168978,
+   "ir_head": 48168978,
+   "d1mr_base": 407107,
+   "d1mr_head": 407107,
+   "d1mw_base": 33265,
+   "d1mw_head": 33265,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_for_each_range.clustered",
+   "ir_base": 207675,
+   "ir_head": 207675,
+   "d1mr_base": 59,
+   "d1mr_head": 59,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_for_each_range.random",
+   "ir_base": 97759,
+   "ir_head": 97759,
+   "d1mr_base": 24,
+   "d1mr_head": 24,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_for_each_range.sequential",
+   "ir_base": 138213,
+   "ir_head": 138213,
+   "d1mr_base": 12,
+   "d1mr_head": 12,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_from_sorted_iter.random",
+   "ir_base": 5457571,
+   "ir_head": 5457571,
+   "d1mr_base": 9681,
+   "d1mr_head": 9681,
+   "d1mw_base": 11394,
+   "d1mw_head": 11394,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_from_sorted_iter.random_sorted",
+   "ir_base": 3843918,
+   "ir_head": 3843918,
+   "d1mr_base": 4187,
+   "d1mr_head": 4187,
+   "d1mw_base": 5511,
+   "d1mw_head": 5511,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_from_sorted_iter.sequential",
+   "ir_base": 1888443,
+   "ir_head": 1888443,
+   "d1mr_base": 6393,
+   "d1mr_head": 6393,
+   "d1mw_base": 2329,
+   "d1mw_head": 2329,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_get.can_dispatch",
+   "ir_base": 106341,
+   "ir_head": 106341,
+   "d1mr_base": 1,
+   "d1mr_head": 1,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_insert.sensor_timestamps",
+   "ir_base": 4982440,
+   "ir_head": 4982440,
+   "d1mr_base": 35,
+   "d1mr_head": 35,
+   "d1mw_base": 1323,
+   "d1mw_head": 1323,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_insert_sorted.random",
+   "ir_base": 9886965,
+   "ir_head": 9886965,
+   "d1mr_base": 24143,
+   "d1mr_head": 24143,
+   "d1mw_base": 5597,
+   "d1mw_head": 5597,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_insert_sorted.random_sorted",
+   "ir_base": 9374884,
+   "ir_head": 9374884,
+   "d1mr_base": 1651,
+   "d1mr_head": 1651,
+   "d1mw_base": 4031,
+   "d1mw_head": 4031,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_insert_sorted.sequential",
+   "ir_base": 4997915,
+   "ir_head": 4997915,
+   "d1mr_base": 1345,
+   "d1mr_head": 1345,
+   "d1mw_base": 1356,
+   "d1mw_head": 1356,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_iterate.clustered",
+   "ir_base": 294256,
+   "ir_head": 294256,
+   "d1mr_base": 58,
+   "d1mr_head": 58,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_iterate.random",
+   "ir_base": 334139,
+   "ir_head": 334139,
+   "d1mr_base": 47,
+   "d1mr_head": 47,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_iterate.sequential",
+   "ir_base": 188834,
+   "ir_head": 188834,
+   "d1mr_base": 13,
+   "d1mr_head": 13,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_nav.clustered",
+   "ir_base": 2301319,
+   "ir_head": 2301319,
+   "d1mr_base": 64,
+   "d1mr_head": 64,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_nav.random",
+   "ir_base": 5284999,
+   "ir_head": 5284999,
+   "d1mr_base": 104,
+   "d1mr_head": 104,
+   "d1mw_base": 1,
+   "d1mw_head": 1,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_nav.sequential",
+   "ir_base": 1185696,
+   "ir_head": 1185696,
+   "d1mr_base": 10,
+   "d1mr_head": 10,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_prev.clustered",
+   "ir_base": 2491414,
+   "ir_head": 2491414,
+   "d1mr_base": 66,
+   "d1mr_head": 66,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_prev.random",
+   "ir_base": 5133423,
+   "ir_head": 5133423,
+   "d1mr_base": 107,
+   "d1mr_head": 107,
+   "d1mw_base": 1,
+   "d1mw_head": 1,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_prev.sequential",
+   "ir_base": 1203008,
+   "ir_head": 1203008,
+   "d1mr_base": 12,
+   "d1mr_head": 12,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_range.clustered",
+   "ir_base": 294265,
+   "ir_head": 294265,
+   "d1mr_base": 58,
+   "d1mr_head": 58,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_range.random",
+   "ir_base": 168097,
+   "ir_head": 168097,
+   "d1mr_base": 26,
+   "d1mr_head": 26,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_range.sequential",
+   "ir_base": 188843,
+   "ir_head": 188843,
+   "d1mr_base": 13,
+   "d1mr_head": 13,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_rebuild_drained.random28",
+   "ir_base": 96558257,
+   "ir_head": 96558257,
+   "d1mr_base": 425287,
+   "d1mr_head": 425287,
+   "d1mw_base": 19660,
+   "d1mw_head": 19660,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_remove.clustered",
+   "ir_base": 1994407,
+   "ir_head": 1994407,
+   "d1mr_base": 137,
+   "d1mr_head": 137,
+   "d1mw_base": 71,
+   "d1mw_head": 71,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_remove.random",
+   "ir_base": 1402633,
+   "ir_head": 1402633,
+   "d1mr_base": 362,
+   "d1mr_head": 362,
+   "d1mw_base": 152,
+   "d1mw_head": 152,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map32_remove.sequential",
+   "ir_base": 1473701,
+   "ir_head": 1473701,
+   "d1mr_base": 34,
+   "d1mr_head": 34,
+   "d1mw_base": 72,
+   "d1mw_head": 72,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_churn.random",
+   "ir_base": 58590393,
+   "ir_head": 58590393,
+   "d1mr_base": 135344,
+   "d1mr_head": 128952,
+   "d1mw_base": 6951,
+   "d1mw_head": 6951,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_clear_refill.random",
+   "ir_base": 27706129,
+   "ir_head": 27706129,
+   "d1mr_base": 176378,
+   "d1mr_head": 173978,
+   "d1mw_base": 50164,
+   "d1mw_head": 50118,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_clone.random",
+   "ir_base": 28690258,
+   "ir_head": 28690258,
+   "d1mr_base": 26121,
+   "d1mr_head": 26117,
+   "d1mw_base": 22402,
+   "d1mw_head": 22399,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_clone.sequential",
+   "ir_base": 9834160,
+   "ir_head": 9834160,
+   "d1mr_base": 7604,
+   "d1mr_head": 7604,
+   "d1mw_base": 8498,
+   "d1mw_head": 8498,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_collect.random",
+   "ir_base": 24782561,
+   "ir_head": 24782561,
+   "d1mr_base": 164060,
+   "d1mr_head": 161737,
+   "d1mw_base": 38843,
+   "d1mw_head": 38822,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_collect.random_sorted",
+   "ir_base": 24058212,
+   "ir_head": 24058212,
+   "d1mr_base": 14365,
+   "d1mr_head": 14365,
+   "d1mw_base": 21635,
+   "d1mw_head": 21635,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_collect.sequential",
+   "ir_base": 8553086,
+   "ir_head": 8553086,
+   "d1mr_base": 12890,
+   "d1mr_head": 12890,
+   "d1mw_base": 8639,
+   "d1mw_head": 8639,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_compact_drained.random60",
+   "ir_base": 16952470,
+   "ir_head": 16952470,
+   "d1mr_base": 123919,
+   "d1mr_head": 123915,
+   "d1mw_base": 44717,
+   "d1mw_head": 44721,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_count_below.one_top_byte",
+   "ir_base": 518939888,
+   "ir_head": 518939888,
+   "d1mr_base": 1094534,
+   "d1mr_head": 1075440,
+   "d1mw_base": 20,
+   "d1mw_head": 83,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_count_below.random",
+   "ir_base": 515913559,
+   "ir_head": 515913559,
+   "d1mr_base": 1093692,
+   "d1mr_head": 1074721,
+   "d1mw_base": 47,
+   "d1mw_head": 62,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_count_below.sequential",
+   "ir_base": 188472638,
+   "ir_head": 188472638,
+   "d1mr_base": 6032,
+   "d1mr_head": 6032,
+   "d1mw_base": 8,
+   "d1mw_head": 8,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_cursor_scan.clustered",
+   "ir_base": 2255534,
+   "ir_head": 2255534,
+   "d1mr_base": 7222,
+   "d1mr_head": 7221,
+   "d1mw_base": 53,
+   "d1mw_head": 53,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_cursor_scan.random",
+   "ir_base": 6347791,
+   "ir_head": 6347791,
+   "d1mr_base": 22219,
+   "d1mr_head": 22218,
+   "d1mw_base": 49,
+   "d1mw_head": 49,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_cursor_scan.sequential",
+   "ir_base": 2241744,
+   "ir_head": 2241744,
+   "d1mr_base": 7227,
+   "d1mr_head": 7227,
+   "d1mw_base": 53,
+   "d1mw_head": 53,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_from_sorted_iter.random",
+   "ir_base": 24502573,
+   "ir_head": 24502573,
+   "d1mr_base": 184655,
+   "d1mr_head": 184655,
+   "d1mw_base": 175190,
+   "d1mw_head": 175190,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_from_sorted_iter.random_sorted",
+   "ir_base": 10511538,
+   "ir_head": 10511538,
+   "d1mr_base": 39502,
+   "d1mr_head": 39502,
+   "d1mw_base": 33318,
+   "d1mw_head": 33318,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_from_sorted_iter.sequential",
+   "ir_base": 3305091,
+   "ir_head": 3305091,
+   "d1mr_base": 50460,
+   "d1mr_head": 50460,
+   "d1mw_base": 20193,
+   "d1mw_head": 20193,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_get.clustered",
+   "ir_base": 5619910,
+   "ir_head": 5619910,
+   "d1mr_base": 73478,
+   "d1mr_head": 73478,
+   "d1mw_base": 2,
+   "d1mw_head": 2,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_get.dense_leaf",
+   "ir_base": 11259262,
+   "ir_head": 11259262,
+   "d1mr_base": 211125,
+   "d1mr_head": 209045,
+   "d1mw_base": 2,
+   "d1mw_head": 2,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_get.linear_leaf",
+   "ir_base": 10110286,
+   "ir_head": 10110286,
+   "d1mr_base": 230923,
+   "d1mr_head": 222619,
+   "d1mw_base": 2,
+   "d1mw_head": 2,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_get.random",
+   "ir_base": 6265115,
+   "ir_head": 6265115,
+   "d1mr_base": 123274,
+   "d1mr_head": 118522,
+   "d1mw_base": 2,
+   "d1mw_head": 2,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_get.sequential",
+   "ir_base": 6950214,
+   "ir_head": 6950214,
+   "d1mr_base": 70976,
+   "d1mr_head": 70976,
+   "d1mw_base": 2,
+   "d1mw_head": 2,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_get.sm_10k",
+   "ir_base": 4206245,
+   "ir_head": 4206245,
+   "d1mr_base": 25752,
+   "d1mr_head": 25752,
+   "d1mw_base": 2,
+   "d1mw_head": 2,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_get.sm_1m",
+   "ir_base": 418176252,
+   "ir_head": 418176252,
+   "d1mr_base": 5563554,
+   "d1mr_head": 5562470,
+   "d1mw_base": 2,
+   "d1mw_head": 2,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_get_batch.random",
+   "ir_base": 8534782,
+   "ir_head": 8534782,
+   "d1mr_base": 130355,
+   "d1mr_head": 124107,
+   "d1mw_base": 2385,
+   "d1mw_head": 1892,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_get_slot_ptr.sm_10k",
+   "ir_base": 4597794,
+   "ir_head": 4597794,
+   "d1mr_base": 25717,
+   "d1mr_head": 25717,
+   "d1mw_base": 2,
+   "d1mw_head": 2,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_get_slot_ptr.sm_1m",
+   "ir_base": 457177921,
+   "ir_head": 457177921,
+   "d1mr_base": 5562748,
+   "d1mr_head": 5561664,
+   "d1mw_base": 2,
+   "d1mw_head": 2,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_ins_slot.gen_4m",
+   "ir_base": 2660292066,
+   "ir_head": 2660292066,
+   "d1mr_base": 22942584,
+   "d1mr_head": 18459780,
+   "d1mw_base": 4595810,
+   "d1mw_head": 4588121,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_ins_slot.random",
+   "ir_base": 25281763,
+   "ir_head": 25281763,
+   "d1mr_base": 156192,
+   "d1mr_head": 153870,
+   "d1mw_base": 38714,
+   "d1mw_head": 38687,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_insert.clustered",
+   "ir_base": 17224209,
+   "ir_head": 17224209,
+   "d1mr_base": 6767,
+   "d1mr_head": 6767,
+   "d1mw_base": 8694,
+   "d1mw_head": 8694,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_insert.dense_leaf",
+   "ir_base": 23109190,
+   "ir_head": 23109190,
+   "d1mr_base": 11368,
+   "d1mr_head": 11367,
+   "d1mw_base": 14177,
+   "d1mw_head": 14177,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_insert.linear_leaf",
+   "ir_base": 24892143,
+   "ir_head": 24892143,
+   "d1mr_base": 16132,
+   "d1mr_head": 16120,
+   "d1mw_base": 16822,
+   "d1mw_head": 16822,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_insert.random",
+   "ir_base": 25032643,
+   "ir_head": 25032643,
+   "d1mr_base": 155860,
+   "d1mr_head": 153539,
+   "d1mw_base": 38697,
+   "d1mw_head": 38669,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_insert.sequential",
+   "ir_base": 8799530,
+   "ir_head": 8799530,
+   "d1mr_base": 6600,
+   "d1mr_head": 6600,
+   "d1mw_base": 8619,
+   "d1mw_head": 8619,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_insert.small",
+   "ir_base": 24235256,
+   "ir_head": 24235256,
+   "d1mr_base": 7076,
+   "d1mr_head": 7085,
+   "d1mw_base": 12885,
+   "d1mw_head": 12885,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_iterate.clustered",
+   "ir_base": 1455197,
+   "ir_head": 1455197,
+   "d1mr_base": 7223,
+   "d1mr_head": 7222,
+   "d1mw_base": 34,
+   "d1mw_head": 34,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_iterate.random",
+   "ir_base": 5310512,
+   "ir_head": 5310512,
+   "d1mr_base": 22217,
+   "d1mr_head": 22217,
+   "d1mw_base": 35,
+   "d1mw_head": 35,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_iterate.random_10k",
+   "ir_base": 1216234,
+   "ir_head": 1216234,
+   "d1mr_base": 3994,
+   "d1mr_head": 3994,
+   "d1mw_base": 36,
+   "d1mw_head": 36,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_iterate.sequential",
+   "ir_base": 1440802,
+   "ir_head": 1440802,
+   "d1mr_base": 7226,
+   "d1mr_head": 7226,
+   "d1mw_base": 35,
+   "d1mw_head": 35,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_iterate.sparse",
+   "ir_base": 5317972,
+   "ir_head": 5317972,
+   "d1mr_base": 12589,
+   "d1mr_head": 12588,
+   "d1mw_base": 35,
+   "d1mw_head": 35,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_iterate.sparse_10k",
+   "ir_base": 1063024,
+   "ir_head": 1063024,
+   "d1mr_base": 2548,
+   "d1mr_head": 2547,
+   "d1mw_base": 36,
+   "d1mw_head": 36,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_nav.clustered",
+   "ir_base": 15943749,
+   "ir_head": 15943749,
+   "d1mr_base": 73533,
+   "d1mr_head": 73533,
+   "d1mw_base": 7,
+   "d1mw_head": 7,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_nav.random",
+   "ir_base": 15648891,
+   "ir_head": 15648891,
+   "d1mr_base": 123795,
+   "d1mr_head": 118945,
+   "d1mw_base": 10,
+   "d1mw_head": 10,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_nav.sequential",
+   "ir_base": 22350213,
+   "ir_head": 22350213,
+   "d1mr_base": 71235,
+   "d1mr_head": 71235,
+   "d1mw_base": 10,
+   "d1mw_head": 10,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_oscillate.random",
+   "ir_base": 3806026,
+   "ir_head": 3806026,
+   "d1mr_base": 6277,
+   "d1mr_head": 6277,
+   "d1mw_base": 88,
+   "d1mw_head": 88,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_prev.clustered",
+   "ir_base": 16701567,
+   "ir_head": 16701567,
+   "d1mr_base": 73628,
+   "d1mr_head": 73628,
+   "d1mw_base": 9,
+   "d1mw_head": 9,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_prev.random",
+   "ir_base": 21927440,
+   "ir_head": 21927440,
+   "d1mr_base": 151893,
+   "d1mr_head": 145794,
+   "d1mw_base": 12,
+   "d1mw_head": 12,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_prev.sequential",
+   "ir_base": 23449767,
+   "ir_head": 23449767,
+   "d1mr_base": 71392,
+   "d1mr_head": 71392,
+   "d1mw_base": 13,
+   "d1mw_head": 13,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_range_cursor_scan.clustered",
+   "ir_base": 3905995,
+   "ir_head": 3905995,
+   "d1mr_base": 7222,
+   "d1mr_head": 7221,
+   "d1mw_base": 50,
+   "d1mw_head": 50,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_range_cursor_scan.random",
+   "ir_base": 7651317,
+   "ir_head": 7651317,
+   "d1mr_base": 22212,
+   "d1mr_head": 22212,
+   "d1mw_base": 47,
+   "d1mw_head": 47,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_range_cursor_scan.sequential",
+   "ir_base": 3889152,
+   "ir_head": 3889152,
+   "d1mr_base": 7223,
+   "d1mr_head": 7223,
+   "d1mw_base": 49,
+   "d1mw_head": 49,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_rebuild_drained.random60",
+   "ir_base": 40124236,
+   "ir_head": 40124236,
+   "d1mr_base": 92596,
+   "d1mr_head": 92591,
+   "d1mw_base": 29218,
+   "d1mw_head": 29222,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_refill.random",
+   "ir_base": 46707929,
+   "ir_head": 46707929,
+   "d1mr_base": 367801,
+   "d1mr_head": 362976,
+   "d1mw_base": 34197,
+   "d1mw_head": 34158,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_regrow_after_shrink.random60",
+   "ir_base": 66318452,
+   "ir_head": 66318452,
+   "d1mr_base": 595244,
+   "d1mr_head": 589417,
+   "d1mw_base": 49226,
+   "d1mw_head": 49175,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_remove.random",
+   "ir_base": 22989542,
+   "ir_head": 22989542,
+   "d1mr_base": 203372,
+   "d1mr_head": 200841,
+   "d1mw_base": 9286,
+   "d1mw_head": 9264,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_remove_partial.random60",
+   "ir_base": 69899998,
+   "ir_head": 69899998,
+   "d1mr_base": 629768,
+   "d1mr_head": 623994,
+   "d1mw_base": 13401,
+   "d1mw_head": 13398,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_remove_revgen.gen_1k",
+   "ir_base": 604640,
+   "ir_head": 604640,
+   "d1mr_base": 95,
+   "d1mr_head": 95,
+   "d1mw_base": 272,
+   "d1mw_head": 272,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_remove_revgen.gen_256k",
+   "ir_base": 175255101,
+   "ir_head": 175255101,
+   "d1mr_base": 1526206,
+   "d1mr_head": 1526206,
+   "d1mw_base": 68177,
+   "d1mw_head": 68177,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_remove_revgen.gen_4m",
+   "ir_base": 2818378572,
+   "ir_head": 2818378572,
+   "d1mr_base": 32110230,
+   "d1mr_head": 28067397,
+   "d1mw_base": 1492614,
+   "d1mw_head": 1487293,
+   "bounded": true
+  },
+  {
+   "arm": "cost::map_shrink_drained.random60",
+   "ir_base": 14922235,
+   "ir_head": 14922235,
+   "d1mr_base": 135457,
+   "d1mr_head": 135457,
+   "d1mw_base": 2175,
+   "d1mw_head": 2175,
+   "bounded": false
+  },
+  {
+   "arm": "cost::map_small_tree.hashjudy",
+   "ir_base": 16632810,
+   "ir_head": 16632810,
+   "d1mr_base": 1316,
+   "d1mr_head": 1316,
+   "d1mw_base": 499,
+   "d1mw_head": 499,
+   "bounded": false
+  },
+  {
+   "arm": "cost::ordered_bytesmap_cursor.clean",
+   "ir_base": 27842545,
+   "ir_head": 27842545,
+   "d1mr_base": 125546,
+   "d1mr_head": 125546,
+   "d1mw_base": 61,
+   "d1mw_head": 61,
+   "bounded": false
+  },
+  {
+   "arm": "cost::ordered_bytesmap_cursor.escaped",
+   "ir_base": 41073136,
+   "ir_head": 41073136,
+   "d1mr_base": 130296,
+   "d1mr_head": 130295,
+   "d1mw_base": 79,
+   "d1mw_head": 79,
+   "bounded": false
+  },
+  {
+   "arm": "cost::ordered_bytesmap_cursor_into.clean",
+   "ir_base": 18692523,
+   "ir_head": 18692523,
+   "d1mr_base": 125553,
+   "d1mr_head": 125553,
+   "d1mw_base": 61,
+   "d1mw_head": 61,
+   "bounded": false
+  },
+  {
+   "arm": "cost::ordered_bytesmap_cursor_into.escaped",
+   "ir_base": 29669956,
+   "ir_head": 29669956,
+   "d1mr_base": 130302,
+   "d1mr_head": 130301,
+   "d1mw_base": 76,
+   "d1mw_head": 76,
+   "bounded": false
+  },
+  {
+   "arm": "cost::ordered_bytesmap_get.clean",
+   "ir_base": 21908156,
+   "ir_head": 21908156,
+   "d1mr_base": 350623,
+   "d1mr_head": 350623,
+   "d1mw_base": 9,
+   "d1mw_head": 9,
+   "bounded": false
+  },
+  {
+   "arm": "cost::ordered_bytesmap_get.escaped",
+   "ir_base": 33353578,
+   "ir_head": 33353578,
+   "d1mr_base": 284564,
+   "d1mr_head": 284506,
+   "d1mw_base": 69,
+   "d1mw_head": 69,
+   "bounded": false
+  },
+  {
+   "arm": "cost::ordered_bytesmap_insert.clean",
+   "ir_base": 45690956,
+   "ir_head": 45690956,
+   "d1mr_base": 89473,
+   "d1mr_head": 89473,
+   "d1mw_base": 35498,
+   "d1mw_head": 35498,
+   "bounded": false
+  },
+  {
+   "arm": "cost::ordered_bytesmap_insert.escaped",
+   "ir_base": 63466744,
+   "ir_head": 63466744,
+   "d1mr_base": 90478,
+   "d1mr_head": 90478,
+   "d1mw_base": 41809,
+   "d1mw_head": 41809,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_compact_drained.random28",
+   "ir_base": 38167072,
+   "ir_head": 38167072,
+   "d1mr_base": 387630,
+   "d1mr_head": 387630,
+   "d1mw_base": 11348,
+   "d1mw_head": 11348,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_from_sorted_iter.random",
+   "ir_base": 4817711,
+   "ir_head": 4817711,
+   "d1mr_base": 1755,
+   "d1mr_head": 1755,
+   "d1mw_base": 4209,
+   "d1mw_head": 4209,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_from_sorted_iter.random_sorted",
+   "ir_base": 3620360,
+   "ir_head": 3620360,
+   "d1mr_base": 1767,
+   "d1mr_head": 1767,
+   "d1mw_base": 4186,
+   "d1mw_head": 4186,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_from_sorted_iter.sequential",
+   "ir_base": 546838,
+   "ir_head": 546838,
+   "d1mr_base": 1079,
+   "d1mr_head": 1079,
+   "d1mw_base": 808,
+   "d1mw_head": 808,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_insert.sensor_timestamps",
+   "ir_base": 5110260,
+   "ir_head": 5110260,
+   "d1mr_base": 14,
+   "d1mr_head": 14,
+   "d1mw_base": 254,
+   "d1mw_head": 254,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_insert_sorted.random",
+   "ir_base": 9694821,
+   "ir_head": 9694821,
+   "d1mr_base": 13043,
+   "d1mr_head": 13043,
+   "d1mw_base": 4248,
+   "d1mw_head": 4248,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_insert_sorted.random_sorted",
+   "ir_base": 8997029,
+   "ir_head": 8997029,
+   "d1mr_base": 849,
+   "d1mr_head": 849,
+   "d1mw_base": 3386,
+   "d1mw_head": 3386,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_insert_sorted.sequential",
+   "ir_base": 5120357,
+   "ir_head": 5120357,
+   "d1mr_base": 576,
+   "d1mr_head": 576,
+   "d1mw_base": 267,
+   "d1mw_head": 267,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_iterate.clustered",
+   "ir_base": 261256,
+   "ir_head": 261256,
+   "d1mr_base": 14,
+   "d1mr_head": 14,
+   "d1mw_base": 1,
+   "d1mw_head": 1,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_iterate.random",
+   "ir_base": 294054,
+   "ir_head": 294054,
+   "d1mr_base": 4,
+   "d1mr_head": 4,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_iterate.sequential",
+   "ir_base": 133631,
+   "ir_head": 133631,
+   "d1mr_base": 6,
+   "d1mr_head": 6,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_range.clustered",
+   "ir_base": 261265,
+   "ir_head": 261265,
+   "d1mr_base": 14,
+   "d1mr_head": 14,
+   "d1mw_base": 1,
+   "d1mw_head": 1,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_range.random",
+   "ir_base": 148195,
+   "ir_head": 148195,
+   "d1mr_base": 4,
+   "d1mr_head": 4,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_range.sequential",
+   "ir_base": 133640,
+   "ir_head": 133640,
+   "d1mr_base": 6,
+   "d1mr_head": 6,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_rebuild_drained.random28",
+   "ir_base": 73582445,
+   "ir_head": 73582445,
+   "d1mr_base": 414411,
+   "d1mr_head": 414411,
+   "d1mw_base": 8441,
+   "d1mw_head": 8441,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_remove.clustered",
+   "ir_base": 1840695,
+   "ir_head": 1840695,
+   "d1mr_base": 48,
+   "d1mr_head": 48,
+   "d1mw_base": 5,
+   "d1mw_head": 5,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_remove.random",
+   "ir_base": 1143525,
+   "ir_head": 1143525,
+   "d1mr_base": 16,
+   "d1mr_head": 16,
+   "d1mw_base": 66,
+   "d1mw_head": 66,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set32_remove.sequential",
+   "ir_base": 1092979,
+   "ir_head": 1092979,
+   "d1mr_base": 10,
+   "d1mr_head": 10,
+   "d1mw_base": 34,
+   "d1mw_head": 34,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_clear_refill.random",
+   "ir_base": 23500093,
+   "ir_head": 23500093,
+   "d1mr_base": 150269,
+   "d1mr_head": 148063,
+   "d1mw_base": 32486,
+   "d1mw_head": 32458,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_clone.random",
+   "ir_base": 15361294,
+   "ir_head": 15361294,
+   "d1mr_base": 30209,
+   "d1mr_head": 30209,
+   "d1mw_base": 23095,
+   "d1mw_head": 23095,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_clone.sequential",
+   "ir_base": 2698641,
+   "ir_head": 2698641,
+   "d1mr_base": 21192,
+   "d1mr_head": 21192,
+   "d1mw_base": 8691,
+   "d1mw_head": 8691,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_compact_drained.random60",
+   "ir_base": 16442411,
+   "ir_head": 16442411,
+   "d1mr_base": 93849,
+   "d1mr_head": 93844,
+   "d1mw_base": 20019,
+   "d1mw_head": 20023,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_contains.random",
+   "ir_base": 6026222,
+   "ir_head": 6026222,
+   "d1mr_base": 98406,
+   "d1mr_head": 94719,
+   "d1mw_base": 3,
+   "d1mw_head": 3,
+   "bounded": true
+  },
+  {
+   "arm": "cost::set_contains_batch.random",
+   "ir_base": 8372803,
+   "ir_head": 8372803,
+   "d1mr_base": 98954,
+   "d1mr_head": 95199,
+   "d1mw_base": 32,
+   "d1mw_head": 23,
+   "bounded": true
+  },
+  {
+   "arm": "cost::set_count_below.one_top_byte",
+   "ir_base": 526234144,
+   "ir_head": 526234144,
+   "d1mr_base": 1068078,
+   "d1mr_head": 1049278,
+   "d1mw_base": 11,
+   "d1mw_head": 11,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_count_below.random",
+   "ir_base": 521422646,
+   "ir_head": 521422646,
+   "d1mr_base": 1073883,
+   "d1mr_head": 1055688,
+   "d1mw_base": 9,
+   "d1mw_head": 8,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_count_below.sequential",
+   "ir_base": 199619102,
+   "ir_head": 199619102,
+   "d1mr_base": 5650,
+   "d1mr_head": 5650,
+   "d1mw_base": 9,
+   "d1mw_head": 9,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_insert.clustered",
+   "ir_base": 10963267,
+   "ir_head": 10963267,
+   "d1mr_base": 6579,
+   "d1mr_head": 6579,
+   "d1mw_base": 1456,
+   "d1mw_head": 1456,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_insert.dense_leaf",
+   "ir_base": 18162014,
+   "ir_head": 18162014,
+   "d1mr_base": 9381,
+   "d1mr_head": 9380,
+   "d1mw_base": 7790,
+   "d1mw_head": 7790,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_insert.linear_leaf",
+   "ir_base": 19085682,
+   "ir_head": 19085682,
+   "d1mr_base": 13267,
+   "d1mr_head": 13256,
+   "d1mw_base": 9033,
+   "d1mw_head": 9033,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_insert.random",
+   "ir_base": 21128842,
+   "ir_head": 21128842,
+   "d1mr_base": 131424,
+   "d1mr_head": 129412,
+   "d1mw_base": 29729,
+   "d1mw_head": 29705,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_insert.sequential",
+   "ir_base": 3142929,
+   "ir_head": 3142929,
+   "d1mr_base": 6454,
+   "d1mr_head": 6454,
+   "d1mw_base": 1148,
+   "d1mw_head": 1148,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_insert.sparse",
+   "ir_base": 24108374,
+   "ir_head": 24108374,
+   "d1mr_base": 6551,
+   "d1mr_head": 6551,
+   "d1mw_base": 14396,
+   "d1mw_head": 14396,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_iterate.random",
+   "ir_base": 6511050,
+   "ir_head": 6511050,
+   "d1mr_base": 13457,
+   "d1mr_head": 13457,
+   "d1mw_base": 37,
+   "d1mw_head": 37,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_iterate.random_10k",
+   "ir_base": 1295292,
+   "ir_head": 1295292,
+   "d1mr_base": 3439,
+   "d1mr_head": 3439,
+   "d1mw_base": 33,
+   "d1mw_head": 33,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_iterate.sequential",
+   "ir_base": 571062,
+   "ir_head": 571062,
+   "d1mr_base": 83,
+   "d1mr_head": 83,
+   "d1mw_base": 31,
+   "d1mw_head": 31,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_iterate.sparse",
+   "ir_base": 4770144,
+   "ir_head": 4770144,
+   "d1mr_base": 12587,
+   "d1mr_head": 12586,
+   "d1mw_base": 34,
+   "d1mw_head": 34,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_iterate.sparse_10k",
+   "ir_base": 953438,
+   "ir_head": 953438,
+   "d1mr_base": 2546,
+   "d1mr_head": 2545,
+   "d1mw_base": 35,
+   "d1mw_head": 35,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_nav.clustered",
+   "ir_base": 14293758,
+   "ir_head": 14293758,
+   "d1mr_base": 6096,
+   "d1mr_head": 6096,
+   "d1mw_base": 7,
+   "d1mw_head": 7,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_nav.random",
+   "ir_base": 15883056,
+   "ir_head": 15883056,
+   "d1mr_base": 98987,
+   "d1mr_head": 95233,
+   "d1mw_base": 9,
+   "d1mw_head": 9,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_nav.sequential",
+   "ir_base": 19457614,
+   "ir_head": 19457614,
+   "d1mr_base": 5646,
+   "d1mr_head": 5646,
+   "d1mw_base": 11,
+   "d1mw_head": 11,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_oscillate.random",
+   "ir_base": 3406018,
+   "ir_head": 3406018,
+   "d1mr_base": 6278,
+   "d1mr_head": 6278,
+   "d1mw_base": 87,
+   "d1mw_head": 87,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_prev.clustered",
+   "ir_base": 14871099,
+   "ir_head": 14871099,
+   "d1mr_base": 6094,
+   "d1mr_head": 6094,
+   "d1mw_base": 7,
+   "d1mw_head": 7,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_prev.random",
+   "ir_base": 22699316,
+   "ir_head": 22699316,
+   "d1mr_base": 116292,
+   "d1mr_head": 111726,
+   "d1mw_base": 11,
+   "d1mw_head": 11,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_prev.sequential",
+   "ir_base": 20405853,
+   "ir_head": 20405853,
+   "d1mr_base": 5643,
+   "d1mr_head": 5643,
+   "d1mw_base": 10,
+   "d1mw_head": 10,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_rebuild_drained.random60",
+   "ir_base": 16867191,
+   "ir_head": 16867191,
+   "d1mr_base": 101672,
+   "d1mr_head": 101667,
+   "d1mw_base": 20061,
+   "d1mw_head": 20065,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_refill.random",
+   "ir_base": 44348532,
+   "ir_head": 44348532,
+   "d1mr_base": 310307,
+   "d1mr_head": 305992,
+   "d1mw_base": 29938,
+   "d1mw_head": 29902,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_remove.random",
+   "ir_base": 23904012,
+   "ir_head": 23904012,
+   "d1mr_base": 175733,
+   "d1mr_head": 173428,
+   "d1mw_base": 7933,
+   "d1mw_head": 7914,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_remove_partial.random60",
+   "ir_base": 78835966,
+   "ir_head": 78835966,
+   "d1mr_base": 600324,
+   "d1mr_head": 594559,
+   "d1mw_base": 10904,
+   "d1mw_head": 10902,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_shrink_drained.random60",
+   "ir_base": 11394050,
+   "ir_head": 11394050,
+   "d1mr_base": 95284,
+   "d1mr_head": 95284,
+   "d1mw_base": 1859,
+   "d1mw_head": 1859,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_subtree_boundary_oscillate.band2",
+   "ir_base": 17130210,
+   "ir_head": 17130210,
+   "d1mr_base": 66297,
+   "d1mr_head": 66297,
+   "d1mw_base": 9,
+   "d1mw_head": 9,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_subtree_boundary_oscillate.band9",
+   "ir_base": 71791074,
+   "ir_head": 71791074,
+   "d1mr_base": 130673,
+   "d1mr_head": 130673,
+   "d1mw_base": 9,
+   "d1mw_head": 9,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_subtree_condense.h1",
+   "ir_base": 645651,
+   "ir_head": 645651,
+   "d1mr_base": 5600,
+   "d1mr_head": 5600,
+   "d1mw_base": 584,
+   "d1mw_head": 584,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_subtree_condense.wide",
+   "ir_base": 532820,
+   "ir_head": 532820,
+   "d1mr_base": 4376,
+   "d1mr_head": 4376,
+   "d1mw_base": 21,
+   "d1mw_head": 21,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_subtree_condense_control.h1",
+   "ir_base": 651828,
+   "ir_head": 651828,
+   "d1mr_base": 5611,
+   "d1mr_head": 5611,
+   "d1mw_base": 636,
+   "d1mw_head": 636,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_subtree_condense_control.wide",
+   "ir_base": 558400,
+   "ir_head": 558400,
+   "d1mr_base": 4709,
+   "d1mr_head": 4709,
+   "d1mw_base": 166,
+   "d1mw_head": 166,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_subtree_split.e1024",
+   "ir_base": 11919308,
+   "ir_head": 11919308,
+   "d1mr_base": 4794,
+   "d1mr_head": 4794,
+   "d1mw_base": 14041,
+   "d1mw_head": 14041,
+   "bounded": false
+  },
+  {
+   "arm": "cost::set_subtree_split_control.e1024",
+   "ir_base": 385300,
+   "ir_head": 385300,
+   "d1mr_base": 3659,
+   "d1mr_head": 3659,
+   "d1mw_base": 19,
+   "d1mw_head": 19,
+   "bounded": false
+  },
+  {
+   "arm": "cost::short_bytesmap_get.routes",
+   "ir_base": 25564712,
+   "ir_head": 25564712,
+   "d1mr_base": 523682,
+   "d1mr_head": 512201,
+   "d1mw_base": 4,
+   "d1mw_head": 4,
+   "bounded": false
+  },
+  {
+   "arm": "cost::short_bytesmap_get.zmap",
+   "ir_base": 29274712,
+   "ir_head": 29274712,
+   "d1mr_base": 570364,
+   "d1mr_head": 524834,
+   "d1mw_base": 3,
+   "d1mw_head": 3,
+   "bounded": false
+  },
+  {
+   "arm": "cost::short_bytesmap_insert.zmap",
+   "ir_base": 41622581,
+   "ir_head": 41622581,
+   "d1mr_base": 262106,
+   "d1mr_head": 260517,
+   "d1mw_base": 39878,
+   "d1mw_head": 39846,
+   "bounded": false
+  },
+  {
+   "arm": "cost::short_bytesmap_remove.zmap",
+   "ir_base": 36482244,
+   "ir_head": 36482244,
+   "d1mr_base": 360585,
+   "d1mr_head": 358798,
+   "d1mw_base": 5134,
+   "d1mw_head": 5131,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_churn.routes",
+   "ir_base": 117275513,
+   "ir_head": 117275513,
+   "d1mr_base": 707213,
+   "d1mr_head": 696568,
+   "d1mw_base": 25,
+   "d1mw_head": 25,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_clear_refill.routes",
+   "ir_base": 51980846,
+   "ir_head": 51980846,
+   "d1mr_base": 624342,
+   "d1mr_head": 614272,
+   "d1mw_base": 48120,
+   "d1mw_head": 47853,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_cursor_scan.paths",
+   "ir_base": 9205009,
+   "ir_head": 9205009,
+   "d1mr_base": 62263,
+   "d1mr_head": 62268,
+   "d1mw_base": 185,
+   "d1mw_head": 185,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_cursor_scan.paths_dense",
+   "ir_base": 13694405,
+   "ir_head": 13694405,
+   "d1mr_base": 58498,
+   "d1mr_head": 58506,
+   "d1mw_base": 262,
+   "d1mw_head": 262,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_get.routes",
+   "ir_base": 35076152,
+   "ir_head": 35076152,
+   "d1mr_base": 635584,
+   "d1mr_head": 626905,
+   "d1mw_base": 3,
+   "d1mw_head": 3,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_get_short.short",
+   "ir_base": 20782775,
+   "ir_head": 20782775,
+   "d1mr_base": 429014,
+   "d1mr_head": 428464,
+   "d1mw_base": 14,
+   "d1mw_head": 14,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_insert.routes",
+   "ir_base": 42499420,
+   "ir_head": 42499420,
+   "d1mr_base": 140540,
+   "d1mr_head": 140546,
+   "d1mw_base": 23630,
+   "d1mw_head": 23630,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_insert_plain.routes",
+   "ir_base": 42499420,
+   "ir_head": 42499420,
+   "d1mr_base": 140539,
+   "d1mr_head": 140545,
+   "d1mw_base": 23665,
+   "d1mw_head": 23665,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_oscillate.routes",
+   "ir_base": 27085169,
+   "ir_head": 27085169,
+   "d1mr_base": 137533,
+   "d1mr_head": 137533,
+   "d1mw_base": 212,
+   "d1mw_head": 212,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_prefix_bounded.paths",
+   "ir_base": 2626451,
+   "ir_head": 2626451,
+   "d1mr_base": 16236,
+   "d1mr_head": 16171,
+   "d1mw_base": 15,
+   "d1mw_head": 15,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_prefix_bounded.paths_dense",
+   "ir_base": 3754285,
+   "ir_head": 3754285,
+   "d1mr_base": 15331,
+   "d1mr_head": 15269,
+   "d1mw_base": 49,
+   "d1mw_head": 49,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_prefix_scan.paths",
+   "ir_base": 2823845,
+   "ir_head": 2823845,
+   "d1mr_base": 16301,
+   "d1mr_head": 16238,
+   "d1mw_base": 15,
+   "d1mw_head": 15,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_prefix_scan.paths_dense",
+   "ir_base": 3956788,
+   "ir_head": 3956788,
+   "d1mr_base": 15431,
+   "d1mr_head": 15367,
+   "d1mw_base": 53,
+   "d1mw_head": 53,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_prefix_seek.paths",
+   "ir_base": 150211,
+   "ir_head": 150211,
+   "d1mr_base": 612,
+   "d1mr_head": 541,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_prefix_seek.paths_dense",
+   "ir_base": 152393,
+   "ir_head": 152393,
+   "d1mr_base": 647,
+   "d1mr_head": 579,
+   "d1mw_base": 0,
+   "d1mw_head": 0,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_raw_cursor.clean",
+   "ir_base": 14384505,
+   "ir_head": 14384505,
+   "d1mr_base": 125550,
+   "d1mr_head": 125550,
+   "d1mw_base": 56,
+   "d1mw_head": 56,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_raw_get.clean",
+   "ir_base": 17358156,
+   "ir_head": 17358156,
+   "d1mr_base": 350553,
+   "d1mr_head": 350553,
+   "d1mw_base": 5,
+   "d1mw_head": 5,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_raw_insert.clean",
+   "ir_base": 40797072,
+   "ir_head": 40797072,
+   "d1mr_base": 89820,
+   "d1mr_head": 89820,
+   "d1mw_base": 35646,
+   "d1mw_head": 35646,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_refill.routes",
+   "ir_base": 100837249,
+   "ir_head": 100837249,
+   "d1mr_base": 1152312,
+   "d1mr_head": 1131888,
+   "d1mw_base": 51180,
+   "d1mw_head": 50975,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_refill_small.routes",
+   "ir_base": 85711967,
+   "ir_head": 85711967,
+   "d1mr_base": 259359,
+   "d1mr_head": 259359,
+   "d1mw_base": 33446,
+   "d1mw_head": 33446,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_transcode_cursor.clean",
+   "ir_base": 26834506,
+   "ir_head": 26834506,
+   "d1mr_base": 125546,
+   "d1mr_head": 125546,
+   "d1mw_base": 56,
+   "d1mw_head": 56,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_transcode_cursor.escaped",
+   "ir_base": 40171846,
+   "ir_head": 40171846,
+   "d1mr_base": 130296,
+   "d1mr_head": 130295,
+   "d1mw_base": 68,
+   "d1mw_head": 68,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_transcode_get.clean",
+   "ir_base": 21608158,
+   "ir_head": 21608158,
+   "d1mr_base": 350580,
+   "d1mr_head": 350580,
+   "d1mw_base": 4,
+   "d1mw_head": 4,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_transcode_get.escaped",
+   "ir_base": 64569711,
+   "ir_head": 64569711,
+   "d1mr_base": 284561,
+   "d1mr_head": 284500,
+   "d1mw_base": 8,
+   "d1mw_head": 8,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_transcode_insert.clean",
+   "ir_base": 44998232,
+   "ir_head": 44998232,
+   "d1mr_base": 89639,
+   "d1mr_head": 89639,
+   "d1mw_base": 35595,
+   "d1mw_head": 35595,
+   "bounded": false
+  },
+  {
+   "arm": "cost::strmap_transcode_insert.escaped",
+   "ir_base": 94548367,
+   "ir_head": 94548367,
+   "d1mr_base": 90681,
+   "d1mr_head": 90689,
+   "d1mw_base": 41641,
+   "d1mw_head": 41641,
+   "bounded": false
+  },
+  {
+   "arm": "cost::sync32_map_get.bitmap",
+   "ir_base": 1460719,
+   "ir_head": 1460719,
+   "d1mr_base": 717,
+   "d1mr_head": 716,
+   "d1mw_base": 1,
+   "d1mw_head": 1,
+   "bounded": false
+  },
+  {
+   "arm": "cost::sync32_map_get.linear",
+   "ir_base": 1790909,
+   "ir_head": 1790909,
+   "d1mr_base": 843,
+   "d1mr_head": 843,
+   "d1mw_base": 1,
+   "d1mw_head": 1,
+   "bounded": false
+  },
+  {
+   "arm": "cost::sync32_map_get.linear_wide",
+   "ir_base": 1466298,
+   "ir_head": 1466298,
+   "d1mr_base": 2605,
+   "d1mr_head": 2605,
+   "d1mw_base": 3,
+   "d1mw_head": 3,
+   "bounded": false
+  },
+  {
+   "arm": "cost::sync32_map_write.churn",
+   "ir_base": 1127858,
+   "ir_head": 1127858,
+   "d1mr_base": 519,
+   "d1mr_head": 519,
+   "d1mw_base": 60,
+   "d1mw_head": 60,
+   "bounded": false
+  },
+  {
+   "arm": "cost::sync32_map_write.overwrite",
+   "ir_base": 1472573,
+   "ir_head": 1472573,
+   "d1mr_base": 760,
+   "d1mr_head": 760,
+   "d1mw_base": 7,
+   "d1mw_head": 7,
+   "bounded": false
+  },
+  {
+   "arm": "cost::sync32_map_write.overwrite_same",
+   "ir_base": 608573,
+   "ir_head": 608573,
+   "d1mr_base": 744,
+   "d1mr_head": 744,
+   "d1mw_base": 1,
+   "d1mw_head": 1,
+   "bounded": false
+  },
+  {
+   "arm": "cost::sync_blobmap_churn.random",
+   "ir_base": 124102917,
+   "ir_head": 124102917,
+   "d1mr_base": 309469,
+   "d1mr_head": 302329,
+   "d1mw_base": 67728,
+   "d1mw_head": 67278,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_blobmap_compact.random",
+   "ir_base": 19439880,
+   "ir_head": 19439880,
+   "d1mr_base": 148854,
+   "d1mr_head": 148854,
+   "d1mw_base": 41183,
+   "d1mw_head": 41183,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_blobmap_compare_exchange.random",
+   "ir_base": 50819218,
+   "ir_head": 50819218,
+   "d1mr_base": 237273,
+   "d1mr_head": 227050,
+   "d1mw_base": 25041,
+   "d1mw_head": 25041,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_blobmap_get.random",
+   "ir_base": 19682875,
+   "ir_head": 19682875,
+   "d1mr_base": 199680,
+   "d1mr_head": 191639,
+   "d1mw_base": 9,
+   "d1mw_head": 9,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_blobmap_get_into.random",
+   "ir_base": 20065073,
+   "ir_head": 20065073,
+   "d1mr_base": 229814,
+   "d1mr_head": 220832,
+   "d1mw_base": 10,
+   "d1mw_head": 10,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_blobmap_insert.random",
+   "ir_base": 56342535,
+   "ir_head": 56342535,
+   "d1mr_base": 186453,
+   "d1mr_head": 183525,
+   "d1mw_base": 70619,
+   "d1mw_head": 70484,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_blobmap_insert_reclaiming.random",
+   "ir_base": 703994,
+   "ir_head": 703994,
+   "d1mr_base": 20,
+   "d1mr_head": 20,
+   "d1mw_base": 292,
+   "d1mw_head": 292,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_blobmap_overwrite.random",
+   "ir_base": 32569726,
+   "ir_head": 32569726,
+   "d1mr_base": 218160,
+   "d1mr_head": 208718,
+   "d1mw_base": 25113,
+   "d1mw_head": 25113,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_blobmap_reclaim_free.random",
+   "ir_base": 272064,
+   "ir_head": 272064,
+   "d1mr_base": 1947,
+   "d1mr_head": 1946,
+   "d1mw_base": 684,
+   "d1mw_head": 684,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_blobmap_remove.random",
+   "ir_base": 50508406,
+   "ir_head": 50508406,
+   "d1mr_base": 297098,
+   "d1mr_head": 293347,
+   "d1mw_base": 48850,
+   "d1mw_head": 48541,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_blobmap_remove_miss.random",
+   "ir_base": 17847116,
+   "ir_head": 17847116,
+   "d1mr_base": 72240,
+   "d1mr_head": 68828,
+   "d1mw_base": 29,
+   "d1mw_head": 29,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_bytesmap_churn.routes",
+   "ir_base": 249883463,
+   "ir_head": 249883463,
+   "d1mr_base": 752290,
+   "d1mr_head": 742033,
+   "d1mw_base": 102284,
+   "d1mw_head": 101035,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_bytesmap_compare_exchange.routes",
+   "ir_base": 121001461,
+   "ir_head": 121001461,
+   "d1mr_base": 537894,
+   "d1mr_head": 524984,
+   "d1mw_base": 50,
+   "d1mw_head": 48,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_bytesmap_get.routes",
+   "ir_base": 31374170,
+   "ir_head": 31374170,
+   "d1mr_base": 527816,
+   "d1mr_head": 516038,
+   "d1mw_base": 10,
+   "d1mw_head": 10,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_bytesmap_insert.routes",
+   "ir_base": 108491512,
+   "ir_head": 108491512,
+   "d1mr_base": 328413,
+   "d1mr_head": 324866,
+   "d1mw_base": 136093,
+   "d1mw_head": 135897,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_bytesmap_overwrite.routes",
+   "ir_base": 53621076,
+   "ir_head": 53621076,
+   "d1mr_base": 528274,
+   "d1mr_head": 516451,
+   "d1mw_base": 11,
+   "d1mw_head": 11,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_bytesmap_remove.routes",
+   "ir_base": 132555624,
+   "ir_head": 132555624,
+   "d1mr_base": 1028616,
+   "d1mr_head": 1022938,
+   "d1mw_base": 153058,
+   "d1mw_head": 152537,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_bytesmap_update.routes",
+   "ir_base": 94679493,
+   "ir_head": 94679493,
+   "d1mr_base": 537866,
+   "d1mr_head": 525004,
+   "d1mw_base": 50,
+   "d1mw_head": 46,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_branchu_band.top",
+   "ir_base": 9285314,
+   "ir_head": 9285314,
+   "d1mr_base": 78,
+   "d1mr_head": 78,
+   "d1mw_base": 259,
+   "d1mw_head": 259,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_churn.leaf",
+   "ir_base": 125016601,
+   "ir_head": 125016601,
+   "d1mr_base": 6285,
+   "d1mr_head": 6285,
+   "d1mw_base": 644,
+   "d1mw_head": 644,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_churn.random",
+   "ir_base": 119315237,
+   "ir_head": 119315237,
+   "d1mr_base": 160535,
+   "d1mr_head": 150608,
+   "d1mw_base": 13651,
+   "d1mw_head": 13528,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_compact_baseline.random60",
+   "ir_base": 45996778,
+   "ir_head": 45996778,
+   "d1mr_base": 157524,
+   "d1mr_head": 157532,
+   "d1mw_base": 58452,
+   "d1mw_head": 58449,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_compact_drained.random60",
+   "ir_base": 20501361,
+   "ir_head": 20501361,
+   "d1mr_base": 147363,
+   "d1mr_head": 147359,
+   "d1mw_base": 62391,
+   "d1mw_head": 62391,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_compare_exchange.random",
+   "ir_base": 40822617,
+   "ir_head": 40822617,
+   "d1mr_base": 140009,
+   "d1mr_head": 133437,
+   "d1mw_base": 30,
+   "d1mw_head": 30,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_count_after_write.one_top_byte",
+   "ir_base": 1709656958,
+   "ir_head": 1709656958,
+   "d1mr_base": 11048623,
+   "d1mr_head": 11049454,
+   "d1mw_base": 93326,
+   "d1mw_head": 93327,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_count_after_write.random",
+   "ir_base": 34958006,
+   "ir_head": 34958006,
+   "d1mr_base": 134357,
+   "d1mr_head": 124629,
+   "d1mw_base": 15066,
+   "d1mw_head": 15734,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_count_after_write.sequential",
+   "ir_base": 14461034,
+   "ir_head": 14461034,
+   "d1mr_base": 592,
+   "d1mr_head": 592,
+   "d1mw_base": 176,
+   "d1mw_head": 176,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_count_locked.one_top_byte",
+   "ir_base": 11110655,
+   "ir_head": 11110655,
+   "d1mr_base": 26494,
+   "d1mr_head": 26209,
+   "d1mw_base": 27,
+   "d1mw_head": 65,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_count_locked.random",
+   "ir_base": 11050125,
+   "ir_head": 11050125,
+   "d1mr_base": 27047,
+   "d1mr_head": 24950,
+   "d1mw_base": 149,
+   "d1mw_head": 9,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_count_locked.sequential",
+   "ir_base": 4426901,
+   "ir_head": 4426901,
+   "d1mr_base": 334,
+   "d1mr_head": 334,
+   "d1mw_base": 5,
+   "d1mw_head": 5,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_drain_floor.top",
+   "ir_base": 203380,
+   "ir_head": 203380,
+   "d1mr_base": 11,
+   "d1mr_head": 11,
+   "d1mw_base": 106,
+   "d1mw_head": 106,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_get.leaf",
+   "ir_base": 7554525,
+   "ir_head": 7554525,
+   "d1mr_base": 6262,
+   "d1mr_head": 6262,
+   "d1mw_base": 3,
+   "d1mw_head": 3,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_get.random",
+   "ir_base": 14970295,
+   "ir_head": 14970295,
+   "d1mr_base": 137417,
+   "d1mr_head": 131429,
+   "d1mw_base": 6,
+   "d1mw_head": 6,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_insert.random",
+   "ir_base": 49229386,
+   "ir_head": 49229386,
+   "d1mr_base": 169189,
+   "d1mr_head": 166446,
+   "d1mw_base": 44337,
+   "d1mw_head": 44225,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_next_after_scan.clustered",
+   "ir_base": 26299706,
+   "ir_head": 26299706,
+   "d1mr_base": 7347,
+   "d1mr_head": 7347,
+   "d1mw_base": 18,
+   "d1mw_head": 18,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_next_after_scan.random",
+   "ir_base": 33051471,
+   "ir_head": 33051471,
+   "d1mr_base": 26574,
+   "d1mr_head": 26574,
+   "d1mw_base": 21,
+   "d1mw_head": 21,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_next_after_scan.sequential",
+   "ir_base": 35301486,
+   "ir_head": 35301486,
+   "d1mr_base": 7206,
+   "d1mr_head": 7206,
+   "d1mw_base": 23,
+   "d1mw_head": 23,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_prev.random",
+   "ir_base": 34088020,
+   "ir_head": 34088020,
+   "d1mr_base": 166484,
+   "d1mr_head": 159343,
+   "d1mw_base": 20,
+   "d1mw_head": 20,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_prev_locked.random",
+   "ir_base": 57226942,
+   "ir_head": 57226942,
+   "d1mr_base": 184954,
+   "d1mr_head": 176521,
+   "d1mw_base": 84,
+   "d1mw_head": 84,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_remove.random",
+   "ir_base": 48876098,
+   "ir_head": 48876098,
+   "d1mr_base": 237669,
+   "d1mr_head": 234171,
+   "d1mw_base": 43920,
+   "d1mw_head": 43661,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_scan.clustered",
+   "ir_base": 4544417,
+   "ir_head": 4544417,
+   "d1mr_base": 7351,
+   "d1mr_head": 7351,
+   "d1mw_base": 86,
+   "d1mw_head": 86,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_scan.random",
+   "ir_base": 10225628,
+   "ir_head": 10225628,
+   "d1mr_base": 26706,
+   "d1mr_head": 26707,
+   "d1mw_base": 161,
+   "d1mw_head": 161,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_scan.sequential",
+   "ir_base": 4541471,
+   "ir_head": 4541471,
+   "d1mr_base": 7207,
+   "d1mr_head": 7207,
+   "d1mw_base": 87,
+   "d1mw_head": 87,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_update.random",
+   "ir_base": 40822617,
+   "ir_head": 40822617,
+   "d1mr_base": 139749,
+   "d1mr_head": 133263,
+   "d1mw_base": 30,
+   "d1mw_head": 30,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_write_twin.one_top_byte",
+   "ir_base": 1846261,
+   "ir_head": 1846261,
+   "d1mr_base": 4387,
+   "d1mr_head": 4271,
+   "d1mw_base": 816,
+   "d1mw_head": 807,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_write_twin.random",
+   "ir_base": 1675808,
+   "ir_head": 1675808,
+   "d1mr_base": 4414,
+   "d1mr_head": 4298,
+   "d1mw_base": 817,
+   "d1mw_head": 804,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_map_write_twin.sequential",
+   "ir_base": 2138117,
+   "ir_head": 2138117,
+   "d1mr_base": 228,
+   "d1mr_head": 228,
+   "d1mw_base": 175,
+   "d1mw_head": 175,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_churn.leaf",
+   "ir_base": 96356696,
+   "ir_head": 96356696,
+   "d1mr_base": 6276,
+   "d1mr_head": 6276,
+   "d1mw_base": 377,
+   "d1mw_head": 377,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_churn.random",
+   "ir_base": 92659048,
+   "ir_head": 92659048,
+   "d1mr_base": 115157,
+   "d1mr_head": 108269,
+   "d1mw_base": 875,
+   "d1mw_head": 823,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_compact_baseline.random60",
+   "ir_base": 22869155,
+   "ir_head": 22869155,
+   "d1mr_base": 137730,
+   "d1mr_head": 137732,
+   "d1mw_base": 43166,
+   "d1mw_head": 43166,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_compact_drained.random60",
+   "ir_base": 19005282,
+   "ir_head": 19005282,
+   "d1mr_base": 114784,
+   "d1mr_head": 114780,
+   "d1mw_base": 34821,
+   "d1mw_head": 34821,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_contains.leaf",
+   "ir_base": 7104530,
+   "ir_head": 7104530,
+   "d1mr_base": 6264,
+   "d1mr_head": 6264,
+   "d1mw_base": 1,
+   "d1mw_head": 1,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_contains.random",
+   "ir_base": 14804794,
+   "ir_head": 14804794,
+   "d1mr_base": 101719,
+   "d1mr_head": 97490,
+   "d1mw_base": 6,
+   "d1mw_head": 6,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_drain_floor.top",
+   "ir_base": 200323,
+   "ir_head": 200323,
+   "d1mr_base": 18,
+   "d1mr_head": 18,
+   "d1mw_base": 116,
+   "d1mw_head": 116,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_insert.random",
+   "ir_base": 45347369,
+   "ir_head": 45347369,
+   "d1mr_base": 148909,
+   "d1mr_head": 146372,
+   "d1mw_base": 34989,
+   "d1mw_head": 34906,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_next_after_scan.clustered",
+   "ir_base": 25022334,
+   "ir_head": 25022334,
+   "d1mr_base": 306,
+   "d1mr_head": 306,
+   "d1mw_base": 16,
+   "d1mw_head": 16,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_next_after_scan.random",
+   "ir_base": 33692403,
+   "ir_head": 33692403,
+   "d1mr_base": 14120,
+   "d1mr_head": 14120,
+   "d1mw_base": 20,
+   "d1mw_head": 20,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_next_after_scan.sequential",
+   "ir_base": 32955025,
+   "ir_head": 32955025,
+   "d1mr_base": 101,
+   "d1mr_head": 101,
+   "d1mw_base": 22,
+   "d1mw_head": 22,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_next_after_scan_locked.clustered",
+   "ir_base": 48035214,
+   "ir_head": 48035214,
+   "d1mr_base": 313,
+   "d1mr_head": 313,
+   "d1mw_base": 78,
+   "d1mw_head": 78,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_next_after_scan_locked.random",
+   "ir_base": 57220741,
+   "ir_head": 57220741,
+   "d1mr_base": 25004,
+   "d1mr_head": 25004,
+   "d1mw_base": 85,
+   "d1mw_head": 85,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_next_after_scan_locked.sequential",
+   "ir_base": 53167571,
+   "ir_head": 53167571,
+   "d1mr_base": 101,
+   "d1mr_head": 101,
+   "d1mw_base": 82,
+   "d1mw_head": 82,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_prev.immed",
+   "ir_base": 57713911,
+   "ir_head": 57713911,
+   "d1mr_base": 28181,
+   "d1mr_head": 28104,
+   "d1mw_base": 27,
+   "d1mw_head": 27,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_prev.leaf",
+   "ir_base": 7002514,
+   "ir_head": 7002514,
+   "d1mr_base": 6284,
+   "d1mr_head": 6284,
+   "d1mw_base": 9,
+   "d1mw_head": 9,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_prev.random",
+   "ir_base": 33201520,
+   "ir_head": 33201520,
+   "d1mr_base": 120716,
+   "d1mr_head": 115382,
+   "d1mw_base": 20,
+   "d1mw_head": 20,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_prev_locked.immed",
+   "ir_base": 79142757,
+   "ir_head": 79142757,
+   "d1mr_base": 30388,
+   "d1mr_head": 30308,
+   "d1mw_base": 23,
+   "d1mw_head": 23,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_prev_locked.leaf",
+   "ir_base": 37281425,
+   "ir_head": 37281425,
+   "d1mr_base": 6345,
+   "d1mr_head": 6345,
+   "d1mw_base": 8,
+   "d1mw_head": 8,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_prev_locked.random",
+   "ir_base": 58061712,
+   "ir_head": 58061712,
+   "d1mr_base": 139310,
+   "d1mr_head": 132619,
+   "d1mw_base": 89,
+   "d1mw_head": 89,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_set_remove.random",
+   "ir_base": 38725069,
+   "ir_head": 38725069,
+   "d1mr_base": 193159,
+   "d1mr_head": 190258,
+   "d1mw_base": 20672,
+   "d1mw_head": 20576,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_churn.routes",
+   "ir_base": 189693291,
+   "ir_head": 189693291,
+   "d1mr_base": 718744,
+   "d1mr_head": 706421,
+   "d1mw_base": 33,
+   "d1mw_head": 33,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_churn_short.short",
+   "ir_base": 232222766,
+   "ir_head": 232222766,
+   "d1mr_base": 539438,
+   "d1mr_head": 529271,
+   "d1mw_base": 47945,
+   "d1mw_head": 46413,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_compare_exchange.routes",
+   "ir_base": 123176804,
+   "ir_head": 123176804,
+   "d1mr_base": 668452,
+   "d1mr_head": 657684,
+   "d1mw_base": 71,
+   "d1mw_head": 71,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_get_short.short",
+   "ir_base": 29833040,
+   "ir_head": 29833040,
+   "d1mr_base": 407106,
+   "d1mr_head": 405900,
+   "d1mw_base": 8,
+   "d1mw_head": 8,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_insert.routes",
+   "ir_base": 77915767,
+   "ir_head": 77915767,
+   "d1mr_base": 139543,
+   "d1mr_head": 139552,
+   "d1mw_base": 24662,
+   "d1mw_head": 24662,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_insert_short.short",
+   "ir_base": 101159756,
+   "ir_head": 101159756,
+   "d1mr_base": 538088,
+   "d1mr_head": 534314,
+   "d1mw_base": 79143,
+   "d1mw_head": 78575,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_insert_sorted.uuid",
+   "ir_base": 47427378,
+   "ir_head": 47427378,
+   "d1mr_base": 91552,
+   "d1mr_head": 91550,
+   "d1mw_base": 32373,
+   "d1mw_head": 32368,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_mem_used.routes",
+   "ir_base": 5701925,
+   "ir_head": 5701925,
+   "d1mr_base": 118122,
+   "d1mr_head": 118122,
+   "d1mw_base": 3,
+   "d1mw_head": 3,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_mem_used.short",
+   "ir_base": 5702023,
+   "ir_head": 5702023,
+   "d1mr_base": 68640,
+   "d1mr_head": 68640,
+   "d1mw_base": 3,
+   "d1mw_head": 3,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_next_after_scan_locked.paths",
+   "ir_base": 122340294,
+   "ir_head": 122340294,
+   "d1mr_base": 84926,
+   "d1mr_head": 84922,
+   "d1mw_base": 82,
+   "d1mw_head": 81,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_next_after_scan_locked.paths_dense",
+   "ir_base": 138324193,
+   "ir_head": 138324193,
+   "d1mr_base": 69327,
+   "d1mr_head": 69326,
+   "d1mw_base": 78,
+   "d1mw_head": 78,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_remove.routes",
+   "ir_base": 86017302,
+   "ir_head": 86017302,
+   "d1mr_base": 699100,
+   "d1mr_head": 682362,
+   "d1mw_base": 41716,
+   "d1mw_head": 39716,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_scan.paths",
+   "ir_base": 19479022,
+   "ir_head": 19479022,
+   "d1mr_base": 74999,
+   "d1mr_head": 74995,
+   "d1mw_base": 1222,
+   "d1mw_head": 1222,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_scan.paths_dense",
+   "ir_base": 34875627,
+   "ir_head": 34875627,
+   "d1mr_base": 67200,
+   "d1mr_head": 67200,
+   "d1mw_base": 552,
+   "d1mw_head": 545,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_scan_locked.paths",
+   "ir_base": 9155807,
+   "ir_head": 9155807,
+   "d1mr_base": 74893,
+   "d1mr_head": 74902,
+   "d1mw_base": 213,
+   "d1mw_head": 213,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_scan_locked.paths_dense",
+   "ir_base": 13644696,
+   "ir_head": 13644696,
+   "d1mr_base": 67224,
+   "d1mr_head": 67230,
+   "d1mw_base": 285,
+   "d1mw_head": 285,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_scan_pointops.paths",
+   "ir_base": 186735192,
+   "ir_head": 186735192,
+   "d1mr_base": 84925,
+   "d1mr_head": 84923,
+   "d1mw_base": 82,
+   "d1mw_head": 82,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_scan_pointops.paths_dense",
+   "ir_base": 175906169,
+   "ir_head": 175906169,
+   "d1mr_base": 71349,
+   "d1mr_head": 71347,
+   "d1mw_base": 135,
+   "d1mw_head": 135,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_short_scan.user22",
+   "ir_base": 93762928,
+   "ir_head": 93762928,
+   "d1mr_base": 549524,
+   "d1mr_head": 547321,
+   "d1mw_base": 31962,
+   "d1mw_head": 30564,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_short_scan_capped.user22",
+   "ir_base": 64635206,
+   "ir_head": 64635206,
+   "d1mr_base": 440440,
+   "d1mr_head": 438592,
+   "d1mw_base": 7900,
+   "d1mw_head": 7451,
+   "bounded": true
+  },
+  {
+   "arm": "cost::sync_strmap_update.routes",
+   "ir_base": 73744094,
+   "ir_head": 73744094,
+   "d1mr_base": 662204,
+   "d1mr_head": 651141,
+   "d1mw_base": 82,
+   "d1mw_head": 62,
+   "bounded": true
+  },
+  {
+   "arm": "range_cost::map_range.clustered",
+   "ir_base": 350953,
+   "ir_head": 350953,
+   "d1mr_base": 1511,
+   "d1mr_head": 1511,
+   "d1mw_base": 39,
+   "d1mw_head": 39,
+   "bounded": false
+  },
+  {
+   "arm": "range_cost::map_range.random",
+   "ir_base": 68892,
+   "ir_head": 68892,
+   "d1mr_base": 431,
+   "d1mr_head": 403,
+   "d1mw_base": 35,
+   "d1mw_head": 35,
+   "bounded": false
+  },
+  {
+   "arm": "range_cost::map_range.sequential",
+   "ir_base": 408960,
+   "ir_head": 408960,
+   "d1mr_base": 1687,
+   "d1mr_head": 1687,
+   "d1mw_base": 39,
+   "d1mw_head": 39,
+   "bounded": false
+  },
+  {
+   "arm": "range_cost::set_range.clustered",
+   "ir_base": 267037,
+   "ir_head": 267037,
+   "d1mr_base": 179,
+   "d1mr_head": 179,
+   "d1mw_base": 32,
+   "d1mw_head": 32,
+   "bounded": false
+  },
+  {
+   "arm": "range_cost::set_range.random",
+   "ir_base": 73082,
+   "ir_head": 73082,
+   "d1mr_base": 364,
+   "d1mr_head": 336,
+   "d1mw_base": 35,
+   "d1mw_head": 35,
+   "bounded": false
+  },
+  {
+   "arm": "range_cost::set_range.sequential",
+   "ir_base": 203934,
+   "ir_head": 203934,
+   "d1mr_base": 60,
+   "d1mr_head": 60,
+   "d1mw_base": 31,
+   "d1mw_head": 31,
+   "bounded": false
+  }
+ ]
+}

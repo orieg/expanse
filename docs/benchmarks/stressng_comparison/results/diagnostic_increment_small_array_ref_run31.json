@@ -1,0 +1,2549 @@
+{
+ "provenance": {
+  "suite": "stressng_comparison",
+  "issue": 1742,
+  "commit": "8e6d2edc7",
+  "host": {
+   "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+   "cpus_online": 24,
+   "cpu_core_cpus": "0-15",
+   "cpu_atom_cpus": "16-23",
+   "cpu0_thread_siblings": "0-1",
+   "scaling_driver": "intel_pstate",
+   "scaling_governor": "powersave",
+   "scaling_governor_by_cpu": {
+    "0": "powersave",
+    "2": "powersave",
+    "4": "powersave",
+    "6": "powersave",
+    "8": "powersave",
+    "10": "powersave",
+    "12": "powersave",
+    "14": "powersave"
+   },
+   "scaling_governor_pin_set": "0,2,4,6,8,10,12,14",
+   "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+   "transparent_hugepage": "always [madvise] never",
+   "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+   "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+  },
+  "estimators": {
+   "census": "per (W, arm): the mean over the run's rounds of exact system-call counts and byte totals, summed over the W worker processes (mean_workers) and over every traced process (mean_process_tree); no interval, no ratio",
+   "pages": "bytes of brk growth or shrink divided by 4,096",
+   "trace_lines": "299823 calls on one line and 1166205 split by strace -f into an unfinished and a resumed line, 0 unparsed; both forms are counted",
+   "correction": "recounted from the run's own traces: the first published version counted whole-line calls only, which understated every brk call count and, by about 1%, the page totals",
+   "raw": "every cell carries rounds_raw, one row per process tree",
+   "thp": "1 of 36 smaps sample files were unreadable and carry thp: null"
+  },
+  "core_pin": "0,2,4,6,8,10,12,14",
+  "loads": [
+   {
+    "label": "start",
+    "since": null,
+    "load1": 0.28,
+    "load5": 0.09,
+    "load15": 0.09,
+    "at": "2026-11-16T22:19:31Z",
+    "stat_busy_jiffies": 67022018,
+    "stat_total_jiffies": 6598638380,
+    "child_cpu_s": 12.67,
+    "monotonic_s": 2750397.42,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:G:r0",
+    "since": "start",
+    "load1": 0.28,
+    "load5": 0.09,
+    "load15": 0.09,
+    "at": "2026-11-16T22:19:31Z",
+    "stat_busy_jiffies": 67022018,
+    "stat_total_jiffies": 6598638380,
+    "child_cpu_s": 12.67,
+    "monotonic_s": 2750397.42,
+    "busy_cpus_since_prev": null,
+    "own_busy_cpus_since_prev": null,
+    "foreign_busy_cpus_since_prev": null
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:S:r0",
+    "since": "cell:sng_judy_4m:W4:G:r0",
+    "load1": 0.28,
+    "load5": 0.09,
+    "load15": 0.09,
+    "at": "2026-11-16T22:19:32Z",
+    "stat_busy_jiffies": 67022516,
+    "stat_total_jiffies": 6598641581,
+    "child_cpu_s": 17.621,
+    "monotonic_s": 2750398.76,
+    "busy_cpus_since_prev": 3.73,
+    "own_busy_cpus_since_prev": 3.69,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:M:r0",
+    "since": "cell:sng_judy_4m:W4:S:r0",
+    "load1": 0.28,
+    "load5": 0.09,
+    "load15": 0.09,
+    "at": "2026-11-16T22:19:33Z",
+    "stat_busy_jiffies": 67022979,
+    "stat_total_jiffies": 6598644502,
+    "child_cpu_s": 22.219,
+    "monotonic_s": 2750399.98,
+    "busy_cpus_since_prev": 3.8,
+    "own_busy_cpus_since_prev": 3.77,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:G:r0",
+    "since": "cell:sng_judy_4m:W4:M:r0",
+    "load1": 0.66,
+    "load5": 0.17,
+    "load15": 0.11,
+    "at": "2026-11-16T22:19:35Z",
+    "stat_busy_jiffies": 67023512,
+    "stat_total_jiffies": 6598647931,
+    "child_cpu_s": 27.531,
+    "monotonic_s": 2750401.42,
+    "busy_cpus_since_prev": 3.73,
+    "own_busy_cpus_since_prev": 3.69,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:S:r0",
+    "since": "cell:sng_judy_4m:W8:G:r0",
+    "load1": 0.66,
+    "load5": 0.17,
+    "load15": 0.11,
+    "at": "2026-11-16T22:19:37Z",
+    "stat_busy_jiffies": 67024587,
+    "stat_total_jiffies": 6598651780,
+    "child_cpu_s": 38.252,
+    "monotonic_s": 2750403.039,
+    "busy_cpus_since_prev": 6.7,
+    "own_busy_cpus_since_prev": 6.62,
+    "foreign_busy_cpus_since_prev": 0.08
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:M:r0",
+    "since": "cell:sng_judy_4m:W8:S:r0",
+    "load1": 0.66,
+    "load5": 0.17,
+    "load15": 0.11,
+    "at": "2026-11-16T22:19:38Z",
+    "stat_busy_jiffies": 67025531,
+    "stat_total_jiffies": 6598654929,
+    "child_cpu_s": 47.614,
+    "monotonic_s": 2750404.353,
+    "busy_cpus_since_prev": 7.19,
+    "own_busy_cpus_since_prev": 7.12,
+    "foreign_busy_cpus_since_prev": 0.07
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:M:r1",
+    "since": "cell:sng_judy_4m:W8:M:r0",
+    "load1": 1.17,
+    "load5": 0.28,
+    "load15": 0.15,
+    "at": "2026-11-16T22:19:39Z",
+    "stat_busy_jiffies": 67026513,
+    "stat_total_jiffies": 6598658315,
+    "child_cpu_s": 57.392,
+    "monotonic_s": 2750405.771,
+    "busy_cpus_since_prev": 6.96,
+    "own_busy_cpus_since_prev": 6.9,
+    "foreign_busy_cpus_since_prev": 0.06
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:G:r1",
+    "since": "cell:sng_judy_4m:W8:M:r1",
+    "load1": 1.17,
+    "load5": 0.28,
+    "load15": 0.15,
+    "at": "2026-11-16T22:19:41Z",
+    "stat_busy_jiffies": 67027502,
+    "stat_total_jiffies": 6598661694,
+    "child_cpu_s": 67.202,
+    "monotonic_s": 2750407.185,
+    "busy_cpus_since_prev": 7.02,
+    "own_busy_cpus_since_prev": 6.94,
+    "foreign_busy_cpus_since_prev": 0.08
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:S:r1",
+    "since": "cell:sng_judy_4m:W8:G:r1",
+    "load1": 1.17,
+    "load5": 0.28,
+    "load15": 0.15,
+    "at": "2026-11-16T22:19:42Z",
+    "stat_busy_jiffies": 67028580,
+    "stat_total_jiffies": 6598665544,
+    "child_cpu_s": 77.922,
+    "monotonic_s": 2750408.803,
+    "busy_cpus_since_prev": 6.72,
+    "own_busy_cpus_since_prev": 6.63,
+    "foreign_busy_cpus_since_prev": 0.09
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:M:r1",
+    "since": "cell:sng_judy_4m:W8:S:r1",
+    "load1": 1.17,
+    "load5": 0.28,
+    "load15": 0.15,
+    "at": "2026-11-16T22:19:44Z",
+    "stat_busy_jiffies": 67029523,
+    "stat_total_jiffies": 6598668697,
+    "child_cpu_s": 87.296,
+    "monotonic_s": 2750410.12,
+    "busy_cpus_since_prev": 7.18,
+    "own_busy_cpus_since_prev": 7.12,
+    "foreign_busy_cpus_since_prev": 0.06
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:G:r1",
+    "since": "cell:sng_judy_4m:W4:M:r1",
+    "load1": 1.15,
+    "load5": 0.3,
+    "load15": 0.15,
+    "at": "2026-11-16T22:19:45Z",
+    "stat_busy_jiffies": 67030047,
+    "stat_total_jiffies": 6598672051,
+    "child_cpu_s": 92.507,
+    "monotonic_s": 2750411.528,
+    "busy_cpus_since_prev": 3.75,
+    "own_busy_cpus_since_prev": 3.7,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:S:r1",
+    "since": "cell:sng_judy_4m:W4:G:r1",
+    "load1": 1.15,
+    "load5": 0.3,
+    "load15": 0.15,
+    "at": "2026-11-16T22:19:46Z",
+    "stat_busy_jiffies": 67030552,
+    "stat_total_jiffies": 6598675284,
+    "child_cpu_s": 97.511,
+    "monotonic_s": 2750412.882,
+    "busy_cpus_since_prev": 3.75,
+    "own_busy_cpus_since_prev": 3.7,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:M:r2",
+    "since": "cell:sng_judy_4m:W4:S:r1",
+    "load1": 1.15,
+    "load5": 0.3,
+    "load15": 0.15,
+    "at": "2026-11-16T22:19:48Z",
+    "stat_busy_jiffies": 67031017,
+    "stat_total_jiffies": 6598678211,
+    "child_cpu_s": 102.121,
+    "monotonic_s": 2750414.104,
+    "busy_cpus_since_prev": 3.81,
+    "own_busy_cpus_since_prev": 3.77,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:S:r2",
+    "since": "cell:sng_judy_4m:W8:M:r2",
+    "load1": 1.7,
+    "load5": 0.42,
+    "load15": 0.2,
+    "at": "2026-11-16T22:19:49Z",
+    "stat_busy_jiffies": 67032000,
+    "stat_total_jiffies": 6598681571,
+    "child_cpu_s": 111.923,
+    "monotonic_s": 2750415.512,
+    "busy_cpus_since_prev": 7.02,
+    "own_busy_cpus_since_prev": 6.96,
+    "foreign_busy_cpus_since_prev": 0.06
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:G:r2",
+    "since": "cell:sng_judy_4m:W8:S:r2",
+    "load1": 1.7,
+    "load5": 0.42,
+    "load15": 0.2,
+    "at": "2026-11-16T22:19:50Z",
+    "stat_busy_jiffies": 67032944,
+    "stat_total_jiffies": 6598684704,
+    "child_cpu_s": 121.295,
+    "monotonic_s": 2750416.82,
+    "busy_cpus_since_prev": 7.23,
+    "own_busy_cpus_since_prev": 7.17,
+    "foreign_busy_cpus_since_prev": 0.06
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:M:r2",
+    "since": "cell:sng_judy_4m:W8:G:r2",
+    "load1": 1.7,
+    "load5": 0.42,
+    "load15": 0.2,
+    "at": "2026-11-16T22:19:52Z",
+    "stat_busy_jiffies": 67034017,
+    "stat_total_jiffies": 6598688551,
+    "child_cpu_s": 132.0,
+    "monotonic_s": 2750418.438,
+    "busy_cpus_since_prev": 6.69,
+    "own_busy_cpus_since_prev": 6.61,
+    "foreign_busy_cpus_since_prev": 0.08
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:S:r2",
+    "since": "cell:sng_judy_4m:W4:M:r2",
+    "load1": 1.7,
+    "load5": 0.42,
+    "load15": 0.2,
+    "at": "2026-11-16T22:19:53Z",
+    "stat_busy_jiffies": 67034549,
+    "stat_total_jiffies": 6598691979,
+    "child_cpu_s": 137.286,
+    "monotonic_s": 2750419.877,
+    "busy_cpus_since_prev": 3.72,
+    "own_busy_cpus_since_prev": 3.68,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:G:r2",
+    "since": "cell:sng_judy_4m:W4:S:r2",
+    "load1": 1.89,
+    "load5": 0.48,
+    "load15": 0.22,
+    "at": "2026-11-16T22:19:55Z",
+    "stat_busy_jiffies": 67035015,
+    "stat_total_jiffies": 6598694908,
+    "child_cpu_s": 141.899,
+    "monotonic_s": 2750421.1,
+    "busy_cpus_since_prev": 3.82,
+    "own_busy_cpus_since_prev": 3.77,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:S:r3",
+    "since": "cell:sng_judy_4m:W4:G:r2",
+    "load1": 1.89,
+    "load5": 0.48,
+    "load15": 0.22,
+    "at": "2026-11-16T22:19:56Z",
+    "stat_busy_jiffies": 67035511,
+    "stat_total_jiffies": 6598698094,
+    "child_cpu_s": 146.831,
+    "monotonic_s": 2750422.433,
+    "busy_cpus_since_prev": 3.74,
+    "own_busy_cpus_since_prev": 3.7,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:G:r3",
+    "since": "cell:sng_judy_4m:W4:S:r3",
+    "load1": 1.89,
+    "load5": 0.48,
+    "load15": 0.22,
+    "at": "2026-11-16T22:19:57Z",
+    "stat_busy_jiffies": 67035977,
+    "stat_total_jiffies": 6598701035,
+    "child_cpu_s": 151.455,
+    "monotonic_s": 2750423.661,
+    "busy_cpus_since_prev": 3.8,
+    "own_busy_cpus_since_prev": 3.77,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:M:r3",
+    "since": "cell:sng_judy_4m:W4:G:r3",
+    "load1": 1.89,
+    "load5": 0.48,
+    "load15": 0.22,
+    "at": "2026-11-16T22:19:58Z",
+    "stat_busy_jiffies": 67036472,
+    "stat_total_jiffies": 6598704197,
+    "child_cpu_s": 156.377,
+    "monotonic_s": 2750424.985,
+    "busy_cpus_since_prev": 3.76,
+    "own_busy_cpus_since_prev": 3.72,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:S:r3",
+    "since": "cell:sng_judy_4m:W4:M:r3",
+    "load1": 2.05,
+    "load5": 0.54,
+    "load15": 0.24,
+    "at": "2026-11-16T22:20:00Z",
+    "stat_busy_jiffies": 67037005,
+    "stat_total_jiffies": 6598707611,
+    "child_cpu_s": 161.648,
+    "monotonic_s": 2750426.418,
+    "busy_cpus_since_prev": 3.75,
+    "own_busy_cpus_since_prev": 3.68,
+    "foreign_busy_cpus_since_prev": 0.07
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:G:r3",
+    "since": "cell:sng_judy_4m:W8:S:r3",
+    "load1": 2.05,
+    "load5": 0.54,
+    "load15": 0.24,
+    "at": "2026-11-16T22:20:01Z",
+    "stat_busy_jiffies": 67037952,
+    "stat_total_jiffies": 6598710773,
+    "child_cpu_s": 171.05,
+    "monotonic_s": 2750427.738,
+    "busy_cpus_since_prev": 7.19,
+    "own_busy_cpus_since_prev": 7.12,
+    "foreign_busy_cpus_since_prev": 0.07
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:M:r3",
+    "since": "cell:sng_judy_4m:W8:G:r3",
+    "load1": 2.05,
+    "load5": 0.54,
+    "load15": 0.24,
+    "at": "2026-11-16T22:20:03Z",
+    "stat_busy_jiffies": 67039027,
+    "stat_total_jiffies": 6598714615,
+    "child_cpu_s": 181.784,
+    "monotonic_s": 2750429.354,
+    "busy_cpus_since_prev": 6.72,
+    "own_busy_cpus_since_prev": 6.64,
+    "foreign_busy_cpus_since_prev": 0.08
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:S:r4",
+    "since": "cell:sng_judy_4m:W8:M:r3",
+    "load1": 2.37,
+    "load5": 0.63,
+    "load15": 0.27,
+    "at": "2026-11-16T22:20:04Z",
+    "stat_busy_jiffies": 67040008,
+    "stat_total_jiffies": 6598717963,
+    "child_cpu_s": 191.54,
+    "monotonic_s": 2750430.755,
+    "busy_cpus_since_prev": 7.03,
+    "own_busy_cpus_since_prev": 6.96,
+    "foreign_busy_cpus_since_prev": 0.07
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:M:r4",
+    "since": "cell:sng_judy_4m:W8:S:r4",
+    "load1": 2.37,
+    "load5": 0.63,
+    "load15": 0.27,
+    "at": "2026-11-16T22:20:06Z",
+    "stat_busy_jiffies": 67040953,
+    "stat_total_jiffies": 6598721103,
+    "child_cpu_s": 200.904,
+    "monotonic_s": 2750432.066,
+    "busy_cpus_since_prev": 7.22,
+    "own_busy_cpus_since_prev": 7.15,
+    "foreign_busy_cpus_since_prev": 0.07
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:G:r4",
+    "since": "cell:sng_judy_4m:W8:M:r4",
+    "load1": 2.37,
+    "load5": 0.63,
+    "load15": 0.27,
+    "at": "2026-11-16T22:20:07Z",
+    "stat_busy_jiffies": 67041936,
+    "stat_total_jiffies": 6598724479,
+    "child_cpu_s": 210.677,
+    "monotonic_s": 2750433.479,
+    "busy_cpus_since_prev": 6.99,
+    "own_busy_cpus_since_prev": 6.91,
+    "foreign_busy_cpus_since_prev": 0.08
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:S:r4",
+    "since": "cell:sng_judy_4m:W8:G:r4",
+    "load1": 2.37,
+    "load5": 0.63,
+    "load15": 0.27,
+    "at": "2026-11-16T22:20:09Z",
+    "stat_busy_jiffies": 67043009,
+    "stat_total_jiffies": 6598728373,
+    "child_cpu_s": 221.394,
+    "monotonic_s": 2750435.117,
+    "busy_cpus_since_prev": 6.61,
+    "own_busy_cpus_since_prev": 6.54,
+    "foreign_busy_cpus_since_prev": 0.07
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:M:r4",
+    "since": "cell:sng_judy_4m:W4:S:r4",
+    "load1": 2.26,
+    "load5": 0.64,
+    "load15": 0.27,
+    "at": "2026-11-16T22:20:10Z",
+    "stat_busy_jiffies": 67043472,
+    "stat_total_jiffies": 6598731286,
+    "child_cpu_s": 225.974,
+    "monotonic_s": 2750436.333,
+    "busy_cpus_since_prev": 3.81,
+    "own_busy_cpus_since_prev": 3.77,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:G:r4",
+    "since": "cell:sng_judy_4m:W4:M:r4",
+    "load1": 2.26,
+    "load5": 0.64,
+    "load15": 0.27,
+    "at": "2026-11-16T22:20:11Z",
+    "stat_busy_jiffies": 67043997,
+    "stat_total_jiffies": 6598734651,
+    "child_cpu_s": 231.206,
+    "monotonic_s": 2750437.745,
+    "busy_cpus_since_prev": 3.74,
+    "own_busy_cpus_since_prev": 3.7,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:G:r5",
+    "since": "cell:sng_judy_4m:W4:G:r4",
+    "load1": 2.26,
+    "load5": 0.64,
+    "load15": 0.27,
+    "at": "2026-11-16T22:20:13Z",
+    "stat_busy_jiffies": 67044488,
+    "stat_total_jiffies": 6598737775,
+    "child_cpu_s": 236.096,
+    "monotonic_s": 2750439.054,
+    "busy_cpus_since_prev": 3.77,
+    "own_busy_cpus_since_prev": 3.74,
+    "foreign_busy_cpus_since_prev": 0.03
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:M:r5",
+    "since": "cell:sng_judy_4m:W4:G:r5",
+    "load1": 2.4,
+    "load5": 0.7,
+    "load15": 0.29,
+    "at": "2026-11-16T22:20:14Z",
+    "stat_busy_jiffies": 67044981,
+    "stat_total_jiffies": 6598740913,
+    "child_cpu_s": 240.993,
+    "monotonic_s": 2750440.368,
+    "busy_cpus_since_prev": 3.77,
+    "own_busy_cpus_since_prev": 3.73,
+    "foreign_busy_cpus_since_prev": 0.04
+   },
+   {
+    "label": "cell:sng_judy_4m:W4:S:r5",
+    "since": "cell:sng_judy_4m:W4:M:r5",
+    "load1": 2.4,
+    "load5": 0.7,
+    "load15": 0.29,
+    "at": "2026-11-16T22:20:15Z",
+    "stat_busy_jiffies": 67045508,
+    "stat_total_jiffies": 6598744280,
+    "child_cpu_s": 246.242,
+    "monotonic_s": 2750441.781,
+    "busy_cpus_since_prev": 3.76,
+    "own_busy_cpus_since_prev": 3.71,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:G:r5",
+    "since": "cell:sng_judy_4m:W4:S:r5",
+    "load1": 2.4,
+    "load5": 0.7,
+    "load15": 0.29,
+    "at": "2026-11-16T22:20:17Z",
+    "stat_busy_jiffies": 67045974,
+    "stat_total_jiffies": 6598747204,
+    "child_cpu_s": 250.842,
+    "monotonic_s": 2750443.002,
+    "busy_cpus_since_prev": 3.82,
+    "own_busy_cpus_since_prev": 3.77,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:M:r5",
+    "since": "cell:sng_judy_4m:W8:G:r5",
+    "load1": 2.4,
+    "load5": 0.7,
+    "load15": 0.29,
+    "at": "2026-11-16T22:20:18Z",
+    "stat_busy_jiffies": 67047052,
+    "stat_total_jiffies": 6598751111,
+    "child_cpu_s": 261.58,
+    "monotonic_s": 2750444.644,
+    "busy_cpus_since_prev": 6.62,
+    "own_busy_cpus_since_prev": 6.54,
+    "foreign_busy_cpus_since_prev": 0.08
+   },
+   {
+    "label": "cell:sng_judy_4m:W8:S:r5",
+    "since": "cell:sng_judy_4m:W8:M:r5",
+    "load1": 2.85,
+    "load5": 0.82,
+    "load15": 0.33,
+    "at": "2026-11-16T22:20:20Z",
+    "stat_busy_jiffies": 67048032,
+    "stat_total_jiffies": 6598754456,
+    "child_cpu_s": 271.361,
+    "monotonic_s": 2750446.046,
+    "busy_cpus_since_prev": 7.03,
+    "own_busy_cpus_since_prev": 6.98,
+    "foreign_busy_cpus_since_prev": 0.05
+   },
+   {
+    "label": "end",
+    "since": "cell:sng_judy_4m:W8:S:r5",
+    "load1": 2.85,
+    "load5": 0.82,
+    "load15": 0.33,
+    "at": "2026-11-16T22:20:21Z",
+    "stat_busy_jiffies": 67048978,
+    "stat_total_jiffies": 6598757579,
+    "child_cpu_s": 280.729,
+    "monotonic_s": 2750447.349,
+    "busy_cpus_since_prev": 7.27,
+    "own_busy_cpus_since_prev": 7.19,
+    "foreign_busy_cpus_since_prev": 0.08
+   }
+  ],
+  "host_label": "ref",
+  "run": 31,
+  "rounds": 6,
+  "diagnostic": "an engine increment against its merge base and stock, outside METHODOLOGY.md's pre-registration (docs/BENCHMARKING.md, the increment's pre-registration)",
+  "arm_set": "increment",
+  "increment": {
+   "head": "8e6d2edc7",
+   "base": "87ca5c134"
+  },
+  "binary": "/var/tmp/stressng-eval/b-stockbuild/stress-ng",
+  "arms": {
+   "G": "/var/tmp/stressng-eval/expcompat-8e6d2edc7/lib",
+   "M": "/var/tmp/stressng-eval/expcompat-87ca5c134/lib",
+   "S": "/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu"
+  },
+  "arm_orders": [
+   "GMS",
+   "GSM",
+   "MGS",
+   "MSG",
+   "SGM",
+   "SMG"
+  ],
+  "cell_isolation": "process",
+  "sha256": {
+   "binary": "490c0595dc5d7b6bee7e4004e3f41fdf746d352281c9a57d452af5180ec905ab",
+   "arm_G": "62d95025eb36ba3654ebe57102ee1e003ffe6bcff9b093f79ee3c44871dd93a7",
+   "arm_M": "8ef89940a19a3fb1fdfe1e1b0882cc4d801eb65e783a085eef847a562b726428",
+   "arm_S": "76f121a81b7d8b019e7c5f3bc43e8ead5f7f6a99b377ea7afb9f1d6ff483d731"
+  },
+  "library_proof": {
+   "G": [
+    "/var/tmp/stressng-eval/expcompat-8e6d2edc7/lib/libexpanse.so.1.0.0"
+   ],
+   "M": [
+    "/var/tmp/stressng-eval/expcompat-87ca5c134/lib/libexpanse.so.1.0.0"
+   ],
+   "S": [
+    "/var/tmp/stressng-eval/stock/usr/lib/x86_64-linux-gnu/libJudy.so.1.0.3"
+   ]
+  },
+  "void": {
+   "void": false,
+   "max_load1": 2.85,
+   "limit": 12.0
+  },
+  "diagnostic_settings": {
+   "cells": [
+    "sng_judy_4m:8",
+    "sng_judy_4m:4"
+   ],
+   "glibc_env_every_arm": "none set (glibc defaults)",
+   "perf_stat_events": [
+    "cpu_core/cycles/u",
+    "cpu_core/cycles/k",
+    "cpu_core/instructions/u",
+    "cpu_core/instructions/k",
+    "page-faults",
+    "minor-faults",
+    "major-faults",
+    "task-clock"
+   ],
+   "per_delete": "a process's whole-run counter divided by its deletes, bogo-ops x 4,194,304; the insert and find phases are in the numerator",
+   "wrapper": "a host-side wrapper, not in the repository, filters driver.cells() to these cells, passes perf_events to driver.run_one, and calls diag_increment.main()",
+   "run_number": "a scratch number under the 8e6d2edc7 prefix; runs 1 and 2 are the second record's pair",
+   "census": "untimed: every process also ran under strace -f -qq -e trace=brk,mmap,munmap,madvise,mremap, and its stress-ng descendants' /proc/<pid>/smaps_rollup was sampled every 50 ms; stress-ng's rates from these processes are not published"
+  }
+ },
+ "cells": [
+  {
+   "workload_id": "sng_judy_4m",
+   "w": 8,
+   "arm": "G",
+   "n": 6,
+   "mean_page_faults": 286942.8333333333,
+   "mean_process_tree": {
+    "brk": 103891.0,
+    "brk_grow_calls": 8663.0,
+    "brk_grow_bytes": 1172135936.0,
+    "brk_shrink_calls": 95210.0,
+    "brk_shrink_bytes": 848429056.0,
+    "mmap": 158.0,
+    "munmap": 15.0,
+    "madvise": 1.0,
+    "mremap": 0.0
+   },
+   "mean_workers": {
+    "brk": 103872.0,
+    "brk_grow_calls": 8656.0,
+    "brk_grow_bytes": 1171161088.0,
+    "brk_shrink_calls": 95208.0,
+    "brk_shrink_bytes": 848330752.0,
+    "mmap": 0.0,
+    "munmap": 0.0,
+    "madvise": 0.0,
+    "mremap": 0.0
+   },
+   "mean_workers_pages_grown": 285928.0,
+   "mean_workers_pages_given_back": 207112.0,
+   "workers_mmap_munmap_madvise_mremap_calls": 0,
+   "thp_samples": 1503,
+   "thp_AnonHugePages_kB_max": 0,
+   "rounds_raw": [
+    {
+     "round": 0,
+     "arm": "G",
+     "order": "GSM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:G:r0",
+      "wall_s": 1.619,
+      "busy_cpus_since_prev": 6.7,
+      "own_busy_cpus": 6.62,
+      "foreign_busy_cpus": 0.08
+     },
+     "foreign_busy_cpus": 0.08,
+     "page_faults": 286933.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 103891,
+      "brk_grow_calls": 8663,
+      "brk_grow_bytes": 1172135936,
+      "brk_shrink_calls": 95210,
+      "brk_shrink_bytes": 848429056,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 103872,
+      "brk_grow_calls": 8656,
+      "brk_grow_bytes": 1171161088,
+      "brk_shrink_calls": 95208,
+      "brk_shrink_bytes": 848330752,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 249,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 1,
+     "arm": "G",
+     "order": "MGS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:G:r1",
+      "wall_s": 1.618,
+      "busy_cpus_since_prev": 6.72,
+      "own_busy_cpus": 6.63,
+      "foreign_busy_cpus": 0.09
+     },
+     "foreign_busy_cpus": 0.09,
+     "page_faults": 286929.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 103891,
+      "brk_grow_calls": 8663,
+      "brk_grow_bytes": 1172135936,
+      "brk_shrink_calls": 95210,
+      "brk_shrink_bytes": 848429056,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 103872,
+      "brk_grow_calls": 8656,
+      "brk_grow_bytes": 1171161088,
+      "brk_shrink_calls": 95208,
+      "brk_shrink_bytes": 848330752,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 251,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 2,
+     "arm": "G",
+     "order": "MSG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:G:r2",
+      "wall_s": 1.618,
+      "busy_cpus_since_prev": 6.7,
+      "own_busy_cpus": 6.62,
+      "foreign_busy_cpus": 0.08
+     },
+     "foreign_busy_cpus": 0.08,
+     "page_faults": 286948.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 103891,
+      "brk_grow_calls": 8663,
+      "brk_grow_bytes": 1172135936,
+      "brk_shrink_calls": 95210,
+      "brk_shrink_bytes": 848429056,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 103872,
+      "brk_grow_calls": 8656,
+      "brk_grow_bytes": 1171161088,
+      "brk_shrink_calls": 95208,
+      "brk_shrink_bytes": 848330752,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 248,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 3,
+     "arm": "G",
+     "order": "SGM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:G:r3",
+      "wall_s": 1.616,
+      "busy_cpus_since_prev": 6.72,
+      "own_busy_cpus": 6.64,
+      "foreign_busy_cpus": 0.08
+     },
+     "foreign_busy_cpus": 0.08,
+     "page_faults": 286935.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 103891,
+      "brk_grow_calls": 8663,
+      "brk_grow_bytes": 1172135936,
+      "brk_shrink_calls": 95210,
+      "brk_shrink_bytes": 848429056,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 103872,
+      "brk_grow_calls": 8656,
+      "brk_grow_bytes": 1171161088,
+      "brk_shrink_calls": 95208,
+      "brk_shrink_bytes": 848330752,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 252,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 4,
+     "arm": "G",
+     "order": "SMG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:G:r4",
+      "wall_s": 1.638,
+      "busy_cpus_since_prev": 6.61,
+      "own_busy_cpus": 6.54,
+      "foreign_busy_cpus": 0.07
+     },
+     "foreign_busy_cpus": 0.07,
+     "page_faults": 286955.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 103891,
+      "brk_grow_calls": 8663,
+      "brk_grow_bytes": 1172135936,
+      "brk_shrink_calls": 95210,
+      "brk_shrink_bytes": 848429056,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 103872,
+      "brk_grow_calls": 8656,
+      "brk_grow_bytes": 1171161088,
+      "brk_shrink_calls": 95208,
+      "brk_shrink_bytes": 848330752,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 251,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 5,
+     "arm": "G",
+     "order": "GMS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:G:r5",
+      "wall_s": 1.642,
+      "busy_cpus_since_prev": 6.62,
+      "own_busy_cpus": 6.54,
+      "foreign_busy_cpus": 0.08
+     },
+     "foreign_busy_cpus": 0.08,
+     "page_faults": 286957.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 103891,
+      "brk_grow_calls": 8663,
+      "brk_grow_bytes": 1172135936,
+      "brk_shrink_calls": 95210,
+      "brk_shrink_bytes": 848429056,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 103872,
+      "brk_grow_calls": 8656,
+      "brk_grow_bytes": 1171161088,
+      "brk_shrink_calls": 95208,
+      "brk_shrink_bytes": 848330752,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 252,
+      "AnonHugePages_kB_max": 0
+     }
+    }
+   ]
+  },
+  {
+   "workload_id": "sng_judy_4m",
+   "w": 8,
+   "arm": "M",
+   "n": 6,
+   "mean_page_faults": 203056.66666666666,
+   "mean_process_tree": {
+    "brk": 41435.0,
+    "brk_grow_calls": 6127.0,
+    "brk_grow_bytes": 828563456.0,
+    "brk_shrink_calls": 35290.0,
+    "brk_shrink_bytes": 276168704.0,
+    "mmap": 158.0,
+    "munmap": 15.0,
+    "madvise": 1.0,
+    "mremap": 0.0
+   },
+   "mean_workers": {
+    "brk": 41416.0,
+    "brk_grow_calls": 6120.0,
+    "brk_grow_bytes": 827588608.0,
+    "brk_shrink_calls": 35288.0,
+    "brk_shrink_bytes": 276070400.0,
+    "mmap": 0.0,
+    "munmap": 0.0,
+    "madvise": 0.0,
+    "mremap": 0.0
+   },
+   "mean_workers_pages_grown": 202048.0,
+   "mean_workers_pages_given_back": 67400.0,
+   "workers_mmap_munmap_madvise_mremap_calls": 0,
+   "thp_samples": 1269,
+   "thp_AnonHugePages_kB_max": 0,
+   "rounds_raw": [
+    {
+     "round": 0,
+     "arm": "M",
+     "order": "GSM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:M:r0",
+      "wall_s": 1.417,
+      "busy_cpus_since_prev": 6.96,
+      "own_busy_cpus": 6.9,
+      "foreign_busy_cpus": 0.06
+     },
+     "foreign_busy_cpus": 0.06,
+     "page_faults": 203049.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 41435,
+      "brk_grow_calls": 6127,
+      "brk_grow_bytes": 828563456,
+      "brk_shrink_calls": 35290,
+      "brk_shrink_bytes": 276168704,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 41416,
+      "brk_grow_calls": 6120,
+      "brk_grow_bytes": 827588608,
+      "brk_shrink_calls": 35288,
+      "brk_shrink_bytes": 276070400,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 213,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 1,
+     "arm": "M",
+     "order": "MGS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:M:r1",
+      "wall_s": 1.414,
+      "busy_cpus_since_prev": 7.02,
+      "own_busy_cpus": 6.94,
+      "foreign_busy_cpus": 0.08
+     },
+     "foreign_busy_cpus": 0.08,
+     "page_faults": 203077.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 41435,
+      "brk_grow_calls": 6127,
+      "brk_grow_bytes": 828563456,
+      "brk_shrink_calls": 35290,
+      "brk_shrink_bytes": 276168704,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 41416,
+      "brk_grow_calls": 6120,
+      "brk_grow_bytes": 827588608,
+      "brk_shrink_calls": 35288,
+      "brk_shrink_bytes": 276070400,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 213,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 2,
+     "arm": "M",
+     "order": "MSG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:M:r2",
+      "wall_s": 1.408,
+      "busy_cpus_since_prev": 7.02,
+      "own_busy_cpus": 6.96,
+      "foreign_busy_cpus": 0.06
+     },
+     "foreign_busy_cpus": 0.06,
+     "page_faults": 203045.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 41435,
+      "brk_grow_calls": 6127,
+      "brk_grow_bytes": 828563456,
+      "brk_shrink_calls": 35290,
+      "brk_shrink_bytes": 276168704,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 41416,
+      "brk_grow_calls": 6120,
+      "brk_grow_bytes": 827588608,
+      "brk_shrink_calls": 35288,
+      "brk_shrink_bytes": 276070400,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 214,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 3,
+     "arm": "M",
+     "order": "SGM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:M:r3",
+      "wall_s": 1.401,
+      "busy_cpus_since_prev": 7.03,
+      "own_busy_cpus": 6.96,
+      "foreign_busy_cpus": 0.07
+     },
+     "foreign_busy_cpus": 0.07,
+     "page_faults": 203063.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 41435,
+      "brk_grow_calls": 6127,
+      "brk_grow_bytes": 828563456,
+      "brk_shrink_calls": 35290,
+      "brk_shrink_bytes": 276168704,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 41416,
+      "brk_grow_calls": 6120,
+      "brk_grow_bytes": 827588608,
+      "brk_shrink_calls": 35288,
+      "brk_shrink_bytes": 276070400,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 210,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 4,
+     "arm": "M",
+     "order": "SMG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:M:r4",
+      "wall_s": 1.413,
+      "busy_cpus_since_prev": 6.99,
+      "own_busy_cpus": 6.92,
+      "foreign_busy_cpus": 0.07
+     },
+     "foreign_busy_cpus": 0.07,
+     "page_faults": 203052.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 41435,
+      "brk_grow_calls": 6127,
+      "brk_grow_bytes": 828563456,
+      "brk_shrink_calls": 35290,
+      "brk_shrink_bytes": 276168704,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 41416,
+      "brk_grow_calls": 6120,
+      "brk_grow_bytes": 827588608,
+      "brk_shrink_calls": 35288,
+      "brk_shrink_bytes": 276070400,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 209,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 5,
+     "arm": "M",
+     "order": "GMS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:M:r5",
+      "wall_s": 1.402,
+      "busy_cpus_since_prev": 7.03,
+      "own_busy_cpus": 6.98,
+      "foreign_busy_cpus": 0.05
+     },
+     "foreign_busy_cpus": 0.05,
+     "page_faults": 203054.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 41435,
+      "brk_grow_calls": 6127,
+      "brk_grow_bytes": 828563456,
+      "brk_shrink_calls": 35290,
+      "brk_shrink_bytes": 276168704,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 41416,
+      "brk_grow_calls": 6120,
+      "brk_grow_bytes": 827588608,
+      "brk_shrink_calls": 35288,
+      "brk_shrink_bytes": 276070400,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 210,
+      "AnonHugePages_kB_max": 0
+     }
+    }
+   ]
+  },
+  {
+   "workload_id": "sng_judy_4m",
+   "w": 8,
+   "arm": "S",
+   "n": 6,
+   "mean_page_faults": 149645.66666666666,
+   "mean_process_tree": {
+    "brk": 4771.0,
+    "brk_grow_calls": 4511.0,
+    "brk_grow_bytes": 609837056.0,
+    "brk_shrink_calls": 242.0,
+    "brk_shrink_bytes": 80314368.0,
+    "mmap": 152.0,
+    "munmap": 17.0,
+    "madvise": 1.0,
+    "mremap": 0.0
+   },
+   "mean_workers": {
+    "brk": 4752.0,
+    "brk_grow_calls": 4504.0,
+    "brk_grow_bytes": 608862208.0,
+    "brk_shrink_calls": 240.0,
+    "brk_shrink_bytes": 80216064.0,
+    "mmap": 0.0,
+    "munmap": 0.0,
+    "madvise": 0.0,
+    "mremap": 0.0
+   },
+   "mean_workers_pages_grown": 148648.0,
+   "mean_workers_pages_given_back": 19584.0,
+   "workers_mmap_munmap_madvise_mremap_calls": 0,
+   "thp_samples": 962,
+   "thp_AnonHugePages_kB_max": 0,
+   "rounds_raw": [
+    {
+     "round": 0,
+     "arm": "S",
+     "order": "GSM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:S:r0",
+      "wall_s": 1.314,
+      "busy_cpus_since_prev": 7.2,
+      "own_busy_cpus": 7.12,
+      "foreign_busy_cpus": 0.08
+     },
+     "foreign_busy_cpus": 0.08,
+     "page_faults": 149642.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 4771,
+      "brk_grow_calls": 4511,
+      "brk_grow_bytes": 609837056,
+      "brk_shrink_calls": 242,
+      "brk_shrink_bytes": 80314368,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 4752,
+      "brk_grow_calls": 4504,
+      "brk_grow_bytes": 608862208,
+      "brk_shrink_calls": 240,
+      "brk_shrink_bytes": 80216064,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 193,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 1,
+     "arm": "S",
+     "order": "MGS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:S:r1",
+      "wall_s": 1.317,
+      "busy_cpus_since_prev": 7.18,
+      "own_busy_cpus": 7.12,
+      "foreign_busy_cpus": 0.06
+     },
+     "foreign_busy_cpus": 0.06,
+     "page_faults": 149653.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 4771,
+      "brk_grow_calls": 4511,
+      "brk_grow_bytes": 609837056,
+      "brk_shrink_calls": 242,
+      "brk_shrink_bytes": 80314368,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 4752,
+      "brk_grow_calls": 4504,
+      "brk_grow_bytes": 608862208,
+      "brk_shrink_calls": 240,
+      "brk_shrink_bytes": 80216064,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 192,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 2,
+     "arm": "S",
+     "order": "MSG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:S:r2",
+      "wall_s": 1.308,
+      "busy_cpus_since_prev": 7.23,
+      "own_busy_cpus": 7.17,
+      "foreign_busy_cpus": 0.06
+     },
+     "foreign_busy_cpus": 0.06,
+     "page_faults": 149656.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 4771,
+      "brk_grow_calls": 4511,
+      "brk_grow_bytes": 609837056,
+      "brk_shrink_calls": 242,
+      "brk_shrink_bytes": 80314368,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 4752,
+      "brk_grow_calls": 4504,
+      "brk_grow_bytes": 608862208,
+      "brk_shrink_calls": 240,
+      "brk_shrink_bytes": 80216064,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 192,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 3,
+     "arm": "S",
+     "order": "SGM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:S:r3",
+      "wall_s": 1.32,
+      "busy_cpus_since_prev": 7.19,
+      "own_busy_cpus": 7.12,
+      "foreign_busy_cpus": 0.07
+     },
+     "foreign_busy_cpus": 0.07,
+     "page_faults": 149639.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 4771,
+      "brk_grow_calls": 4511,
+      "brk_grow_bytes": 609837056,
+      "brk_shrink_calls": 242,
+      "brk_shrink_bytes": 80314368,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 4752,
+      "brk_grow_calls": 4504,
+      "brk_grow_bytes": 608862208,
+      "brk_shrink_calls": 240,
+      "brk_shrink_bytes": 80216064,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 193,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 4,
+     "arm": "S",
+     "order": "SMG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:S:r4",
+      "wall_s": 1.31,
+      "busy_cpus_since_prev": 7.23,
+      "own_busy_cpus": 7.15,
+      "foreign_busy_cpus": 0.08
+     },
+     "foreign_busy_cpus": 0.08,
+     "page_faults": 149642.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 4771,
+      "brk_grow_calls": 4511,
+      "brk_grow_bytes": 609837056,
+      "brk_shrink_calls": 242,
+      "brk_shrink_bytes": 80314368,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 4752,
+      "brk_grow_calls": 4504,
+      "brk_grow_bytes": 608862208,
+      "brk_shrink_calls": 240,
+      "brk_shrink_bytes": 80216064,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 9,
+      "samples": 192,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 5,
+     "arm": "S",
+     "order": "GMS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W8:S:r5",
+      "wall_s": 1.302,
+      "busy_cpus_since_prev": 7.27,
+      "own_busy_cpus": 7.19,
+      "foreign_busy_cpus": 0.08
+     },
+     "foreign_busy_cpus": 0.08,
+     "page_faults": 149642.0,
+     "major_faults": 0.0,
+     "pids_traced": 12,
+     "workers": 8,
+     "process_tree": {
+      "brk": 4771,
+      "brk_grow_calls": 4511,
+      "brk_grow_bytes": 609837056,
+      "brk_shrink_calls": 242,
+      "brk_shrink_bytes": 80314368,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 4752,
+      "brk_grow_calls": 4504,
+      "brk_grow_bytes": 608862208,
+      "brk_shrink_calls": 240,
+      "brk_shrink_bytes": 80216064,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": null
+    }
+   ]
+  },
+  {
+   "workload_id": "sng_judy_4m",
+   "w": 4,
+   "arm": "G",
+   "n": 6,
+   "mean_page_faults": 110317.83333333333,
+   "mean_process_tree": {
+    "brk": 30923.0,
+    "brk_grow_calls": 3327.0,
+    "brk_grow_bytes": 450060288.0,
+    "brk_shrink_calls": 27582.0,
+    "brk_shrink_bytes": 247840768.0,
+    "mmap": 158.0,
+    "munmap": 15.0,
+    "madvise": 1.0,
+    "mremap": 0.0
+   },
+   "mean_workers": {
+    "brk": 30904.0,
+    "brk_grow_calls": 3320.0,
+    "brk_grow_bytes": 449085440.0,
+    "brk_shrink_calls": 27580.0,
+    "brk_shrink_bytes": 247742464.0,
+    "mmap": 0.0,
+    "munmap": 0.0,
+    "madvise": 0.0,
+    "mremap": 0.0
+   },
+   "mean_workers_pages_grown": 109640.0,
+   "mean_workers_pages_given_back": 60484.0,
+   "workers_mmap_munmap_madvise_mremap_calls": 0,
+   "thp_samples": 726,
+   "thp_AnonHugePages_kB_max": 0,
+   "rounds_raw": [
+    {
+     "round": 0,
+     "arm": "G",
+     "order": "GSM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:G:r0",
+      "wall_s": 1.34,
+      "busy_cpus_since_prev": 3.74,
+      "own_busy_cpus": 3.7,
+      "foreign_busy_cpus": 0.04
+     },
+     "foreign_busy_cpus": 0.04,
+     "page_faults": 110312.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 30923,
+      "brk_grow_calls": 3327,
+      "brk_grow_bytes": 450060288,
+      "brk_shrink_calls": 27582,
+      "brk_shrink_bytes": 247840768,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 30904,
+      "brk_grow_calls": 3320,
+      "brk_grow_bytes": 449085440,
+      "brk_shrink_calls": 27580,
+      "brk_shrink_bytes": 247742464,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 120,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 1,
+     "arm": "G",
+     "order": "MGS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:G:r1",
+      "wall_s": 1.354,
+      "busy_cpus_since_prev": 3.75,
+      "own_busy_cpus": 3.7,
+      "foreign_busy_cpus": 0.05
+     },
+     "foreign_busy_cpus": 0.05,
+     "page_faults": 110315.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 30923,
+      "brk_grow_calls": 3327,
+      "brk_grow_bytes": 450060288,
+      "brk_shrink_calls": 27582,
+      "brk_shrink_bytes": 247840768,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 30904,
+      "brk_grow_calls": 3320,
+      "brk_grow_bytes": 449085440,
+      "brk_shrink_calls": 27580,
+      "brk_shrink_bytes": 247742464,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 123,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 2,
+     "arm": "G",
+     "order": "MSG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:G:r2",
+      "wall_s": 1.333,
+      "busy_cpus_since_prev": 3.74,
+      "own_busy_cpus": 3.7,
+      "foreign_busy_cpus": 0.04
+     },
+     "foreign_busy_cpus": 0.04,
+     "page_faults": 110325.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 30923,
+      "brk_grow_calls": 3327,
+      "brk_grow_bytes": 450060288,
+      "brk_shrink_calls": 27582,
+      "brk_shrink_bytes": 247840768,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 30904,
+      "brk_grow_calls": 3320,
+      "brk_grow_bytes": 449085440,
+      "brk_shrink_calls": 27580,
+      "brk_shrink_bytes": 247742464,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 121,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 3,
+     "arm": "G",
+     "order": "SGM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:G:r3",
+      "wall_s": 1.324,
+      "busy_cpus_since_prev": 3.76,
+      "own_busy_cpus": 3.72,
+      "foreign_busy_cpus": 0.04
+     },
+     "foreign_busy_cpus": 0.04,
+     "page_faults": 110320.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 30923,
+      "brk_grow_calls": 3327,
+      "brk_grow_bytes": 450060288,
+      "brk_shrink_calls": 27582,
+      "brk_shrink_bytes": 247840768,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 30904,
+      "brk_grow_calls": 3320,
+      "brk_grow_bytes": 449085440,
+      "brk_shrink_calls": 27580,
+      "brk_shrink_bytes": 247742464,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 121,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 4,
+     "arm": "G",
+     "order": "SMG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:G:r4",
+      "wall_s": 1.308,
+      "busy_cpus_since_prev": 3.77,
+      "own_busy_cpus": 3.74,
+      "foreign_busy_cpus": 0.03
+     },
+     "foreign_busy_cpus": 0.03,
+     "page_faults": 110327.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 30923,
+      "brk_grow_calls": 3327,
+      "brk_grow_bytes": 450060288,
+      "brk_shrink_calls": 27582,
+      "brk_shrink_bytes": 247840768,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 30904,
+      "brk_grow_calls": 3320,
+      "brk_grow_bytes": 449085440,
+      "brk_shrink_calls": 27580,
+      "brk_shrink_bytes": 247742464,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 120,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 5,
+     "arm": "G",
+     "order": "GMS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:G:r5",
+      "wall_s": 1.313,
+      "busy_cpus_since_prev": 3.77,
+      "own_busy_cpus": 3.73,
+      "foreign_busy_cpus": 0.04
+     },
+     "foreign_busy_cpus": 0.04,
+     "page_faults": 110308.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 30923,
+      "brk_grow_calls": 3327,
+      "brk_grow_bytes": 450060288,
+      "brk_shrink_calls": 27582,
+      "brk_shrink_bytes": 247840768,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 30904,
+      "brk_grow_calls": 3320,
+      "brk_grow_bytes": 449085440,
+      "brk_shrink_calls": 27580,
+      "brk_shrink_bytes": 247742464,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 121,
+      "AnonHugePages_kB_max": 0
+     }
+    }
+   ]
+  },
+  {
+   "workload_id": "sng_judy_4m",
+   "w": 4,
+   "arm": "M",
+   "n": 6,
+   "mean_page_faults": 160286.16666666666,
+   "mean_process_tree": {
+    "brk": 59703.0,
+    "brk_grow_calls": 4839.0,
+    "brk_grow_bytes": 654417920.0,
+    "brk_shrink_calls": 54850.0,
+    "brk_shrink_bytes": 539361280.0,
+    "mmap": 158.0,
+    "munmap": 15.0,
+    "madvise": 1.0,
+    "mremap": 0.0
+   },
+   "mean_workers": {
+    "brk": 59684.0,
+    "brk_grow_calls": 4832.0,
+    "brk_grow_bytes": 653443072.0,
+    "brk_shrink_calls": 54848.0,
+    "brk_shrink_bytes": 539262976.0,
+    "mmap": 0.0,
+    "munmap": 0.0,
+    "madvise": 0.0,
+    "mremap": 0.0
+   },
+   "mean_workers_pages_grown": 159532.0,
+   "mean_workers_pages_given_back": 131656.0,
+   "workers_mmap_munmap_madvise_mremap_calls": 0,
+   "thp_samples": 785,
+   "thp_AnonHugePages_kB_max": 0,
+   "rounds_raw": [
+    {
+     "round": 0,
+     "arm": "M",
+     "order": "GSM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:M:r0",
+      "wall_s": 1.439,
+      "busy_cpus_since_prev": 3.73,
+      "own_busy_cpus": 3.69,
+      "foreign_busy_cpus": 0.04
+     },
+     "foreign_busy_cpus": 0.04,
+     "page_faults": 160289.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 59703,
+      "brk_grow_calls": 4839,
+      "brk_grow_bytes": 654417920,
+      "brk_shrink_calls": 54850,
+      "brk_shrink_bytes": 539361280,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 59684,
+      "brk_grow_calls": 4832,
+      "brk_grow_bytes": 653443072,
+      "brk_shrink_calls": 54848,
+      "brk_shrink_bytes": 539262976,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 131,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 1,
+     "arm": "M",
+     "order": "MGS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:M:r1",
+      "wall_s": 1.407,
+      "busy_cpus_since_prev": 3.75,
+      "own_busy_cpus": 3.7,
+      "foreign_busy_cpus": 0.05
+     },
+     "foreign_busy_cpus": 0.05,
+     "page_faults": 160281.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 59703,
+      "brk_grow_calls": 4839,
+      "brk_grow_bytes": 654417920,
+      "brk_shrink_calls": 54850,
+      "brk_shrink_bytes": 539361280,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 59684,
+      "brk_grow_calls": 4832,
+      "brk_grow_bytes": 653443072,
+      "brk_shrink_calls": 54848,
+      "brk_shrink_bytes": 539262976,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 131,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 2,
+     "arm": "M",
+     "order": "MSG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:M:r2",
+      "wall_s": 1.438,
+      "busy_cpus_since_prev": 3.73,
+      "own_busy_cpus": 3.68,
+      "foreign_busy_cpus": 0.05
+     },
+     "foreign_busy_cpus": 0.05,
+     "page_faults": 160291.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 59703,
+      "brk_grow_calls": 4839,
+      "brk_grow_bytes": 654417920,
+      "brk_shrink_calls": 54850,
+      "brk_shrink_bytes": 539361280,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 59684,
+      "brk_grow_calls": 4832,
+      "brk_grow_bytes": 653443072,
+      "brk_shrink_calls": 54848,
+      "brk_shrink_bytes": 539262976,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 131,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 3,
+     "arm": "M",
+     "order": "SGM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:M:r3",
+      "wall_s": 1.432,
+      "busy_cpus_since_prev": 3.75,
+      "own_busy_cpus": 3.68,
+      "foreign_busy_cpus": 0.07
+     },
+     "foreign_busy_cpus": 0.07,
+     "page_faults": 160283.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 59703,
+      "brk_grow_calls": 4839,
+      "brk_grow_bytes": 654417920,
+      "brk_shrink_calls": 54850,
+      "brk_shrink_bytes": 539361280,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 59684,
+      "brk_grow_calls": 4832,
+      "brk_grow_bytes": 653443072,
+      "brk_shrink_calls": 54848,
+      "brk_shrink_bytes": 539262976,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 131,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 4,
+     "arm": "M",
+     "order": "SMG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:M:r4",
+      "wall_s": 1.412,
+      "busy_cpus_since_prev": 3.75,
+      "own_busy_cpus": 3.7,
+      "foreign_busy_cpus": 0.05
+     },
+     "foreign_busy_cpus": 0.05,
+     "page_faults": 160290.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 59703,
+      "brk_grow_calls": 4839,
+      "brk_grow_bytes": 654417920,
+      "brk_shrink_calls": 54850,
+      "brk_shrink_bytes": 539361280,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 59684,
+      "brk_grow_calls": 4832,
+      "brk_grow_bytes": 653443072,
+      "brk_shrink_calls": 54848,
+      "brk_shrink_bytes": 539262976,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 130,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 5,
+     "arm": "M",
+     "order": "GMS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:M:r5",
+      "wall_s": 1.413,
+      "busy_cpus_since_prev": 3.76,
+      "own_busy_cpus": 3.71,
+      "foreign_busy_cpus": 0.05
+     },
+     "foreign_busy_cpus": 0.05,
+     "page_faults": 160283.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 59703,
+      "brk_grow_calls": 4839,
+      "brk_grow_bytes": 654417920,
+      "brk_shrink_calls": 54850,
+      "brk_shrink_bytes": 539361280,
+      "mmap": 158,
+      "munmap": 15,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 59684,
+      "brk_grow_calls": 4832,
+      "brk_grow_bytes": 653443072,
+      "brk_shrink_calls": 54848,
+      "brk_shrink_bytes": 539262976,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 131,
+      "AnonHugePages_kB_max": 0
+     }
+    }
+   ]
+  },
+  {
+   "workload_id": "sng_judy_4m",
+   "w": 4,
+   "arm": "S",
+   "n": 6,
+   "mean_page_faults": 82756.66666666667,
+   "mean_process_tree": {
+    "brk": 2579.0,
+    "brk_grow_calls": 2495.0,
+    "brk_grow_bytes": 337305600.0,
+    "brk_shrink_calls": 70.0,
+    "brk_shrink_bytes": 56147968.0,
+    "mmap": 152.0,
+    "munmap": 17.0,
+    "madvise": 1.0,
+    "mremap": 0.0
+   },
+   "mean_workers": {
+    "brk": 2560.0,
+    "brk_grow_calls": 2488.0,
+    "brk_grow_bytes": 336330752.0,
+    "brk_shrink_calls": 68.0,
+    "brk_shrink_bytes": 56049664.0,
+    "mmap": 0.0,
+    "munmap": 0.0,
+    "madvise": 0.0,
+    "mremap": 0.0
+   },
+   "mean_workers_pages_grown": 82112.0,
+   "mean_workers_pages_given_back": 13684.0,
+   "workers_mmap_munmap_madvise_mremap_calls": 0,
+   "thp_samples": 666,
+   "thp_AnonHugePages_kB_max": 0,
+   "rounds_raw": [
+    {
+     "round": 0,
+     "arm": "S",
+     "order": "GSM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:S:r0",
+      "wall_s": 1.22,
+      "busy_cpus_since_prev": 3.81,
+      "own_busy_cpus": 3.77,
+      "foreign_busy_cpus": 0.04
+     },
+     "foreign_busy_cpus": 0.04,
+     "page_faults": 82757.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 2579,
+      "brk_grow_calls": 2495,
+      "brk_grow_bytes": 337305600,
+      "brk_shrink_calls": 70,
+      "brk_shrink_bytes": 56147968,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 2560,
+      "brk_grow_calls": 2488,
+      "brk_grow_bytes": 336330752,
+      "brk_shrink_calls": 68,
+      "brk_shrink_bytes": 56049664,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 111,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 1,
+     "arm": "S",
+     "order": "MGS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:S:r1",
+      "wall_s": 1.222,
+      "busy_cpus_since_prev": 3.81,
+      "own_busy_cpus": 3.77,
+      "foreign_busy_cpus": 0.04
+     },
+     "foreign_busy_cpus": 0.04,
+     "page_faults": 82749.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 2579,
+      "brk_grow_calls": 2495,
+      "brk_grow_bytes": 337305600,
+      "brk_shrink_calls": 70,
+      "brk_shrink_bytes": 56147968,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 2560,
+      "brk_grow_calls": 2488,
+      "brk_grow_bytes": 336330752,
+      "brk_shrink_calls": 68,
+      "brk_shrink_bytes": 56049664,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 111,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 2,
+     "arm": "S",
+     "order": "MSG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:S:r2",
+      "wall_s": 1.223,
+      "busy_cpus_since_prev": 3.82,
+      "own_busy_cpus": 3.77,
+      "foreign_busy_cpus": 0.05
+     },
+     "foreign_busy_cpus": 0.05,
+     "page_faults": 82764.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 2579,
+      "brk_grow_calls": 2495,
+      "brk_grow_bytes": 337305600,
+      "brk_shrink_calls": 70,
+      "brk_shrink_bytes": 56147968,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 2560,
+      "brk_grow_calls": 2488,
+      "brk_grow_bytes": 336330752,
+      "brk_shrink_calls": 68,
+      "brk_shrink_bytes": 56049664,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 111,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 3,
+     "arm": "S",
+     "order": "SGM",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:S:r3",
+      "wall_s": 1.228,
+      "busy_cpus_since_prev": 3.8,
+      "own_busy_cpus": 3.77,
+      "foreign_busy_cpus": 0.03
+     },
+     "foreign_busy_cpus": 0.03,
+     "page_faults": 82759.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 2579,
+      "brk_grow_calls": 2495,
+      "brk_grow_bytes": 337305600,
+      "brk_shrink_calls": 70,
+      "brk_shrink_bytes": 56147968,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 2560,
+      "brk_grow_calls": 2488,
+      "brk_grow_bytes": 336330752,
+      "brk_shrink_calls": 68,
+      "brk_shrink_bytes": 56049664,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 111,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 4,
+     "arm": "S",
+     "order": "SMG",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:S:r4",
+      "wall_s": 1.215,
+      "busy_cpus_since_prev": 3.82,
+      "own_busy_cpus": 3.77,
+      "foreign_busy_cpus": 0.05
+     },
+     "foreign_busy_cpus": 0.05,
+     "page_faults": 82758.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 2579,
+      "brk_grow_calls": 2495,
+      "brk_grow_bytes": 337305600,
+      "brk_shrink_calls": 70,
+      "brk_shrink_bytes": 56147968,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 2560,
+      "brk_grow_calls": 2488,
+      "brk_grow_bytes": 336330752,
+      "brk_shrink_calls": 68,
+      "brk_shrink_bytes": 56049664,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 111,
+      "AnonHugePages_kB_max": 0
+     }
+    },
+    {
+     "round": 5,
+     "arm": "S",
+     "order": "GMS",
+     "rc": 0,
+     "valid": true,
+     "load": {
+      "since": "cell:sng_judy_4m:W4:S:r5",
+      "wall_s": 1.22,
+      "busy_cpus_since_prev": 3.82,
+      "own_busy_cpus": 3.77,
+      "foreign_busy_cpus": 0.05
+     },
+     "foreign_busy_cpus": 0.05,
+     "page_faults": 82753.0,
+     "major_faults": 0.0,
+     "pids_traced": 8,
+     "workers": 4,
+     "process_tree": {
+      "brk": 2579,
+      "brk_grow_calls": 2495,
+      "brk_grow_bytes": 337305600,
+      "brk_shrink_calls": 70,
+      "brk_shrink_bytes": 56147968,
+      "mmap": 152,
+      "munmap": 17,
+      "madvise": 1,
+      "mremap": 0
+     },
+     "workers_only": {
+      "brk": 2560,
+      "brk_grow_calls": 2488,
+      "brk_grow_bytes": 336330752,
+      "brk_shrink_calls": 68,
+      "brk_shrink_bytes": 56049664,
+      "mmap": 0,
+      "munmap": 0,
+      "madvise": 0,
+      "mremap": 0
+     },
+     "thp": {
+      "pids_sampled": 5,
+      "samples": 111,
+      "AnonHugePages_kB_max": 0
+     }
+    }
+   ]
+  }
+ ]
+}
