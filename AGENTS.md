@@ -302,9 +302,9 @@ ssh "$BENCH_HOST" "export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; \
   export LIBRARY_PATH=\$HOME/.local/lib:\$LIBRARY_PATH; \
   export C_INCLUDE_PATH=\$HOME/.local/include:\$C_INCLUDE_PATH; \
   cd \"$BENCH_REPO\" && cargo test --workspace && \
-  cargo build --release -p expanse-capi && \
+  cargo build --release -p expanse-capi --features bench-fixed-hash-seed && \
   export EXPANSE_CDYLIB=\$PWD/target/release/libexpanse.so && \
-  cargo bench --bench vs_stock -p expanse-capi"
+  cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed"
 ```
 
 ### Automated Bare-Metal CI Triggers (`/bench` & `/bench extended`)

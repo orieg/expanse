@@ -905,13 +905,64 @@ pub unsafe extern "C" fn JudySLFreeArray(pparray: *mut *mut c_void, pj: *mut JEr
 // ---------------------------------------------------------------------
 
 /// The map behind a JudyHS array word.
+#[cfg(not(feature = "bench-fixed-hash-seed"))]
 type HsMap = expanse_trie::short_bytesmap::ExpanseShortBytesMap;
+
+/// The map behind a JudyHS array word, hashed with fixed keys so a
+/// benchmark builds the same hash-trie shape on every run (#1761).
+#[cfg(feature = "bench-fixed-hash-seed")]
+type HsMap = expanse_trie::short_bytesmap::ExpanseShortBytesMap<FixedHashState>;
+
+/// Fixed-key twin of [`std::hash::RandomState`] for the
+/// `bench-fixed-hash-seed` feature. It builds the same hasher type
+/// (SipHash-1-3 through `DefaultHasher`) with keys `(0, 0)` in place of the
+/// per-map random keys, and has `RandomState`'s size and alignment, so the
+/// map's layout does not change. Not for production: a fixed seed gives up
+/// the hash-flooding resistance the default build has.
+#[cfg(feature = "bench-fixed-hash-seed")]
+#[derive(Clone, Copy, Default)]
+struct FixedHashState {
+    _keys: [u64; 2],
+}
+
+#[cfg(feature = "bench-fixed-hash-seed")]
+const _: () = assert!(
+    size_of::<FixedHashState>() == size_of::<std::hash::RandomState>()
+        && align_of::<FixedHashState>() == align_of::<std::hash::RandomState>()
+);
+
+#[cfg(feature = "bench-fixed-hash-seed")]
+impl core::hash::BuildHasher for FixedHashState {
+    type Hasher = std::hash::DefaultHasher;
+
+    fn build_hasher(&self) -> Self::Hasher {
+        std::hash::DefaultHasher::new()
+    }
+}
+
+/// Present only in a `bench-fixed-hash-seed` build, so a harness that
+/// `dlopen`s `libexpanse` can refuse a randomly seeded library instead of
+/// measuring one (#1761). Not declared in any header; returns 1.
+#[cfg(feature = "bench-fixed-hash-seed")]
+#[unsafe(no_mangle)]
+pub extern "C" fn expanse_bench_fixed_hash_seed() -> c_int {
+    1
+}
+
+/// A fresh JudyHS map: per-map random keys by default, fixed keys under
+/// `bench-fixed-hash-seed`.
+fn new_hs_map() -> HsMap {
+    #[cfg(not(feature = "bench-fixed-hash-seed"))]
+    return HsMap::new();
+    #[cfg(feature = "bench-fixed-hash-seed")]
+    return HsMap::with_hasher(FixedHashState::default());
+}
 
 unsafe fn bytesmap_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut HsMap {
     // SAFETY: per set_handle_mut's contract, for byte-string maps.
     unsafe {
         if (*pparray).is_null() {
-            *pparray = Box::into_raw(Box::new(HsMap::new())).cast();
+            *pparray = Box::into_raw(Box::new(new_hs_map())).cast();
         }
         &mut *(*pparray).cast::<HsMap>()
     }
