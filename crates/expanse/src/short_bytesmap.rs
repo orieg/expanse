@@ -421,12 +421,13 @@ mod tests {
     }
 
     /// #1681: the short-key path lives in this type, so the hashed map
-    /// keeps main's layout, and this type adds one pointer to it.
+    /// keeps main's layout, and this type adds one pointer to it. The
+    /// hashed map is 768 B: its allocator carries the first-page word.
     #[test]
     #[cfg(feature = "std")]
     fn layout_leaves_the_hashed_map_unchanged() {
         use core::mem::size_of;
-        assert_eq!(size_of::<ExpanseBytesMap<DefaultBuildHasher>>(), 760);
+        assert_eq!(size_of::<ExpanseBytesMap<DefaultBuildHasher>>(), 768);
         assert_eq!(
             size_of::<ExpanseShortBytesMap<DefaultBuildHasher>>(),
             size_of::<ExpanseBytesMap<DefaultBuildHasher>>() + size_of::<usize>()
