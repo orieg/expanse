@@ -845,12 +845,13 @@ To eliminate `N/A` comparison columns and guarantee accurate, side-by-side regre
    - Checks out the base ref and builds optimized release artifacts (`cargo build --release -p expanse-capi`).
    - Executes instruction and vs-stock benchmark suites under Callgrind, saving baselines:
      - `cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_base`
-     - `cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_base_vs_stock`
+     - `cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed -- --save-baseline=baremetal_base_vs_stock`
+     - vs_stock runs against its own `libexpanse.so`, built with `--features bench-fixed-hash-seed --target-dir target/fixed-seed`, so the JudyHS long-key arms count the same trie on every run and the library other suites load keeps random hash keys (#1761). A base commit that predates the feature has no such build, so its vs_stock pass is skipped and the head pass runs without a baseline.
 2. **Pass 2 (Head Branch / Candidate Evaluation)**:
    - Returns to the candidate commit (`git checkout "$REF"`).
    - Re-compiles release artifacts and runs candidate benchmarks directly against the saved base baselines:
      - `cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base`
-     - `cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock`
+     - `cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed -- --baseline=baremetal_base_vs_stock`
    - Executes deterministic allocator accounting (`bytes_per_key` and `bytes_per_key_32`).
    - Runs comparative baseline benchmarks against `hashbrown::HashMap` and `BTreeMap` (`scripts/bench_report.py`).
 3. **Drift Aggregation & Sticky PR Reporting**:
