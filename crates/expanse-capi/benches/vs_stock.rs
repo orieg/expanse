@@ -117,6 +117,10 @@ static GETRANDOM_CALLS: AtomicUsize = AtomicUsize::new(0);
 /// Both Expanse arms then run the shipped `RandomState` code with the same
 /// keys on every run, so the `judyhs_long_*_expanse*` counts repeat (#1761)
 /// while measuring the code a shipped library runs (#1760).
+///
+/// # Safety
+///
+/// `getrandom(2)`'s contract: `buf` must be valid for writes of `len` bytes.
 #[cfg(target_os = "linux")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn getrandom(
