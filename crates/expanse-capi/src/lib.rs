@@ -168,15 +168,16 @@ pub unsafe extern "C" fn expanse_stats(
         (*out).node_counts.branch_u = stats.node_counts.branch_u as u64;
         (*out).node_counts.full_expanse = stats.node_counts.full_expanse as u64;
 
-        // Index form kept so codegen is unchanged; reviewed in #1724.
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..9 {
-            (*out).depth_histogram[i] = stats.depth_histogram[i] as u64;
+        let out = &mut *out;
+        for (dst, &src) in out.depth_histogram.iter_mut().zip(&stats.depth_histogram) {
+            *dst = src as u64;
         }
-        // Index form kept so codegen is unchanged; reviewed in #1724.
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..257 {
-            (*out).leaf_pop_histogram[i] = stats.leaf_pop_histogram[i] as u64;
+        for (dst, &src) in out
+            .leaf_pop_histogram
+            .iter_mut()
+            .zip(&stats.leaf_pop_histogram)
+        {
+            *dst = src as u64;
         }
     }
     1
