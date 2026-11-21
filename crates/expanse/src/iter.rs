@@ -1294,7 +1294,15 @@ impl<const MAP: bool> RawIter<MAP> {
                 LeafCursor::FullExpanse { next_key, max_key } => {
                     if *next_key <= *max_key {
                         let k = *next_key;
-                        *next_key += 1;
+                        // Mirror of the descending arm: the last key empties
+                        // the range instead of stepping past it, so a full
+                        // expanse ending at `u64::MAX` does not wrap to 0.
+                        if k == *max_key {
+                            *next_key = 1;
+                            *max_key = 0;
+                        } else {
+                            *next_key = k + 1;
+                        }
                         return Some((k, 0));
                     }
                 }

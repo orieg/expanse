@@ -766,3 +766,24 @@ fn test_sync_map_clear_resets_alloc_bytes_in_use() {
         "SyncExpanseMap::clear must release all allocated bytes"
     );
 }
+
+/// A full 256-key expanse at the top of the key space ends forward iteration
+/// at `u64::MAX`: the cursor's next key must not step past it (an overflow in
+/// debug builds, and a wrap back to 0 in release ones).
+#[test]
+fn forward_iteration_over_a_full_expanse_ends_at_u64_max() {
+    let mut set = ExpanseSet::new();
+    // A run long enough that the trie holds the top expanse as a full one.
+    for k in u64::MAX - 3000..=u64::MAX {
+        set.insert(k);
+    }
+    let fwd: Vec<u64> = set.iter().collect();
+    assert_eq!(fwd.len() as u64, set.len());
+    assert_eq!(fwd.last(), Some(&u64::MAX));
+    let top: Vec<u64> = set.range(u64::MAX - 255..=u64::MAX).collect();
+    assert_eq!(top, (u64::MAX - 255..=u64::MAX).collect::<Vec<_>>());
+    let mut cur = set.cursor_from(u64::MAX - 1);
+    assert_eq!(cur.next(), Some(u64::MAX - 1));
+    assert_eq!(cur.next(), Some(u64::MAX));
+    assert_eq!(cur.next(), None);
+}
