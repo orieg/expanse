@@ -1081,7 +1081,7 @@ jobs:
 
                 if [ "$SUITE" = "all" ] || [ "$SUITE" = "extended" ] || [ "$SUITE" = "vs_stock" ]; then
                   echo "Running base vs_stock benchmark..."
-                  cargo build --release -p expanse-capi --features bench-fixed-hash-seed --target-dir target/fixed-seed && EXPANSE_CDYLIB="$PWD/target/fixed-seed/release/libexpanse.so" cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed -- --save-baseline=baremetal_base_vs_stock | tee base-vs-stock.txt || true
+                  cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_base_vs_stock | tee base-vs-stock.txt || true
                 fi
 
                 # Manifest-declared Callgrind suites get the same dual pass:
@@ -1189,9 +1189,9 @@ jobs:
             case "$SUITE" in
               "vs_stock")
                 if [ -f base-vs-stock.txt ]; then
-                  cargo build --release -p expanse-capi --features bench-fixed-hash-seed --target-dir target/fixed-seed && EXPANSE_CDYLIB="$PWD/target/fixed-seed/release/libexpanse.so" cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
+                  cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
                 else
-                  cargo build --release -p expanse-capi --features bench-fixed-hash-seed --target-dir target/fixed-seed && EXPANSE_CDYLIB="$PWD/target/fixed-seed/release/libexpanse.so" cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
+                  cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
                 fi
                 ;;
               "instructions")
@@ -1215,9 +1215,9 @@ jobs:
                 fi
 
                 if [ -f base-vs-stock.txt ]; then
-                  cargo build --release -p expanse-capi --features bench-fixed-hash-seed --target-dir target/fixed-seed && EXPANSE_CDYLIB="$PWD/target/fixed-seed/release/libexpanse.so" cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
+                  cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
                 else
-                  cargo build --release -p expanse-capi --features bench-fixed-hash-seed --target-dir target/fixed-seed && EXPANSE_CDYLIB="$PWD/target/fixed-seed/release/libexpanse.so" cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
+                  cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
                 fi
 
                 cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
@@ -1716,9 +1716,9 @@ jobs:
                 fi
 
                 if [ -f base-vs-stock.txt ]; then
-                  cargo build --release -p expanse-capi --features bench-fixed-hash-seed --target-dir target/fixed-seed && EXPANSE_CDYLIB="$PWD/target/fixed-seed/release/libexpanse.so" cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
+                  cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
                 else
-                  cargo build --release -p expanse-capi --features bench-fixed-hash-seed --target-dir target/fixed-seed && EXPANSE_CDYLIB="$PWD/target/fixed-seed/release/libexpanse.so" cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
+                  cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
                 fi
 
                 cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
