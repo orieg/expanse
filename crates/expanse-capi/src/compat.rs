@@ -85,9 +85,41 @@ unsafe fn free_array<T>(
     }
 }
 
-/// Finds the smallest absent key `>= from`, using rank queries — shared by
-/// the four `*Empty` search families. `count_range` is inclusive.
-fn first_absent(
+/// Keys an empty-index search reads in order before it falls back to rank
+/// bisection ([`first_absent_by_rank`]). The walk costs a few instructions
+/// per present key; the bisection costs about 65 rank queries whatever the
+/// run length. The budget bounds a search through a long run of present keys
+/// at a cost small beside one bisection, while a gap within it is found by
+/// the walk alone.
+const EMPTY_WALK_BUDGET: usize = 1024;
+
+/// Finds the smallest absent key `>= from` — shared by the four `*Empty`
+/// search families. `keys` yields the present keys `>= from` in ascending
+/// order. The first key that is not the next expected one marks the gap;
+/// a run longer than [`EMPTY_WALK_BUDGET`] continues by rank bisection.
+fn first_absent<I: Iterator<Item = u64>>(
+    keys: I,
+    contains: impl Fn(u64) -> bool,
+    count_range: impl Fn(u64, u64) -> u64,
+    from: u64,
+) -> Option<u64> {
+    let mut expect = from;
+    let mut keys = keys;
+    for _ in 0..EMPTY_WALK_BUDGET {
+        match keys.next() {
+            // `None` once every key from `from` through `u64::MAX` is present.
+            Some(k) if k == expect => expect = expect.checked_add(1)?,
+            // A larger key, or no key: `expect` is absent.
+            _ => return Some(expect),
+        }
+    }
+    // `from..expect` is fully present; bisect the rest.
+    first_absent_by_rank(contains, count_range, expect)
+}
+
+/// Finds the smallest absent key `>= from`, using rank queries.
+/// `count_range` is inclusive.
+fn first_absent_by_rank(
     contains: impl Fn(u64) -> bool,
     count_range: impl Fn(u64, u64) -> u64,
     from: u64,
@@ -113,8 +145,29 @@ fn first_absent(
     Some(hi)
 }
 
-/// Finds the largest absent key `<= upto` (mirror of [`first_absent`]).
-fn last_absent(
+/// Finds the largest absent key `<= upto` (mirror of [`first_absent`]):
+/// `keys` yields the present keys `<= upto` in descending order.
+fn last_absent<I: Iterator<Item = u64>>(
+    keys: I,
+    contains: impl Fn(u64) -> bool,
+    count_range: impl Fn(u64, u64) -> u64,
+    upto: u64,
+) -> Option<u64> {
+    let mut expect = upto;
+    let mut keys = keys;
+    for _ in 0..EMPTY_WALK_BUDGET {
+        match keys.next() {
+            // `None` once every key from 0 through `upto` is present.
+            Some(k) if k == expect => expect = expect.checked_sub(1)?,
+            _ => return Some(expect),
+        }
+    }
+    last_absent_by_rank(contains, count_range, expect)
+}
+
+/// Finds the largest absent key `<= upto`, using rank queries (mirror of
+/// [`first_absent_by_rank`]).
+fn last_absent_by_rank(
     contains: impl Fn(u64) -> bool,
     count_range: impl Fn(u64, u64) -> u64,
     upto: u64,
@@ -331,8 +384,24 @@ judy1_nav!(
     "Largest set index < *pindex."
 );
 
+/// Present keys `>= start`, ascending: the walk an ascending empty-index
+/// search reads.
+macro_rules! keys_from {
+    ($tree:expr, $start:expr) => {
+        $tree.range($start..=u64::MAX)
+    };
+}
+
+/// Present keys `<= start`, descending: the walk a descending empty-index
+/// search reads.
+macro_rules! keys_upto {
+    ($tree:expr, $start:expr) => {
+        $tree.range_rev(0..=$start)
+    };
+}
+
 macro_rules! judy1_empty {
-    ($name:ident, $absent:ident, $adjust:expr, $doc:literal) => {
+    ($name:ident, $absent:ident, $keys:ident, $adjust:expr, $doc:literal) => {
         #[doc = $doc]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
@@ -352,7 +421,12 @@ macro_rules! judy1_empty {
                 };
                 let found = match set_handle(parray) {
                     None => Some(start),
-                    Some(set) => $absent(|k| set.contains(k), |a, b| set.count_range(a..=b), start),
+                    Some(set) => $absent(
+                        $keys!(set, start),
+                        |k| set.contains(k),
+                        |a, b| set.count_range(a..=b),
+                        start,
+                    ),
                 };
                 match found {
                     Some(k) => {
@@ -369,24 +443,28 @@ macro_rules! judy1_empty {
 judy1_empty!(
     Judy1FirstEmpty,
     first_absent,
+    keys_from,
     |k: u64| Some(k),
     "Smallest unset index >= *pindex."
 );
 judy1_empty!(
     Judy1NextEmpty,
     first_absent,
+    keys_from,
     |k: u64| k.checked_add(1),
     "Smallest unset index > *pindex."
 );
 judy1_empty!(
     Judy1LastEmpty,
     last_absent,
+    keys_upto,
     |k: u64| Some(k),
     "Largest unset index <= *pindex."
 );
 judy1_empty!(
     Judy1PrevEmpty,
     last_absent,
+    keys_upto,
     |k: u64| k.checked_sub(1),
     "Largest unset index < *pindex."
 );
@@ -624,7 +702,7 @@ judyl_nav!(
 );
 
 macro_rules! judyl_empty {
-    ($name:ident, $absent:ident, $adjust:expr, $doc:literal) => {
+    ($name:ident, $absent:ident, $keys:ident, $adjust:expr, $doc:literal) => {
         #[doc = $doc]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
@@ -645,6 +723,7 @@ macro_rules! judyl_empty {
                 let found = match map_handle(parray) {
                     None => Some(start),
                     Some(map) => $absent(
+                        $keys!(map, start).map(|(k, _)| k),
                         |k| map.contains_key(k),
                         |a, b| map.count_range(a..=b),
                         start,
@@ -665,24 +744,28 @@ macro_rules! judyl_empty {
 judyl_empty!(
     JudyLFirstEmpty,
     first_absent,
+    keys_from,
     |k: u64| Some(k),
     "Smallest absent key >= *pindex."
 );
 judyl_empty!(
     JudyLNextEmpty,
     first_absent,
+    keys_from,
     |k: u64| k.checked_add(1),
     "Smallest absent key > *pindex."
 );
 judyl_empty!(
     JudyLLastEmpty,
     last_absent,
+    keys_upto,
     |k: u64| Some(k),
     "Largest absent key <= *pindex."
 );
 judyl_empty!(
     JudyLPrevEmpty,
     last_absent,
+    keys_upto,
     |k: u64| k.checked_sub(1),
     "Largest absent key < *pindex."
 );
