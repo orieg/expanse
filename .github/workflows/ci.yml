@@ -2106,12 +2106,9 @@ jobs:
           echo "iai-callgrind resolved to $VERSION"
           cargo install iai-callgrind-runner --version "$VERSION"
 
-      # `bench-fixed-hash-seed` fixes JudyHS's hash keys, so the
-      # judyhs_long_* arms count the same trie on every run (#1761). vs_stock
-      # refuses a library built without it; this library serves no other step.
       - name: Build libexpanse.so for the same-shape arm
         run: |
-          cargo build --release -p expanse-capi --features bench-fixed-hash-seed
+          cargo build --release -p expanse-capi
           SO=$(find target/release -maxdepth 1 -name 'libexpanse.so' -print -quit)
           test -n "$SO" || { echo "libexpanse.so not produced"; exit 1; }
           echo "EXPANSE_CDYLIB=$PWD/$SO" >> "$GITHUB_ENV"
@@ -2159,7 +2156,7 @@ jobs:
 
       - name: libexpanse vs stock libjudy (instructions)
         shell: bash
-        run: cargo bench --bench vs_stock -p expanse-capi --features bench-fixed-hash-seed | tee vs-stock.txt
+        run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
 
       # Search-suite deterministic cross-check (docs/benchmarks/search_inverted_index,
       # #374): the suite's docs point at this job for its iai-callgrind arm.

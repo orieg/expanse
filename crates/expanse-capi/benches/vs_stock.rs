@@ -64,7 +64,7 @@
 //! | `value_dereference` | `*slot` dereferenced |
 //! | `key_shape` | `Word` for the `judyl_*`/`judy1_*` arms; NUL-terminated fixed-width strings for `judysl_*`, derived from the same `keys(dist)` so the three distributions carry over; 8-byte zmap response-dedup keys for `judyhs_*` (`fixed8_stream`: a 198.18.0.0/15 address and one of four ports, big-endian, status and padding zero, in a scan's pseudo-random order); ~40-byte route strings (`route_keys`: `/api/v2/tenants/{:06}/resources/{:04}`, the engine's `routes` shape) for `judyhs_long_*`, every key longer than 8 bytes. Absolute counts for the string arms include `strlen` on both sides and are **not** comparable to the `Word`-keyed arms; their ratio is. |
 //! | `measured_region` | Deliberately leaks to exclude drop; `judyl_del_*`, `judyl_free_*` and `judyl_small_array_*` measure teardown itself, so they free |
-//! | `arm_symmetry` | **Three arms**: `*_expanse` (rlib, LTO-linked), `*_expanse_dl` (dlopen'd cdylib), and `*_stock` (dlopen'd libjudy). `*_expanse_dl` vs `*_stock` is symmetric; `*_expanse` vs `*_stock` is asymmetric (LTO bias). libexpanse's JudyHS hashes keys longer than 8 bytes; the bench builds both Expanse arms with `bench-fixed-hash-seed`, which fixes the hash keys so the `judyhs_long_*_expanse*` counts repeat between runs (#1761), and refuses to run without it or with a `libexpanse.so` built without it |
+//! | `arm_symmetry` | **Three arms**: `*_expanse` (rlib, LTO-linked), `*_expanse_dl` (dlopen'd cdylib), and `*_stock` (dlopen'd libjudy). `*_expanse_dl` vs `*_stock` is symmetric; `*_expanse` vs `*_stock` is asymmetric (LTO bias). libexpanse's JudyHS hashes keys longer than 8 bytes with `std`'s `RandomState`; the harness defines and exports `getrandom`, which writes zeros, so both Expanse arms run the shipped hasher with the same keys and every count repeats between runs |
 //! | `statistics` | iai Callgrind exact counts (simulated 8 MiB LL) |
 //! | `verdict` | **PASS** `[verified: RUN (CI instruction-counts)]`: Carrying both `expanse` and `expanse_dl` isolates LTO delta; 1.5M population is load-bearing in #456. |
 //!
@@ -89,6 +89,7 @@ use iai_callgrind::{
 };
 use std::hint::black_box;
 use std::ptr::null_mut;
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
 type Word = usize;
 
@@ -100,6 +101,71 @@ const RTLD_NOW: c_int = 2;
 /// Keep the loaded library's symbols out of the global namespace: both
 /// libraries export the same names, and so does the harness itself.
 const RTLD_LOCAL: c_int = 0;
+
+/// Calls the harness's [`getrandom`] has answered, read by [`require_seeded_hash`].
+static GETRANDOM_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+/// The harness's own `getrandom(2)`, which writes zeros.
+///
+/// libexpanse's JudyHS hashes keys longer than 8 bytes with `std`'s
+/// `RandomState`, whose keys `std` draws from `getrandom` once per thread. On
+/// Linux `std` binds `getrandom` through a weak symbol so that a measurement can
+/// interpose it (`library/std/src/sys/random/linux.rs`). Defining it here binds
+/// the copy of `std` linked into the harness (the rlib arm). The executable
+/// exports this `#[no_mangle]` symbol, its only dynamic export, so the dynamic
+/// linker binds the copy inside the `dlopen`'d `libexpanse.so` to it as well.
+/// Both Expanse arms then run the shipped `RandomState` code with the same
+/// keys on every run, so the `judyhs_long_*_expanse*` counts repeat (#1761)
+/// while measuring the code a shipped library runs (#1760).
+///
+/// # Safety
+///
+/// `getrandom(2)`'s contract: `buf` must be valid for writes of `len` bytes.
+#[cfg(target_os = "linux")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn getrandom(
+    buf: *mut c_void,
+    len: usize,
+    _flags: core::ffi::c_uint,
+) -> isize {
+    GETRANDOM_CALLS.fetch_add(1, Relaxed);
+    // SAFETY: getrandom(2)'s contract: `buf` is writable for `len` bytes.
+    unsafe { core::ptr::write_bytes(buf.cast::<u8>(), 0, len) };
+    len as isize
+}
+
+/// Panics unless `libexpanse.so`'s `std` draws its hash keys from the
+/// harness's [`getrandom`].
+///
+/// Each arm runs in a fresh process and nothing before this probe hashes inside
+/// the library, so its first long-key `JudyHSIns` must call `getrandom` exactly
+/// when the library's `std` is bound to the harness. If it is not (the symbol
+/// stops being exported, or a future `std` stops using the weak symbol), the
+/// long-key counts would move between runs again. The probe runs on the
+/// calling thread: creating a thread would put glibc's `malloc` on its
+/// multi-threaded path for the rest of the process, which costs the measured
+/// `.so` arms instructions a single-threaded caller never pays.
+fn require_seeded_hash(ins: FhsIns) {
+    let before = GETRANDOM_CALLS.load(Relaxed);
+    let mut arr: *mut c_void = null_mut();
+    let mut key = *b"/api/v2/tenants/000000/resources/0000";
+    // SAFETY: a live JudyHS root and a key buffer of the length passed. The
+    // one-key array is leaked, as the bench's other arrays are.
+    unsafe {
+        ins(
+            &raw mut arr,
+            key.as_mut_ptr().cast(),
+            key.len() as Word,
+            null_mut(),
+        )
+    };
+    assert!(
+        GETRANDOM_CALLS.load(Relaxed) > before,
+        "libexpanse.so did not draw its JudyHS hash keys from the harness's \
+         getrandom, so the judyhs_long_* counts would move between runs (#1761). \
+         Check that the bench executable exports `getrandom` (`nm -D`)."
+    );
+}
 
 type FpIns = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> *mut c_void;
 type FpGet = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> *mut c_void;
@@ -324,17 +390,16 @@ fn stock_api() -> Option<Api> {
 }
 
 fn ours_api() -> Option<Api> {
-    let lib = Lib::ours();
-    // SAFETY: live handle and a NUL-terminated name.
-    let marker = unsafe { dlsym(lib.0, c"expanse_bench_fixed_hash_seed".as_ptr().cast()) };
-    assert!(
-        !marker.is_null(),
-        "libexpanse.so was built without `--features bench-fixed-hash-seed`: its \
-         JudyHS seeds each map at random, so the judyhs_long_* counts would move \
-         between runs (#1761). Rebuild it with \
-         `cargo build --release -p expanse-capi --features bench-fixed-hash-seed`."
-    );
-    Some(lib.api())
+    Some(Lib::ours().api())
+}
+
+/// [`ours_api`] for the long-key JudyHS arms, which first checks that the
+/// library's hash keys are the harness's ([`require_seeded_hash`]). Only these
+/// arms hash, so only their setup pays for the probe.
+fn ours_api_seeded() -> Option<Api> {
+    let api = Lib::ours().api();
+    require_seeded_hash(api.hs_ins);
+    Some(api)
 }
 
 fn feed(dist: &str, api: Option<Api>) -> Feed {
@@ -974,8 +1039,7 @@ fn judysl_get_stock(built: StrBuilt) -> Word {
 // `target_t { ip, port, status }` with its padding byte. The rlib arm calls
 // `expanse::JudyHS*` directly; the other two reach their library as the rest
 // of this file does. Keys of at most 8 bytes go to libexpanse's ordered
-// tries unhashed, so these arms do not depend on the hash seed; the
-// long-key arms below do, and run under `bench-fixed-hash-seed` (#1761).
+// tries and are never hashed.
 
 /// Ports a zmap scan of the `fixed8` shape probes, in its key's port field.
 const FIXED8_PORTS: [u16; 4] = [80, 443, 8080, 8443];
@@ -1240,20 +1304,7 @@ fn judyhs_del_stock(built: HsBuilt) -> Word {
 /// `/api/v2/tenants/{i / 16:06}/resources/{i % 16:04}`. The generator is
 /// injective, so indices past the population are absent keys of the same
 /// shape (§8.6).
-/// Refuses a harness built without `bench-fixed-hash-seed`: its rlib arm's
-/// JudyHS would key each map's hasher at random, and the `judyhs_long_*`
-/// counts would move between runs (#1761).
-fn require_fixed_hash_seed() {
-    #[cfg(not(feature = "bench-fixed-hash-seed"))]
-    panic!(
-        "vs_stock was built without `--features bench-fixed-hash-seed`: the rlib \
-         arm's JudyHS would key each map's hasher at random, so the judyhs_long_* \
-         counts would move between runs (#1761)."
-    );
-}
-
 fn route_keys(from: usize, n: usize) -> Vec<Vec<u8>> {
-    require_fixed_hash_seed();
     (from..from + n)
         .map(|i| format!("/api/v2/tenants/{:06}/resources/{:04}", i / 16, i % 16).into_bytes())
         .collect()
@@ -1288,7 +1339,7 @@ fn hs_long_feed_expanse(_dist: &str) -> HsLongFeed {
 fn hs_long_feed_expanse_dl(_dist: &str) -> HsLongFeed {
     HsLongFeed {
         ks: route_keys(0, POP),
-        api: ours_api(),
+        api: ours_api_seeded(),
     }
 }
 fn hs_long_feed_stock(_dist: &str) -> HsLongFeed {
@@ -1337,7 +1388,7 @@ fn build_hs_long_get_expanse(_dist: &str) -> HsLongBuilt {
     build_hs_long(None, true)
 }
 fn build_hs_long_get_expanse_dl(_dist: &str) -> HsLongBuilt {
-    build_hs_long(ours_api(), true)
+    build_hs_long(ours_api_seeded(), true)
 }
 fn build_hs_long_get_stock(_dist: &str) -> HsLongBuilt {
     build_hs_long(stock_api(), true)
@@ -1346,7 +1397,7 @@ fn build_hs_long_del_expanse(_dist: &str) -> HsLongBuilt {
     build_hs_long(None, false)
 }
 fn build_hs_long_del_expanse_dl(_dist: &str) -> HsLongBuilt {
-    build_hs_long(ours_api(), false)
+    build_hs_long(ours_api_seeded(), false)
 }
 fn build_hs_long_del_stock(_dist: &str) -> HsLongBuilt {
     build_hs_long(stock_api(), false)

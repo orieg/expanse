@@ -35,12 +35,6 @@ embedded-panic-handler = []
 # Enables the differential-oracle tests against a dlopen'd stock
 # libjudy (Linux; CI installs libjudy-dev). See docs/COMPAT.md gate G1.
 oracle = []
-# Bench-only: JudyHS hashes long keys with fixed keys instead of a per-map
-# `RandomState`, so the `judyhs_long_*` Callgrind arms build the same trie on
-# every run (#1761). `benches/vs_stock.rs` refuses to build without it and
-# refuses a `libexpanse.so` built without it. Never enable it in a shipped
-# library: a fixed seed gives up hash-flooding resistance.
-bench-fixed-hash-seed = ["std"]
 
 [dependencies]
 expanse-trie = { version = "0.19.0", path = "../expanse", default-features = false }
