@@ -3845,6 +3845,18 @@ impl MapCore {
         self.count_below(b) + u64::from(self.contains_key(b)) - self.count_below(a)
     }
 
+    /// Smallest absent key `>= from` within `steps` (see
+    /// [`RawIter::first_gap`](crate::iter::RawIter::first_gap)).
+    pub(crate) fn first_absent_within(&self, from: Key, steps: usize) -> Result<Option<Key>, Key> {
+        self.range_fwd_raw(from).first_gap(from, steps)
+    }
+
+    /// Largest absent key `<= upto` within `steps` (see
+    /// [`RawIter::last_gap`](crate::iter::RawIter::last_gap)).
+    pub(crate) fn last_absent_within(&self, upto: Key, steps: usize) -> Result<Option<Key>, Key> {
+        self.range_rev_raw(upto).last_gap(upto, steps)
+    }
+
     /// The entry with `n` keys below it — 0-based select (compat:
     /// `JudyLByCount`, which is 1-based; owner flushes first).
     #[inline(always)]
@@ -5067,6 +5079,26 @@ impl ExpanseMap {
     pub fn count_range(&self, range: core::ops::RangeInclusive<u64>) -> u64 {
         self.flush_path();
         self.core.count_range(range)
+    }
+
+    /// Smallest absent key `>= from`, reading at most `steps` present keys
+    /// or in-leaf runs (compat: `JudyLFirstEmpty`). `Ok(None)` means every
+    /// key from `from` through `u64::MAX` is present; `Err(resume)` means
+    /// the budget ran out with `from..resume` all present.
+    ///
+    /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
+    #[doc(hidden)]
+    pub fn first_absent_within(&self, from: Key, steps: usize) -> Result<Option<Key>, Key> {
+        self.core.first_absent_within(from, steps)
+    }
+
+    /// Largest absent key `<= upto` (compat: `JudyLLastEmpty`; mirror of
+    /// [`first_absent_within`](Self::first_absent_within)).
+    ///
+    /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
+    #[doc(hidden)]
+    pub fn last_absent_within(&self, upto: Key, steps: usize) -> Result<Option<Key>, Key> {
+        self.core.last_absent_within(upto, steps)
     }
 
     /// The entry with `n` keys below it — 0-based select (compat:

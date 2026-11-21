@@ -787,3 +787,121 @@ fn forward_iteration_over_a_full_expanse_ends_at_u64_max() {
     assert_eq!(cur.next(), Some(u64::MAX));
     assert_eq!(cur.next(), None);
 }
+
+/// `first_absent_within` / `last_absent_within` (the `Judy*Empty` search)
+/// against a model at several step budgets, on sets and maps whose leaves
+/// are root, linear, bitmap and full: `Ok` is the exact answer, and
+/// `Err(resume)` leaves only present keys between the start and `resume`
+/// and the same answer beyond it.
+#[test]
+fn absent_within_matches_a_model_at_every_budget() {
+    use std::collections::BTreeSet;
+    for runs in [
+        // A few keys: the root leaf.
+        vec![(5u64, 8u64), (10, 10)],
+        // Linear leaves of 1-byte and wider keys, bitmap leaves with and
+        // without a hole, full leaves, and a run to `u64::MAX`.
+        vec![
+            (0, 3),
+            (9, 9),
+            (0x7700, 0x7705),
+            (0x7708, 0x7708),
+            (0x1_0000, 0x1_05FF),
+            (0x2_0010, 0x2_0050),
+            (0x2_0052, 0x2_00F0),
+            (0x5_0000, 0x5_0002),
+            (0x5_0600, 0x5_0603),
+            (0x5_FF00, 0x5_FF01),
+            (u64::MAX - 600, u64::MAX),
+        ],
+    ] {
+        let keys: BTreeSet<u64> = runs.iter().flat_map(|&(lo, hi)| lo..=hi).collect();
+        let up = |from: u64| {
+            let mut e = from;
+            for &k in keys.range(from..) {
+                if k != e {
+                    break;
+                }
+                e = e.checked_add(1)?;
+            }
+            Some(e)
+        };
+        let down = |from: u64| {
+            let mut e = from;
+            for &k in keys.range(..=from).rev() {
+                if k != e {
+                    break;
+                }
+                e = e.checked_sub(1)?;
+            }
+            Some(e)
+        };
+        let mut set = ExpanseSet::new();
+        let mut map = ExpanseMap::new();
+        for &k in &keys {
+            set.insert(k);
+            map.insert(k, !k);
+        }
+        let probes: Vec<u64> = runs
+            .iter()
+            .flat_map(|&(lo, hi)| {
+                [
+                    lo,
+                    hi,
+                    lo.wrapping_sub(1),
+                    hi.wrapping_add(1),
+                    lo + (hi - lo) / 2,
+                ]
+            })
+            .collect();
+        for &p in &probes {
+            for steps in [1, 2, 3, 5, 1024] {
+                let cases = [
+                    (
+                        "set",
+                        set.first_absent_within(p, steps),
+                        set.last_absent_within(p, steps),
+                    ),
+                    (
+                        "map",
+                        map.first_absent_within(p, steps),
+                        map.last_absent_within(p, steps),
+                    ),
+                ];
+                for (name, fwd, rev) in cases {
+                    match fwd {
+                        Ok(r) => assert_eq!(r, up(p), "{name} first from {p:#x}, {steps} steps"),
+                        Err(resume) => {
+                            assert!(resume > p, "{name} first from {p:#x}: resume {resume:#x}");
+                            assert!((p..resume).all(|k| keys.contains(&k)));
+                            assert_eq!(up(resume), up(p));
+                        }
+                    }
+                    match rev {
+                        Ok(r) => assert_eq!(r, down(p), "{name} last from {p:#x}, {steps} steps"),
+                        Err(resume) => {
+                            assert!(resume < p, "{name} last from {p:#x}: resume {resume:#x}");
+                            assert!((resume + 1..=p).all(|k| keys.contains(&k)));
+                            assert_eq!(down(resume), down(p));
+                        }
+                    }
+                }
+            }
+            // No run here is long enough to spend the full budget.
+            for (name, fwd, rev) in [
+                (
+                    "set",
+                    set.first_absent_within(p, 1024),
+                    set.last_absent_within(p, 1024),
+                ),
+                (
+                    "map",
+                    map.first_absent_within(p, 1024),
+                    map.last_absent_within(p, 1024),
+                ),
+            ] {
+                assert!(fwd.is_ok() && rev.is_ok(), "{name} from {p:#x}");
+            }
+        }
+    }
+}

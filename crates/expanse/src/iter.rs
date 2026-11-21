@@ -2749,6 +2749,282 @@ impl<const MAP: bool> RawIter<MAP> {
     }
 }
 
+// --- Gap search (the `Judy*Empty` families) ----------------------------
+//
+// An empty-index search reads the present keys from its start in order and
+// stops at the first key that is not the next expected one. Stepping key by
+// key costs a cursor step per present key; inside a bitmap, full-expanse or
+// linear leaf the run of consecutive keys is found from the leaf's own
+// layout instead, so a run costs one step per leaf.
+
+/// First clear bit at or after `start` in a 256-bit set, or 256.
+#[inline]
+fn first_clear_from(words: &[u64; 4], start: u32) -> u32 {
+    let mut i = (start / 64) as usize;
+    if i >= 4 {
+        return 256;
+    }
+    let mut w = !words[i] & (u64::MAX << (start % 64));
+    loop {
+        if w != 0 {
+            return (i as u32) * 64 + w.trailing_zeros();
+        }
+        i += 1;
+        if i == 4 {
+            return 256;
+        }
+        w = !words[i];
+    }
+}
+
+/// Last clear bit at or below `end` (`end < 256`) in a 256-bit set.
+#[inline]
+fn last_clear_upto(words: &[u64; 4], end: u32) -> Option<u32> {
+    let mut i = (end / 64) as usize;
+    let mut w = !words[i] & (u64::MAX >> (63 - end % 64));
+    loop {
+        if w != 0 {
+            return Some((i as u32) * 64 + 63 - w.leading_zeros());
+        }
+        if i == 0 {
+            return None;
+        }
+        i -= 1;
+        w = !words[i];
+    }
+}
+
+/// Largest `j` in `[a, n)` whose keys `a..=j` are consecutive, for strictly
+/// ascending `read`. Consecutiveness is a prefix property of a strictly
+/// ascending sequence (`read(j) - read(a) >= j - a`, with equality up to the
+/// first gap), so it bisects.
+#[inline]
+fn run_end(read: impl Fn(usize) -> u64, a: usize, n: usize) -> usize {
+    let base = read(a);
+    let (mut lo, mut hi) = (a, n);
+    while lo + 1 < hi {
+        let mid = lo + (hi - lo) / 2;
+        if read(mid) - base == (mid - a) as u64 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
+/// Smallest `j` in `[0, a]` whose keys `j..=a` are consecutive, for strictly
+/// ascending `read` (mirror of [`run_end`]).
+#[inline]
+fn run_start(read: impl Fn(usize) -> u64, a: usize) -> usize {
+    let top = read(a);
+    let (mut lo, mut hi) = (0usize, a);
+    // `hi` satisfies the predicate; the answer is in `[lo, hi]`.
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if top - read(mid) == (a - mid) as u64 {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    hi
+}
+
+impl<const MAP: bool> RawIter<MAP> {
+    /// Smallest absent key `>= expect`, for an iterator that yields exactly
+    /// the present keys `>= expect` in ascending order.
+    ///
+    /// Takes at most `steps` steps, a step being one present key or one run
+    /// inside a leaf. `Ok(None)` means every key from `expect` through
+    /// `u64::MAX` is present; `Err(resume)` means the budget ran out with
+    /// every key from `expect` up to `resume` (exclusive) present.
+    pub(crate) fn first_gap(&mut self, mut expect: Key, steps: usize) -> Result<Option<Key>, Key> {
+        for _ in 0..steps {
+            let Some((k, _)) = self.next() else {
+                return Ok(Some(expect));
+            };
+            if k != expect {
+                return Ok(Some(expect));
+            }
+            // `k` is present; `last` is the last key of its run in this leaf.
+            let last = match &mut self.leaf {
+                LeafCursor::BitmapSet {
+                    words,
+                    word_idx,
+                    prefix,
+                } => {
+                    // Bits above `k`'s digit are still in `words`.
+                    let z = first_clear_from(words, (k & 0xFF) as u32 + 1);
+                    if z < 256 {
+                        return Ok(Some(*prefix | u64::from(z)));
+                    }
+                    *word_idx = 4;
+                    *prefix | 0xFF
+                }
+                LeafCursor::BitmapMap {
+                    bitmap,
+                    sub,
+                    prefix,
+                    ..
+                } => {
+                    let z = first_clear_from(&bitmap.words, (k & 0xFF) as u32 + 1);
+                    if z < 256 {
+                        return Ok(Some(*prefix | u64::from(z)));
+                    }
+                    *sub = 8;
+                    *prefix | 0xFF
+                }
+                LeafCursor::FullExpanse { next_key, max_key } => {
+                    if *next_key <= *max_key {
+                        let m = *max_key;
+                        *next_key = 1;
+                        *max_key = 0;
+                        m
+                    } else {
+                        k
+                    }
+                }
+                LeafCursor::Linear {
+                    keys_ptr,
+                    kb,
+                    pop,
+                    idx,
+                    prefix,
+                    ..
+                } => {
+                    let (p, kb, n) = (*keys_ptr, *kb as usize, *pop as usize);
+                    // SAFETY: every index read is below `pop`, and `keys_ptr`
+                    // is valid for `pop` packed keys of `kb` bytes.
+                    let read = |i: usize| unsafe { crate::mutate::read_packed(p, i, kb) };
+                    let j = run_end(read, *idx as usize - 1, n);
+                    if j + 1 < n {
+                        return Ok(Some((*prefix | read(j)) + 1));
+                    }
+                    *idx = *pop;
+                    *prefix | read(j)
+                }
+                LeafCursor::RootLeaf { keys, pop, idx, .. } => {
+                    let (p, n) = (*keys, *pop as usize);
+                    // SAFETY: every index read is below `pop`, the root leaf's
+                    // key count.
+                    let read = |i: usize| unsafe { *p.add(i) };
+                    let j = run_end(read, *idx as usize - 1, n);
+                    if j + 1 < n {
+                        return Ok(Some(read(j) + 1));
+                    }
+                    *idx = *pop;
+                    read(j)
+                }
+                _ => k,
+            };
+            match last.checked_add(1) {
+                Some(n) => expect = n,
+                None => return Ok(None),
+            }
+        }
+        Err(expect)
+    }
+
+    /// Largest absent key `<= expect`, for an iterator that yields exactly
+    /// the present keys `<= expect` in descending order (mirror of
+    /// [`first_gap`](Self::first_gap)): `Ok(None)` means every key from 0
+    /// through `expect` is present, and `Err(resume)` that every key above
+    /// `resume` up to `expect` is.
+    pub(crate) fn last_gap(&mut self, mut expect: Key, steps: usize) -> Result<Option<Key>, Key> {
+        for _ in 0..steps {
+            let Some((k, _)) = self.next_back() else {
+                return Ok(Some(expect));
+            };
+            if k != expect {
+                return Ok(Some(expect));
+            }
+            // `k` is present; `first` is the first key of its run in this leaf.
+            let first = match &mut self.leaf {
+                LeafCursor::BitmapSet {
+                    words,
+                    word_idx,
+                    prefix,
+                } => {
+                    // Bits below `k`'s digit are still in `words`.
+                    let d = (k & 0xFF) as u32;
+                    if d > 0
+                        && let Some(z) = last_clear_upto(words, d - 1)
+                    {
+                        return Ok(Some(*prefix | u64::from(z)));
+                    }
+                    *words = [0; 4];
+                    *word_idx = 0;
+                    *prefix
+                }
+                LeafCursor::BitmapMap {
+                    bitmap,
+                    sub,
+                    current_word,
+                    prefix,
+                    ..
+                } => {
+                    let d = (k & 0xFF) as u32;
+                    if d > 0
+                        && let Some(z) = last_clear_upto(&bitmap.words, d - 1)
+                    {
+                        return Ok(Some(*prefix | u64::from(z)));
+                    }
+                    *current_word = 0;
+                    *sub = 0;
+                    *prefix
+                }
+                LeafCursor::FullExpanse { next_key, max_key } => {
+                    if *next_key <= *max_key {
+                        let m = *next_key;
+                        *next_key = 1;
+                        *max_key = 0;
+                        m
+                    } else {
+                        k
+                    }
+                }
+                LeafCursor::Linear {
+                    keys_ptr,
+                    kb,
+                    idx,
+                    prefix,
+                    ..
+                } => {
+                    let (p, kb) = (*keys_ptr, *kb as usize);
+                    // SAFETY: every index read is at most `idx`, below `pop`,
+                    // and `keys_ptr` is valid for `pop` packed keys.
+                    let read = |i: usize| unsafe { crate::mutate::read_packed(p, i, kb) };
+                    let j = run_start(read, *idx as usize);
+                    if j > 0 {
+                        return Ok(Some((*prefix | read(j)) - 1));
+                    }
+                    *idx = 0;
+                    *prefix | read(0)
+                }
+                LeafCursor::RootLeaf { keys, idx, .. } => {
+                    let p = *keys;
+                    // SAFETY: every index read is at most `idx`, below the
+                    // root leaf's key count.
+                    let read = |i: usize| unsafe { *p.add(i) };
+                    let j = run_start(read, *idx as usize);
+                    if j > 0 {
+                        return Ok(Some(read(j) - 1));
+                    }
+                    *idx = 0;
+                    read(0)
+                }
+                _ => k,
+            };
+            match first.checked_sub(1) {
+                Some(n) => expect = n,
+                None => return Ok(None),
+            }
+        }
+        Err(expect)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
