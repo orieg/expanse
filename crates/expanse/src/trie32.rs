@@ -2411,7 +2411,7 @@ fn bitmap_from_keys(a: &mut Arena, keys: &[u32]) -> Edge32 {
 fn bitmap_keys(a: &Arena, e: &Edge32) -> Vec<u32> {
     let leaf = a.bitmap(edge_handle(e));
     let mut v = Vec::new();
-    // Index form kept so codegen is unchanged; reviewed in #1724.
+    // Kept: `w` also builds the key; a 32-bit change needs device re-measurement (§8.7).
     #[allow(clippy::needless_range_loop)]
     for w in 0..4usize {
         let mut word = leaf.bitmap[w];
@@ -2517,7 +2517,7 @@ fn make_map_bitmap(a: &mut Arena, entries: &[(u32, u32)]) -> Edge32 {
         let bit64 = digit & 63;
         data.header.bitmap[w] |= 1u64 << bit64;
     }
-    // Index form kept so codegen is unchanged; reviewed in #1724.
+    // Kept: `sub` also builds the key range; a 32-bit change needs device re-measurement (§8.7).
     #[allow(clippy::needless_range_loop)]
     for sub in 0..8usize {
         let lo = (sub * 32) as u32;
@@ -3027,7 +3027,7 @@ fn branch_remove_digit_plain(a: &mut Arena, e: &mut Edge32, digit: u8) {
             let b = a.l2_mut_plain(edge_handle(e));
             let n = b.header.num_edges as usize;
             let mut pos = None;
-            // Index form kept so codegen is unchanged; reviewed in #1724.
+            // Kept: `i` is the position found; a 32-bit change needs device re-measurement (§8.7).
             #[allow(clippy::needless_range_loop)]
             for i in 0..n {
                 if b.digits[i] == digit {
@@ -3053,7 +3053,7 @@ fn branch_remove_digit_plain(a: &mut Arena, e: &mut Edge32, digit: u8) {
             let b = a.l6_mut_plain(edge_handle(e));
             let n = b.header.num_edges as usize;
             let mut pos = None;
-            // Index form kept so codegen is unchanged; reviewed in #1724.
+            // Kept: `i` is the position found; a 32-bit change needs device re-measurement (§8.7).
             #[allow(clippy::needless_range_loop)]
             for i in 0..n {
                 if b.digits[i] == digit {
@@ -3401,7 +3401,7 @@ fn branch_first_child(a: &Arena, e: &Edge32) -> Option<(u8, Edge32)> {
         }
         Kind::BranchU => {
             let b = a.u(edge_handle(e));
-            // Index form kept so codegen is unchanged; reviewed in #1724.
+            // Kept: `d` is the returned digit; a 32-bit change needs device re-measurement (§8.7).
             #[allow(clippy::needless_range_loop)]
             for d in 0..256usize {
                 let c = b.edges[d];
@@ -3500,7 +3500,7 @@ where
         }
         Kind::BranchU => {
             let b = a.u(edge_handle(e));
-            // Index form kept so codegen is unchanged; reviewed in #1724.
+            // Kept: `d` is also passed to `f`; a 32-bit change needs device re-measurement (§8.7).
             #[allow(clippy::needless_range_loop)]
             for d in 0..256usize {
                 let c = b.edges[d];
@@ -4351,7 +4351,7 @@ pub(crate) fn map_insert_via_finger_mode<const SHARED: bool>(
 
     // Subtree counts, the only thing the skipped descent still owed. The
     // digit is unused for a count-only commit.
-    // Index form kept so codegen is unchanged; reviewed in #1724.
+    // Kept: a 32-bit change needs device re-measurement (§8.7).
     #[allow(clippy::needless_range_loop)]
     for i in 0..f.depth as usize {
         branch_commit::<SHARED>(a, &f.ancestors[i], 0, None, 1);

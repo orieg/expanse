@@ -402,6 +402,8 @@ impl SpanSkipList {
     }
 
     /// Insert `key` (assumed absent). Returns the new node index.
+    // Index form kept: `i` is the skip-list level, which indexes `update`, `rank`
+    // and each node's `levels`.
     #[allow(clippy::needless_range_loop)]
     fn insert(&mut self, key: u64) -> u32 {
         let mut update = [0u32; SKIPLIST_MAX_LEVEL];
@@ -455,6 +457,7 @@ impl SpanSkipList {
     }
 
     /// Delete `key` if present. Returns `true` if a node was removed.
+    // Index form kept: `i` is the skip-list level, which indexes `update` and each node's `levels`.
     #[allow(clippy::needless_range_loop)]
     fn delete(&mut self, key: u64) -> bool {
         let mut update = [0u32; SKIPLIST_MAX_LEVEL];
