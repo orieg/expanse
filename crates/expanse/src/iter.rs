@@ -83,9 +83,14 @@ enum LeafCursor {
         count: u8,
         idx: u8,
     },
+    /// Every key of `lo..` up to `hi` is present. An ascending cursor
+    /// yields `lo`, `lo + 1`, … while `lo != hi`: `hi` is exclusive and
+    /// wraps, so an expanse ending at `u64::MAX` has `hi == 0`. A
+    /// descending cursor yields `hi`, `hi - 1`, … down to `lo` inclusive,
+    /// and is exhausted at `lo = 1, hi = 0`.
     FullExpanse {
-        next_key: u64,
-        max_key: u64,
+        lo: u64,
+        hi: u64,
     },
 }
 
@@ -394,9 +399,12 @@ impl<const MAP: bool> RawIter<MAP> {
                     } else {
                         (1u64 << (8 * u32::from(cur_level))) - 1
                     };
+                    // An ascending cursor's `hi` is exclusive; a full expanse
+                    // of the whole key space would wrap to `lo == hi`.
+                    debug_assert!(cur_level < 8, "full expanse of the whole key space");
                     self.leaf = LeafCursor::FullExpanse {
-                        next_key: cur_prefix,
-                        max_key: cur_prefix | max,
+                        lo: cur_prefix,
+                        hi: (cur_prefix | max).wrapping_add(1),
                     };
                     return;
                 }
@@ -778,7 +786,10 @@ impl<const MAP: bool> RawIter<MAP> {
                     let max_key = cur_prefix | max;
                     let next_key = start.max(cur_prefix);
                     if next_key <= max_key {
-                        self.leaf = LeafCursor::FullExpanse { next_key, max_key };
+                        self.leaf = LeafCursor::FullExpanse {
+                            lo: next_key,
+                            hi: max_key.wrapping_add(1),
+                        };
                     } else {
                         self.leaf = LeafCursor::Empty;
                     }
@@ -1291,18 +1302,10 @@ impl<const MAP: bool> RawIter<MAP> {
                     }
                 }
 
-                LeafCursor::FullExpanse { next_key, max_key } => {
-                    if *next_key <= *max_key {
-                        let k = *next_key;
-                        // Mirror of the descending arm: the last key empties
-                        // the range instead of stepping past it, so a full
-                        // expanse ending at `u64::MAX` does not wrap to 0.
-                        if k == *max_key {
-                            *next_key = 1;
-                            *max_key = 0;
-                        } else {
-                            *next_key = k + 1;
-                        }
+                LeafCursor::FullExpanse { lo, hi } => {
+                    if *lo != *hi {
+                        let k = *lo;
+                        *lo = k.wrapping_add(1);
                         return Some((k, 0));
                     }
                 }
@@ -1541,8 +1544,8 @@ impl<const MAP: bool> RawIter<MAP> {
                         (1u64 << (8 * u32::from(cur_level))) - 1
                     };
                     self.leaf = LeafCursor::FullExpanse {
-                        next_key: cur_prefix,
-                        max_key: cur_prefix | max,
+                        lo: cur_prefix,
+                        hi: cur_prefix | max,
                     };
                     return;
                 }
@@ -1923,8 +1926,8 @@ impl<const MAP: bool> RawIter<MAP> {
                         self.leaf = LeafCursor::Empty;
                     } else {
                         self.leaf = LeafCursor::FullExpanse {
-                            next_key: cur_prefix,
-                            max_key: end.min(max_key),
+                            lo: cur_prefix,
+                            hi: end.min(max_key),
                         };
                     }
                     return;
@@ -2398,14 +2401,14 @@ impl<const MAP: bool> RawIter<MAP> {
                     }
                 }
 
-                LeafCursor::FullExpanse { next_key, max_key } => {
-                    if *max_key >= *next_key {
-                        let k = *max_key;
-                        if *max_key == *next_key {
-                            *next_key = 1;
-                            *max_key = 0;
+                LeafCursor::FullExpanse { lo, hi } => {
+                    if *hi >= *lo {
+                        let k = *hi;
+                        if *hi == *lo {
+                            *lo = 1;
+                            *hi = 0;
                         } else {
-                            *max_key -= 1;
+                            *hi -= 1;
                         }
                         return Some((k, 0));
                     }
@@ -2642,12 +2645,12 @@ impl<const MAP: bool> RawIter<MAP> {
                 true
             }
 
-            LeafCursor::FullExpanse { next_key, max_key } => {
-                if target > *max_key {
+            LeafCursor::FullExpanse { lo, hi } => {
+                if target > hi.wrapping_sub(1) {
                     return false;
                 }
-                if target > *next_key {
-                    *next_key = target;
+                if target > *lo {
+                    *lo = target;
                 }
                 true
             }
@@ -2875,11 +2878,10 @@ impl<const MAP: bool> RawIter<MAP> {
                     *sub = 8;
                     *prefix | 0xFF
                 }
-                LeafCursor::FullExpanse { next_key, max_key } => {
-                    if *next_key <= *max_key {
-                        let m = *max_key;
-                        *next_key = 1;
-                        *max_key = 0;
+                LeafCursor::FullExpanse { lo, hi } => {
+                    if *lo != *hi {
+                        let m = hi.wrapping_sub(1);
+                        *lo = *hi;
                         m
                     } else {
                         k
@@ -2974,11 +2976,11 @@ impl<const MAP: bool> RawIter<MAP> {
                     *sub = 0;
                     *prefix
                 }
-                LeafCursor::FullExpanse { next_key, max_key } => {
-                    if *next_key <= *max_key {
-                        let m = *next_key;
-                        *next_key = 1;
-                        *max_key = 0;
+                LeafCursor::FullExpanse { lo, hi } => {
+                    if *lo <= *hi {
+                        let m = *lo;
+                        *lo = 1;
+                        *hi = 0;
                         m
                     } else {
                         k
