@@ -274,9 +274,9 @@ impl Default for BytesMapStats {
 pub struct BytesMapNodeBytes {
     /// Heap bytes attributed to each node form of the hash trie.
     pub sub_maps: NodeBytes,
-    /// Heap bytes of the collision bucket shells.
+    /// Heap bytes of the collision bucket headers.
     pub node_shells: usize,
-    /// Heap bytes of entry structures and key buffers in collision buckets.
+    /// Heap bytes of entry records and key bytes in collision buckets.
     pub terminal_bytes: usize,
 }
 
@@ -287,7 +287,7 @@ impl BytesMapNodeBytes {
         self.sub_maps.total() + self.node_shells + self.terminal_bytes
     }
 
-    /// Bucket shell bytes (alias for [`Self::node_shells`]).
+    /// Bucket header bytes (alias for [`Self::node_shells`]).
     #[must_use]
     pub fn bucket_shells(&self) -> usize {
         self.node_shells

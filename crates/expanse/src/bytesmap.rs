@@ -21,10 +21,8 @@ use crate::occ::Collector;
 pub use crate::validate::{BytesMapNodeBytes, BytesMapStats};
 use core::hash::BuildHasher;
 use core::ptr::NonNull;
-use core_alloc::boxed::Box;
 #[cfg(feature = "std")]
 use core_alloc::sync::Arc;
-use core_alloc::vec;
 use core_alloc::vec::Vec;
 #[cfg(feature = "std")]
 use std::sync::OnceLock;
@@ -91,20 +89,42 @@ pub(crate) fn hash_key<S: BuildHasher>(hasher: &S, key: &[u8]) -> u64 {
     h.finish()
 }
 
-/// One collision-bucket entry: the exact key bytes and the value word.
-pub(crate) type Entry = (Box<[u8]>, u64);
+/// One collision-bucket entry: its key bytes, which sit inside the
+/// bucket's own allocation, and the value word.
+///
+/// `key` points into the same allocation as the entry, with that
+/// allocation's provenance, so comparing a key is one load and no address
+/// arithmetic. A bucket is never moved or copied bytewise: a replacement
+/// is built entry by entry, so every `key` it holds points into itself.
+#[repr(C)]
+pub(crate) struct Entry {
+    key: *const u8,
+    key_len: usize,
+    val: u64,
+}
 
-/// One hash bucket: entries whose keys share a 64-bit hash. Almost
-/// always a single entry; compared byte-exactly on every operation.
+/// The header of one hash bucket: entries whose keys share a 64-bit
+/// hash. Almost always a single entry; compared byte-exactly on every
+/// operation.
+///
+/// A bucket is **one allocation** (#1760): this header, then `len`
+/// [`Entry`] records, then the entries' key bytes, concatenated in entry
+/// order. A fresh key therefore costs one allocation, and a bucket is
+/// freed or retired as one block. The value words sit at a fixed stride
+/// and are 8-aligned on 64-bit targets (an 8-byte header, 24-byte entries,
+/// the value last), so a value slot pointer is a plain `*mut u64` into
+/// the allocation.
+/// Only [`bucket_alloc_size`] and the functions here know the layout;
+/// every other module reaches a bucket through them.
 ///
 /// Phase 7 contract (issue #219): a published bucket is **write-once
 /// except its value words**. Structural changes (adding or removing an
-/// entry) build a replacement bucket with exact capacity, publish it
-/// over the trie entry, and dispose of the old one — retired through
-/// the epoch collector when the map is concurrently shared, so a reader
-/// that validated the bucket pointer may keep reading the shell, entry
-/// array, and key bytes under its pin. Only the value word mutates in
-/// place (a single `u64`).
+/// entry) build a replacement bucket of exact size, publish it over the
+/// trie entry, and dispose of the old one — retired through the epoch
+/// collector when the map is concurrently shared, so a reader that
+/// validated the bucket pointer may keep reading the header, entries and
+/// key bytes under its pin. Only the value word mutates in place (a
+/// single `u64`).
 ///
 /// #929: under the concurrent wrapper the value word is the **one**
 /// field two threads may touch at once, so both sides reach it through
@@ -114,7 +134,222 @@ pub(crate) type Entry = (Box<[u8]>, u64);
 /// one, so an unlinked bucket's value words are frozen from the moment
 /// of the replacement; a reader loads without any lock. See
 /// [`ExpanseBytesMap::get_validated`] for what a reader can observe.
-pub(crate) type Bucket = Vec<Entry>;
+#[repr(C)]
+pub(crate) struct Bucket {
+    len: usize,
+}
+
+/// Alignment of a bucket allocation: the alignment of its words.
+const BUCKET_ALIGN: usize = align_of::<Entry>();
+
+// The value word must be 8-aligned for `AtomicU64::from_ptr`, and the
+// entries must start right after the header for the stride arithmetic.
+const _: () = {
+    assert!(size_of::<Bucket>().is_multiple_of(BUCKET_ALIGN));
+    assert!(size_of::<Entry>().is_multiple_of(BUCKET_ALIGN));
+    assert!(core::mem::offset_of!(Entry, val).is_multiple_of(align_of::<u64>()));
+    assert!(BUCKET_ALIGN >= align_of::<u64>());
+};
+
+/// Bytes of a bucket holding `n` entries whose keys total `key_bytes`.
+#[inline(always)]
+const fn bucket_alloc_size(n: usize, key_bytes: usize) -> usize {
+    size_of::<Bucket>() + n * size_of::<Entry>() + key_bytes
+}
+
+/// The layout of a bucket of `bytes` bytes.
+#[inline(always)]
+fn bucket_layout(bytes: usize) -> core::alloc::Layout {
+    core::alloc::Layout::from_size_align(bytes, BUCKET_ALIGN).expect("bucket layout")
+}
+
+/// The number of entries of the bucket at `b`.
+///
+/// # Safety
+///
+/// `b` is a live (or EBR-live) bucket built by [`BucketBuilder`].
+#[inline(always)]
+pub(crate) unsafe fn bucket_len(b: *const Bucket) -> usize {
+    // SAFETY: caller contract; the header is write-once.
+    unsafe { (*b).len }
+}
+
+/// The entry array of the bucket at `b`, with `b`'s provenance.
+///
+/// # Safety
+///
+/// As [`bucket_len`].
+#[inline(always)]
+pub(crate) unsafe fn bucket_entries(b: *const Bucket) -> *mut Entry {
+    // SAFETY: the entries follow the header inside the same allocation.
+    unsafe { b.cast_mut().add(1).cast::<Entry>() }
+}
+
+/// The key bytes of entry `i` of the bucket at `b`.
+///
+/// Reads only the write-once key fields, never the value word.
+///
+/// # Safety
+///
+/// As [`bucket_len`], with `i < bucket_len(b)`; the slice must not
+/// outlive the bucket (or the caller's epoch pin).
+#[inline(always)]
+pub(crate) unsafe fn bucket_key<'a>(b: *const Bucket, i: usize) -> &'a [u8] {
+    // SAFETY: `i` is in bounds; the projections name the two key fields
+    // only, and the bytes they locate are inside `b`'s allocation and
+    // write-once after publication.
+    unsafe {
+        let e = bucket_entries(b).add(i);
+        core::slice::from_raw_parts((*e).key, (*e).key_len)
+    }
+}
+
+/// A raw pointer to entry `i`'s value word, with `b`'s provenance.
+///
+/// # Safety
+///
+/// As [`bucket_key`].
+#[inline(always)]
+pub(crate) unsafe fn bucket_value_ptr(b: *const Bucket, i: usize) -> *mut u64 {
+    // SAFETY: caller contract; a raw place projection, no reference.
+    unsafe { &raw mut (*bucket_entries(b).add(i)).val }
+}
+
+/// The index of `key` in the bucket at `b`, if present.
+///
+/// # Safety
+///
+/// As [`bucket_len`].
+#[inline(always)]
+unsafe fn bucket_position(b: *const Bucket, key: &[u8]) -> Option<usize> {
+    // SAFETY: caller contract; `i < len`.
+    let len = unsafe { bucket_len(b) };
+    // SAFETY: as above.
+    (0..len).find(|&i| unsafe { bucket_key(b, i) } == key)
+}
+
+/// The bytes of the bucket at `b`'s allocation: its keys end it, in entry
+/// order, so the last entry's key ends where the allocation does.
+///
+/// # Safety
+///
+/// As [`bucket_len`]; a bucket always holds at least one entry.
+#[inline(always)]
+unsafe fn bucket_bytes(b: *const Bucket) -> usize {
+    // SAFETY: caller contract; `len >= 1` for every built bucket.
+    unsafe {
+        let len = bucket_len(b);
+        debug_assert!(len >= 1, "a bucket is never empty");
+        let last = bucket_entries(b).add(len - 1);
+        (*last).key.addr() - b.addr() + (*last).key_len
+    }
+}
+
+/// Builds a bucket of a known entry count and key byte total in place.
+///
+/// Entries are pushed in order; [`Self::finish`] checks the counts and
+/// hands out the bucket. Dropping an unfinished builder frees its
+/// allocation, so a panic between pushes leaks nothing.
+pub(crate) struct BucketBuilder {
+    base: NonNull<Bucket>,
+    n: usize,
+    bytes: usize,
+    pushed: usize,
+    key_end: usize,
+}
+
+impl BucketBuilder {
+    /// An allocation for `n >= 1` entries whose keys total `key_bytes`.
+    pub(crate) fn new(n: usize, key_bytes: usize) -> Self {
+        assert!(n >= 1, "a bucket is never empty");
+        let bytes = size_of::<Entry>()
+            .checked_mul(n)
+            .and_then(|e| e.checked_add(size_of::<Bucket>()))
+            .and_then(|h| h.checked_add(key_bytes))
+            .expect("bucket size overflows usize");
+        let layout = bucket_layout(bytes);
+        // SAFETY: `layout` has a non-zero size (at least one entry).
+        let raw = unsafe { core_alloc::alloc::alloc(layout) };
+        let Some(raw) = NonNull::new(raw.cast::<Bucket>()) else {
+            core_alloc::alloc::handle_alloc_error(layout)
+        };
+        // SAFETY: the header is the allocation's first word.
+        unsafe { raw.as_ptr().write(Bucket { len: n }) };
+        Self {
+            base: raw,
+            n,
+            bytes,
+            pushed: 0,
+            key_end: bucket_alloc_size(n, 0),
+        }
+    }
+
+    /// Appends the next entry.
+    #[inline(always)]
+    pub(crate) fn push(&mut self, key: &[u8], val: u64) {
+        assert!(self.pushed < self.n, "bucket entry count exceeded");
+        assert!(
+            key.len() <= self.bytes - self.key_end,
+            "bucket key bytes exceeded"
+        );
+        let b = self.base.as_ptr();
+        // SAFETY: `pushed < n` indexes the entry array, and the key bytes
+        // land in `[key_end, key_end + key.len())`, inside the allocation by
+        // the assert above. Neither region has been handed out.
+        unsafe {
+            bucket_entries(b).add(self.pushed).write(Entry {
+                key: b.cast::<u8>().add(self.key_end).cast_const(),
+                key_len: key.len(),
+                val,
+            });
+            core::ptr::copy_nonoverlapping(
+                key.as_ptr(),
+                b.cast::<u8>().add(self.key_end),
+                key.len(),
+            );
+        }
+        self.pushed += 1;
+        self.key_end += key.len();
+    }
+
+    /// The built bucket, with every entry and key byte written.
+    #[inline(always)]
+    pub(crate) fn finish(self) -> *mut Bucket {
+        assert!(
+            self.pushed == self.n && self.key_end == self.bytes,
+            "bucket built short"
+        );
+        let b = self.base.as_ptr();
+        core::mem::forget(self);
+        b
+    }
+}
+
+impl Drop for BucketBuilder {
+    fn drop(&mut self) {
+        // SAFETY: the builder still owns its allocation of `bytes` bytes.
+        unsafe { core_alloc::alloc::dealloc(self.base.as_ptr().cast(), bucket_layout(self.bytes)) };
+    }
+}
+
+/// A one-entry bucket: `key → val`.
+#[inline(always)]
+pub(crate) fn bucket_single(key: &[u8], val: u64) -> *mut Bucket {
+    let mut b = BucketBuilder::new(1, key.len());
+    b.push(key, val);
+    b.finish()
+}
+
+/// Frees a bucket that was never published: no reader can hold it.
+///
+/// # Safety
+///
+/// `b` was built by [`BucketBuilder`], never published (or unlinked with
+/// no concurrent reader possible), and is not used again.
+pub(crate) unsafe fn free_bucket(b: *mut Bucket) {
+    // SAFETY: caller contract; the layout is the one it was allocated with.
+    unsafe { core_alloc::alloc::dealloc(b.cast(), bucket_layout(bucket_bytes(b))) };
+}
 
 /// The atomic view of one published entry's value word.
 ///
@@ -124,9 +359,9 @@ pub(crate) type Bucket = Vec<Entry>;
 /// ([`ExpanseBytesMap::ins_slot`]). The concurrent paths reach the same
 /// word through [`core::sync::atomic::AtomicU64::from_ptr`], which is
 /// exactly the "atomic access to a location declared non-atomically"
-/// case that constructor exists for: a `u64` field of a `#[repr(Rust)]`
-/// tuple is 8-aligned, which is `AtomicU64`'s alignment on every 64-bit
-/// target this is compiled for.
+/// case that constructor exists for: the value field of the `#[repr(C)]`
+/// [`Entry`] is 8-aligned (pinned by a `const` assertion above), which is
+/// `AtomicU64`'s alignment on every 64-bit target this is compiled for.
 ///
 /// # Safety
 ///
@@ -144,7 +379,7 @@ pub(crate) unsafe fn entry_value_atomic<'a>(
 ) -> &'a core::sync::atomic::AtomicU64 {
     // SAFETY: `at` is in bounds of the caller's EBR-live entry array, so
     // the field projection names a live, 8-aligned `u64`.
-    let word = unsafe { &raw const (*entries.add(at)).1 };
+    let word = unsafe { &raw const (*entries.add(at)).val };
     // SAFETY: forwarded contract — the word is valid for reads and
     // writes for the pin's duration, 8-aligned, and every non-atomic
     // access to it is synchronized against this one.
@@ -170,14 +405,13 @@ pub(crate) unsafe fn entry_value_atomic<'a>(
 #[inline]
 pub(crate) unsafe fn bucket_find(word: u64, key: &[u8]) -> (usize, Option<usize>) {
     let bucket = word as *const Bucket;
-    // SAFETY: EBR-live published bucket; shell and entry array are
+    // SAFETY: EBR-live published bucket; its header and key fields are
     // write-once after publication.
-    let (len, entries) = unsafe { ((*bucket).len(), (*bucket).as_ptr()) };
+    let len = unsafe { bucket_len(bucket) };
     for i in 0..len {
-        // SAFETY: `i < len` of the write-once entry array; the
-        // projection names the key field only, never the value word.
-        let k: &[u8] = unsafe { &(*entries.add(i)).0 };
-        if k == key {
+        // SAFETY: `i < len`; `bucket_key` names the key fields only,
+        // never the value word.
+        if unsafe { bucket_key(bucket, i) } == key {
             return (len, Some(i));
         }
     }
@@ -188,10 +422,10 @@ pub(crate) unsafe fn bucket_find(word: u64, key: &[u8]) -> (usize, Option<usize>
 /// positional copy of the `len` entries of the published bucket at
 /// `word`, with `key → val` appended.
 ///
-/// Keys are cloned (the old bucket keeps ownership of its own, and is
-/// disposed of with them). Value words are read atomically, and re-read
-/// under the terminal's version lock by [`refresh_replacement_values`]
-/// before the replacement is published.
+/// Key bytes are copied (the old bucket keeps its own, and is disposed of
+/// with them). Value words are read atomically, and re-read under the
+/// terminal's version lock by [`refresh_replacement_values`] before the
+/// replacement is published.
 ///
 /// # Safety
 ///
@@ -203,23 +437,19 @@ pub(crate) unsafe fn bucket_find(word: u64, key: &[u8]) -> (usize, Option<usize>
 ))]
 pub(crate) unsafe fn clone_bucket_with(word: u64, len: usize, key: &[u8], val: u64) -> *mut Bucket {
     let bucket = word as *const Bucket;
-    // SAFETY: EBR-live published bucket of `len` entries.
-    let entries = unsafe { (*bucket).as_ptr() };
-    let mut fresh: Bucket = Vec::with_capacity(len + 1);
-    for i in 0..len {
-        // SAFETY: `i < len`; the key field is write-once and the value
-        // word is loaded through its atomic view.
-        let (k, v) = unsafe {
-            let k: &[u8] = &(*entries.add(i)).0;
-            (
-                Box::<[u8]>::from(k),
-                entry_value_atomic(entries, i).load(core::sync::atomic::Ordering::Relaxed),
-            )
-        };
-        fresh.push((k, v));
+    // SAFETY: EBR-live published bucket of `len` entries; key fields are
+    // write-once and value words are loaded through their atomic view.
+    unsafe {
+        let entries = bucket_entries(bucket);
+        let keys: usize = (0..len).map(|i| bucket_key(bucket, i).len()).sum();
+        let mut fresh = BucketBuilder::new(len + 1, keys + key.len());
+        for i in 0..len {
+            let v = entry_value_atomic(entries, i).load(core::sync::atomic::Ordering::Relaxed);
+            fresh.push(bucket_key(bucket, i), v);
+        }
+        fresh.push(key, val);
+        fresh.finish()
     }
-    fresh.push((key.into(), val));
-    Box::into_raw(Box::new(fresh))
 }
 
 /// Publishes `val` as entry `at`'s value inside the already-published
@@ -248,9 +478,9 @@ pub(crate) unsafe fn clone_bucket_with(word: u64, len: usize, key: &[u8], val: u
 pub(crate) unsafe fn publish_entry_value(word: u64, at: usize, val: u64) -> u64 {
     use core::sync::atomic::Ordering;
     let bucket = word as *const Bucket;
-    // SAFETY: `word` is the published bucket for this hash, so its shell
-    // is EBR-live and its entry array holds more than `at` entries.
-    let entries = unsafe { (*bucket).as_ptr() };
+    // SAFETY: `word` is the published bucket for this hash, so it is
+    // EBR-live and holds more than `at` entries.
+    let entries = unsafe { bucket_entries(bucket) };
     // SAFETY: forwarded contract. `Relaxed` is enough on both: the
     // version unlock that follows is the release a reader's validation
     // acquires, and a reader that misses it returns the value the key
@@ -283,7 +513,7 @@ pub(crate) unsafe fn read_entry_value(word: u64, at: usize) -> u64 {
     let bucket = word as *const Bucket;
     // SAFETY: forwarded contract — an EBR-live bucket with more than
     // `at` entries.
-    let entries = unsafe { (*bucket).as_ptr() };
+    let entries = unsafe { bucket_entries(bucket) };
     // SAFETY: forwarded contract. `Relaxed` is enough: the unlinking
     // caller has already excluded every writer, and a validating reader
     // acquires the version word.
@@ -295,8 +525,8 @@ pub(crate) unsafe fn read_entry_value(word: u64, at: usize) -> u64 {
 /// entry `at` left out (Refs #1047).
 ///
 /// The mirror of [`clone_bucket_with`], with the same ownership split:
-/// keys are cloned, so the old bucket keeps its own and is disposed of
-/// with them. Value words are read atomically here and re-read under the
+/// key bytes are copied, so the old bucket keeps its own and is disposed
+/// of with them. Value words are read atomically here and re-read under the
 /// terminal's version lock by [`refresh_replacement_values_removing`]
 /// before the replacement is published.
 ///
@@ -311,25 +541,21 @@ pub(crate) unsafe fn read_entry_value(word: u64, at: usize) -> u64 {
 pub(crate) unsafe fn clone_bucket_without(word: u64, len: usize, at: usize) -> *mut Bucket {
     debug_assert!(at < len, "entry index inside the bucket");
     let bucket = word as *const Bucket;
-    // SAFETY: EBR-live published bucket of `len` entries.
-    let entries = unsafe { (*bucket).as_ptr() };
-    let mut fresh: Bucket = Vec::with_capacity(len - 1);
-    for i in 0..len {
-        if i == at {
-            continue;
+    // SAFETY: EBR-live published bucket of `len` entries; key fields are
+    // write-once and value words are loaded through their atomic view.
+    unsafe {
+        let entries = bucket_entries(bucket);
+        let keys: usize = (0..len)
+            .filter(|&i| i != at)
+            .map(|i| bucket_key(bucket, i).len())
+            .sum();
+        let mut fresh = BucketBuilder::new(len - 1, keys);
+        for i in (0..len).filter(|&i| i != at) {
+            let v = entry_value_atomic(entries, i).load(core::sync::atomic::Ordering::Relaxed);
+            fresh.push(bucket_key(bucket, i), v);
         }
-        // SAFETY: `i < len`; the key field is write-once and the value
-        // word is loaded through its atomic view.
-        let (k, v) = unsafe {
-            let k: &[u8] = &(*entries.add(i)).0;
-            (
-                Box::<[u8]>::from(k),
-                entry_value_atomic(entries, i).load(core::sync::atomic::Ordering::Relaxed),
-            )
-        };
-        fresh.push((k, v));
+        fresh.finish()
     }
-    Box::into_raw(Box::new(fresh))
 }
 
 /// [`refresh_replacement_values`] for a replacement built by
@@ -364,7 +590,7 @@ pub(crate) unsafe fn refresh_replacement_values_removing(
     let entries = word as *const Bucket;
     // SAFETY: `word` is the published bucket for this hash under the
     // caller's lock; `repl` is the caller's own unpublished bucket.
-    let (base, dst) = unsafe { ((*entries).as_ptr(), (*repl).as_mut_ptr()) };
+    let (base, dst) = unsafe { (bucket_entries(entries), bucket_entries(repl)) };
     for i in 0..len {
         if i == at {
             continue;
@@ -375,7 +601,7 @@ pub(crate) unsafe fn refresh_replacement_values_removing(
         let v = unsafe { entry_value_atomic(base, i) }.load(core::sync::atomic::Ordering::Relaxed);
         // SAFETY: `dst.add(j)` is an entry of the caller's own bucket,
         // which no other thread can reach until it is published.
-        unsafe { (*dst.add(j)).1 = v };
+        unsafe { (*dst.add(j)).val = v };
     }
 }
 
@@ -405,56 +631,22 @@ pub(crate) unsafe fn refresh_replacement_values(word: u64, repl: *mut Bucket, n:
     let entries = word as *const Bucket;
     // SAFETY: `word` is the published bucket for this hash under the
     // caller's lock; `repl` is the caller's own unpublished bucket.
-    let (base, dst) = unsafe { ((*entries).as_ptr(), (*repl).as_mut_ptr()) };
+    let (base, dst) = unsafe { (bucket_entries(entries), bucket_entries(repl)) };
     for i in 0..n {
         // SAFETY: `i < n` indexes both arrays by the caller's contract.
         let v = unsafe { entry_value_atomic(base, i) }.load(core::sync::atomic::Ordering::Relaxed);
         // SAFETY: `dst.add(i)` is an entry of the caller's own bucket,
         // which no other thread can reach until it is published.
-        unsafe { (*dst.add(i)).1 = v };
+        unsafe { (*dst.add(i)).val = v };
     }
 }
 
-/// Approximate heap cost of one entry beyond its key bytes (the boxed
-/// key's pointer/len pair plus the value word in the bucket vector).
-const ENTRY_OVERHEAD: usize = size_of::<(Box<[u8]>, u64)>();
+/// Heap bytes of one entry beyond its key bytes: its record in the
+/// bucket's entry array.
+const ENTRY_OVERHEAD: usize = size_of::<Entry>();
 
-/// Approximate heap cost of one bucket (its vector header, boxed).
+/// Heap bytes of one bucket beyond its entries: its header.
 const BUCKET_OVERHEAD: usize = size_of::<Bucket>();
-
-/// Disposes an unlinked key buffer: dropped immediately when not shared,
-/// retired raw when it is — a concurrent reader that validated the
-/// bucket at an earlier snapshot may still be comparing these bytes
-/// under its pin. The owning `Box` is consumed **by value** so its
-/// provenance travels to the collector's deallocation. An empty
-/// `Box<[u8]>` owns no allocation — nothing to retire.
-///
-/// Retired layout: `(len, 1)` — align 1 never matches a size class
-/// (`class_for` accepts only `RAW_ALIGN`/`CACHE_LINE`), so the
-/// collector frees it through `free_raw` with the exact original
-/// `Box<[u8]>` layout.
-#[cfg(feature = "std")]
-fn dispose_key(key: Box<[u8]>, defer: Option<&Arc<Collector>>) {
-    match defer {
-        Some(c) if !key.is_empty() => {
-            let len = key.len();
-            let buf = Box::into_raw(key).cast::<u8>();
-            // SAFETY: `buf` is the non-empty `Box<[u8]>`'s own allocation,
-            // `Layout::array::<u8>(len)` = `(len, 1)`, and `into_raw` gave up
-            // its only owner, so it is retired once. The caller unlinked the
-            // bucket holding it, so only readers pinned before that can
-            // still be comparing these bytes.
-            unsafe { c.retire(NonNull::new(buf).expect("non-null key buffer"), len, 1) };
-        }
-        _ => drop(key),
-    }
-}
-
-#[cfg(not(feature = "std"))]
-#[inline(always)]
-fn dispose_key(key: Box<[u8]>, _defer: Option<&()>) {
-    drop(key);
-}
 
 /// Publishes a bucket pointer into its trie value slot. The shared instance
 /// stores it as an atomic word, the size and kind readers load it as
@@ -482,77 +674,33 @@ unsafe fn publish_bucket_word<const SHARED: bool>(slot: NonNull<u64>, word: u64)
     unsafe { *slot.as_ptr() = word };
 }
 
-/// Disposes an unlinked bucket. `own_keys` says whether the entries'
-/// key buffers still belong to this bucket (dispose of them too) or
-/// were moved by value into a replacement bucket (leave them alone —
-/// the old entry array keeps their bit pattern for concurrent readers,
-/// but the allocations now belong to the replacement).
+/// Disposes an unlinked bucket: its header, entries and key bytes are one
+/// allocation, freed at once when the map is not shared and retired as one
+/// block when it is — a concurrent reader that validated the bucket at an
+/// earlier snapshot may still be comparing its keys under its pin.
 ///
-/// Retired layouts (both always miss the size classes — align 8 is
-/// neither `RAW_ALIGN` nor `CACHE_LINE` — so both take the collector's
-/// exact-layout `free_raw` path):
-/// - entry buffer: `Layout::array::<Entry>(capacity)` — capacity, not
-///   length, is the allocated size;
-/// - shell: `Layout::new::<Bucket>()`.
+/// Retired layout: `(bucket bytes, 8)` — align 8 is neither `RAW_ALIGN`
+/// nor `CACHE_LINE`, so it always misses the size classes and takes the
+/// collector's exact-layout `free_raw` path, the layout it was allocated
+/// with.
 #[cfg(feature = "std")]
-pub(crate) fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, defer: Option<&Arc<Collector>>) {
+pub(crate) fn dispose_bucket(ptr: *mut Bucket, defer: Option<&Arc<Collector>>) {
     match defer {
-        None => {
-            // SAFETY: caller unlinked `ptr`; this is the last reference.
-            let mut bucket = unsafe { Box::from_raw(ptr) };
-            if !own_keys {
-                // Entries were moved out by value into the replacement:
-                // free the shell and buffer without running their Drop.
-                // SAFETY: 0 <= capacity; skips the moved-out entries.
-                unsafe { bucket.set_len(0) };
-            }
-            drop(bucket);
-        }
+        // SAFETY: caller unlinked `ptr`; this is the last reference, and no
+        // reader can hold a map that is not shared.
+        None => unsafe { free_bucket(ptr) },
         Some(c) => {
-            // Retire raw (no `Drop` runs; the collector frees plain
-            // memory after the grace period). The vector is moved out of
-            // the shell **by value** so the buffer pointer keeps its
-            // original provenance — a pointer merely borrowed out of the
-            // shell would not carry deallocation rights (Miri rejects
-            // the later dealloc).
-            // SAFETY: unlinked; last owner. The shell is never used as a
-            // `Vec` again — it is retired below without running Drop,
-            // and pinned readers only load its write-once bit pattern.
-            let vec: Bucket = unsafe { core::ptr::read(ptr) };
-            let mut vec = core::mem::ManuallyDrop::new(vec);
-            if own_keys {
-                for i in 0..vec.len() {
-                    // SAFETY: in-bounds; each entry is moved out exactly
-                    // once, so its key `Box` carries its provenance.
-                    let (key, _val): Entry = unsafe { core::ptr::read(vec.as_ptr().add(i)) };
-                    dispose_key(key, defer);
-                }
-            }
-            let cap = vec.capacity();
-            if cap > 0 {
-                let buf = vec.as_mut_ptr().cast::<u8>();
-                // SAFETY: the vector was moved out by value, so `buf` carries
-                // its buffer's provenance; that buffer is
-                // `Layout::array::<Entry>(cap)` from the global allocator, and
-                // the `ManuallyDrop` never frees it, so it is retired once.
-                // The bucket was unlinked by the caller.
-                unsafe {
-                    c.retire(
-                        NonNull::new(buf).expect("non-null bucket buffer"),
-                        cap * size_of::<Entry>(),
-                        align_of::<Entry>(),
-                    );
-                }
-            }
-            // SAFETY: `ptr` is the shell's `Box<Bucket>` allocation
-            // (`Layout::new::<Bucket>()`), unlinked by the caller and owned
-            // here alone; its contents were moved out above without a
-            // `Drop`, so it is retired once and never used again.
+            // SAFETY: caller unlinked `ptr`, a bucket of this many bytes,
+            // which it owns alone from here; the header is write-once.
+            let bytes = unsafe { bucket_bytes(ptr) };
+            // SAFETY: `ptr` carries its allocation's provenance (published
+            // and read back as an exposed address), the layout is the one it
+            // was allocated with, and it is retired once and never used again.
             unsafe {
                 c.retire(
-                    NonNull::new(ptr.cast::<u8>()).expect("non-null bucket shell"),
-                    size_of::<Bucket>(),
-                    align_of::<Bucket>(),
+                    NonNull::new(ptr.cast::<u8>()).expect("non-null bucket"),
+                    bytes,
+                    BUCKET_ALIGN,
                 );
             }
         }
@@ -560,14 +708,9 @@ pub(crate) fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, defer: Option<&Ar
 }
 
 #[cfg(not(feature = "std"))]
-pub(crate) fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, _defer: Option<&()>) {
+pub(crate) fn dispose_bucket(ptr: *mut Bucket, _defer: Option<&()>) {
     // SAFETY: caller unlinked `ptr`; this is the last reference.
-    let mut bucket = unsafe { Box::from_raw(ptr) };
-    if !own_keys {
-        // SAFETY: 0 <= capacity; skips the moved-out entries.
-        unsafe { bucket.set_len(0) };
-    }
-    drop(bucket);
+    unsafe { free_bucket(ptr) };
 }
 
 /// A sparse, dynamic, **unordered** map from byte strings to `u64`
@@ -577,15 +720,17 @@ pub(crate) fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, _defer: Option<&(
 /// In `no_std`, hashing defaults to deterministic 64-bit FNV-1a.
 /// Use [`ExpanseBytesMap::with_hasher`] to pin a custom hasher.
 pub struct ExpanseBytesMap<S: BuildHasher = DefaultBuildHasher> {
-    /// hash → `Box<Bucket>` pointer, stored as the map value word.
+    /// hash → bucket pointer (one allocation, see [`Bucket`]), stored as
+    /// the map value word.
     map: ExpanseMap,
     hasher: S,
     len: u64,
-    /// Bucket/entry heap bytes (estimate; the trie's own bytes are exact
+    /// Bucket heap bytes: the requested size of every bucket allocation
+    /// (allocator rounding is not counted; the trie's own bytes are exact
     /// via [`ExpanseMap::mem_used`]).
     extra_bytes: usize,
-    /// Phase 7 (issue #219): when set, unlinked buckets and key buffers
-    /// are retired through the collector instead of freed (concurrent
+    /// Phase 7 (issue #219): when set, unlinked buckets (key bytes
+    /// included) are retired through the collector instead of freed (concurrent
     /// readers may still hold pointers into them), and the hash trie's
     /// `NodeAlloc` is deferred so its frees and mutation brackets
     /// participate too.
@@ -674,16 +819,15 @@ pub(crate) unsafe fn get_validated<S: BuildHasher>(
     };
     let bucket: *const Bucket = bucket.as_ptr();
     // SAFETY: `word` was validated at `snap`, so `bucket` was the
-    // published bucket then, and EBR keeps its shell, entry buffer,
-    // and key buffers mapped under the caller's pin. Everything but
-    // the value words is write-once after publication.
-    let (len, entries) = unsafe { ((*bucket).len(), (*bucket).as_ptr()) };
+    // published bucket then, and EBR keeps its one allocation (header,
+    // entries and key bytes) mapped under the caller's pin. Everything
+    // but the value words is write-once after publication.
+    let (len, entries) = unsafe { (bucket_len(bucket), bucket_entries(bucket)) };
     let mut result = None;
     for i in 0..len {
-        // SAFETY: `i < len` of the write-once entry array; the
-        // projection names the key field only, never the value word.
-        let k: &[u8] = unsafe { &(*entries.add(i)).0 };
-        if k == key {
+        // SAFETY: `i < len`; `bucket_key` names the key fields only,
+        // never the value word.
+        if unsafe { bucket_key(bucket, i) } == key {
             // SAFETY: `i < len` of an EBR-live entry array under the
             // caller's pin. The atomic load is what makes a
             // concurrent in-place publish well-defined rather than a
@@ -819,9 +963,9 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         self.len == 0
     }
 
-    /// Heap bytes used: exact for the hash trie, estimated for the
-    /// collision buckets (key bytes + fixed per-entry/per-bucket
-    /// overheads; vector spare capacity is not counted).
+    /// Heap bytes used: exact for the hash trie, and the requested
+    /// allocation size of every collision bucket (header, entries and key
+    /// bytes; allocator rounding is not counted).
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.map.mem_used() + self.extra_bytes
@@ -856,10 +1000,12 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             let mut counted_terminals = 0usize;
             for (_, word) in self.map.iter() {
                 // SAFETY: every trie value is a live bucket owned by this map.
-                let bucket = unsafe { &*(word as *const Bucket) };
-                for (k, _) in bucket {
+                let bucket = word as *const Bucket;
+                // SAFETY: as above.
+                for i in 0..unsafe { bucket_len(bucket) } {
                     counted_entries += 1;
-                    counted_terminals += ENTRY_OVERHEAD + k.len();
+                    // SAFETY: `i < len` of a live bucket.
+                    counted_terminals += ENTRY_OVERHEAD + unsafe { bucket_key(bucket, i) }.len();
                 }
             }
             debug_assert_eq!(stats.entries, counted_entries);
@@ -931,13 +1077,13 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// Returns the value stored for `key`.
     #[must_use]
     pub fn get(&self, key: &[u8]) -> Option<u64> {
-        let bucket = self.bucket_of(key)?;
-        // SAFETY: bucket pointers stored in the hash trie are live boxes
-        // owned by this map.
-        unsafe { bucket.as_ref() }
-            .iter()
-            .find(|(k, _)| &**k == key)
-            .map(|&(_, v)| v)
+        let bucket = self.bucket_of(key)?.as_ptr();
+        // SAFETY: bucket pointers stored in the hash trie are live buckets
+        // owned by this map; `at` indexes one of its entries.
+        unsafe {
+            let at = bucket_position(bucket, key)?;
+            Some(*bucket_value_ptr(bucket, at))
+        }
     }
 
     /// Membership test.
@@ -953,25 +1099,14 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     #[must_use]
     pub fn get_slot_ptr(&self, key: &[u8]) -> Option<NonNull<u64>> {
         let b_ptr = self.bucket_of(key)?.as_ptr();
-        // SAFETY: `b_ptr` is a live bucket owned by this map. `as_mut_ptr`
-        // borrows the bucket's `Vec` header mutably for the call, as the
-        // `&mut self` lookup this replaces did; it does not reference the
-        // entries, so the returned pointer keeps the buffer's provenance.
-        let (len, entries) = unsafe { ((*b_ptr).len(), (*b_ptr).as_mut_ptr()) };
-        for i in 0..len {
-            // SAFETY: `i < len`, so `entries + i` is an initialised entry.
-            let entry = unsafe { entries.add(i) };
-            // SAFETY: a live entry; this borrows its key only, never the
-            // value word the returned pointer writes.
-            let k: &[u8] = unsafe { &(*entry).0 };
-            if k == key {
-                // SAFETY: a raw place projection to the value word, with the
-                // buffer's write provenance and no intermediate reference.
-                let val_ptr = unsafe { &raw mut (*entry).1 };
-                return NonNull::new(val_ptr);
-            }
+        // SAFETY: `b_ptr` is a live bucket owned by this map, and the key
+        // search borrows key bytes only, never the value word the returned
+        // pointer writes. `bucket_value_ptr` is a raw place projection with
+        // the allocation's write provenance and no intermediate reference.
+        unsafe {
+            let at = bucket_position(b_ptr, key)?;
+            Some(NonNull::new_unchecked(bucket_value_ptr(b_ptr, at)))
         }
-        None
     }
 
     /// Returns a **writable pointer to `key`'s value slot**, or `None`
@@ -1009,53 +1144,61 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             // publish it with one word store — a concurrent reader sees
             // either 0 (treated as retry-worthy mid-publication state)
             // or the fully initialized bucket.
-            let bucket: Bucket = vec![(key.into(), init_val)];
-            let raw = Box::into_raw(Box::new(bucket));
+            let raw = bucket_single(key, init_val);
             // SAFETY: the slot stays valid until the next structural
             // trie mutation; none happens between `ins_slot` and here.
             unsafe { publish_bucket_word::<SHARED>(slot, raw as u64) };
             self.len += 1;
             self.extra_bytes += BUCKET_OVERHEAD + key.len() + ENTRY_OVERHEAD;
-            // SAFETY: freshly allocated above; entry 0 exists.
-            let fresh: &mut Bucket = unsafe { &mut *raw };
-            return (NonNull::from(&mut fresh[0].1), None);
+            // SAFETY: freshly built above; entry 0 exists, and a pointer
+            // into a live allocation is non-null.
+            return (
+                unsafe { NonNull::new_unchecked(bucket_value_ptr(raw, 0)) },
+                None,
+            );
         }
         let old = word as *mut Bucket;
         // SAFETY: live bucket owned by this map; read-only search.
-        if let Some(at) = unsafe { &*old }.iter().position(|(k, _)| &**k == key) {
+        if let Some(at) = unsafe { bucket_position(old, key) } {
             // Existing key: only its value word will mutate, in place —
             // the one mutation published buckets allow.
             // SAFETY: as above; the slot pointer stays valid until the
             // next structural mutation.
-            let live: &mut Bucket = unsafe { &mut *old };
-            let old_val = live[at].1;
-            return (NonNull::from(&mut live[at].1), Some(old_val));
+            let val = unsafe { bucket_value_ptr(old, at) };
+            // SAFETY: a live value word; only this `&mut self` call writes it.
+            let old_val = unsafe { *val };
+            // SAFETY: a pointer into a live allocation is non-null.
+            return (unsafe { NonNull::new_unchecked(val) }, Some(old_val));
         }
         // 64-bit hash collision: publish a replacement bucket holding
-        // the moved-over entries plus the new key, then dispose of the
-        // old shell/buffer (its key buffers now belong to the
-        // replacement).
-        // SAFETY: live bucket; length read before the moves below.
-        let old_len = unsafe { (*old).len() };
-        let mut bucket: Bucket = Vec::with_capacity(old_len + 1);
-        for i in 0..old_len {
-            // SAFETY: in-bounds move-by-value; the old buffer keeps the
-            // bit pattern for concurrent pinned readers and is disposed
-            // of below without running the moved entries' Drop.
-            bucket.push(unsafe { core::ptr::read((*old).as_ptr().add(i)) });
-        }
-        bucket.push((key.into(), init_val));
-        let raw = Box::into_raw(Box::new(bucket));
+        // copies of the old entries plus the new key, then dispose of the
+        // old bucket, keys and all.
+        // SAFETY: live bucket owned by this map. Its keys and value words
+        // are read here only; this `&mut self` call is the one writer, and
+        // concurrent readers only load them.
+        let (raw, old_len) = unsafe {
+            let old_len = bucket_len(old);
+            let keys: usize = (0..old_len).map(|i| bucket_key(old, i).len()).sum();
+            let mut fresh = BucketBuilder::new(old_len + 1, keys + key.len());
+            for i in 0..old_len {
+                fresh.push(bucket_key(old, i), *bucket_value_ptr(old, i));
+            }
+            fresh.push(key, init_val);
+            (fresh.finish(), old_len)
+        };
         // Publish the replacement — the single word store that unlinks
         // the old bucket — then retire the old allocation.
         // SAFETY: slot valid as above.
         unsafe { publish_bucket_word::<SHARED>(slot, raw as u64) };
-        dispose_bucket(old, false, defer.as_ref());
+        dispose_bucket(old, defer.as_ref());
         self.len += 1;
         self.extra_bytes += key.len() + ENTRY_OVERHEAD;
-        // SAFETY: freshly allocated above; the appended entry exists.
-        let fresh: &mut Bucket = unsafe { &mut *raw };
-        (NonNull::from(&mut fresh[old_len].1), None)
+        // SAFETY: freshly built above; the appended entry exists, and a
+        // pointer into a live allocation is non-null.
+        (
+            unsafe { NonNull::new_unchecked(bucket_value_ptr(raw, old_len)) },
+            None,
+        )
     }
 
     /// Inserts `key` with value 0 if absent — an existing value is kept
@@ -1163,12 +1306,17 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         let h = hash_key(&self.hasher, key);
         let word = self.map.get(h)?;
         let old = word as *mut Bucket;
-        // SAFETY: live bucket owned by this map; read-only search.
-        let bucket = unsafe { &*old };
-        let at = bucket.iter().position(|(k, _)| &**k == key)?;
-        let val = bucket[at].1;
-        let key_len = bucket[at].0.len();
-        let old_len = bucket.len();
+        // SAFETY: live bucket owned by this map; read-only search, and the
+        // value word is read by its one writer, this `&mut self` call.
+        let (at, val, key_len, old_len) = unsafe {
+            let at = bucket_position(old, key)?;
+            (
+                at,
+                *bucket_value_ptr(old, at),
+                bucket_key(old, at).len(),
+                bucket_len(old),
+            )
+        };
         if old_len == 1 {
             // Unlink the bucket from the trie first, then dispose of it
             // together with its one remaining key.
@@ -1180,23 +1328,24 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             }
             #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
             self.map.remove(h);
-            dispose_bucket(old, true, defer.as_ref());
+            dispose_bucket(old, defer.as_ref());
             self.extra_bytes = self.extra_bytes.saturating_sub(BUCKET_OVERHEAD);
         } else {
-            // Collision bucket: publish a replacement without the
-            // removed entry (the survivors move over by value), then
-            // dispose of the old shell/buffer plus the removed key.
-            let mut repl: Bucket = Vec::with_capacity(old_len - 1);
-            for i in 0..old_len {
-                if i != at {
-                    // SAFETY: in-bounds move-by-value (see `ins_slot`).
-                    repl.push(unsafe { core::ptr::read(bucket.as_ptr().add(i)) });
+            // Collision bucket: publish a replacement holding copies of
+            // the surviving entries, then dispose of the old bucket, the
+            // removed key included.
+            // SAFETY: as above; `i < old_len` indexes the live bucket.
+            let raw = unsafe {
+                let keys: usize = (0..old_len)
+                    .filter(|&i| i != at)
+                    .map(|i| bucket_key(old, i).len())
+                    .sum();
+                let mut repl = BucketBuilder::new(old_len - 1, keys);
+                for i in (0..old_len).filter(|&i| i != at) {
+                    repl.push(bucket_key(old, i), *bucket_value_ptr(old, i));
                 }
-            }
-            // SAFETY: the removed entry moves out exactly once, here;
-            // the old buffer keeps its bit pattern for pinned readers.
-            let (removed_key, _): Entry = unsafe { core::ptr::read(bucket.as_ptr().add(at)) };
-            let raw = Box::into_raw(Box::new(repl));
+                repl.finish()
+            };
             // Publish the replacement through the engine (bracketed when
             // shared) — this unlinks the old bucket — then retire it.
             #[cfg(all(target_pointer_width = "64", feature = "std"))]
@@ -1208,8 +1357,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
             let prev = self.map.insert(h, raw as u64);
             debug_assert_eq!(prev, Some(word), "bucket word moved mid-remove");
-            dispose_bucket(old, false, defer.as_ref());
-            dispose_key(removed_key, defer.as_ref());
+            dispose_bucket(old, defer.as_ref());
         }
         self.len = self.len.saturating_sub(1);
         self.extra_bytes = self.extra_bytes.saturating_sub(key_len + ENTRY_OVERHEAD);
@@ -1230,10 +1378,13 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         let mut count = 0;
         for (_, word) in self.map.iter() {
             // SAFETY: every trie value is a live bucket owned by this map.
-            let bucket = unsafe { &*(word as *const Bucket) };
-            for (k, v) in bucket {
+            let bucket = word as *const Bucket;
+            // SAFETY: as above; `i < len` indexes the live bucket.
+            for i in 0..unsafe { bucket_len(bucket) } {
                 count += 1;
-                if !f(k, *v) {
+                // SAFETY: as above.
+                let (k, v) = unsafe { (bucket_key(bucket, i), *bucket_value_ptr(bucket, i)) };
+                if !f(k, v) {
                     return count;
                 }
             }
@@ -1258,7 +1409,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         for word in buckets {
             // Each collected word is a live bucket, unlinked above and
             // disposed of (with its keys) exactly once here.
-            dispose_bucket(word as *mut Bucket, true, defer.as_ref());
+            dispose_bucket(word as *mut Bucket, defer.as_ref());
         }
         self.len = 0;
         self.extra_bytes = 0;
@@ -1366,6 +1517,127 @@ mod tests {
     #[test]
     fn model_full_collision() {
         model_run(ExpanseBytesMap::with_hasher(Degenerate), OPS / 4);
+    }
+
+    /// The one-allocation bucket (#1760): every key of a colliding bucket
+    /// is found byte-exactly whatever its length (empty, shorter and longer
+    /// than a word), each value slot is a distinct 8-aligned word inside the
+    /// bucket, the accounting is the bucket's size (header, entries, key
+    /// bytes), and removing from the middle keeps every other entry and its
+    /// value.
+    #[test]
+    fn collision_bucket_layout_round_trips() {
+        let keys: [&[u8]; 7] = [
+            b"",
+            b"a",
+            b"abcdefg",
+            b"abcdefgh",
+            b"abcdefghi",
+            b"/api/v2/tenants/000000/resources/0000",
+            &[0u8; 100],
+        ];
+        let mut m = ExpanseBytesMap::with_hasher(Degenerate);
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(m.insert(k, i as u64 + 1), None, "fresh {k:02x?}");
+        }
+        // A duplicate keeps one entry and replaces only the value.
+        assert_eq!(m.insert(keys[4], 50), Some(5));
+        assert_eq!(m.insert(keys[4], 5), Some(50));
+        assert_eq!(m.len(), keys.len() as u64);
+
+        let key_bytes: usize = keys.iter().map(|k| k.len()).sum();
+        let s = m.stats();
+        assert_eq!(s.buckets, 1);
+        assert_eq!(s.node_bytes.node_shells, size_of::<Bucket>());
+        assert_eq!(
+            s.node_bytes.terminal_bytes,
+            keys.len() * size_of::<Entry>() + key_bytes
+        );
+        assert_eq!(
+            m.mem_used() - m.map.mem_used(),
+            bucket_alloc_size(keys.len(), key_bytes)
+        );
+
+        let mut slots = Vec::new();
+        for (i, k) in keys.iter().enumerate() {
+            let p = m.get_slot_ptr(k).expect("present").as_ptr();
+            assert_eq!(
+                p as usize % align_of::<u64>(),
+                0,
+                "slot of {k:02x?} unaligned"
+            );
+            // SAFETY: a live slot; no mutation since `get_slot_ptr`.
+            assert_eq!(unsafe { *p }, i as u64 + 1);
+            slots.push(p as usize);
+        }
+        slots.sort_unstable();
+        slots.dedup();
+        assert_eq!(slots.len(), keys.len(), "two keys share a value slot");
+        assert_eq!(m.get(b"abcdefgx"), None);
+        assert_eq!(m.get(&[0u8; 99]), None);
+
+        // Remove from the middle, then the ends.
+        for &at in &[3usize, 0, 6] {
+            assert_eq!(m.remove(keys[at]), Some(at as u64 + 1));
+            assert_eq!(m.get(keys[at]), None);
+        }
+        let live: Vec<usize> = vec![1, 2, 4, 5];
+        let live_bytes: usize = live.iter().map(|&i| keys[i].len()).sum();
+        assert_eq!(
+            m.mem_used() - m.map.mem_used(),
+            bucket_alloc_size(live.len(), live_bytes)
+        );
+        let mut seen = Vec::new();
+        m.for_each(|k, v| seen.push((k.to_vec(), v)));
+        seen.sort();
+        let mut want: Vec<(Vec<u8>, u64)> = live
+            .iter()
+            .map(|&i| (keys[i].to_vec(), i as u64 + 1))
+            .collect();
+        want.sort();
+        assert_eq!(seen, want);
+        for &i in &live {
+            assert_eq!(m.remove(keys[i]), Some(i as u64 + 1));
+        }
+        assert!(m.is_empty());
+        assert_eq!(m.mem_used(), 0);
+    }
+
+    /// A bucket's size is read back from its last entry, so the layout
+    /// must end with the keys in entry order; this pins that for every
+    /// entry count a bucket can be built with here.
+    #[test]
+    fn bucket_bytes_reads_back_the_built_size() {
+        for n in 1..=5usize {
+            let keys: Vec<Vec<u8>> = (0..n).map(|i| vec![i as u8; i * 7]).collect();
+            let total: usize = keys.iter().map(Vec::len).sum();
+            let mut b = BucketBuilder::new(n, total);
+            for (i, k) in keys.iter().enumerate() {
+                b.push(k, i as u64);
+            }
+            let raw = b.finish();
+            // SAFETY: a bucket just built and never published.
+            unsafe {
+                assert_eq!(bucket_len(raw), n);
+                assert_eq!(bucket_bytes(raw), bucket_alloc_size(n, total));
+                for (i, k) in keys.iter().enumerate() {
+                    assert_eq!(bucket_key(raw, i), &k[..]);
+                    assert_eq!(*bucket_value_ptr(raw, i), i as u64);
+                }
+                free_bucket(raw);
+            }
+        }
+    }
+
+    /// A builder that is dropped unfinished frees its allocation, and one
+    /// pushed past its declared sizes panics rather than writing out of
+    /// bounds.
+    #[test]
+    #[should_panic(expected = "bucket key bytes exceeded")]
+    fn bucket_builder_rejects_overlong_keys() {
+        let mut b = BucketBuilder::new(2, 3);
+        b.push(b"ab", 1);
+        b.push(b"cd", 2);
     }
 
     /// Phase 7 (issue #219): deferred-mode round trip — single-threaded
