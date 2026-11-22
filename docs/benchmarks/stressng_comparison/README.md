@@ -2209,6 +2209,53 @@ Run 31 is an untimed census of the same processes under `strace -f` on `brk`, `m
 
 **Main against stock moves with the same setting.** (workload: `sng_judy_4m`) This compares runs taken in different sessions, so it is cross-run and not a paired claim. The delete rate M/S reads 0.977 [0.975, 0.979] | 0.976 [0.973, 0.978] at W = 8 and 0.946 [0.939, 0.953] | 0.938 [0.932, 0.944] at W = 4 under the registered settings (runs 11 | 12), and 0.993 [0.992, 0.995] | 0.992 [0.991, 0.994] and 0.999 [0.992, 1.005] | 0.998 [0.991, 1.004] with trimming fixed off (runs 21 | 22). In the default census main's workers give back 67,400 and 131,656 heap pages where stock's give back 19,584 and 13,684. The trim and regrow cost is therefore in main's allocation pattern as well, and the small-array form changes which W draws more of it. Why main's frees trim the heap more often than stock's is not measured here ([#1680](https://github.com/orieg/expanse/issues/1680)).
 
+### Diagnostic: the branch-free rank with 64-byte function alignment, against aligned main (reference host)
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, 2026-11-21; G sha256 `6017deee…71fb`, M `fd8e42f3…77e4`, S `76f121a8…d731`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_branchfree64_ref_run{3,4,11,12,21,22}.json` and `results/diagnostic_branchfree64_counters_ref.txt`) (workloads: `sng_judy_1k`; `sng_judy_256k`; `sng_judy_4m`; `sng_sm_hashjudy_big`; `sng_sm_judy_big`; `sng_sm_judy_default`)
+
+A diagnostic outside both registered records. It moves no bound and changes no verdict, and nothing here is shipped.
+
+- **Arms.** G is the second record's head `8e6d2edc7` with the small block's rank loop written with `core::hint::select_unpredictable` (the replica intervention above; a 21-line local change to `crates/expanse-capi/src/judyl_small.rs` that is not in the repository). M is main `87ca5c134`. Both are built with `RUSTFLAGS="-C llvm-args=-align-all-functions=6"`, so the pair differs in source only. S is stock. `JudyLIns`, `JudyLGet` and `JudyLDel` start on a 64-byte boundary in both. G's unflagged rebuild matched its unflagged library byte for byte; M's aligned library was built on 2026-11-16 and its unflagged control was not repeated for these runs.
+- **Runs.** The run numbers are scratch numbers of the increment driver. Runs 3 and 4 are the full cell list (720 processes each, 26 discarded per run, 05:34:21–05:44:05 and 05:44:05–05:55:03 UTC, max load1 5.27 and 5.01, worst foreign load 0.73 and 0.65 core-equivalents). Runs 11 to 22 restrict the driver to `sng_judy_4m` at W = 8 and W = 4 with `perf stat` on every process, through the host-side wrapper named above (72 processes each, none discarded; 16:03:57–16:05:34, 17:41:19–17:42:55, 17:44:36–17:46:10 and 17:47:51–17:49:26 UTC; max load1 5.33, 4.39, 4.66 and 4.32; worst foreign load 0.28, 0.06, 0.35 and 0.03). Run 12 started with a 15-minute load average of 9.02 left by another job and a 1-minute load of 0.10.
+- **Second host.** Not run.
+
+**Full cell list, G/M, BCa 95%, run 3 | run 4.** The increment reading is FAIL on one cell: `sng_judy_4m` W = 8 delete, upper bound below 0.98 in both runs.
+
+| cell | W | metric | run 3 | run 4 |
+|---|---|---|---|---|
+| `sng_sm_hashjudy_big` | 1 | gets | 2.784 [2.745, 2.801] | 2.808 [2.790, 2.838] |
+| `sng_sm_hashjudy_big` | 1 | puts | 11.348 [11.265, 11.404] | 11.316 [11.243, 11.429] |
+| `sng_sm_hashjudy_big` | 4 | gets | 2.168 [2.158, 2.178] | 2.170 [2.157, 2.180] |
+| `sng_sm_hashjudy_big` | 4 | puts | 9.383 [9.357, 9.412] | 9.402 [9.355, 9.439] |
+| `sng_judy_4m` | 8 | delete | 0.967 [0.963, 0.970] | 0.968 [0.965, 0.971] |
+| `sng_judy_4m` | 8 | insert | 0.984 [0.983, 0.985] | 0.982 [0.980, 0.984] |
+| `sng_judy_4m` | 4 | delete | 1.028 [1.022, 1.034] | 1.033 [1.027, 1.040] |
+| `sng_judy_4m` | 4 | insert | 1.020 [1.013, 1.029] | 1.028 [1.022, 1.037] |
+| `sng_judy_1k` | 8 | find | 0.980 [0.978, 0.982] | 0.981 [0.979, 0.982] |
+| `sng_judy_256k` | 8 | find | 0.982 [0.980, 0.984] | 0.982 [0.980, 0.983] |
+
+- On `sng_sm_hashjudy_big` G is faster than stock on gets and puts in both runs, where M is slower. `sng_sm_hashjudy_default` has no interval: its processes are too short for 8 valid rounds.
+- The `find` rate reads 0.971 to 0.989 on `sng_judy_1k` and `sng_judy_256k` at every W, with every upper bound at or below 0.995; the cause is unmeasured. The remaining cells are in the artifacts.
+
+**The W = 8 delete loss follows the page faults, and goes with them.** (workload: `sng_judy_4m`) Runs 11 and 12 use the registered harness settings; runs 21 and 22 set `MALLOC_TRIM_THRESHOLD_=1073741824` and `MALLOC_MMAP_THRESHOLD_=131072` in every arm, stock included. Counters are whole-process. G/M at W = 8, BCa 95% (the page-fault intervals are degenerate, the count being the same in every process of an arm):
+
+| | run 11 | run 12 | run 21 (trimming off) | run 22 (trimming off) |
+|---|---|---|---|---|
+| delete rate | 0.969 [0.967, 0.971] | 0.963 [0.961, 0.965] | 0.998 [0.996, 1.000] | 0.997 [0.995, 0.998] |
+| insert rate | 0.983 [0.980, 0.987] | 0.978 [0.975, 0.980] | 1.008 [1.006, 1.011] | 1.005 [1.004, 1.007] |
+| find rate | 1.000 [0.998, 1.002] | 0.998 [0.995, 1.000] | 1.001 [1.000, 1.003] | 1.000 [0.999, 1.001] |
+| page faults | 1.413 | 1.485 | 1.000 | 1.000 |
+| kernel cycles | 1.643 [1.631, 1.655] | 1.691 [1.682, 1.702] | 0.990 [0.981, 0.998] | 0.997 [0.990, 1.006] |
+| user cycles | 1.002 [1.000, 1.003] | 1.003 [1.001, 1.004] | 0.999 [0.998, 1.000] | 0.999 [0.998, 1.000] |
+
+- Page faults per process tree at W = 8 read G 286,930, M 203,048, S 149,642 in run 11 and G 327,141, M 220,233, S 155,907 in run 12. With trimming off they read 139,867, 139,934 and 140,343 (run 21).
+- With trimming off the delete loss is 0.2% to 0.3%, where the second record's head left 2.0% to 2.1% under the same settings (0.980 | 0.979 above). Those are different runs and different G builds; whether the branch-free rank or the alignment removed the difference is not separated. The cause of the remaining 0.2% to 0.3% is unmeasured.
+- The loss under the registered settings is therefore the trim and regrow cost of the section above, drawn more often by G than by M at W = 8. The registered settings are the suite's, and the reading under them stays FAIL.
+
+**W = 4 does not reproduce between runs.** (workload: `sng_judy_4m`) M's page faults per process tree read 160,281 in run 11 and 97,440 in run 12, G's 110,316 and 108,230, so G/M reads 0.688 and 1.111. The delete rate G/M reads 1.029 [1.022, 1.036] and 1.001 [0.993, 1.007], and the insert rate 1.025 [1.018, 1.033] and 0.997 [0.990, 1.004]. The 2.8% to 3.3% delete gain of runs 3 and 4 at W = 4 is therefore M's trimming on those runs and is not a property of G. With trimming off the delete rate reads 1.009 [1.002, 1.015] | 1.004 [0.997, 1.012]. What moved M's fault count between two runs of the same command is not established.
+
+**Against stock, cross-arm in the same runs.** (workload: `sng_judy_4m`) Under the registered settings G faults 1.917× and 2.098× stock's count at W = 8 and its delete rate G/S reads 0.942 [0.941, 0.943] | 0.928 [0.926, 0.930]. With trimming off G/S reads 0.988 [0.986, 0.990] | 0.987 [0.986, 0.988] at W = 8 and 0.997 [0.990, 1.003] | 0.997 [0.990, 1.004] at W = 4. Whether removing main's excess trimming ([#1680](https://github.com/orieg/expanse/issues/1680)) would clear the W = 8 cell for this form is unmeasured.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
