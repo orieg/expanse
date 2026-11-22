@@ -610,10 +610,11 @@ pub unsafe extern "C" fn JudyLByCount(
         if nth == 0 {
             return null_mut();
         }
-        match map.by_count(nth as u64 - 1) {
-            Some((k, _)) => {
+        // One select returns the key and its value slot.
+        match map.by_count_slot(nth as u64 - 1) {
+            Some((k, slot)) => {
                 *pindex = k as Word;
-                slot_ptr(map.get_slot_ptr(k))
+                slot.as_ptr().cast()
             }
             None => null_mut(),
         }
@@ -638,10 +639,11 @@ macro_rules! judyl_nav {
                 let Some(map) = map_handle(parray) else {
                     return null_mut();
                 };
+                // One search returns the key and its value slot.
                 match map.$method(*pindex as u64) {
-                    Some((k, _)) => {
+                    Some((k, slot)) => {
                         *pindex = k as Word;
-                        slot_ptr(map.get_slot_ptr(k))
+                        slot.as_ptr().cast()
                     }
                     // A miss on a non-empty array leaves the index one
                     // step past the probe in the search direction,
@@ -659,25 +661,25 @@ macro_rules! judyl_nav {
 
 judyl_nav!(
     JudyLFirst,
-    next_at_or_after,
+    next_at_or_after_slot,
     wrapping_add,
     "Smallest key >= *pindex; returns its value slot."
 );
 judyl_nav!(
     JudyLNext,
-    next_after,
+    next_after_slot,
     wrapping_add,
     "Smallest key > *pindex; returns its value slot."
 );
 judyl_nav!(
     JudyLLast,
-    prev_at_or_before,
+    prev_at_or_before_slot,
     wrapping_sub,
     "Largest key <= *pindex; returns its value slot."
 );
 judyl_nav!(
     JudyLPrev,
-    prev_before,
+    prev_before_slot,
     wrapping_sub,
     "Largest key < *pindex; returns its value slot."
 );

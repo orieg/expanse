@@ -122,14 +122,106 @@ unsafe fn leaf_suffix<const MAP: bool>(edge: &Edge, kb: u8, pop: usize, slot: us
     unsafe { crate::mutate::read_packed(keys, slot, kb as usize) }
 }
 
-/// Value at `slot` of a map linear leaf.
+/// What a navigation walk hands back for a found map entry: its value
+/// ([`Val`], the engine's ordered reads) or a writable pointer to its value
+/// slot ([`Slot`], the compat layer's `JudyLFirst`/`Next`/`Last`/`Prev`/
+/// `ByCount`, which return the slot of the key they find). One walk serves
+/// both; each flavour is its own instantiation, so the value walk reads the
+/// value where it always did.
+pub(crate) trait Hit {
+    /// The per-entry result.
+    type Out: Copy;
+    /// The result a set-flavour walk returns (sets carry no values).
+    const NONE: Self::Out;
+    /// The entry at `slot` of a map immediate.
+    ///
+    /// # Safety
+    ///
+    /// `ep` points at a live map immediate edge reached through raw
+    /// pointers from the tree's node allocations; multi-key immediates
+    /// hold a live value array in word 0.
+    unsafe fn immed(ep: *const Edge, im: crate::types::ImmedType, slot: usize) -> Self::Out;
+    /// The entry whose value word is at `p`.
+    ///
+    /// # Safety
+    ///
+    /// `p` points at a live value word, derived from a stored node or
+    /// value-array pointer.
+    unsafe fn at(p: *mut u64) -> Self::Out;
+}
+
+/// [`Hit`] returning the value.
+pub(crate) enum Val {}
+
+impl Hit for Val {
+    type Out = u64;
+    const NONE: u64 = 0;
+    #[inline(always)]
+    unsafe fn immed(ep: *const Edge, im: crate::types::ImmedType, slot: usize) -> u64 {
+        // SAFETY: this trait method's contract.
+        unsafe { immed_value(&*ep, im, slot) }
+    }
+    #[inline(always)]
+    unsafe fn at(p: *mut u64) -> u64 {
+        // SAFETY: this trait method's contract.
+        unsafe { *p }
+    }
+}
+
+/// [`Hit`] returning a writable pointer to the value slot — the pointer
+/// `get::locate_slot` would return for the same key, valid until the next
+/// structural mutation (the classic JudyL slot contract). Every pointer it
+/// returns is derived from raw node pointers, never from a shared
+/// reference, so writes through it are sound.
+pub(crate) enum Slot {}
+
+impl Hit for Slot {
+    type Out = *mut u64;
+    const NONE: *mut u64 = core::ptr::null_mut();
+    #[inline(always)]
+    unsafe fn immed(ep: *const Edge, im: crate::types::ImmedType, slot: usize) -> *mut u64 {
+        if im.key_count() == 1 {
+            // Word 0 (offset 0 of the edge) is the value itself, as in
+            // `get::locate_slot`.
+            ep.cast_mut().cast::<u64>()
+        } else {
+            // SAFETY: live value array of key_count values per contract.
+            unsafe { (*ep).node_ptr().cast::<u64>().add(slot) }
+        }
+    }
+    #[inline(always)]
+    unsafe fn at(p: *mut u64) -> *mut u64 {
+        p
+    }
+}
+
+/// The child-edge array of a linear branch, derived from the stored node
+/// pointer so slots below it keep the node allocation's provenance.
 ///
 /// # Safety
 ///
-/// The edge must reference a live map leaf of at least `slot + 1` values.
-unsafe fn leaf_value(edge: &Edge, slot: usize) -> u64 {
-    // SAFETY: values sit at the front of the map-leaf allocation.
-    unsafe { *edge.node_ptr().cast::<u64>().add(slot) }
+/// `edge` references a live `BranchL3` (`l3`) or `BranchL7`.
+#[inline(always)]
+unsafe fn linear_branch_parts(edge: &Edge, l3: bool) -> (usize, [u8; 8], *const Edge) {
+    // SAFETY: live branch per contract; the header is read by value and
+    // the edge array's address is taken without a reference.
+    unsafe {
+        if l3 {
+            let b = edge.node_ptr().cast::<BranchL3>();
+            (
+                (*b).hdr.num as usize,
+                (*b).hdr.digits,
+                (&raw const (*b).edges).cast::<Edge>(),
+            )
+        } else {
+            let b = edge.node_ptr().cast::<BranchL7>();
+            (
+                (*b).hdr.num as usize,
+                (*b).hdr.digits,
+                (&raw const (*b).edges).cast::<Edge>(),
+            )
+        }
+    }
 }
 
 /// Smallest key `>= suffix` in the subtree, with its value (0 for sets).
@@ -137,11 +229,44 @@ unsafe fn leaf_value(edge: &Edge, slot: usize) -> u64 {
 /// # Safety
 ///
 /// Same tree contract as `get::test_set`, for the matching flavor.
+#[inline(always)]
 pub(crate) unsafe fn next<const MAP: bool>(
     edge: &Edge,
     suffix: u64,
     level: u8,
 ) -> Option<(u64, u64)> {
+    // SAFETY: forwarded contract.
+    unsafe { next_hit::<MAP, Val>(edge, suffix, level) }
+}
+
+/// [`next`] returning the found entry's value slot (map flavor).
+///
+/// # Safety
+///
+/// As [`next`]; `edge` must carry write provenance for the slot to be
+/// written through (see [`Slot`]).
+#[inline(always)]
+pub(crate) unsafe fn next_slot(
+    edge: *const Edge,
+    suffix: u64,
+    level: u8,
+) -> Option<(u64, *mut u64)> {
+    // SAFETY: forwarded contract.
+    unsafe { next_hit::<true, Slot>(edge, suffix, level) }
+}
+
+/// The walk behind [`next`] and [`next_slot`].
+///
+/// # Safety
+///
+/// As [`next`].
+unsafe fn next_hit<const MAP: bool, H: Hit>(
+    ep: *const Edge,
+    suffix: u64,
+    level: u8,
+) -> Option<(u64, H::Out)> {
+    // SAFETY: live edge per contract.
+    let edge = unsafe { &*ep };
     debug_assert!((1..=8).contains(&level));
     debug_assert!(level == 8 || suffix < pow256(level));
     match edge.tag().expect("valid edge tag") {
@@ -153,9 +278,9 @@ pub(crate) unsafe fn next<const MAP: bool>(
             let k = *keys.get(slot)?;
             let v = if MAP {
                 // SAFETY: live map immediate per contract.
-                unsafe { immed_value(edge, im, slot) }
+                unsafe { H::immed(ep, im, slot) }
             } else {
-                0
+                H::NONE
             };
             Some((k, v))
         }
@@ -205,9 +330,9 @@ pub(crate) unsafe fn next<const MAP: bool>(
             let k = unsafe { crate::mutate::read_packed(keys, slot, kb as usize) };
             let v = if MAP {
                 // SAFETY: map leaves hold pop values at the base.
-                unsafe { *base.cast::<u64>().add(slot) }
+                unsafe { H::at(base.cast::<u64>().add(slot)) }
             } else {
-                0
+                H::NONE
             };
             Some(((dv << shift) | k, v))
         }
@@ -229,14 +354,14 @@ pub(crate) unsafe fn next<const MAP: bool>(
                 let sub = (d >> 5) as usize;
                 let rank = node.bitmap.subexpanse_rank(d) as usize;
                 // SAFETY: bit set → value subarray holds rank + 1 values.
-                let v = unsafe { *node.values[sub].add(rank) };
+                let v = unsafe { H::at(node.values[sub].add(rank)) };
                 Some(((dv << shift) | u64::from(d), v))
             } else {
                 // SAFETY: live LeafBitmap1 per contract.
                 let node = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
                 Some((
                     (dv << shift) | u64::from(node.bitmap.next_set(suffix as u8)?),
-                    0,
+                    H::NONE,
                 ))
             }
         }
@@ -244,7 +369,7 @@ pub(crate) unsafe fn next<const MAP: bool>(
         EdgeTag::Structural(EdgeType::FullExpanse) => {
             debug_assert!(!MAP);
             // Every key in the expanse is present.
-            Some((suffix, 0))
+            Some((suffix, H::NONE))
         }
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
@@ -269,22 +394,15 @@ pub(crate) unsafe fn next<const MAP: bool>(
             };
             let d = digit(suffix, bl);
             // SAFETY: live branch per contract.
-            let (num, digits, edges_ptr) = unsafe {
-                if matches!(t, EdgeType::BranchL3) {
-                    let b = &*edge.node_ptr().cast::<BranchL3>();
-                    (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
-                } else {
-                    let b = &*edge.node_ptr().cast::<BranchL7>();
-                    (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
-                }
-            };
+            let (num, digits, edges_ptr) =
+                unsafe { linear_branch_parts(edge, matches!(t, EdgeType::BranchL3)) };
             let start = digits[..num].partition_point(|&bd| bd < d);
             for (slot, &bd) in digits.iter().enumerate().take(num).skip(start) {
                 let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
                 // SAFETY: slot < num live child edges.
-                let child = unsafe { &*edges_ptr.add(slot) };
+                let child = unsafe { edges_ptr.add(slot) };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { next::<MAP>(child, rem, bl - 1) } {
+                if let Some((r, v)) = unsafe { next_hit::<MAP, H>(child, rem, bl - 1) } {
                     return Some(((dv << shift) | compose(bd, r, bl), v));
                 }
             }
@@ -320,9 +438,9 @@ pub(crate) unsafe fn next<const MAP: bool>(
                 let sub = (bd >> 5) as usize;
                 let rank = b.bitmap.subexpanse_rank(bd) as usize;
                 // SAFETY: bit set → subarray holds rank + 1 edges.
-                let child = unsafe { &*b.subarrays[sub].add(rank) };
+                let child = unsafe { b.subarrays[sub].add(rank).cast_const() };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { next::<MAP>(child, rem, bl - 1) } {
+                if let Some((r, v)) = unsafe { next_hit::<MAP, H>(child, rem, bl - 1) } {
                     return Some(((dv << shift) | compose(bd, r, bl), v));
                 }
                 cur = if bd == 255 {
@@ -336,11 +454,15 @@ pub(crate) unsafe fn next<const MAP: bool>(
 
         EdgeTag::Structural(EdgeType::BranchU) => {
             let d = digit(suffix, level);
-            // SAFETY: live BranchU per contract.
-            let b = unsafe { &*edge.node_ptr().cast::<BranchU>() };
+            // SAFETY: live BranchU per contract; the edge array's address
+            // is taken from the stored node pointer, without a reference.
+            let edges =
+                unsafe { (&raw const (*edge.node_ptr().cast::<BranchU>()).edges).cast::<Edge>() };
             for bd in d..=255u8 {
-                let child = &b.edges[bd as usize];
-                if child.is_null() {
+                // SAFETY: a BranchU holds 256 live child edges.
+                let child = unsafe { edges.add(bd as usize) };
+                // SAFETY: as above.
+                if unsafe { (*child).is_null() } {
                     continue;
                 }
                 let rem = if bd == d {
@@ -349,7 +471,7 @@ pub(crate) unsafe fn next<const MAP: bool>(
                     0
                 };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { next::<MAP>(child, rem, level - 1) } {
+                if let Some((r, v)) = unsafe { next_hit::<MAP, H>(child, rem, level - 1) } {
                     return Some((compose(bd, r, level), v));
                 }
             }
@@ -363,11 +485,43 @@ pub(crate) unsafe fn next<const MAP: bool>(
 /// # Safety
 ///
 /// Same contract as [`next`].
+#[inline(always)]
 pub(crate) unsafe fn prev<const MAP: bool>(
     edge: &Edge,
     suffix: u64,
     level: u8,
 ) -> Option<(u64, u64)> {
+    // SAFETY: forwarded contract.
+    unsafe { prev_hit::<MAP, Val>(edge, suffix, level) }
+}
+
+/// [`prev`] returning the found entry's value slot (map flavor).
+///
+/// # Safety
+///
+/// As [`next_slot`].
+#[inline(always)]
+pub(crate) unsafe fn prev_slot(
+    edge: *const Edge,
+    suffix: u64,
+    level: u8,
+) -> Option<(u64, *mut u64)> {
+    // SAFETY: forwarded contract.
+    unsafe { prev_hit::<true, Slot>(edge, suffix, level) }
+}
+
+/// The walk behind [`prev`] and [`prev_slot`].
+///
+/// # Safety
+///
+/// As [`next`].
+unsafe fn prev_hit<const MAP: bool, H: Hit>(
+    ep: *const Edge,
+    suffix: u64,
+    level: u8,
+) -> Option<(u64, H::Out)> {
+    // SAFETY: live edge per contract.
+    let edge = unsafe { &*ep };
     debug_assert!((1..=8).contains(&level));
     debug_assert!(level == 8 || suffix < pow256(level));
     match edge.tag().expect("valid edge tag") {
@@ -378,9 +532,9 @@ pub(crate) unsafe fn prev<const MAP: bool>(
             let slot = keys.partition_point(|&k| k <= suffix).checked_sub(1)?;
             let v = if MAP {
                 // SAFETY: live map immediate per contract.
-                unsafe { immed_value(edge, im, slot) }
+                unsafe { H::immed(ep, im, slot) }
             } else {
-                0
+                H::NONE
             };
             Some((keys[slot], v))
         }
@@ -432,9 +586,9 @@ pub(crate) unsafe fn prev<const MAP: bool>(
             let k = unsafe { crate::mutate::read_packed(keys, slot, kb as usize) };
             let v = if MAP {
                 // SAFETY: map leaves hold pop values at the base.
-                unsafe { *base.cast::<u64>().add(slot) }
+                unsafe { H::at(base.cast::<u64>().add(slot)) }
             } else {
-                0
+                H::NONE
             };
             Some(((dv << shift) | k, v))
         }
@@ -453,18 +607,21 @@ pub(crate) unsafe fn prev<const MAP: bool>(
                 let sub = (d >> 5) as usize;
                 let rank = node.bitmap.subexpanse_rank(d) as usize;
                 // SAFETY: bit set → value subarray holds rank + 1 values.
-                let v = unsafe { *node.values[sub].add(rank) };
+                let v = unsafe { H::at(node.values[sub].add(rank)) };
                 Some(((dv << shift) | u64::from(d), v))
             } else {
                 // SAFETY: live LeafBitmap1 per contract.
                 let node = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
-                Some(((dv << shift) | u64::from(node.bitmap.prev_set(from)?), 0))
+                Some((
+                    (dv << shift) | u64::from(node.bitmap.prev_set(from)?),
+                    H::NONE,
+                ))
             }
         }
 
         EdgeTag::Structural(EdgeType::FullExpanse) => {
             debug_assert!(!MAP);
-            Some((suffix.min(pow256(level) - 1), 0))
+            Some((suffix.min(pow256(level) - 1), H::NONE))
         }
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
@@ -489,15 +646,8 @@ pub(crate) unsafe fn prev<const MAP: bool>(
             };
             let d = digit(suffix, bl);
             // SAFETY: live branch per contract.
-            let (num, digits, edges_ptr) = unsafe {
-                if matches!(t, EdgeType::BranchL3) {
-                    let b = &*edge.node_ptr().cast::<BranchL3>();
-                    (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
-                } else {
-                    let b = &*edge.node_ptr().cast::<BranchL7>();
-                    (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
-                }
-            };
+            let (num, digits, edges_ptr) =
+                unsafe { linear_branch_parts(edge, matches!(t, EdgeType::BranchL3)) };
             let bound = digits[..num].partition_point(|&bd| bd <= d);
             for (slot, &bd) in digits.iter().enumerate().take(bound).rev() {
                 let rem = if bd == d {
@@ -506,9 +656,9 @@ pub(crate) unsafe fn prev<const MAP: bool>(
                     pow256(bl - 1) - 1
                 };
                 // SAFETY: slot < num live child edges.
-                let child = unsafe { &*edges_ptr.add(slot) };
+                let child = unsafe { edges_ptr.add(slot) };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { prev::<MAP>(child, rem, bl - 1) } {
+                if let Some((r, v)) = unsafe { prev_hit::<MAP, H>(child, rem, bl - 1) } {
                     return Some(((dv << shift) | compose(bd, r, bl), v));
                 }
             }
@@ -548,9 +698,9 @@ pub(crate) unsafe fn prev<const MAP: bool>(
                 let sub = (bd >> 5) as usize;
                 let rank = b.bitmap.subexpanse_rank(bd) as usize;
                 // SAFETY: bit set → subarray holds rank + 1 edges.
-                let child = unsafe { &*b.subarrays[sub].add(rank) };
+                let child = unsafe { b.subarrays[sub].add(rank).cast_const() };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { prev::<MAP>(child, rem, bl - 1) } {
+                if let Some((r, v)) = unsafe { prev_hit::<MAP, H>(child, rem, bl - 1) } {
                     return Some(((dv << shift) | compose(bd, r, bl), v));
                 }
                 cur = if bd == 0 {
@@ -564,11 +714,15 @@ pub(crate) unsafe fn prev<const MAP: bool>(
 
         EdgeTag::Structural(EdgeType::BranchU) => {
             let d = digit(suffix, level);
-            // SAFETY: live BranchU per contract.
-            let b = unsafe { &*edge.node_ptr().cast::<BranchU>() };
+            // SAFETY: live BranchU per contract; the edge array's address
+            // is taken from the stored node pointer, without a reference.
+            let edges =
+                unsafe { (&raw const (*edge.node_ptr().cast::<BranchU>()).edges).cast::<Edge>() };
             for bd in (0..=d).rev() {
-                let child = &b.edges[bd as usize];
-                if child.is_null() {
+                // SAFETY: a BranchU holds 256 live child edges.
+                let child = unsafe { edges.add(bd as usize) };
+                // SAFETY: as above.
+                if unsafe { (*child).is_null() } {
                     continue;
                 }
                 let rem = if bd == d {
@@ -577,7 +731,7 @@ pub(crate) unsafe fn prev<const MAP: bool>(
                     pow256(level - 1) - 1
                 };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { prev::<MAP>(child, rem, level - 1) } {
+                if let Some((r, v)) = unsafe { prev_hit::<MAP, H>(child, rem, level - 1) } {
                     return Some((compose(bd, r, level), v));
                 }
             }
@@ -985,7 +1139,35 @@ pub(crate) unsafe fn count_range<const MAP: bool>(
 /// # Safety
 ///
 /// Same contract as [`next`].
+#[inline(always)]
 pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -> (u64, u64) {
+    // SAFETY: forwarded contract.
+    unsafe { by_count_hit::<MAP, Val>(edge, n, level) }
+}
+
+/// [`by_count`] returning the selected entry's value slot (map flavor).
+///
+/// # Safety
+///
+/// As [`next_slot`]; `n` is below the subtree population.
+#[inline(always)]
+pub(crate) unsafe fn by_count_slot(edge: *const Edge, n: u64, level: u8) -> (u64, *mut u64) {
+    // SAFETY: forwarded contract.
+    unsafe { by_count_hit::<true, Slot>(edge, n, level) }
+}
+
+/// The walk behind [`by_count`] and [`by_count_slot`].
+///
+/// # Safety
+///
+/// As [`by_count`].
+unsafe fn by_count_hit<const MAP: bool, H: Hit>(
+    ep: *const Edge,
+    n: u64,
+    level: u8,
+) -> (u64, H::Out) {
+    // SAFETY: live edge per contract.
+    let edge = unsafe { &*ep };
     debug_assert!((1..=8).contains(&level));
     match edge.tag().expect("valid edge tag") {
         EdgeTag::Structural(EdgeType::Null) => unreachable!("select into empty subtree"),
@@ -994,9 +1176,9 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
             let keys = immed_suffixes::<MAP>(edge, im);
             let v = if MAP {
                 // SAFETY: live map immediate per contract.
-                unsafe { immed_value(edge, im, n as usize) }
+                unsafe { H::immed(ep, im, n as usize) }
             } else {
-                0
+                H::NONE
             };
             (keys[n as usize], v)
         }
@@ -1018,9 +1200,9 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
             let k = unsafe { leaf_suffix::<MAP>(edge, kb, pop, n as usize) };
             let v = if MAP {
                 // SAFETY: map leaves hold pop values at the base.
-                unsafe { leaf_value(edge, n as usize) }
+                unsafe { H::at(edge.node_ptr().cast::<u64>().add(n as usize)) }
             } else {
-                0
+                H::NONE
             };
             ((dv << shift) | k, v)
         }
@@ -1036,9 +1218,9 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
                 let sub = (d >> 5) as usize;
                 let rank = node.bitmap.subexpanse_rank(d) as usize;
                 // SAFETY: bit set → value subarray holds rank + 1 values.
-                unsafe { *node.values[sub].add(rank) }
+                unsafe { H::at(node.values[sub].add(rank)) }
             } else {
-                0
+                H::NONE
             };
             ((dv << shift) | u64::from(d), v)
         }
@@ -1046,7 +1228,7 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
         EdgeTag::Structural(EdgeType::FullExpanse) => {
             debug_assert!(!MAP);
             debug_assert!(n < pow256(level));
-            (n, 0)
+            (n, H::NONE)
         }
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
@@ -1061,24 +1243,17 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
                 (0, 0)
             };
             // SAFETY: live branch per contract.
-            let (num, digits, edges_ptr) = unsafe {
-                if matches!(t, EdgeType::BranchL3) {
-                    let b = &*edge.node_ptr().cast::<BranchL3>();
-                    (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
-                } else {
-                    let b = &*edge.node_ptr().cast::<BranchL7>();
-                    (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
-                }
-            };
+            let (num, digits, edges_ptr) =
+                unsafe { linear_branch_parts(edge, matches!(t, EdgeType::BranchL3)) };
             let mut n = n;
             for (slot, &bd) in digits.iter().enumerate().take(num) {
                 // SAFETY: slot < num live child edges.
-                let child = unsafe { &*edges_ptr.add(slot) };
+                let child = unsafe { edges_ptr.add(slot) };
                 // SAFETY: live child per contract.
-                let pop = unsafe { edge_pop(child, bl - 1) };
+                let pop = unsafe { edge_pop(&*child, bl - 1) };
                 if n < pop {
                     // SAFETY: child subtree per contract.
-                    let (r, v) = unsafe { by_count::<MAP>(child, n, bl - 1) };
+                    let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, bl - 1) };
                     return ((dv << shift) | compose(bd, r, bl), v);
                 }
                 n -= pop;
@@ -1105,12 +1280,12 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
                 let sub = (bd >> 5) as usize;
                 let rank = b.bitmap.subexpanse_rank(bd) as usize;
                 // SAFETY: bit set → subarray holds rank + 1 edges.
-                let child = unsafe { &*b.subarrays[sub].add(rank) };
+                let child = unsafe { b.subarrays[sub].add(rank).cast_const() };
                 // SAFETY: live child per contract.
-                let pop = unsafe { edge_pop(child, bl - 1) };
+                let pop = unsafe { edge_pop(&*child, bl - 1) };
                 if n < pop {
                     // SAFETY: child subtree per contract.
-                    let (r, v) = unsafe { by_count::<MAP>(child, n, bl - 1) };
+                    let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, bl - 1) };
                     return ((dv << shift) | compose(bd, r, bl), v);
                 }
                 n -= pop;
@@ -1124,19 +1299,23 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
         }
 
         EdgeTag::Structural(EdgeType::BranchU) => {
-            // SAFETY: live BranchU per contract.
-            let b = unsafe { &*edge.node_ptr().cast::<BranchU>() };
+            // SAFETY: live BranchU per contract; the edge array's address
+            // is taken from the stored node pointer, without a reference.
+            let edges =
+                unsafe { (&raw const (*edge.node_ptr().cast::<BranchU>()).edges).cast::<Edge>() };
             let mut n = n;
             for bd in 0..=255u8 {
-                let child = &b.edges[bd as usize];
-                if child.is_null() {
+                // SAFETY: a BranchU holds 256 live child edges.
+                let child = unsafe { edges.add(bd as usize) };
+                // SAFETY: as above.
+                if unsafe { (*child).is_null() } {
                     continue;
                 }
                 // SAFETY: live child per contract.
-                let pop = unsafe { edge_pop(child, level - 1) };
+                let pop = unsafe { edge_pop(&*child, level - 1) };
                 if n < pop {
                     // SAFETY: child subtree per contract.
-                    let (r, v) = unsafe { by_count::<MAP>(child, n, level - 1) };
+                    let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, level - 1) };
                     return (compose(bd, r, level), v);
                 }
                 n -= pop;
