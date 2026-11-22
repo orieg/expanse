@@ -41,6 +41,29 @@ unsafe fn edge_pop(edge: &Edge, level: u8) -> u64 {
     unsafe { edge_pop_inline(edge, level) }
 }
 
+/// [`edge_pop`] with the two terminal forms a select passes most often
+/// decoded from the raw tag byte, inline: a linear leaf (`0x05..=0x0B`, its
+/// `pop0` at its own key width) and an immediate (every tag from `0x10` but
+/// the set-only `0x7F`, its count in the low nibble). Every other form goes
+/// to the out-of-line [`edge_pop`].
+///
+/// # Safety
+///
+/// As [`edge_pop`].
+#[inline(always)]
+unsafe fn edge_pop_fast(edge: &Edge, level: u8) -> u64 {
+    let t = edge.tag_byte();
+    if (0x05..=0x0B).contains(&t) {
+        edge.pop0(t - 0x04) + 1
+    } else if t >= 0x10 && t != 0x7F {
+        debug_assert!(matches!(edge.tag(), Some(EdgeTag::Immed(_))));
+        u64::from(t & 0x0F) + 1
+    } else {
+        // SAFETY: this function's contract.
+        unsafe { edge_pop(edge, level) }
+    }
+}
+
 /// [`edge_pop`] for the loops that sum a branch's children, inlined into
 /// them.
 ///
@@ -1325,7 +1348,7 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
                     // SAFETY: slot < num live child edges.
                     let child = unsafe { edges_ptr.add(slot) };
                     // SAFETY: live child per contract.
-                    let pop = unsafe { edge_pop(&*child, bl - 1) };
+                    let pop = unsafe { edge_pop_fast(&*child, bl - 1) };
                     if n < pop {
                         // SAFETY: child subtree per contract.
                         let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, bl - 1, 0) };
@@ -1340,7 +1363,7 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
                     // SAFETY: slot < num live child edges.
                     let child = unsafe { edges_ptr.add(slot) };
                     // SAFETY: live child per contract.
-                    let pop = unsafe { edge_pop(&*child, bl - 1) };
+                    let pop = unsafe { edge_pop_fast(&*child, bl - 1) };
                     if m < pop {
                         // SAFETY: child subtree per contract; pop - 1 - m < pop.
                         let (r, v) =
@@ -1376,7 +1399,7 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
                     // SAFETY: bit set → subarray holds rank + 1 edges.
                     let child = unsafe { b.subarrays[sub].add(rank).cast_const() };
                     // SAFETY: live child per contract.
-                    let pop = unsafe { edge_pop(&*child, bl - 1) };
+                    let pop = unsafe { edge_pop_fast(&*child, bl - 1) };
                     if n < pop {
                         // SAFETY: child subtree per contract.
                         let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, bl - 1, 0) };
@@ -1399,7 +1422,7 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
                     // SAFETY: bit set → subarray holds rank + 1 edges.
                     let child = unsafe { b.subarrays[sub].add(rank).cast_const() };
                     // SAFETY: live child per contract.
-                    let pop = unsafe { edge_pop(&*child, bl - 1) };
+                    let pop = unsafe { edge_pop_fast(&*child, bl - 1) };
                     if m < pop {
                         // SAFETY: child subtree per contract; pop - 1 - m < pop.
                         let (r, v) =
@@ -1437,7 +1460,7 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
                         continue;
                     }
                     // SAFETY: live child per contract.
-                    let pop = unsafe { edge_pop(&*child, level - 1) };
+                    let pop = unsafe { edge_pop_fast(&*child, level - 1) };
                     if n < pop {
                         // SAFETY: child subtree per contract.
                         let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, level - 1, 0) };
@@ -1456,7 +1479,7 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
                         continue;
                     }
                     // SAFETY: live child per contract.
-                    let pop = unsafe { edge_pop(&*child, level - 1) };
+                    let pop = unsafe { edge_pop_fast(&*child, level - 1) };
                     if m < pop {
                         // SAFETY: child subtree per contract; pop - 1 - m < pop.
                         let (r, v) =
