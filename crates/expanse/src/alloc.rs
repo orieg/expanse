@@ -384,7 +384,15 @@ const fn is_slab_class(class: usize) -> bool {
     CLASS_SPECS[class].0 <= 256
 }
 
-pub(crate) const NUM_CLASSES: usize = 62;
+pub(crate) const NUM_CLASSES: usize = 63;
+
+/// The class of a 64-bit `BranchU` (4,160 bytes at a cache line): the last
+/// entry of [`CLASS_SPECS`]. Above the slab ceiling, so each block is its own
+/// system allocation and a freed one waits on the class freelist for the next
+/// upgrade, until [`NodeAlloc::release_free`] or the drop (Refs #1680).
+const BRANCH_U_CLASS: usize = NUM_CLASSES - 1;
+const _: () =
+    assert!(CLASS_SPECS[BRANCH_U_CLASS].0 == 4160 && CLASS_SPECS[BRANCH_U_CLASS].1 == CACHE_LINE);
 
 pub(crate) const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
     (32, CACHE_LINE),
@@ -449,6 +457,7 @@ pub(crate) const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
     (325, RAW_ALIGN),
     (350, RAW_ALIGN),
     (375, RAW_ALIGN),
+    (4160, CACHE_LINE),
 ];
 
 const NO_CLASS: u8 = 0xFF;
@@ -538,6 +547,7 @@ pub(crate) fn class_for(bytes: usize, align: usize) -> Option<usize> {
             128 => Some(3),
             256 => Some(4),
             2048 => Some(5),
+            4160 => Some(BRANCH_U_CLASS),
             _ => None,
         }
     } else {
@@ -2764,7 +2774,7 @@ mod tests {
             (376, RAW_ALIGN),
             (1000, RAW_ALIGN),
             (192, CACHE_LINE),
-            (4160, CACHE_LINE),
+            (4096, CACHE_LINE),
         ];
         for &(bytes, align) in &unclassed {
             assert_eq!(class_for(bytes, align), None, "({bytes}, {align})");
