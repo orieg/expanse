@@ -85,6 +85,10 @@ BENCH_N_MAP: Dict[str, int] = {
     "map_range_cursor_scan": 50_000,
     "map_count_below": 50_000,
     "set_count_below": 50_000,
+    # Inclusive range counts (`count_range`): one call per range, 50k ranges
+    # in every cell (`short`, `pair` and `whole` shapes).
+    "map_count_range": 50_000,
+    "set_count_range": 50_000,
     "blobmap32_scan": 2_000,
     # Mutations & Churn
     "map_insert": 50_000,
@@ -543,6 +547,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_map_scan",
             "map_count_below",
             "set_count_below",
+            "map_count_range",
+            "set_count_range",
             "sync_map_count_locked",
             "sync_map_count_after_write",
             "blobmap32_scan",
