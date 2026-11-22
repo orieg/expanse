@@ -3829,7 +3829,9 @@ impl MapCore {
                 keys.partition_point(|&k| k < key) as u64
             }
             // SAFETY: trie maintained/owned by this map's engine.
-            Root::Tree { top, .. } => unsafe { crate::nav::count_below::<true>(top, key, 8) },
+            Root::Tree { top, .. } => unsafe {
+                crate::nav::count_below::<true>(top, key, 8, self.tree_pop)
+            },
         }
     }
 
@@ -3842,7 +3844,17 @@ impl MapCore {
         if a > b {
             return 0;
         }
-        self.count_below(b) + u64::from(self.contains_key(b)) - self.count_below(a)
+        match &self.root {
+            Root::Empty => 0,
+            Root::Leaf { ptr, pop } => {
+                let (keys, _) = Self::leaf_parts(*ptr, *pop);
+                (keys.partition_point(|&k| k <= b) - keys.partition_point(|&k| k < a)) as u64
+            }
+            // SAFETY: trie maintained/owned by this map's engine.
+            Root::Tree { top, .. } => unsafe {
+                crate::nav::count_range::<true>(top, a, b, 8, self.tree_pop)
+            },
+        }
     }
 
     /// Smallest absent key `>= from` within `steps` (see
@@ -6121,6 +6133,129 @@ mod tests {
         }
         nav_differential(&map, &model, &probes);
         map.clear();
+    }
+
+    /// Populations that between them put every node form under a count:
+    /// a root leaf, single-key immediates, linear and bitmap leaves, runs of
+    /// two full 256-key expanses, a 256-child top branch, narrow linear and bitmap
+    /// branches below one top digit, and a random mix, each holding the
+    /// boundary keys `0` and `u64::MAX` (#1749).
+    fn count_form_populations() -> Vec<Vec<u64>> {
+        let mut rng = XorShift(0xC0DE_C0FF_EE00_1749);
+        let mut pops: Vec<Vec<u64>> = vec![
+            vec![0, 7, 0x1234, 1 << 40, u64::MAX],
+            (0..300u64).map(|i| i << 40).collect(),
+            (0..30u64)
+                .flat_map(|g| (0..15u64).map(move |j| (g << 32) | (j * 3)))
+                .collect(),
+            (0..20u64)
+                .flat_map(|g| (0..40u64).map(move |j| (g << 24) | (j * 5)))
+                .collect(),
+            (0..3u64)
+                .flat_map(|g| (0..512u64).map(move |j| (g << 20) | j))
+                .collect(),
+            (0..256u64)
+                .flat_map(|d| [(d << 56) | 1, (d << 56) | (d << 8)])
+                .collect(),
+        ];
+        let base = 0x1234_5600_0000_0000u64;
+        for children in [2u64, 5, 7, 40, 120] {
+            pops.push(
+                (0..children)
+                    .flat_map(|x| {
+                        // Unequal child populations, so a mis-indexed child
+                        // changes a sum.
+                        (0..20 + (x % 13) * 3).map(move |j| base | ((x * 2) << 24) | (j * 3))
+                    })
+                    .collect(),
+            );
+        }
+        pops.push((0..2000).map(|_| rng.next()).collect());
+        for p in &mut pops {
+            p.push(0);
+            p.push(u64::MAX);
+            p.sort_unstable();
+            p.dedup();
+        }
+        pops
+    }
+
+    /// Range ends for `count_form_populations`: present keys, their
+    /// neighbours and their digit-boundary neighbours, the boundaries, and a
+    /// few random words.
+    fn count_probes(sorted: &[u64]) -> Vec<u64> {
+        let mut rng = XorShift(0x5EED_0000_1749_0001);
+        let step = (sorted.len() / if cfg!(miri) { 4 } else { 24 }).max(1);
+        let mut probes = vec![0, 1, u64::MAX - 1, u64::MAX];
+        for &k in sorted.iter().step_by(step) {
+            probes.extend([
+                k,
+                k.wrapping_add(1),
+                k.wrapping_sub(1),
+                k & !0xFF,
+                k | 0xFF,
+                k & !0xFF_FFFF,
+                k | 0xFF_FFFF,
+            ]);
+        }
+        for _ in 0..if cfg!(miri) { 2 } else { 8 } {
+            probes.push(rng.next());
+        }
+        probes.sort_unstable();
+        probes.dedup();
+        probes
+    }
+
+    #[test]
+    fn count_range_matches_model_across_forms() {
+        let mut seen = crate::validate::NodeCounts::default();
+        // Each population inserted key by key, and built by the bulk builder.
+        let builds = count_form_populations().into_iter().flat_map(|keys| {
+            let mut map = ExpanseMap::new();
+            for &k in &keys {
+                map.insert(k, !k);
+            }
+            let built = ExpanseMap::from_sorted_iter(keys.iter().map(|&k| (k, !k)));
+            [(keys.clone(), map), (keys, built)]
+        });
+        for (keys, mut map) in builds {
+            map.validate();
+            let c = map.stats().node_counts;
+            seen.immed += c.immed;
+            seen.leaf_linear += c.leaf_linear;
+            seen.leaf_bitmap += c.leaf_bitmap;
+            seen.branch_l3 += c.branch_l3;
+            seen.branch_l7 += c.branch_l7;
+            seen.branch_b += c.branch_b;
+            seen.branch_u += c.branch_u;
+            let probes = count_probes(&keys);
+            let rank = |k: u64| keys.partition_point(|&x| x < k) as u64;
+            for &a in &probes {
+                assert_eq!(map.count_below(a), rank(a), "rank {a:#x}");
+                for &b in &probes {
+                    let want = if a > b {
+                        0
+                    } else {
+                        keys.partition_point(|&x| x <= b) as u64 - rank(a)
+                    };
+                    assert_eq!(map.count_range(a..=b), want, "count {a:#x}..={b:#x}");
+                }
+            }
+            assert_eq!(map.count_range(0..=u64::MAX), keys.len() as u64);
+            map.clear();
+        }
+        // Every form the engine builds for a map was counted through.
+        for (name, n) in [
+            ("immed", seen.immed),
+            ("leaf_linear", seen.leaf_linear),
+            ("leaf_bitmap", seen.leaf_bitmap),
+            ("branch_l3", seen.branch_l3),
+            ("branch_l7", seen.branch_l7),
+            ("branch_b", seen.branch_b),
+            ("branch_u", seen.branch_u),
+        ] {
+            assert!(n > 0, "no {name} node in the count populations");
+        }
     }
 
     #[test]
