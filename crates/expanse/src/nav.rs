@@ -91,6 +91,60 @@ fn immed_suffixes<const MAP: bool>(
     }
 }
 
+/// The sorted keys of an immediate edge, read in place: a set immediate
+/// packs them in its 15 payload bytes (word 0, then the aux bytes), a map
+/// immediate in its 7 aux bytes, `key_bytes` each, little-endian.
+/// [`ImmedKeys::get`] extracts one with a shift and a mask, so a search
+/// reads the edge's two words instead of copying an
+/// [`ImmedBuf`](crate::mutate::ImmedBuf) out.
+struct ImmedKeys {
+    payload: u128,
+    kb: u32,
+    count: usize,
+}
+
+impl ImmedKeys {
+    #[inline(always)]
+    fn of<const MAP: bool>(edge: &Edge, im: crate::types::ImmedType) -> Self {
+        let aux = u128::from(u64::from_le(edge.aux_word()));
+        let payload = if MAP {
+            aux
+        } else {
+            u128::from(u64::from_le_bytes(edge.imm_bytes())) | (aux << 64)
+        };
+        debug_assert!(im.key_bytes() < 8);
+        Self {
+            payload,
+            kb: u32::from(im.key_bytes()),
+            count: im.key_count() as usize,
+        }
+    }
+
+    /// Key `slot` (`slot < count`).
+    #[inline(always)]
+    fn get(&self, slot: usize) -> u64 {
+        debug_assert!(slot < self.count);
+        let bits = 8 * self.kb;
+        ((self.payload >> (bits * slot as u32)) as u64) & ((1u64 << bits) - 1)
+    }
+
+    /// The first slot whose key fails `pred` (keys ascending), as
+    /// `partition_point`.
+    #[inline(always)]
+    fn partition_point(&self, pred: impl Fn(u64) -> bool) -> usize {
+        let (mut lo, mut hi) = (0, self.count);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if pred(self.get(mid)) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
+    }
+}
+
 /// The value of slot `slot` in a map immediate.
 ///
 /// # Safety
@@ -273,9 +327,12 @@ unsafe fn next_hit<const MAP: bool, H: Hit>(
         EdgeTag::Structural(EdgeType::Null) => None,
 
         EdgeTag::Immed(im) => {
-            let keys = immed_suffixes::<MAP>(edge, im);
-            let slot = keys.partition_point(|&k| k < suffix);
-            let k = *keys.get(slot)?;
+            let keys = ImmedKeys::of::<MAP>(edge, im);
+            let slot = keys.partition_point(|k| k < suffix);
+            if slot == keys.count {
+                return None;
+            }
+            let k = keys.get(slot);
             let v = if MAP {
                 // SAFETY: live map immediate per contract.
                 unsafe { H::immed(ep, im, slot) }
@@ -528,15 +585,15 @@ unsafe fn prev_hit<const MAP: bool, H: Hit>(
         EdgeTag::Structural(EdgeType::Null) => None,
 
         EdgeTag::Immed(im) => {
-            let keys = immed_suffixes::<MAP>(edge, im);
-            let slot = keys.partition_point(|&k| k <= suffix).checked_sub(1)?;
+            let keys = ImmedKeys::of::<MAP>(edge, im);
+            let slot = keys.partition_point(|k| k <= suffix).checked_sub(1)?;
             let v = if MAP {
                 // SAFETY: live map immediate per contract.
                 unsafe { H::immed(ep, im, slot) }
             } else {
                 H::NONE
             };
-            Some((keys[slot], v))
+            Some((keys.get(slot), v))
         }
 
         EdgeTag::Structural(
