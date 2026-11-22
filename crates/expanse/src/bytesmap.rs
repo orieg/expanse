@@ -215,17 +215,51 @@ pub(crate) unsafe fn bucket_value_ptr(b: *const Bucket, i: usize) -> *mut u64 {
     unsafe { &raw mut (*bucket_entries(b).add(i)).val }
 }
 
-/// The index of `key` in the bucket at `b`, if present.
+/// The entry of `key` in the bucket at `b`, if present, with `b`'s
+/// provenance.
+///
+/// Every lookup goes through this one search. It walks entry pointers to
+/// an end pointer, the shape of a slice iterator, rather than counting an
+/// index: an index loop costs instructions per probe that this does not
+/// (#1760), and every caller wants the entry, not its position.
+///
+/// Reads only the write-once key fields, never a value word.
+///
+/// # Safety
+///
+/// As [`bucket_len`]; the returned pointer must not outlive the bucket (or
+/// the caller's epoch pin).
+#[inline(always)]
+pub(crate) unsafe fn bucket_search(b: *const Bucket, key: &[u8]) -> Option<*mut Entry> {
+    // SAFETY: caller contract; `e` stays in `[entries, entries + len)`, and
+    // each key slice lies inside `b`'s allocation and is write-once.
+    unsafe {
+        let mut e = bucket_entries(b);
+        let end = e.add(bucket_len(b));
+        while e != end {
+            if core::slice::from_raw_parts((*e).key, (*e).key_len) == key {
+                return Some(e);
+            }
+            e = e.add(1);
+        }
+    }
+    None
+}
+
+/// The index of `key` in the bucket at `b`, if present: [`bucket_search`]
+/// for the callers that rebuild a bucket around one entry.
 ///
 /// # Safety
 ///
 /// As [`bucket_len`].
 #[inline(always)]
 unsafe fn bucket_position(b: *const Bucket, key: &[u8]) -> Option<usize> {
-    // SAFETY: caller contract; `i < len`.
-    let len = unsafe { bucket_len(b) };
-    // SAFETY: as above.
-    (0..len).find(|&i| unsafe { bucket_key(b, i) } == key)
+    // SAFETY: caller contract; a found entry lies in the entry array, at or
+    // after its start.
+    unsafe {
+        let e = bucket_search(b, key)?;
+        Some(e.offset_from(bucket_entries(b)) as usize)
+    }
 }
 
 /// The bytes of the bucket at `b`'s allocation: its keys end it, in entry
@@ -332,6 +366,59 @@ impl Drop for BucketBuilder {
     }
 }
 
+/// A copy of the bucket at `old` with `key → val` appended: the
+/// replacement a colliding insert publishes on the `&mut self` path.
+///
+/// Out of line and cold. A 64-bit hash collision is rare, and keeping this
+/// loop out of the insert keeps the insert's body, and the inlining choices
+/// LTO makes around it, the size of the paths that run (#1760).
+///
+/// # Safety
+///
+/// `old` is a live bucket whose value words no other thread stores to
+/// (they are read plainly here).
+#[cold]
+#[inline(never)]
+unsafe fn bucket_appending(old: *const Bucket, key: &[u8], val: u64) -> *mut Bucket {
+    // SAFETY: caller contract; `i < len` indexes the live bucket.
+    unsafe {
+        let len = bucket_len(old);
+        let keys: usize = (0..len).map(|i| bucket_key(old, i).len()).sum();
+        let mut fresh = BucketBuilder::new(len + 1, keys + key.len());
+        for i in 0..len {
+            fresh.push(bucket_key(old, i), *bucket_value_ptr(old, i));
+        }
+        fresh.push(key, val);
+        fresh.finish()
+    }
+}
+
+/// A copy of the bucket at `old` without entry `at`: the replacement a
+/// removal from a colliding bucket publishes on the `&mut self` path. Cold
+/// and out of line, as [`bucket_appending`].
+///
+/// # Safety
+///
+/// As [`bucket_appending`], with `at < bucket_len(old)` and the bucket
+/// holding at least two entries.
+#[cold]
+#[inline(never)]
+unsafe fn bucket_removing(old: *const Bucket, at: usize) -> *mut Bucket {
+    // SAFETY: caller contract; `i < len` indexes the live bucket.
+    unsafe {
+        let len = bucket_len(old);
+        let keys: usize = (0..len)
+            .filter(|&i| i != at)
+            .map(|i| bucket_key(old, i).len())
+            .sum();
+        let mut repl = BucketBuilder::new(len - 1, keys);
+        for i in (0..len).filter(|&i| i != at) {
+            repl.push(bucket_key(old, i), *bucket_value_ptr(old, i));
+        }
+        repl.finish()
+    }
+}
+
 /// A one-entry bucket: `key → val`.
 #[inline(always)]
 pub(crate) fn bucket_single(key: &[u8], val: u64) -> *mut Bucket {
@@ -407,15 +494,8 @@ pub(crate) unsafe fn bucket_find(word: u64, key: &[u8]) -> (usize, Option<usize>
     let bucket = word as *const Bucket;
     // SAFETY: EBR-live published bucket; its header and key fields are
     // write-once after publication.
-    let len = unsafe { bucket_len(bucket) };
-    for i in 0..len {
-        // SAFETY: `i < len`; `bucket_key` names the key fields only,
-        // never the value word.
-        if unsafe { bucket_key(bucket, i) } == key {
-            return (len, Some(i));
-        }
-    }
-    (len, None)
+    // `bucket_position` reads the key fields only, never a value word.
+    unsafe { (bucket_len(bucket), bucket_position(bucket, key)) }
 }
 
 /// Builds the replacement bucket a colliding insert publishes: a
@@ -822,23 +902,14 @@ pub(crate) unsafe fn get_validated<S: BuildHasher>(
     // published bucket then, and EBR keeps its one allocation (header,
     // entries and key bytes) mapped under the caller's pin. Everything
     // but the value words is write-once after publication.
-    let (len, entries) = unsafe { (bucket_len(bucket), bucket_entries(bucket)) };
-    let mut result = None;
-    for i in 0..len {
-        // SAFETY: `i < len`; `bucket_key` names the key fields only,
-        // never the value word.
-        if unsafe { bucket_key(bucket, i) } == key {
-            // SAFETY: `i < len` of an EBR-live entry array under the
-            // caller's pin. The atomic load is what makes a
-            // concurrent in-place publish well-defined rather than a
-            // data race; see this function's docs for what it returns.
-            result = Some(
-                unsafe { entry_value_atomic(entries, i) }
-                    .load(core::sync::atomic::Ordering::Relaxed),
-            );
-            break;
-        }
-    }
+    // The search reads the key fields only, never a value word.
+    let result = unsafe { bucket_search(bucket, key) }.map(|e| {
+        // SAFETY: `e` is an entry of the EBR-live bucket under the caller's
+        // pin. The atomic load is what makes a concurrent in-place publish
+        // well-defined rather than a data race; see this function's docs
+        // for what it returns.
+        unsafe { entry_value_atomic(e, 0) }.load(core::sync::atomic::Ordering::Relaxed)
+    });
     if !ver.validate(snap) {
         return Err(Retry);
     }
@@ -1079,10 +1150,10 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     pub fn get(&self, key: &[u8]) -> Option<u64> {
         let bucket = self.bucket_of(key)?.as_ptr();
         // SAFETY: bucket pointers stored in the hash trie are live buckets
-        // owned by this map; `at` indexes one of its entries.
+        // owned by this map; `e` is one of its entries.
         unsafe {
-            let at = bucket_position(bucket, key)?;
-            Some(*bucket_value_ptr(bucket, at))
+            let e = bucket_search(bucket, key)?;
+            Some((*e).val)
         }
     }
 
@@ -1101,11 +1172,11 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         let b_ptr = self.bucket_of(key)?.as_ptr();
         // SAFETY: `b_ptr` is a live bucket owned by this map, and the key
         // search borrows key bytes only, never the value word the returned
-        // pointer writes. `bucket_value_ptr` is a raw place projection with
+        // pointer writes. The value pointer is a raw place projection with
         // the allocation's write provenance and no intermediate reference.
         unsafe {
-            let at = bucket_position(b_ptr, key)?;
-            Some(NonNull::new_unchecked(bucket_value_ptr(b_ptr, at)))
+            let e = bucket_search(b_ptr, key)?;
+            Some(NonNull::new_unchecked(&raw mut (*e).val))
         }
     }
 
@@ -1159,12 +1230,12 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         }
         let old = word as *mut Bucket;
         // SAFETY: live bucket owned by this map; read-only search.
-        if let Some(at) = unsafe { bucket_position(old, key) } {
+        if let Some(e) = unsafe { bucket_search(old, key) } {
             // Existing key: only its value word will mutate, in place —
             // the one mutation published buckets allow.
             // SAFETY: as above; the slot pointer stays valid until the
             // next structural mutation.
-            let val = unsafe { bucket_value_ptr(old, at) };
+            let val = unsafe { &raw mut (*e).val };
             // SAFETY: a live value word; only this `&mut self` call writes it.
             let old_val = unsafe { *val };
             // SAFETY: a pointer into a live allocation is non-null.
@@ -1176,16 +1247,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         // SAFETY: live bucket owned by this map. Its keys and value words
         // are read here only; this `&mut self` call is the one writer, and
         // concurrent readers only load them.
-        let (raw, old_len) = unsafe {
-            let old_len = bucket_len(old);
-            let keys: usize = (0..old_len).map(|i| bucket_key(old, i).len()).sum();
-            let mut fresh = BucketBuilder::new(old_len + 1, keys + key.len());
-            for i in 0..old_len {
-                fresh.push(bucket_key(old, i), *bucket_value_ptr(old, i));
-            }
-            fresh.push(key, init_val);
-            (fresh.finish(), old_len)
-        };
+        let (raw, old_len) = unsafe { (bucket_appending(old, key, init_val), bucket_len(old)) };
         // Publish the replacement — the single word store that unlinks
         // the old bucket — then retire the old allocation.
         // SAFETY: slot valid as above.
@@ -1335,17 +1397,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             // the surviving entries, then dispose of the old bucket, the
             // removed key included.
             // SAFETY: as above; `i < old_len` indexes the live bucket.
-            let raw = unsafe {
-                let keys: usize = (0..old_len)
-                    .filter(|&i| i != at)
-                    .map(|i| bucket_key(old, i).len())
-                    .sum();
-                let mut repl = BucketBuilder::new(old_len - 1, keys);
-                for i in (0..old_len).filter(|&i| i != at) {
-                    repl.push(bucket_key(old, i), *bucket_value_ptr(old, i));
-                }
-                repl.finish()
-            };
+            let raw = unsafe { bucket_removing(old, at) };
             // Publish the replacement through the engine (bracketed when
             // shared) — this unlinks the old bucket — then retire it.
             #[cfg(all(target_pointer_width = "64", feature = "std"))]
