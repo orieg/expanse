@@ -3827,7 +3827,8 @@ impl MapCore {
             Root::Tree { top, .. } => {
                 // SAFETY: trie maintained/owned by this map's engine; n is
                 // below the population.
-                let (k, p) = unsafe { crate::nav::by_count_slot(Self::top_ptr(top), n, 8) };
+                let (k, p) =
+                    unsafe { crate::nav::by_count_slot(Self::top_ptr(top), n, 8, self.tree_pop) };
                 Some((k, NonNull::new(p)?))
             }
         }
@@ -3955,9 +3956,11 @@ impl MapCore {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => Some(self.leaf_entry(n as usize)),
-            // SAFETY: trie maintained/owned by this map's engine; n is
-            // below the population.
-            Root::Tree { top, .. } => Some(unsafe { crate::nav::by_count::<true>(top, n, 8) }),
+            Root::Tree { top, .. } => {
+                // SAFETY: trie maintained/owned by this map's engine; n is
+                // below the population, which `tree_pop` holds.
+                Some(unsafe { crate::nav::by_count::<true>(top, n, 8, self.tree_pop) })
+            }
         }
     }
 
