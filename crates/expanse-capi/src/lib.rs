@@ -1231,6 +1231,92 @@ mod oracle {
         }
     }
 
+    /// The eight `*Empty` searches on runs of present keys: runs of 256, runs
+    /// either side of the shim's 1024-key walk budget, and runs reaching 0
+    /// and `Word::MAX`, probed at and around each run's ends.
+    #[test]
+    fn empty_search_on_runs_matches_stock_libjudy() {
+        let lib = Lib::open();
+        let o_set: F2i = lib.sym(c"Judy1Set");
+        let o_ins: FpIns = lib.sym(c"JudyLIns");
+        let o_free1: FFree = lib.sym(c"Judy1FreeArray");
+        let o_freel: FFree = lib.sym(c"JudyLFreeArray");
+        let names = [
+            "Judy1FirstEmpty",
+            "Judy1NextEmpty",
+            "Judy1LastEmpty",
+            "Judy1PrevEmpty",
+            "JudyLFirstEmpty",
+            "JudyLNextEmpty",
+            "JudyLLastEmpty",
+            "JudyLPrevEmpty",
+        ];
+        let theirs_fns: [FNav; 8] = [
+            lib.sym(c"Judy1FirstEmpty"),
+            lib.sym(c"Judy1NextEmpty"),
+            lib.sym(c"Judy1LastEmpty"),
+            lib.sym(c"Judy1PrevEmpty"),
+            lib.sym(c"JudyLFirstEmpty"),
+            lib.sym(c"JudyLNextEmpty"),
+            lib.sym(c"JudyLLastEmpty"),
+            lib.sym(c"JudyLPrevEmpty"),
+        ];
+        type Ours = unsafe extern "C" fn(*const c_void, *mut Word, *mut JError) -> c_int;
+        let ours_fns: [Ours; 8] = [
+            Judy1FirstEmpty,
+            Judy1NextEmpty,
+            Judy1LastEmpty,
+            Judy1PrevEmpty,
+            JudyLFirstEmpty,
+            JudyLNextEmpty,
+            JudyLLastEmpty,
+            JudyLPrevEmpty,
+        ];
+        let max = Word::MAX;
+        let shapes: [&[(Word, Word)]; 4] = [
+            &[
+                (0x1_0000, 0x1_00FF),
+                (0x1_0400, 0x1_04FF),
+                (0x2_0000, 0x2_00FF),
+            ],
+            &[(1 << 20, (1 << 20) + 1023), (1 << 30, (1 << 30) + 1024)],
+            &[(0, 4), (max - 4, max)],
+            &[(0, 3000), (0xFF00, 0xFF00 + 3000), (max - 3000, max)],
+        ];
+        for (s, runs) in shapes.iter().enumerate() {
+            let (mut s1, mut sl, mut t1, mut tl) = (null_mut(), null_mut(), null_mut(), null_mut());
+            let mut probes = Vec::new();
+            // SAFETY: four arrays owned by this test, freed below.
+            unsafe {
+                for &(lo, hi) in *runs {
+                    for k in lo..=hi {
+                        Judy1Set(&raw mut s1, k, null_mut());
+                        *JudyLIns(&raw mut sl, k, null_mut()).cast::<Word>() = k;
+                        o_set(&raw mut t1, k, null_mut());
+                        *o_ins(&raw mut tl, k, null_mut()).cast::<Word>() = k;
+                    }
+                    for d in [0, 1, 255, 256, 1023, 1024, 1025] {
+                        probes.extend([lo.wrapping_add(d), hi.wrapping_sub(d)]);
+                    }
+                    probes.extend([lo.wrapping_sub(1), hi.wrapping_add(1), lo + (hi - lo) / 2]);
+                }
+                for &p in &probes {
+                    for f in 0..8 {
+                        let (ours, theirs) = if f < 4 { (s1, t1) } else { (sl, tl) };
+                        let (mut i1, mut i2) = (p, p);
+                        let r1 = ours_fns[f](ours, &raw mut i1, null_mut());
+                        let r2 = theirs_fns[f](theirs, &raw mut i2, null_mut());
+                        assert_eq!((r1, i1), (r2, i2), "shape {s} {} from {p:#x}", names[f]);
+                    }
+                }
+                assert!(Judy1FreeArray(&raw mut s1, null_mut()) > 0);
+                assert!(JudyLFreeArray(&raw mut sl, null_mut()) > 0);
+                assert!(o_free1(&raw mut t1, null_mut()) > 0);
+                assert!(o_freel(&raw mut tl, null_mut()) > 0);
+            }
+        }
+    }
+
     /// What `Judy1Count`/`JudyLCount` write to `*PJError`, case by case.
     /// The man pages (`Judy1_funcs(3)`) document only that a 0 return
     /// with `JU_ERRNO_NONE` is a real empty count; whether a nonzero count

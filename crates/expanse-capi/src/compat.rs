@@ -85,9 +85,32 @@ unsafe fn free_array<T>(
     }
 }
 
-/// Finds the smallest absent key `>= from`, using rank queries — shared by
-/// the four `*Empty` search families. `count_range` is inclusive.
+/// Steps an empty-index search takes in key order before it falls back to
+/// rank bisection ([`first_absent_by_rank`]). A step is one present key, or
+/// one run of consecutive keys inside a bitmap, full or linear leaf; the
+/// bisection costs about 65 rank queries whatever the run length. The budget
+/// bounds a search through a very long run of present keys, while a gap
+/// within it is found by the walk alone.
+const EMPTY_WALK_BUDGET: usize = 1024;
+
+/// Finds the smallest absent key `>= from` — shared by the four `*Empty`
+/// search families. `walk` is the engine's ordered search from `from`
+/// (`first_absent_within`); when its budget runs out with `from..resume`
+/// present, the search continues by rank bisection from `resume`.
 fn first_absent(
+    walk: Result<Option<u64>, u64>,
+    contains: impl Fn(u64) -> bool,
+    count_range: impl Fn(u64, u64) -> u64,
+) -> Option<u64> {
+    match walk {
+        Ok(found) => found,
+        Err(resume) => first_absent_by_rank(contains, count_range, resume),
+    }
+}
+
+/// Finds the smallest absent key `>= from`, using rank queries.
+/// `count_range` is inclusive.
+fn first_absent_by_rank(
     contains: impl Fn(u64) -> bool,
     count_range: impl Fn(u64, u64) -> u64,
     from: u64,
@@ -113,8 +136,22 @@ fn first_absent(
     Some(hi)
 }
 
-/// Finds the largest absent key `<= upto` (mirror of [`first_absent`]).
+/// Finds the largest absent key `<= upto` (mirror of [`first_absent`]):
+/// `walk` is the engine's descending search (`last_absent_within`).
 fn last_absent(
+    walk: Result<Option<u64>, u64>,
+    contains: impl Fn(u64) -> bool,
+    count_range: impl Fn(u64, u64) -> u64,
+) -> Option<u64> {
+    match walk {
+        Ok(found) => found,
+        Err(resume) => last_absent_by_rank(contains, count_range, resume),
+    }
+}
+
+/// Finds the largest absent key `<= upto`, using rank queries (mirror of
+/// [`first_absent_by_rank`]).
+fn last_absent_by_rank(
     contains: impl Fn(u64) -> bool,
     count_range: impl Fn(u64, u64) -> u64,
     upto: u64,
@@ -331,8 +368,22 @@ judy1_nav!(
     "Largest set index < *pindex."
 );
 
+/// The engine's ascending empty-index search from `start`.
+macro_rules! walk_from {
+    ($tree:expr, $start:expr) => {
+        $tree.first_absent_within($start, EMPTY_WALK_BUDGET)
+    };
+}
+
+/// The engine's descending empty-index search from `start`.
+macro_rules! walk_upto {
+    ($tree:expr, $start:expr) => {
+        $tree.last_absent_within($start, EMPTY_WALK_BUDGET)
+    };
+}
+
 macro_rules! judy1_empty {
-    ($name:ident, $absent:ident, $adjust:expr, $doc:literal) => {
+    ($name:ident, $absent:ident, $keys:ident, $adjust:expr, $doc:literal) => {
         #[doc = $doc]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
@@ -352,7 +403,11 @@ macro_rules! judy1_empty {
                 };
                 let found = match set_handle(parray) {
                     None => Some(start),
-                    Some(set) => $absent(|k| set.contains(k), |a, b| set.count_range(a..=b), start),
+                    Some(set) => $absent(
+                        $keys!(set, start),
+                        |k| set.contains(k),
+                        |a, b| set.count_range(a..=b),
+                    ),
                 };
                 match found {
                     Some(k) => {
@@ -369,24 +424,28 @@ macro_rules! judy1_empty {
 judy1_empty!(
     Judy1FirstEmpty,
     first_absent,
+    walk_from,
     |k: u64| Some(k),
     "Smallest unset index >= *pindex."
 );
 judy1_empty!(
     Judy1NextEmpty,
     first_absent,
+    walk_from,
     |k: u64| k.checked_add(1),
     "Smallest unset index > *pindex."
 );
 judy1_empty!(
     Judy1LastEmpty,
     last_absent,
+    walk_upto,
     |k: u64| Some(k),
     "Largest unset index <= *pindex."
 );
 judy1_empty!(
     Judy1PrevEmpty,
     last_absent,
+    walk_upto,
     |k: u64| k.checked_sub(1),
     "Largest unset index < *pindex."
 );
@@ -624,7 +683,7 @@ judyl_nav!(
 );
 
 macro_rules! judyl_empty {
-    ($name:ident, $absent:ident, $adjust:expr, $doc:literal) => {
+    ($name:ident, $absent:ident, $keys:ident, $adjust:expr, $doc:literal) => {
         #[doc = $doc]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
@@ -645,9 +704,9 @@ macro_rules! judyl_empty {
                 let found = match map_handle(parray) {
                     None => Some(start),
                     Some(map) => $absent(
+                        $keys!(map, start),
                         |k| map.contains_key(k),
                         |a, b| map.count_range(a..=b),
-                        start,
                     ),
                 };
                 match found {
@@ -665,24 +724,28 @@ macro_rules! judyl_empty {
 judyl_empty!(
     JudyLFirstEmpty,
     first_absent,
+    walk_from,
     |k: u64| Some(k),
     "Smallest absent key >= *pindex."
 );
 judyl_empty!(
     JudyLNextEmpty,
     first_absent,
+    walk_from,
     |k: u64| k.checked_add(1),
     "Smallest absent key > *pindex."
 );
 judyl_empty!(
     JudyLLastEmpty,
     last_absent,
+    walk_upto,
     |k: u64| Some(k),
     "Largest absent key <= *pindex."
 );
 judyl_empty!(
     JudyLPrevEmpty,
     last_absent,
+    walk_upto,
     |k: u64| k.checked_sub(1),
     "Largest absent key < *pindex."
 );

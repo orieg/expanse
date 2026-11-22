@@ -1854,9 +1854,9 @@ fn jl_walk(b: &JlBuilt, start: FlNav, advance: FlNav, from: Word) -> Word {
 }
 
 /// Every `EMPTY_STRIDE`th probe runs an empty-index search: 469 of `POP`.
-/// A search from inside a 256-key run costs libexpanse about 418,000
-/// instructions on x86-64 (#1749), so one per probe would be over 12
-/// billion per arm.
+/// The stride dates from when a search from inside a 256-key run cost
+/// libexpanse about 418,000 instructions on x86-64 (#1749); it is kept so
+/// the arms' counts stay comparable across that change.
 const EMPTY_STRIDE: usize = 64;
 
 /// One empty-index search per sampled probe, starting at the probe (a

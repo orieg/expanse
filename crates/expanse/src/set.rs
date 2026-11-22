@@ -1773,6 +1773,26 @@ impl ExpanseSet {
         self.count_below(b) + u64::from(self.contains(b)) - self.count_below(a)
     }
 
+    /// Smallest absent key `>= from`, reading at most `steps` present keys
+    /// or in-leaf runs (compat: `Judy1FirstEmpty`). `Ok(None)` means every
+    /// key from `from` through `u64::MAX` is present; `Err(resume)` means
+    /// the budget ran out with `from..resume` all present.
+    ///
+    /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
+    #[doc(hidden)]
+    pub fn first_absent_within(&self, from: Key, steps: usize) -> Result<Option<Key>, Key> {
+        self.range_fwd_raw(from).first_gap(from, steps)
+    }
+
+    /// Largest absent key `<= upto` (compat: `Judy1LastEmpty`; mirror of
+    /// [`first_absent_within`](Self::first_absent_within)).
+    ///
+    /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
+    #[doc(hidden)]
+    pub fn last_absent_within(&self, upto: Key, steps: usize) -> Result<Option<Key>, Key> {
+        self.range_rev_raw(upto).last_gap(upto, steps)
+    }
+
     /// The key with `n` keys below it — 0-based select (compat:
     /// `Judy1ByCount`, which is 1-based).
     #[must_use]
