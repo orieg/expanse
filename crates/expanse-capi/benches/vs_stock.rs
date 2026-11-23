@@ -204,14 +204,10 @@ const STOCK_NAMES: &[&core::ffi::CStr] = &[
     c"libJudy.dylib",
 ];
 
-/// Where our own cdylib lands. `EXPANSE_CDYLIB` is what CI sets, since
-/// only the build knows the profile directory; the rest are for a local
-/// `cargo bench` from the workspace root.
-const OURS_NAMES: &[&core::ffi::CStr] = &[
-    c"target/release/libexpanse.so",
-    c"target/debug/libexpanse.so",
-    c"libexpanse.so",
-];
+/// The variable naming our own cdylib. There is no default path: only the
+/// build knows which artifact is the one under test, and `bench_config`
+/// passes the variable through to the benchmarked process.
+const OURS_ENV: &str = "EXPANSE_CDYLIB";
 
 impl Lib {
     fn open_any(candidates: &[&core::ffi::CStr], what: &str) -> Self {
@@ -229,17 +225,34 @@ impl Lib {
         Self::open_any(STOCK_NAMES, "stock libjudy — install libjudy-dev")
     }
 
-    /// Our own cdylib, loaded the same way stock is. Prefers the path CI
-    /// exports so the arm cannot silently measure a stale build.
+    /// Our own cdylib, loaded the same way stock is, from the file
+    /// `EXPANSE_CDYLIB` names and from nowhere else.
+    ///
+    /// A missing variable is fatal. The runner clears the environment of the
+    /// benchmarked process but keeps `LD_LIBRARY_PATH`, which `cargo bench`
+    /// points at its own output directories, so a search by bare name can find
+    /// whichever `libexpanse.so` a build left there, and the arm then reports
+    /// that library's counts as the requested one's (`AGENTS.md` section 8.1). The
+    /// path must name a file for the same reason: `dlopen` searches for a
+    /// name that has no slash in it.
     fn ours() -> Self {
-        if let Ok(p) = std::env::var("EXPANSE_CDYLIB") {
-            let c = std::ffi::CString::new(p.clone()).expect("EXPANSE_CDYLIB has an interior NUL");
-            // SAFETY: valid NUL-terminated library name.
-            let h = unsafe { dlopen(c.to_bytes_with_nul().as_ptr(), RTLD_NOW | RTLD_LOCAL) };
-            assert!(!h.is_null(), "EXPANSE_CDYLIB set to {p} but dlopen failed");
-            return Self(h);
-        }
-        Self::open_any(OURS_NAMES, "libexpanse.so — set EXPANSE_CDYLIB")
+        let p = match std::env::var(OURS_ENV) {
+            Ok(p) => p,
+            Err(e) => panic!(
+                "{OURS_ENV} is not usable ({e}): the *_expanse_dl arms load only the library it \
+                 names. Run `cargo build --release -p expanse-capi` and set {OURS_ENV} to the \
+                 absolute path of the libexpanse.so it produces"
+            ),
+        };
+        assert!(
+            std::path::Path::new(&p).is_file(),
+            "{OURS_ENV} is set to {p}, which is not a file"
+        );
+        let c = std::ffi::CString::new(p.clone()).expect("EXPANSE_CDYLIB has an interior NUL");
+        // SAFETY: valid NUL-terminated library name.
+        let h = unsafe { dlopen(c.to_bytes_with_nul().as_ptr(), RTLD_NOW | RTLD_LOCAL) };
+        assert!(!h.is_null(), "{OURS_ENV} set to {p} but dlopen failed");
+        Self(h)
     }
 
     fn sym<T: Copy>(&self, name: &core::ffi::CStr) -> T {
@@ -810,6 +823,9 @@ fn judy1_test_stock(built: Built) -> Word {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn bench_config() -> LibraryBenchmarkConfig {
     let mut config = LibraryBenchmarkConfig::default();
+    // The runner clears the benchmarked process's environment, so without
+    // this `Lib::ours` never sees the variable the caller set.
+    config.pass_through_env(OURS_ENV);
     let mut args = vec!["--cache-sim=yes"];
     let requested = match std::env::var("EXPANSE_BRANCH_SIM") {
         Ok(v) => v,
