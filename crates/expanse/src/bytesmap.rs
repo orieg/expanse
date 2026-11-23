@@ -111,9 +111,17 @@ pub(crate) struct Entry {
 /// [`Entry`] records, then the entries' key bytes, concatenated in entry
 /// order. A fresh key therefore costs one allocation, and a bucket is
 /// freed or retired as one block. The value words sit at a fixed stride
-/// and are 8-aligned on 64-bit targets (an 8-byte header, 24-byte entries,
-/// the value last), so a value slot pointer is a plain `*mut u64` into
-/// the allocation.
+/// and are 8-aligned on 64-bit targets (a two-word header, 24-byte
+/// entries, the value last), so a value slot pointer is a plain `*mut u64`
+/// into the allocation.
+///
+/// The header holds the entry array's address as well as its length,
+/// although the array always starts right after it. A lookup reads both
+/// from the header, as it read a `Vec`'s, so the pointer it walks the
+/// entries with is loaded straight into a register the key compare's
+/// call preserves. Walking from the bucket word instead keeps the word
+/// itself live across that call, and the x86 Callgrind arms measured the
+/// copies and the extra jump that cost on every probe (#1760).
 /// Only [`bucket_alloc_size`] and the functions here know the layout;
 /// every other module reaches a bucket through them.
 ///
@@ -137,6 +145,9 @@ pub(crate) struct Entry {
 #[repr(C)]
 pub(crate) struct Bucket {
     len: usize,
+    /// The entry array, which starts right after this header, with the
+    /// allocation's provenance.
+    entries: *mut Entry,
 }
 
 /// Alignment of a bucket allocation: the alignment of its words.
@@ -174,15 +185,16 @@ pub(crate) unsafe fn bucket_len(b: *const Bucket) -> usize {
     unsafe { (*b).len }
 }
 
-/// The entry array of the bucket at `b`, with `b`'s provenance.
+/// The entry array of the bucket at `b`, with the allocation's provenance.
 ///
 /// # Safety
 ///
 /// As [`bucket_len`].
 #[inline(always)]
 pub(crate) unsafe fn bucket_entries(b: *const Bucket) -> *mut Entry {
-    // SAFETY: the entries follow the header inside the same allocation.
-    unsafe { b.cast_mut().add(1).cast::<Entry>() }
+    // SAFETY: caller contract; the header is write-once, and its pointer
+    // was derived from the allocation by `BucketBuilder::new`.
+    unsafe { (*b).entries }
 }
 
 /// The key bytes of entry `i` of the bucket at `b`.
@@ -215,13 +227,14 @@ pub(crate) unsafe fn bucket_value_ptr(b: *const Bucket, i: usize) -> *mut u64 {
     unsafe { &raw mut (*bucket_entries(b).add(i)).val }
 }
 
-/// The entry of `key` in the bucket at `b`, if present, with `b`'s
-/// provenance.
+/// The entry of `key` in the bucket at `b`, if present, with the
+/// allocation's provenance.
 ///
-/// Every lookup goes through this one search. It walks entry pointers to
-/// an end pointer, the shape of a slice iterator, rather than counting an
-/// index: an index loop costs instructions per probe that this does not
-/// (#1760), and every caller wants the entry, not its position.
+/// The search of every lookup that wants the entry rather than only its
+/// value. Which loop shape costs least differs by call site, so each site
+/// keeps the one its Callgrind arm measured best (#1760): the plain
+/// [`ExpanseBytesMap::get`] counts an index, and the `&mut self` insert
+/// walks from the bucket word ([`bucket_search_from_base`]).
 ///
 /// Reads only the write-once key fields, never a value word.
 ///
@@ -231,11 +244,39 @@ pub(crate) unsafe fn bucket_value_ptr(b: *const Bucket, i: usize) -> *mut u64 {
 /// the caller's epoch pin).
 #[inline(always)]
 pub(crate) unsafe fn bucket_search(b: *const Bucket, key: &[u8]) -> Option<*mut Entry> {
+    // SAFETY: caller contract, forwarded.
+    unsafe { entries_search(bucket_entries(b), bucket_len(b), key) }
+}
+
+/// [`bucket_search`] with the entry array located by its offset from `b`
+/// rather than read from the header. The `&mut self` insert searches this
+/// way: the bucket word stays live there anyway, and the header read
+/// costs it instructions (#1760).
+///
+/// # Safety
+///
+/// As [`bucket_search`].
+#[inline(always)]
+unsafe fn bucket_search_from_base(b: *const Bucket, key: &[u8]) -> Option<*mut Entry> {
+    // SAFETY: caller contract; the entries follow the header inside the
+    // same allocation.
+    unsafe { entries_search(b.cast_mut().add(1).cast::<Entry>(), bucket_len(b), key) }
+}
+
+/// The search behind [`bucket_search`]: the entry of `key` among the `len`
+/// entries at `entries`.
+///
+/// # Safety
+///
+/// `entries` and `len` describe the entry array of a live (or EBR-live)
+/// bucket.
+#[inline(always)]
+unsafe fn entries_search(entries: *mut Entry, len: usize, key: &[u8]) -> Option<*mut Entry> {
     // SAFETY: caller contract; `e` stays in `[entries, entries + len)`, and
-    // each key slice lies inside `b`'s allocation and is write-once.
+    // each key slice lies inside the bucket's allocation and is write-once.
     unsafe {
-        let mut e = bucket_entries(b);
-        let end = e.add(bucket_len(b));
+        let mut e = entries;
+        let end = e.add(len);
         while e != end {
             if core::slice::from_raw_parts((*e).key, (*e).key_len) == key {
                 return Some(e);
@@ -307,8 +348,14 @@ impl BucketBuilder {
         let Some(raw) = NonNull::new(raw.cast::<Bucket>()) else {
             core_alloc::alloc::handle_alloc_error(layout)
         };
-        // SAFETY: the header is the allocation's first word.
-        unsafe { raw.as_ptr().write(Bucket { len: n }) };
+        // SAFETY: the header is at the start of the allocation, and the
+        // entries follow it inside the allocation (`bytes` covers both).
+        unsafe {
+            raw.as_ptr().write(Bucket {
+                len: n,
+                entries: raw.as_ptr().add(1).cast::<Entry>(),
+            });
+        }
         Self {
             base: raw,
             n,
@@ -1149,11 +1196,18 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     #[must_use]
     pub fn get(&self, key: &[u8]) -> Option<u64> {
         let bucket = self.bucket_of(key)?.as_ptr();
+        // An index loop rather than `bucket_search`: on the x86 Callgrind
+        // `bytesmap_get` arms it costs one instruction less per probe than
+        // the pointer walk, whose block layout adds a jump (#1760).
         // SAFETY: bucket pointers stored in the hash trie are live buckets
-        // owned by this map; `e` is one of its entries.
+        // owned by this map; `i < len` indexes one of its entries.
         unsafe {
-            let e = bucket_search(bucket, key)?;
-            Some((*e).val)
+            let (entries, len) = (bucket_entries(bucket), bucket_len(bucket));
+            let at = (0..len).find(|&i| {
+                let e = entries.add(i);
+                core::slice::from_raw_parts((*e).key, (*e).key_len) == key
+            })?;
+            Some((*entries.add(at)).val)
         }
     }
 
@@ -1230,7 +1284,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         }
         let old = word as *mut Bucket;
         // SAFETY: live bucket owned by this map; read-only search.
-        if let Some(e) = unsafe { bucket_search(old, key) } {
+        if let Some(e) = unsafe { bucket_search_from_base(old, key) } {
             // Existing key: only its value word will mutate, in place —
             // the one mutation published buckets allow.
             // SAFETY: as above; the slot pointer stays valid until the
