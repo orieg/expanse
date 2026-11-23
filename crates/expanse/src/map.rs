@@ -3758,6 +3758,81 @@ impl MapCore {
         (keys[at], unsafe { *vals.add(at) })
     }
 
+    /// [`Self::leaf_entry`] with the value slot in place of the value.
+    fn leaf_entry_slot(&self, at: usize) -> (u64, NonNull<u64>) {
+        let Root::Leaf { ptr, pop } = &self.root else {
+            unreachable!("leaf_entry_slot outside root-leaf state")
+        };
+        let (keys, vals) = Self::leaf_parts(*ptr, *pop);
+        // SAFETY: at < pop values live behind the keys, so the slot is in
+        // bounds and non-null; `vals` derives from the stored leaf pointer.
+        (keys[at], unsafe { NonNull::new_unchecked(vals.add(at)) })
+    }
+
+    /// The root edge as the raw pointer the slot walks start from, as
+    /// [`Self::get_slot_ptr`] passes it to `get::locate_slot`.
+    #[inline(always)]
+    fn top_ptr(top: &Edge) -> *const Edge {
+        &raw const *top
+    }
+
+    /// [`Self::next_at_or_after`] returning the entry's value slot — the
+    /// pointer [`Self::get_slot_ptr`] returns for the found key, valid until
+    /// the next structural mutation.
+    #[inline(always)]
+    #[must_use]
+    pub(crate) fn next_at_or_after_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let (keys, _) = Self::leaf_parts(*ptr, *pop);
+                let at = keys.partition_point(|&k| k < key);
+                (at < *pop).then(|| self.leaf_entry_slot(at))
+            }
+            // SAFETY: trie maintained/owned by this map's engine.
+            Root::Tree { top, .. } => unsafe { crate::nav::next_slot(Self::top_ptr(top), key, 8) }
+                .and_then(|(k, p)| Some((k, NonNull::new(p)?))),
+        }
+    }
+
+    /// [`Self::prev_at_or_before`] returning the entry's value slot (as
+    /// [`Self::next_at_or_after_slot`]).
+    #[inline(always)]
+    #[must_use]
+    pub(crate) fn prev_at_or_before_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let (keys, _) = Self::leaf_parts(*ptr, *pop);
+                let at = keys.partition_point(|&k| k <= key).checked_sub(1)?;
+                Some(self.leaf_entry_slot(at))
+            }
+            // SAFETY: trie maintained/owned by this map's engine.
+            Root::Tree { top, .. } => unsafe { crate::nav::prev_slot(Self::top_ptr(top), key, 8) }
+                .and_then(|(k, p)| Some((k, NonNull::new(p)?))),
+        }
+    }
+
+    /// [`Self::by_count`] returning the entry's value slot (as
+    /// [`Self::next_at_or_after_slot`]; owner flushes first).
+    #[inline(always)]
+    #[must_use]
+    pub(crate) fn by_count_slot(&self, n: u64) -> Option<(u64, NonNull<u64>)> {
+        if n >= self.len() {
+            return None;
+        }
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { .. } => Some(self.leaf_entry_slot(n as usize)),
+            Root::Tree { top, .. } => {
+                // SAFETY: trie maintained/owned by this map's engine; n is
+                // below the population.
+                let (k, p) = unsafe { crate::nav::by_count_slot(Self::top_ptr(top), n, 8) };
+                Some((k, NonNull::new(p)?))
+            }
+        }
+    }
+
     /// Smallest entry in the map.
     #[inline(always)]
     #[must_use]
@@ -5119,6 +5194,60 @@ impl ExpanseMap {
     pub fn by_count(&self, n: u64) -> Option<(u64, u64)> {
         self.flush_path();
         self.core.by_count(n)
+    }
+
+    /// [`next_at_or_after`](Self::next_at_or_after) returning the found
+    /// key's **value slot** in place of its value, from the same search:
+    /// the pointer [`get_slot_ptr`](Self::get_slot_ptr) returns for that
+    /// key, valid until the next structural mutation (the classic JudyL
+    /// slot contract).
+    ///
+    /// The `libexpanse` `JudyLFirst` shim's search; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_at_or_after_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        self.core.next_at_or_after_slot(key)
+    }
+
+    /// [`next_after`](Self::next_after) returning the value slot (as
+    /// [`next_at_or_after_slot`](Self::next_at_or_after_slot)).
+    ///
+    /// The `libexpanse` `JudyLNext` shim's search; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_after_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        self.core.next_at_or_after_slot(key.checked_add(1)?)
+    }
+
+    /// [`prev_at_or_before`](Self::prev_at_or_before) returning the value
+    /// slot (as [`next_at_or_after_slot`](Self::next_at_or_after_slot)).
+    ///
+    /// The `libexpanse` `JudyLLast` shim's search; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn prev_at_or_before_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        self.core.prev_at_or_before_slot(key)
+    }
+
+    /// [`prev_before`](Self::prev_before) returning the value slot (as
+    /// [`next_at_or_after_slot`](Self::next_at_or_after_slot)).
+    ///
+    /// The `libexpanse` `JudyLPrev` shim's search; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn prev_before_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        self.core.prev_at_or_before_slot(key.checked_sub(1)?)
+    }
+
+    /// [`by_count`](Self::by_count) returning the value slot (as
+    /// [`next_at_or_after_slot`](Self::next_at_or_after_slot)).
+    ///
+    /// The `libexpanse` `JudyLByCount` shim's select; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn by_count_slot(&self, n: u64) -> Option<(u64, NonNull<u64>)> {
+        self.flush_path();
+        self.core.by_count_slot(n)
     }
 
     /// Creates a stateful forward [`MapCursor`](crate::cursor::MapCursor) for
