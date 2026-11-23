@@ -36,7 +36,9 @@ is used only where the process window reads nothing. The fallback number is
 never written into `load.foreign_busy_cpus`: it stays under `load_fallback`
 with its `rule`, so a reader that does not know the rule still sees no reading
 (AGENTS.md section 8.1). `label_problems` is the check of that, run on every
-artifact the opt-in writes.
+artifact the opt-in writes, and `refuse_overwrite` keeps the opt-in from
+replacing an artifact that was written without it. The rule is not registered
+in METHODOLOGY.md: section 11 there states what a result read with it is.
 
 Usage:
   short_window.py --self-test
@@ -226,6 +228,25 @@ def require_labelled(cells):
         sys.exit(f"STOP: {len(problems)} row(s) carry a reading without its rule; first: {problems[0]}")
 
 
+def refuse_overwrite(dest):
+    """Stops the opt-in from replacing an artifact that was written without it.
+
+    `analyze.py` names its artifact by host label alone, so an opt-in run under
+    the registered label would land on the registered artifact (AGENTS.md
+    section 8.5). An artifact the opt-in wrote itself may be rewritten.
+    """
+    dest = Path(dest)
+    if not dest.exists():
+        return
+    try:
+        prov = json.loads(dest.read_text()).get("provenance") or {}
+    except (ValueError, AttributeError):
+        prov = {}
+    if "short_window" not in prov:
+        sys.exit(f"STOP: {dest.name} exists and was not written under {OPT_IN}; point "
+                 "SNG_RESULTS_DIR elsewhere, or use another host label or tag")
+
+
 def census(path):
     """Prints what the rule would read on one committed analyzer artifact."""
     art = json.loads(Path(path).read_text())
@@ -300,6 +321,151 @@ def _rows(recs, is_valid, labelled=True):
             row.update(row_fields(r))
         rows.append(row)
     return [{"workload_id": "sng_sm_hashjudy_default", "w": 1, "metric": "wall", "rounds_raw": rows}]
+
+
+def _run_fixture(arms, rounds=8):
+    """A whole run as the driver writes it: `rounds` rounds of one cell, `arms` back to back.
+
+    `arms` is `[(arm, wall seconds, process-window foreign reading or None)]`.
+    The host is busy with exactly the children's CPU, as in `_fixture`, and the
+    run closes with an `end` snapshot, so every round window reads 0.0.
+    """
+    cell, order = "sng_sm_hashjudy_default", "".join(a for a, _, _ in arms)
+    loads, recs, t = [], [], 0.0
+
+    def snap(label):
+        ticks = round(t * 100)
+        loads.append(dict(_snap(label, ticks, ticks * 24, 5.0 + t, 100.0 + t), load1=0.2))
+
+    snap("start")
+    for rnd in range(rounds):
+        for i, (arm, wall, foreign) in enumerate(arms):
+            snap(f"cell:{cell}:W1:{arm}:r{rnd}")
+            t = round(t + wall, 2)
+            rate = 1000.0 * (i + 1) * (1 + 0.01 * rnd)
+            recs.append({"run": 1, "round": rnd, "cell": cell, "w": 1, "arm": arm, "order": order,
+                         "rc": 0, "failed": False, "wall": wall, "load": {"foreign_busy_cpus": foreign},
+                         "metrics": {"hashjudy-puts-per-sec": rate, "hashjudy-gets-per-sec": 2 * rate,
+                                     "bogo-ops-per-second-real-time": 3 * rate, "max-rss": 4096 + i}})
+    snap("end")
+    return {"host": {"cpus_online": 24}, "arm_set": "increment", "increment": {}, "loads": loads}, recs
+
+
+def _call_site_checks(check):
+    """The two analyzers end to end: the flag reaches `valid`, the rows and the provenance.
+
+    The checks above exercise this module's functions, which stay green when an
+    analyzer stops calling them. These run each analyzer's own `analyse_run`
+    over a run whose short arm has no process-window reading, with the opt-in
+    off and on, and read what would be written.
+    """
+    import contextlib
+    import io
+    import tempfile
+    import analyze
+    import diag_increment_analyze
+
+    short = [RULE_ROUND] * 8
+    cases = (("analyze.py", analyze, ["t"], "baseline_t_run{}.json", "n_S", None,
+              [("S", 0.08, None), ("E", 0.39, 0.01)]),
+             ("diag_increment_analyze.py", diag_increment_analyze, ["t", "tag"],
+              "diagnostic_increment_tag_t_run{}.json", "n_G", "G/S",
+              [("G", 0.08, None), ("M", 0.39, 0.01), ("S", 0.10, 0.02)]))
+    was = analyze.SHORT_WINDOW, analyze.RESULTS, diag_increment_analyze.RESULTS
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, mod, head, dest, n_key, pair, arms in cases:
+                analyse_run = mod.analyse_run
+                prov, recs = _run_fixture(arms)
+                prefix = str(Path(tmp) / name)
+                Path(prefix + ".jsonl").write_text("".join(json.dumps(r) + "\n" for r in recs))
+                Path(prefix + ".provenance.json").write_text(json.dumps(prov))
+                arm = arms[0][0]
+
+                def first(art):
+                    return next(c for c in art["cells"]
+                                if c["metric"] == "hashjudy-puts-per-sec" and c.get("pair") == pair)
+
+                check(f"{name}: the flag is taken off the arguments",
+                      analyze.take_short_window_flag(["ref", "a", "b"]), ["ref", "a", "b"])
+                check(f"{name}: and leaves the opt-in off", analyze.SHORT_WINDOW, False)
+                art, _ = analyse_run(prefix)
+                cell = first(art)
+                check(f"{name}, opt-in off: the short arm is discarded", cell[n_key], 0)
+                check(f"{name}, opt-in off: so the cell has no interval", cell["ratio"], None)
+                check(f"{name}, opt-in off: no row gains a field",
+                      sorted({k for c in art["cells"] for r in c["rounds_raw"] for k in r}
+                             & {"load_rule", "load_fallback"}), [])
+                check(f"{name}, opt-in off: nor does the provenance",
+                      "short_window" in art["provenance"], False)
+
+                check(f"{name}: the opt-in is taken off the arguments",
+                      analyze.take_short_window_flag(["ref", "a", OPT_IN, "b"]), ["ref", "a", "b"])
+                check(f"{name}: and switches the rule on", analyze.SHORT_WINDOW, True)
+                art, read = analyse_run(prefix)
+                cell = first(art)
+                mine = [r for r in cell["rounds_raw"] if r["arm"] == arm]
+                check(f"{name}, opt-in on: the short arm is read", cell[n_key], 8)
+                check(f"{name}, opt-in on: so the cell has an interval",
+                      isinstance(cell["ratio"], float), True)
+                check(f"{name}, opt-in on: every short row names its rule",
+                      [r.get("load_rule") for r in mine], short)
+                check(f"{name}, opt-in on: and is valid on it", [r["valid"] for r in mine], [True] * 8)
+                check(f"{name}, opt-in on: with no number in foreign_busy_cpus",
+                      [r["foreign_busy_cpus"] for r in mine], [None] * 8)
+                check(f"{name}, opt-in on: the rows pass the label check",
+                      label_problems(art["cells"]), [])
+                s = art["provenance"].get("short_window", {})
+                check(f"{name}, opt-in on: the provenance counts them",
+                      (s.get("rows_round_window"), s.get("rows_round_window_valid"),
+                       s.get("rows_unmeasured"), s.get("rows")), (8, 8, 0, len(read)))
+
+                # `main`: what is printed, and where the artifact may land.
+                def run_main(results, *flags):
+                    out, stop = io.StringIO(), ""
+                    mod.RESULTS, argv = Path(results), sys.argv
+                    sys.argv = [name, *head, prefix, prefix, *flags]
+                    try:
+                        with contextlib.redirect_stdout(out):
+                            mod.main()
+                    except SystemExit as e:
+                        stop = str(e)
+                    finally:
+                        sys.argv = argv
+                    return out.getvalue(), stop
+
+                plain, opted = Path(tmp) / f"{name}.plain", Path(tmp) / f"{name}.opted"
+                plain.mkdir()
+                opted.mkdir()
+                out, stop = run_main(plain)
+                check(f"{name} main, opt-in off: runs to its table", stop, "")
+                check(f"{name} main, opt-in off: prints no fallback line",
+                      "short-window fallback" in out, False)
+                before = [(plain / dest.format(n)).read_bytes() for n in (1, 2)]
+                check(f"{name} main, opt-in off: the artifact has no short_window block",
+                      [b"short_window" in b or b"load_rule" in b for b in before], [False, False])
+                out, stop = run_main(plain, OPT_IN)
+                check(f"{name} main: the opt-in will not replace that artifact",
+                      "STOP" in stop and "was not written under" in stop, True)
+                check(f"{name} main: and leaves it as it was",
+                      [(plain / dest.format(n)).read_bytes() for n in (1, 2)], before)
+                out, stop = run_main(opted, OPT_IN)
+                check(f"{name} main, opt-in on: runs to its table", stop, "")
+                check(f"{name} main, opt-in on: prints the count for each run",
+                      [f"run {n}: short-window fallback (round_window): 8 of {len(read)} processes"
+                       in out for n in (1, 2)], [True, True])
+                check(f"{name} main, opt-in on: the artifact carries the block",
+                      [json.loads((opted / dest.format(n)).read_text())["provenance"]
+                       .get("short_window", {}).get("rows_round_window") for n in (1, 2)], [8, 8])
+                out, stop = run_main(opted, OPT_IN)
+                check(f"{name} main: an opt-in artifact may be rewritten", stop, "")
+        try:
+            analyze.take_short_window_flag(["ref", "a", "b", "--short-window=cell"])
+            check("an unknown short-window value stops", "no stop", "STOP")
+        except SystemExit as e:
+            check("an unknown short-window value stops", "STOP" in str(e), True)
+    finally:
+        analyze.SHORT_WINDOW, analyze.RESULTS, diag_increment_analyze.RESULTS = was
 
 
 def _self_test():
@@ -417,6 +583,8 @@ def _self_test():
             failures.append(f"{name}: no error")
         except ValueError:
             pass
+
+    _call_site_checks(check)
 
     for f in failures:
         print("FAIL", f)

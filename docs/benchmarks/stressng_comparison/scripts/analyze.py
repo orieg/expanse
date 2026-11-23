@@ -100,6 +100,13 @@ def close_short_window(art, recs):
     return art
 
 
+def write_artifact(dest, art):
+    """Writes one run's artifact; the opt-in never replaces one written without it."""
+    if SHORT_WINDOW:
+        short_window.refuse_overwrite(dest)
+    dest.write_text(json.dumps(art, indent=1) + "\n")
+
+
 def run_void(prov):
     """METHODOLOGY.md §7: a run is void if load1 ever exceeded half the logical CPUs."""
     limit = (prov["host"]["cpus_online"] or 0) / 2
@@ -160,7 +167,7 @@ def main():
     for n, prefix in enumerate(prefixes, 1):
         art, recs = analyse_run(prefix)
         dest = RESULTS / f"baseline_{host}_run{n}.json"
-        dest.write_text(json.dumps(art, indent=1) + "\n")
+        write_artifact(dest, art)
         disc = [r for r in recs if not valid(r)]
         v = art["provenance"]["void"]
         print(f"run {n}: {len(recs)} processes, {len(disc)} discarded; max load1 {v['max_load1']} "

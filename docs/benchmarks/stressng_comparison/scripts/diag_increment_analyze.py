@@ -101,7 +101,7 @@ def main():
     for n, prefix in enumerate(prefixes, 1):
         art, recs = analyse_run(prefix)
         dest = RESULTS / f"diagnostic_increment_{tag}_{host}_run{n}.json"
-        dest.write_text(json.dumps(art, indent=1) + "\n")
+        analyze.write_artifact(dest, art)
         v = art["provenance"]["void"]
         print(f"run {n}: {len(recs)} processes, {sum(not valid(r) for r in recs)} discarded; "
               f"max load1 {v['max_load1']} (void above {v['limit']}): "
