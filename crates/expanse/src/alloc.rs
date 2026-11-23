@@ -96,6 +96,9 @@ macro_rules! alloc_raw_body {
             #[cfg(feature = "std")]
             if let Some(d) = $s.deferred_if::<OCC>() {
                 d.charge($s, accounted_size);
+                if is_branch_u($bytes, $align) {
+                    return branch_u_block_deferred(&d.collector);
+                }
                 if let Some(class) = class_for($bytes, $align) {
                     let raw = d.collector.pop_freelist(class);
                     if !raw.is_null() {
@@ -137,6 +140,12 @@ macro_rules! alloc_raw_body {
             #[cfg(miri)]
             if $s.exact_size {
                 return Self::$system($bytes, $align);
+            }
+
+            // A BranchU leaves through one out-of-line call
+            // (`NodeAlloc::branch_u_block` says why).
+            if is_branch_u($bytes, $align) {
+                return $s.branch_u_block();
             }
 
             if let Some(class) = class_for($bytes, $align) {
@@ -391,8 +400,33 @@ pub(crate) const NUM_CLASSES: usize = 62;
 /// allocation, and a freed one waits on the class freelist for the next
 /// upgrade, until [`NodeAlloc::release_free`] or the drop (Refs #1680).
 const BRANCH_U_CLASS: usize = 5;
-const _: () =
-    assert!(CLASS_SPECS[BRANCH_U_CLASS].0 == 4160 && CLASS_SPECS[BRANCH_U_CLASS].1 == CACHE_LINE);
+const BRANCH_U_BYTES: usize = 4160;
+const _: () = assert!(
+    CLASS_SPECS[BRANCH_U_CLASS].0 == BRANCH_U_BYTES && CLASS_SPECS[BRANCH_U_CLASS].1 == CACHE_LINE
+);
+
+/// Whether a request is the `BranchU` class. Constant at every call site:
+/// the typed entry points pass `size_of::<T>()` and `align_of::<T>()`.
+#[inline(always)]
+const fn is_branch_u(bytes: usize, align: usize) -> bool {
+    bytes == BRANCH_U_BYTES && align == CACHE_LINE
+}
+
+/// A zeroed `BranchU` block for a tree shared through a concurrent wrapper:
+/// from the collector's freelist, else from the system allocator. Out of
+/// line for the reason [`NodeAlloc::branch_u_block`] is.
+#[cfg(feature = "std")]
+#[inline(never)]
+fn branch_u_block_deferred(collector: &Collector) -> NonNull<u8> {
+    let raw = collector.pop_freelist(BRANCH_U_CLASS);
+    if raw.is_null() {
+        return NodeAlloc::alloc_system(BRANCH_U_BYTES, CACHE_LINE);
+    }
+    // SAFETY: a block popped from the class freelist is `BRANCH_U_BYTES`
+    // long and this call owns it.
+    unsafe { core::ptr::write_bytes(raw, 0, BRANCH_U_BYTES) };
+    NonNull::new(raw).expect("non-null free block")
+}
 
 pub(crate) const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
     (32, CACHE_LINE),
@@ -1471,6 +1505,57 @@ impl NodeAlloc {
         alloc_raw_body!(self, bytes, align, no_fill, alloc_system_uninit)
     }
 
+    /// A zeroed `BranchU` block for a plain tree: the head of the class
+    /// freelist, else a block from the system allocator. The caller has
+    /// done the accounting.
+    ///
+    /// Out of line on purpose: a function that can allocate a `BranchU`
+    /// then holds one call for it, as it would with a call straight to the
+    /// system allocator. The pop and the 4,160-byte zero fill, inlined,
+    /// change that function's code on the paths that allocate nothing.
+    #[inline(never)]
+    fn branch_u_block(&self) -> NonNull<u8> {
+        let class = BRANCH_U_CLASS;
+        let head = self.freelists[class].load(Ordering::Relaxed);
+        if head.is_null() {
+            return Self::alloc_system(BRANCH_U_BYTES, CACHE_LINE);
+        }
+        #[cfg(debug_assertions)]
+        let _bookkeeping = self.enter_bookkeeping();
+        debug_assert!(
+            !self.occ_enabled(),
+            "a per-tree freelist popped under OCC: per-tree freelists are single-writer only"
+        );
+        // SAFETY: `head` is a free block of this class, pushed by
+        // `keep_branch_u_block` with its link written.
+        let next = unsafe { (*head).next };
+        self.freelists[class].store(next, Ordering::Relaxed);
+        let raw = head.cast::<u8>();
+        // SAFETY: the block is `BRANCH_U_BYTES` long and this call owns it.
+        unsafe { core::ptr::write_bytes(raw, 0, BRANCH_U_BYTES) };
+        NonNull::new(raw).expect("non-null free block")
+    }
+
+    /// Pushes a freed `BranchU` block onto its class freelist. The caller
+    /// has done the accounting. Out of line as [`Self::branch_u_block`] is.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be an unfreed `alloc_raw(BRANCH_U_BYTES, CACHE_LINE)` block
+    /// of this handle, and nothing may use it afterwards.
+    #[inline(never)]
+    unsafe fn keep_branch_u_block(&self, ptr: NonNull<u8>) {
+        #[cfg(debug_assertions)]
+        let _bookkeeping = self.enter_bookkeeping();
+        let class = BRANCH_U_CLASS;
+        let block = ptr.as_ptr().cast::<FreeBlock>();
+        let head = self.freelists[class].load(Ordering::Relaxed);
+        // SAFETY: the block is at least `size_of::<FreeBlock>()` long and
+        // this call owns it.
+        unsafe { (*block).next = head };
+        self.freelists[class].store(block, Ordering::Relaxed);
+    }
+
     /// A zeroed block straight from the system allocator.
     #[inline(always)]
     fn alloc_system(bytes: usize, align: usize) -> NonNull<u8> {
@@ -1554,6 +1639,14 @@ impl NodeAlloc {
             // and allocated it with `alloc_system(bytes, align)`, whose
             // layout is `layout_for(bytes, align)`.
             unsafe { dealloc(ptr.as_ptr(), Self::layout_for(bytes, align)) };
+            return;
+        }
+
+        if is_branch_u(bytes, align) {
+            // SAFETY: per this function's contract `ptr` is an unfreed
+            // `alloc_raw(BRANCH_U_BYTES, CACHE_LINE)` block of this handle
+            // that nothing uses after this call.
+            unsafe { self.keep_branch_u_block(ptr) };
             return;
         }
 
@@ -2680,10 +2773,11 @@ mod tests {
 
     /// A freed `BranchU` goes to its class freelist and is not returned to
     /// the system allocator: it stays in `bytes_held`, the next `BranchU`
-    /// reuses the same block zeroed, and `release_free` returns it. Without a
-    /// `(4160, CACHE_LINE)` class the free is a `dealloc` and this test stops
-    /// at the `class_for` lookup; the tree-level twin, which fails on its
-    /// census assertion, is `tests/test_intmap_drain_release.rs` (Refs #1680).
+    /// reuses the same block zeroed, and `release_free` returns it. Without
+    /// the class (its `CLASS_SPECS` entry and the `is_branch_u` paths) the
+    /// free is a `dealloc` and this test stops at the `class_for` lookup; the
+    /// tree-level twin, which fails on its census assertion, is
+    /// `tests/test_intmap_drain_release.rs` (Refs #1680).
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn a_freed_branch_u_waits_on_its_class_freelist() {
@@ -3083,8 +3177,9 @@ mod tests {
     /// silent lost update, so this counts them in the source.
     ///
     /// Both counts are the invariant, not the numbers. The claims are the
-    /// freelist pop, the slab-page carve and the freelist push; the mutations
-    /// are their four stores. A new mutating region changes the store count,
+    /// freelist pop, the slab-page carve and the freelist push, and the
+    /// out-of-line pop and push of the `BranchU` class; the mutations are
+    /// their six stores. A new mutating region changes the store count,
     /// which fails this test until someone states where its guard is — the
     /// census cannot tell on its own whether a *new* store sits inside a
     /// guarded region, so that judgement is the reviewer's, and this test is
@@ -3110,15 +3205,17 @@ mod tests {
             .filter(|line| line.contains(freelist_store) || line.contains(slab_store))
             .count();
         assert_eq!(
-            claims, 3,
-            "expected the freelist pop, the slab-page carve and the freelist push to claim \
-             the guard; found {claims} claims in alloc.rs above its test module"
+            claims, 5,
+            "expected the freelist pop, the slab-page carve, the freelist push and the \
+             BranchU class's pop and push to claim the guard; found {claims} claims in \
+             alloc.rs above its test module"
         );
         assert_eq!(
-            stores, 4,
-            "expected 4 stores to the single-writer freelists and slab-page list (the pop, \
-             the slab-page push, the carve's per-block push, and the free push); found \
-             {stores}. A new one must sit inside a region that claims the bookkeeping guard"
+            stores, 6,
+            "expected 6 stores to the single-writer freelists and slab-page list (the pop, \
+             the slab-page push, the carve's per-block push, the free push, and the BranchU \
+             class's pop and push); found {stores}. A new one must sit inside a region that \
+             claims the bookkeeping guard"
         );
     }
 }
