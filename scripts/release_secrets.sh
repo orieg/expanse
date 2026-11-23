@@ -43,6 +43,10 @@ subsplit:PHP_SUBSPLIT_SSH_KEY:orieg/php-expanse
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Where gpg's stderr goes on the paths that otherwise discard it. The self-test
+# points it at a log that st_fail prints, so a CI failure shows gpg's reason.
+GPG_ERR="${GPG_ERR:-/dev/null}"
+
 die() {
   printf 'error: %s\n' "$*" >&2
   exit 1
@@ -67,8 +71,35 @@ ask_hidden() {
   printf -v "$1" '%s' "$__v"
 }
 
+# gpg_tool NAME: the GnuPG companion tool installed beside the `gpg` on PATH.
+# A host can carry two GnuPG installs, and the agent one starts is not the
+# other's to manage.
+gpg_tool() {
+  local g
+  g="$(command -v gpg || true)"
+  [ -n "$g" ] && g="$(readlink -f "$g" 2>/dev/null || printf '%s' "$g")"
+  if [ -n "$g" ] && [ -x "${g%/*}/$1" ]; then
+    printf '%s\n' "${g%/*}/$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+# start_agent GNUPGHOME: start that keyring's agent and wait until it answers.
+# gpg starts one on demand but waits only a few seconds for it, and a slow start
+# on a loaded host then fails the operation with "can't connect to the agent".
+# Each retry finds the agent an earlier attempt launched.
+start_agent() {
+  local tries=0
+  until GNUPGHOME="$1" "$(gpg_tool gpg-connect-agent)" /bye >/dev/null 2>>"$GPG_ERR"; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 12 ] || return 1
+    sleep 1
+  done
+}
+
 kill_agent() { # kill_agent GNUPGHOME: best effort, the directory is removed next
-  GNUPGHOME="$1" gpgconf --kill gpg-agent 2>/dev/null || true
+  GNUPGHOME="$1" "$(gpg_tool gpgconf)" --kill gpg-agent 2>/dev/null || true
 }
 
 # workflow_secrets: one "environment<TAB>name" line per secret a workflow job
@@ -106,9 +137,14 @@ check_key() {
   home="$(mktemp -d)"
   chmod 700 "$home"
   echo "allow-loopback-pinentry" > "$home/gpg-agent.conf"
-  if printf '%s\n' "$1" | GNUPGHOME="$home" gpg --batch --quiet --import 2>/dev/null &&
+  if ! start_agent "$home"; then
+    kill_agent "$home"
+    rm -rf "$home"
+    die "gpg-agent did not start for a throwaway keyring; the key was not checked"
+  fi
+  if printf '%s\n' "$1" | GNUPGHOME="$home" gpg --batch --quiet --import 2>>"$GPG_ERR" &&
     printf 'probe\n' | GNUPGHOME="$home" gpg --batch --quiet --pinentry-mode loopback \
-      --passphrase-fd 3 --clearsign 3< <(printf '%s' "$2") >/dev/null 2>&1; then
+      --passphrase-fd 3 --clearsign 3< <(printf '%s' "$2") >/dev/null 2>>"$GPG_ERR"; then
     ok=1
   fi
   kill_agent "$home"
@@ -130,7 +166,7 @@ upload_key_pair() {
 }
 
 package_key_fpr() {
-  gpg --batch --list-secret-keys --with-colons 2>/dev/null | awk -F: -v c="($PKG_UID_COMMENT)" '
+  gpg --batch --list-secret-keys --with-colons 2>>"$GPG_ERR" | awk -F: -v c="($PKG_UID_COMMENT)" '
     /^fpr/ && fpr == "" { fpr = $10 }
     /^uid/ && index($10, c) { print fpr; exit }
     /^sec/ { fpr = "" }'
@@ -258,6 +294,10 @@ cmd_status() {
 
 st_fail() {
   printf 'self-test FAILED: %s\n' "$*" >&2
+  if [ -s "$GPG_ERR" ] && [ "$GPG_ERR" != /dev/null ]; then
+    printf -- '--- gpg stderr (last 40 lines) ---\n' >&2
+    tail -n 40 "$GPG_ERR" >&2
+  fi
   exit 1
 }
 
@@ -285,13 +325,16 @@ cmd_self_test() {
   # Not a `local`: the EXIT trap runs after this function's scope is gone.
   ST_HOME="$GNUPGHOME"
   trap 'kill_agent "$ST_HOME"; rm -rf "$ST_HOME"' EXIT
+  GPG_ERR="$GNUPGHOME/self-test-gpg.log"
+  : > "$GPG_ERR"
+  start_agent "$GNUPGHOME" || st_fail "gpg-agent did not start for the throwaway keyring"
   export DRY_RUN=1
   PKG_UID="Throwaway ($PKG_UID_COMMENT) <test@example.invalid>"
 
   # Generation: both secrets, from a sign-only key with no subkey.
   st_refuses "mismatched repeat" "the two passphrases differ" 'a\nb\n' cmd_package_signing
   st_refuses "empty passphrase" "empty passphrase" '\n\n' cmd_package_signing
-  out="$(printf 'pp-one\npp-one\n' | cmd_package_signing 2>/dev/null)" || st_fail "key generation failed"
+  out="$(printf 'pp-one\npp-one\n' | cmd_package_signing 2>>"$GPG_ERR")" || st_fail "key generation failed"
   case "$out" in
     *"package-signing/REPO_SIGNING_KEY <- "*"package-signing/REPO_SIGNING_PASSPHRASE <- 6 bytes"*) ;;
     *) st_fail "generation did not reach both uploads: $out" ;;
@@ -305,7 +348,7 @@ cmd_self_test() {
     END { exit bad }' || st_fail "the generated key is not sign-only with no subkey"
 
   # An existing key: reused, and refused under the wrong passphrase.
-  out="$(printf 'pp-one\n' | cmd_package_signing 2>/dev/null)" || st_fail "an existing key was refused"
+  out="$(printf 'pp-one\n' | cmd_package_signing 2>>"$GPG_ERR")" || st_fail "an existing key was refused"
   case "$out" in
     *"Using key $fpr"*"REPO_SIGNING_PASSPHRASE <- 6 bytes"*) ;;
     *) st_fail "an existing key was not reused: $out" ;;
@@ -321,7 +364,7 @@ cmd_self_test() {
   if check_key "not a key" pp-one; then st_fail "check_key accepted a non-key"; fi
 
   # The Maven pair goes to its own names.
-  out="$(printf 'pp-one\n' | MAVEN_FPR="$fpr" cmd_maven_key 2>/dev/null)" || st_fail "maven-key failed"
+  out="$(printf 'pp-one\n' | MAVEN_FPR="$fpr" cmd_maven_key 2>>"$GPG_ERR")" || st_fail "maven-key failed"
   case "$out" in
     *"release/MAVEN_GPG_PRIVATE_KEY <- "*"release/MAVEN_GPG_PASSPHRASE <- 6 bytes"*) ;;
     *) st_fail "maven-key did not reach both uploads: $out" ;;
@@ -331,7 +374,7 @@ $out"
   st_refuses "maven-key empty passphrase" "empty passphrase" '\n' cmd_maven_key
 
   # A token is sent byte for byte, and an empty one is refused.
-  out="$(printf 'tok-123\n' | cmd_token release SOME_NAME 2>/dev/null)" || st_fail "token failed"
+  out="$(printf 'tok-123\n' | cmd_token release SOME_NAME 2>>"$GPG_ERR")" || st_fail "token failed"
   [ "$out" = "  DRY_RUN: release/SOME_NAME <- 7 bytes" ] || st_fail "token: $out"
   st_refuses "empty token" "empty value" '\n' cmd_token release SOME_NAME
 

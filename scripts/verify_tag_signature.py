@@ -34,6 +34,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 DEFAULT_KEYRING = ".github/release-signing-keys.asc"
@@ -70,12 +71,58 @@ def _gpg_env(home: Path) -> dict:
     return env
 
 
+def _gpg_tool(name: str) -> str:
+    """The GnuPG companion tool installed beside `GPG`.
+
+    A host can carry two GnuPG installs, and the agent one starts is not the other's to manage.
+    """
+    found = shutil.which(GPG)
+    if found:
+        beside = Path(os.path.realpath(found)).parent / name
+        if beside.is_file() and os.access(beside, os.X_OK):
+            return str(beside)
+    return name
+
+
+def start_agent(home: Path, attempts: int = 12) -> None:
+    """Starts the agent for `home` and waits until it answers, or raises `Refused`.
+
+    gpg starts one on demand but waits only a few seconds for it, and a slow start on a loaded host then
+    fails the operation with "can't connect to the agent". Each retry finds the agent an earlier attempt
+    launched.
+    """
+    last = ""
+    for attempt in range(attempts):
+        try:
+            proc = _run([_gpg_tool("gpg-connect-agent"), "/bye"], env=_gpg_env(home))
+        except OSError as exc:
+            raise Refused(f"cannot run gpg-connect-agent ({exc}). Install GnuPG in full, then re-run: "
+                          f"the tag itself was not judged") from exc
+        if proc.returncode == 0:
+            return
+        last = proc.stderr.strip()
+        if attempt + 1 < attempts:
+            time.sleep(1)
+    raise Refused(f"gpg-agent did not start for the throwaway GnuPG home ({last[-300:] or 'no output'}). "
+                  f"Check the GnuPG install, then re-run: the tag itself was not judged")
+
+
+def stop_agent(home: Path) -> None:
+    """Best effort: the home is removed next. A failure is reported, not raised, since the verdict stands."""
+    try:
+        _run([_gpg_tool("gpgconf"), "--kill", "gpg-agent"], env=_gpg_env(home))
+    except OSError as exc:  # discipline:allow(error-swallowing) cleanup only; the verdict is already decided
+        print(f"::notice::could not stop the throwaway gpg-agent ({exc}); it may outlive this run",
+              file=sys.stderr)
+
+
 def keyring_fingerprints(keyring: Path, home: Path) -> set[str]:
     """Imports `keyring` into the empty GnuPG home `home`; returns its primary-key fingerprints."""
     if not keyring.is_file():
         raise Refused(f"keyring {keyring} does not exist. Restore {DEFAULT_KEYRING} from main, or pass the "
                       f"committed keyring with --keyring")
     require_gpg()
+    start_agent(home)
     env = _gpg_env(home)
     imp = _run([GPG, "--batch", "--quiet", "--import", str(keyring)], env=env)
     if imp.returncode != 0:
@@ -152,9 +199,12 @@ def verify(repo: Path, tag: str, keyring: Path, sha: str | None = None) -> str:
     with tempfile.TemporaryDirectory(prefix="verify-tag-") as tmp:
         home = Path(tmp)
         home.chmod(0o700)
-        trusted = keyring_fingerprints(keyring, home)
-        checked = _run(["git", "-c", f"gpg.program={GPG}", "verify-tag", "--raw", tag],
-                       cwd=repo, env=_gpg_env(home))
+        try:
+            trusted = keyring_fingerprints(keyring, home)
+            checked = _run(["git", "-c", f"gpg.program={GPG}", "verify-tag", "--raw", tag],
+                           cwd=repo, env=_gpg_env(home))
+        finally:
+            stop_agent(home)
     if "cannot run" in checked.stderr and GPG in checked.stderr:
         require_gpg()
         raise Refused(f"git could not run `{GPG}` to verify {tag}: {checked.stderr.strip()[:200]}. "
@@ -231,6 +281,11 @@ def self_test() -> int:
         gpg_home = root / "gnupg"
         gpg_home.mkdir(mode=0o700)
         env = _gpg_env(gpg_home)
+        try:
+            start_agent(gpg_home)
+        except Refused as exc:
+            print(f"::error::verify_tag_signature self-test: {exc}")
+            return 1
 
         def make_key(name: str) -> str:
             proc = _run(["gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase", "",
@@ -244,6 +299,7 @@ def self_test() -> int:
         try:
             maintainer, other = make_key("maintainer"), make_key("other")
         except (RuntimeError, OSError, StopIteration) as exc:
+            stop_agent(gpg_home)
             print(f"::error::verify_tag_signature self-test: {exc}")
             return 1
 
@@ -321,7 +377,6 @@ def self_test() -> int:
                      "--quick-set-expire", expiring, "seconds=1"], env=env)
         if proc.returncode != 0:
             failures.append(f"cannot expire the test key: {proc.stderr.strip()}")
-        import time
         time.sleep(2.5)
         exp_ring.write_text(_run(["gpg", "--batch", "--armor", "--export", expiring], env=env).stdout)
         raw = _run(["git", "verify-tag", "--raw", "v1.1.0"], cwd=repo, env=env).stderr
@@ -345,6 +400,7 @@ def self_test() -> int:
                 del os.environ["GNUPGHOME"]
             else:
                 os.environ["GNUPGHOME"] = saved
+        stop_agent(gpg_home)
 
     if failures:
         for f in failures:
