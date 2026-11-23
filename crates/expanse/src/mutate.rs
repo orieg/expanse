@@ -2502,6 +2502,29 @@ pub(crate) unsafe fn upgrade_b_to_u<const OCC: bool>(a: &NodeAlloc, edge: &mut E
     edge.set_aux_bytes(aux);
 }
 
+/// One decompression step of a full expanse at `level` above 1: a `BranchU`
+/// whose 256 children are full expanses one level down. The node is private
+/// to the caller until it stores the edge.
+///
+/// Out of line: a removal reaches it only when its key sits in a full
+/// expanse. Inlined, the allocation and the 256-edge fill are part of the
+/// removal walk's body, and what the allocator does for a `BranchU` then
+/// decides code on the walk's other paths.
+#[inline(never)]
+fn full_expanse_branch_u<const OCC: bool>(a: &NodeAlloc, level: u8) -> core::ptr::NonNull<BranchU> {
+    debug_assert!((2..=8).contains(&level));
+    let ptr = a.alloc_node_zeroed_dispatch::<OCC, BranchU>();
+    // SAFETY: ptr is freshly allocated zeroed BranchU memory.
+    unsafe {
+        for child in &mut (*ptr.as_ptr()).edges {
+            child.set_tag(EdgeType::FullExpanse.as_u8());
+            child.set_pop0(level - 1, pow256(level - 1) - 1);
+        }
+        branch_u_init_count::<OCC>(ptr.as_ptr(), crate::types::BRANCH_FANOUT);
+    }
+    ptr
+}
+
 /// Removes `key` from the subtree at `edge`; returns `true` if removed.
 ///
 /// `cover` is the version word of the node whose slot `edge` is (the tree
@@ -2757,15 +2780,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 edge.set_pop0(1, 255);
                 cover.end_if::<OCC, NESTED>(a);
             } else {
-                let ptr = a.alloc_node_zeroed_dispatch::<OCC, BranchU>();
-                // SAFETY: ptr is freshly allocated zeroed BranchU memory.
-                unsafe {
-                    for child in &mut (*ptr.as_ptr()).edges {
-                        child.set_tag(EdgeType::FullExpanse.as_u8());
-                        child.set_pop0(level - 1, pow256(level - 1) - 1);
-                    }
-                    branch_u_init_count::<OCC>(ptr.as_ptr(), crate::types::BRANCH_FANOUT);
-                }
+                let ptr = full_expanse_branch_u::<OCC>(a, level);
                 cover.begin_if::<OCC, NESTED>(a);
                 *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::BranchU.as_u8());
                 edge.set_pop0(level, pow256(level) - 1);
@@ -3314,15 +3329,7 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
                 unsafe { Edge::store_at::<OCC>(edge_ptr, *edge) };
                 cover.end_if::<OCC, NESTED>(a);
             } else {
-                let ptr = a.alloc_node_zeroed_dispatch::<OCC, BranchU>();
-                // SAFETY: ptr is freshly allocated zeroed BranchU memory.
-                unsafe {
-                    for child in &mut (*ptr.as_ptr()).edges {
-                        child.set_tag(EdgeType::FullExpanse.as_u8());
-                        child.set_pop0(level - 1, pow256(level - 1) - 1);
-                    }
-                    branch_u_init_count::<OCC>(ptr.as_ptr(), crate::types::BRANCH_FANOUT);
-                }
+                let ptr = full_expanse_branch_u::<OCC>(a, level);
                 cover.begin_if::<OCC, NESTED>(a);
                 *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::BranchU.as_u8());
                 edge.set_pop0(level, pow256(level) - 1);

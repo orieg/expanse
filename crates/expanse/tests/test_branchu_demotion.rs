@@ -504,9 +504,10 @@ fn branch_b_empty_child_routes_through_one_routine() {
 ///    the two optimistic null-slot inserts of `sync.rs`.
 /// 2. Nulls: the exclusive removals (two per walk file) and
 ///    `null_branch_u_slot`, the one optimistic null store (clause 2 above).
-/// 3. Counts started: `upgrade_b_to_u` and the two full-expanse
-///    materialisations in `mutate.rs`, and `null_branch_u_slot`'s first
-///    count of a branch built before its tree was shared.
+/// 3. Counts started: `upgrade_b_to_u` and `full_expanse_branch_u`, the
+///    full-expanse materialisation both removal walks call, in `mutate.rs`,
+///    and `null_branch_u_slot`'s first count of a branch built before its
+///    tree was shared.
 #[test]
 fn branch_u_count_changes_route_through_the_helpers() {
     let sync = production_code(include_str!("../src/sync.rs"));
@@ -518,7 +519,7 @@ fn branch_u_count_changes_route_through_the_helpers() {
     let null = "branch_u_note_null::<";
     let init = "branch_u_init_count::<";
     for (name, code, fills, nulls, inits) in [
-        ("mutate.rs", &mutate, 1, 2, 3),
+        ("mutate.rs", &mutate, 1, 2, 2),
         ("mutate_map.rs", &mutate_map, 1, 2, 0),
         ("sync.rs", &sync, 2, 1, 1),
         ("algebra_build.rs", &algebra_build, 0, 0, 0),
