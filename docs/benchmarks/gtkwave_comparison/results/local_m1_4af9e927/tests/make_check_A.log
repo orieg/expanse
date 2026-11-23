@@ -1,0 +1,156 @@
+Making check in doc
+make[1]: Entering directory '/w/build-stock/doc'
+make[1]: Nothing to be done for 'check'.
+make[1]: Leaving directory '/w/build-stock/doc'
+Making check in examples
+make[1]: Entering directory '/w/build-stock/examples'
+make[1]: Nothing to be done for 'check'.
+make[1]: Leaving directory '/w/build-stock/examples'
+Making check in man
+make[1]: Entering directory '/w/build-stock/man'
+make[1]: Nothing to be done for 'check'.
+make[1]: Leaving directory '/w/build-stock/man'
+Making check in src
+make[1]: Entering directory '/w/build-stock/src'
+make  check-recursive
+make[2]: Entering directory '/w/build-stock/src'
+Making check in liblzma
+make[3]: Entering directory '/w/build-stock/src/liblzma'
+make[3]: Nothing to be done for 'check'.
+make[3]: Leaving directory '/w/build-stock/src/liblzma'
+Making check in helpers
+make[3]: Entering directory '/w/build-stock/src/helpers'
+make[3]: Nothing to be done for 'check'.
+make[3]: Leaving directory '/w/build-stock/src/helpers'
+Making check in helpers/fst
+make[3]: Entering directory '/w/build-stock/src/helpers/fst'
+make[3]: Nothing to be done for 'check'.
+make[3]: Leaving directory '/w/build-stock/src/helpers/fst'
+Making check in cocoa
+make[3]: Entering directory '/w/build-stock/src/cocoa'
+make[3]: Nothing to be done for 'check'.
+make[3]: Leaving directory '/w/build-stock/src/cocoa'
+make[3]: Entering directory '/w/build-stock/src'
+make[3]: Nothing to be done for 'check-am'.
+make[3]: Leaving directory '/w/build-stock/src'
+make[2]: Leaving directory '/w/build-stock/src'
+make[1]: Leaving directory '/w/build-stock/src'
+Making check in contrib
+make[1]: Entering directory '/w/build-stock/contrib'
+Making check in rtlbrowse
+make[2]: Entering directory '/w/build-stock/contrib/rtlbrowse'
+make  check-recursive
+make[3]: Entering directory '/w/build-stock/contrib/rtlbrowse'
+make[4]: Entering directory '/w/build-stock/contrib/rtlbrowse'
+make[4]: Nothing to be done for 'check-am'.
+make[4]: Leaving directory '/w/build-stock/contrib/rtlbrowse'
+make[3]: Leaving directory '/w/build-stock/contrib/rtlbrowse'
+make[2]: Leaving directory '/w/build-stock/contrib/rtlbrowse'
+Making check in xml2stems
+make[2]: Entering directory '/w/build-stock/contrib/xml2stems'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-stock/contrib/xml2stems'
+Making check in bundle_for_osx
+make[2]: Entering directory '/w/build-stock/contrib/bundle_for_osx'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-stock/contrib/bundle_for_osx'
+Making check in fst_jni
+make[2]: Entering directory '/w/build-stock/contrib/fst_jni'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-stock/contrib/fst_jni'
+Making check in wlf2vcd
+make[2]: Entering directory '/w/build-stock/contrib/wlf2vcd'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-stock/contrib/wlf2vcd'
+Making check in fsdb2vcd
+make[2]: Entering directory '/w/build-stock/contrib/fsdb2vcd'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-stock/contrib/fsdb2vcd'
+make[2]: Entering directory '/w/build-stock/contrib'
+make[2]: Nothing to be done for 'check-am'.
+make[2]: Leaving directory '/w/build-stock/contrib'
+make[1]: Leaving directory '/w/build-stock/contrib'
+Making check in share
+make[1]: Entering directory '/w/build-stock/share'
+Making check in mime
+make[2]: Entering directory '/w/build-stock/share/mime'
+Making check in packages
+make[3]: Entering directory '/w/build-stock/share/mime/packages'
+make[3]: Nothing to be done for 'check'.
+make[3]: Leaving directory '/w/build-stock/share/mime/packages'
+make[3]: Entering directory '/w/build-stock/share/mime'
+make[3]: Nothing to be done for 'check-am'.
+make[3]: Leaving directory '/w/build-stock/share/mime'
+make[2]: Leaving directory '/w/build-stock/share/mime'
+Making check in icons
+make[2]: Entering directory '/w/build-stock/share/icons'
+Making check in gnome
+make[3]: Entering directory '/w/build-stock/share/icons/gnome'
+Making check in 16x16
+make[4]: Entering directory '/w/build-stock/share/icons/gnome/16x16'
+Making check in mimetypes
+make[5]: Entering directory '/w/build-stock/share/icons/gnome/16x16/mimetypes'
+make[5]: Nothing to be done for 'check'.
+make[5]: Leaving directory '/w/build-stock/share/icons/gnome/16x16/mimetypes'
+make[5]: Entering directory '/w/build-stock/share/icons/gnome/16x16'
+make[5]: Nothing to be done for 'check-am'.
+make[5]: Leaving directory '/w/build-stock/share/icons/gnome/16x16'
+make[4]: Leaving directory '/w/build-stock/share/icons/gnome/16x16'
+Making check in 32x32
+make[4]: Entering directory '/w/build-stock/share/icons/gnome/32x32'
+Making check in mimetypes
+make[5]: Entering directory '/w/build-stock/share/icons/gnome/32x32/mimetypes'
+make[5]: Nothing to be done for 'check'.
+make[5]: Leaving directory '/w/build-stock/share/icons/gnome/32x32/mimetypes'
+make[5]: Entering directory '/w/build-stock/share/icons/gnome/32x32'
+make[5]: Nothing to be done for 'check-am'.
+make[5]: Leaving directory '/w/build-stock/share/icons/gnome/32x32'
+make[4]: Leaving directory '/w/build-stock/share/icons/gnome/32x32'
+Making check in 48x48
+make[4]: Entering directory '/w/build-stock/share/icons/gnome/48x48'
+Making check in mimetypes
+make[5]: Entering directory '/w/build-stock/share/icons/gnome/48x48/mimetypes'
+make[5]: Nothing to be done for 'check'.
+make[5]: Leaving directory '/w/build-stock/share/icons/gnome/48x48/mimetypes'
+make[5]: Entering directory '/w/build-stock/share/icons/gnome/48x48'
+make[5]: Nothing to be done for 'check-am'.
+make[5]: Leaving directory '/w/build-stock/share/icons/gnome/48x48'
+make[4]: Leaving directory '/w/build-stock/share/icons/gnome/48x48'
+make[4]: Entering directory '/w/build-stock/share/icons/gnome'
+make[4]: Nothing to be done for 'check-am'.
+make[4]: Leaving directory '/w/build-stock/share/icons/gnome'
+make[3]: Leaving directory '/w/build-stock/share/icons/gnome'
+Making check in hicolor
+make[3]: Entering directory '/w/build-stock/share/icons/hicolor'
+Making check in scalable
+make[4]: Entering directory '/w/build-stock/share/icons/hicolor/scalable'
+Making check in apps
+make[5]: Entering directory '/w/build-stock/share/icons/hicolor/scalable/apps'
+make[5]: Nothing to be done for 'check'.
+make[5]: Leaving directory '/w/build-stock/share/icons/hicolor/scalable/apps'
+make[5]: Entering directory '/w/build-stock/share/icons/hicolor/scalable'
+make[5]: Nothing to be done for 'check-am'.
+make[5]: Leaving directory '/w/build-stock/share/icons/hicolor/scalable'
+make[4]: Leaving directory '/w/build-stock/share/icons/hicolor/scalable'
+make[4]: Entering directory '/w/build-stock/share/icons/hicolor'
+make[4]: Nothing to be done for 'check-am'.
+make[4]: Leaving directory '/w/build-stock/share/icons/hicolor'
+make[3]: Leaving directory '/w/build-stock/share/icons/hicolor'
+make[3]: Entering directory '/w/build-stock/share/icons'
+make[3]: Nothing to be done for 'check-am'.
+make[3]: Leaving directory '/w/build-stock/share/icons'
+make[2]: Leaving directory '/w/build-stock/share/icons'
+Making check in applications
+make[2]: Entering directory '/w/build-stock/share/applications'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-stock/share/applications'
+Making check in appdata
+make[2]: Entering directory '/w/build-stock/share/appdata'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-stock/share/appdata'
+make[2]: Entering directory '/w/build-stock/share'
+make[2]: Nothing to be done for 'check-am'.
+make[2]: Leaving directory '/w/build-stock/share'
+make[1]: Leaving directory '/w/build-stock/share'
+make[1]: Entering directory '/w/build-stock'
+make[1]: Leaving directory '/w/build-stock'

@@ -1,0 +1,5 @@
+nfacs 1
+top.val[7:0]
+find top.cluster0.core0.unit0.sig0 0
+find top.cluster7.core7.unit511.sig63 0
+find top.no.such 0
