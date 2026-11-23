@@ -384,13 +384,13 @@ const fn is_slab_class(class: usize) -> bool {
     CLASS_SPECS[class].0 <= 256
 }
 
-pub(crate) const NUM_CLASSES: usize = 63;
+pub(crate) const NUM_CLASSES: usize = 62;
 
-/// The class of a 64-bit `BranchU` (4,160 bytes at a cache line): the last
-/// entry of [`CLASS_SPECS`]. Above the slab ceiling, so each block is its own
-/// system allocation and a freed one waits on the class freelist for the next
+/// The class of a 64-bit `BranchU` (4,160 bytes at a cache line), the one
+/// cache-line class above the slab ceiling: each block is its own system
+/// allocation, and a freed one waits on the class freelist for the next
 /// upgrade, until [`NodeAlloc::release_free`] or the drop (Refs #1680).
-const BRANCH_U_CLASS: usize = NUM_CLASSES - 1;
+const BRANCH_U_CLASS: usize = 5;
 const _: () =
     assert!(CLASS_SPECS[BRANCH_U_CLASS].0 == 4160 && CLASS_SPECS[BRANCH_U_CLASS].1 == CACHE_LINE);
 
@@ -400,7 +400,7 @@ pub(crate) const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
     (96, CACHE_LINE),
     (128, CACHE_LINE),
     (256, CACHE_LINE),
-    (2048, CACHE_LINE),
+    (4160, CACHE_LINE),
     (8, RAW_ALIGN),
     (9, RAW_ALIGN),
     (10, RAW_ALIGN),
@@ -457,7 +457,6 @@ pub(crate) const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
     (325, RAW_ALIGN),
     (350, RAW_ALIGN),
     (375, RAW_ALIGN),
-    (4160, CACHE_LINE),
 ];
 
 const NO_CLASS: u8 = 0xFF;
@@ -546,7 +545,6 @@ pub(crate) fn class_for(bytes: usize, align: usize) -> Option<usize> {
             96 => Some(2),
             128 => Some(3),
             256 => Some(4),
-            2048 => Some(5),
             4160 => Some(BRANCH_U_CLASS),
             _ => None,
         }
@@ -2774,6 +2772,7 @@ mod tests {
             (376, RAW_ALIGN),
             (1000, RAW_ALIGN),
             (192, CACHE_LINE),
+            (2048, CACHE_LINE),
             (4096, CACHE_LINE),
         ];
         for &(bytes, align) in &unclassed {
@@ -2930,12 +2929,12 @@ mod tests {
     #[should_panic(expected = "defer_to on an allocator with active freelists")]
     fn defer_to_rejects_non_empty_freelist() {
         #[repr(C, align(64))]
-        struct BigNode([u8; 2048]);
+        struct BigNode([u8; 4160]);
 
         let a = pooled_alloc();
-        // Allocate a 2048-byte node (class 5) which is > 256 bytes so it does
+        // Allocate a 4160-byte node (class 5) which is > 256 bytes so it does
         // not carve from slab pages (leaving slab_pages null).
-        let ptr = a.alloc_node(BigNode([0; 2048]));
+        let ptr = a.alloc_node(BigNode([0; 4160]));
         // Free it before deferring: it populates a.freelists[5].
         // SAFETY: ptr points to a valid allocation returned by alloc_node.
         unsafe { a.free_node(ptr) };
