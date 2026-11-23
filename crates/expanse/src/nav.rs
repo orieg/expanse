@@ -120,6 +120,12 @@ fn immed_suffixes<const MAP: bool>(
 /// [`ImmedKeys::get`] extracts one with a shift and a mask, so a search
 /// reads the edge's two words instead of copying an
 /// [`ImmedBuf`](crate::mutate::ImmedBuf) out.
+///
+/// [`next`] and [`prev`] use it for the map flavour only. In the set
+/// walks, reading in place changed the code their leaf and bitmap arms
+/// compile to on x86-64 and cost the `clustered` and `sequential` set
+/// arms instructions, so those keep the copy; the commit that made this
+/// split carries the counts.
 struct ImmedKeys {
     payload: u128,
     kb: u32,
@@ -350,12 +356,19 @@ unsafe fn next_hit<const MAP: bool, H: Hit>(
         EdgeTag::Structural(EdgeType::Null) => None,
 
         EdgeTag::Immed(im) => {
-            let keys = ImmedKeys::of::<MAP>(edge, im);
-            let slot = keys.partition_point(|k| k < suffix);
-            if slot == keys.count {
-                return None;
-            }
-            let k = keys.get(slot);
+            let (slot, k) = if MAP {
+                let keys = ImmedKeys::of::<MAP>(edge, im);
+                let slot = keys.partition_point(|k| k < suffix);
+                if slot == keys.count {
+                    return None;
+                }
+                (slot, keys.get(slot))
+            } else {
+                // Sets keep the copy (see `ImmedKeys`).
+                let keys = immed_suffixes::<MAP>(edge, im);
+                let slot = keys.partition_point(|&k| k < suffix);
+                (slot, *keys.get(slot)?)
+            };
             let v = if MAP {
                 // SAFETY: live map immediate per contract.
                 unsafe { H::immed(ep, im, slot) }
@@ -608,15 +621,23 @@ unsafe fn prev_hit<const MAP: bool, H: Hit>(
         EdgeTag::Structural(EdgeType::Null) => None,
 
         EdgeTag::Immed(im) => {
-            let keys = ImmedKeys::of::<MAP>(edge, im);
-            let slot = keys.partition_point(|k| k <= suffix).checked_sub(1)?;
+            let (slot, k) = if MAP {
+                let keys = ImmedKeys::of::<MAP>(edge, im);
+                let slot = keys.partition_point(|k| k <= suffix).checked_sub(1)?;
+                (slot, keys.get(slot))
+            } else {
+                // Sets keep the copy (see `ImmedKeys`).
+                let keys = immed_suffixes::<MAP>(edge, im);
+                let slot = keys.partition_point(|&k| k <= suffix).checked_sub(1)?;
+                (slot, keys[slot])
+            };
             let v = if MAP {
                 // SAFETY: live map immediate per contract.
                 unsafe { H::immed(ep, im, slot) }
             } else {
                 H::NONE
             };
-            Some((keys.get(slot), v))
+            Some((k, v))
         }
 
         EdgeTag::Structural(
