@@ -41,6 +41,29 @@ unsafe fn edge_pop(edge: &Edge, level: u8) -> u64 {
     unsafe { edge_pop_inline(edge, level) }
 }
 
+/// [`edge_pop`] with the two terminal forms a select passes most often
+/// decoded from the raw tag byte, inline: a linear leaf (`0x05..=0x0B`, its
+/// `pop0` at its own key width) and an immediate (every tag from `0x10` but
+/// the set-only `0x7F`, its count in the low nibble). Every other form goes
+/// to the out-of-line [`edge_pop`].
+///
+/// # Safety
+///
+/// As [`edge_pop`].
+#[inline(always)]
+unsafe fn edge_pop_fast(edge: &Edge, level: u8) -> u64 {
+    let t = edge.tag_byte();
+    if (0x05..=0x0B).contains(&t) {
+        edge.pop0(t - 0x04) + 1
+    } else if t >= 0x10 && t != 0x7F {
+        debug_assert!(matches!(edge.tag(), Some(EdgeTag::Immed(_))));
+        u64::from(t & 0x0F) + 1
+    } else {
+        // SAFETY: this function's contract.
+        unsafe { edge_pop(edge, level) }
+    }
+}
+
 /// [`edge_pop`] for the loops that sum a branch's children, inlined into
 /// them.
 ///
@@ -88,6 +111,66 @@ fn immed_suffixes<const MAP: bool>(
         crate::mutate::immed_map_keys(edge, im)
     } else {
         crate::mutate::immed_keys(edge, im)
+    }
+}
+
+/// The sorted keys of an immediate edge, read in place: a set immediate
+/// packs them in its 15 payload bytes (word 0, then the aux bytes), a map
+/// immediate in its 7 aux bytes, `key_bytes` each, little-endian.
+/// [`ImmedKeys::get`] extracts one with a shift and a mask, so a search
+/// reads the edge's two words instead of copying an
+/// [`ImmedBuf`](crate::mutate::ImmedBuf) out.
+///
+/// [`next`] and [`prev`] use it for the map flavour only. In the set
+/// walks, reading in place changed the code their leaf and bitmap arms
+/// compile to on x86-64 and cost the `clustered` and `sequential` set
+/// arms instructions, so those keep the copy; the commit that made this
+/// split carries the counts.
+struct ImmedKeys {
+    payload: u128,
+    kb: u32,
+    count: usize,
+}
+
+impl ImmedKeys {
+    #[inline(always)]
+    fn of<const MAP: bool>(edge: &Edge, im: crate::types::ImmedType) -> Self {
+        let aux = u128::from(u64::from_le(edge.aux_word()));
+        let payload = if MAP {
+            aux
+        } else {
+            u128::from(u64::from_le_bytes(edge.imm_bytes())) | (aux << 64)
+        };
+        debug_assert!(im.key_bytes() < 8);
+        Self {
+            payload,
+            kb: u32::from(im.key_bytes()),
+            count: im.key_count() as usize,
+        }
+    }
+
+    /// Key `slot` (`slot < count`).
+    #[inline(always)]
+    fn get(&self, slot: usize) -> u64 {
+        debug_assert!(slot < self.count);
+        let bits = 8 * self.kb;
+        ((self.payload >> (bits * slot as u32)) as u64) & ((1u64 << bits) - 1)
+    }
+
+    /// The first slot whose key fails `pred` (keys ascending), as
+    /// `partition_point`.
+    #[inline(always)]
+    fn partition_point(&self, pred: impl Fn(u64) -> bool) -> usize {
+        let (mut lo, mut hi) = (0, self.count);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if pred(self.get(mid)) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
     }
 }
 
@@ -273,9 +356,19 @@ unsafe fn next_hit<const MAP: bool, H: Hit>(
         EdgeTag::Structural(EdgeType::Null) => None,
 
         EdgeTag::Immed(im) => {
-            let keys = immed_suffixes::<MAP>(edge, im);
-            let slot = keys.partition_point(|&k| k < suffix);
-            let k = *keys.get(slot)?;
+            let (slot, k) = if MAP {
+                let keys = ImmedKeys::of::<MAP>(edge, im);
+                let slot = keys.partition_point(|k| k < suffix);
+                if slot == keys.count {
+                    return None;
+                }
+                (slot, keys.get(slot))
+            } else {
+                // Sets keep the copy (see `ImmedKeys`).
+                let keys = immed_suffixes::<MAP>(edge, im);
+                let slot = keys.partition_point(|&k| k < suffix);
+                (slot, *keys.get(slot)?)
+            };
             let v = if MAP {
                 // SAFETY: live map immediate per contract.
                 unsafe { H::immed(ep, im, slot) }
@@ -528,15 +621,23 @@ unsafe fn prev_hit<const MAP: bool, H: Hit>(
         EdgeTag::Structural(EdgeType::Null) => None,
 
         EdgeTag::Immed(im) => {
-            let keys = immed_suffixes::<MAP>(edge, im);
-            let slot = keys.partition_point(|&k| k <= suffix).checked_sub(1)?;
+            let (slot, k) = if MAP {
+                let keys = ImmedKeys::of::<MAP>(edge, im);
+                let slot = keys.partition_point(|k| k <= suffix).checked_sub(1)?;
+                (slot, keys.get(slot))
+            } else {
+                // Sets keep the copy (see `ImmedKeys`).
+                let keys = immed_suffixes::<MAP>(edge, im);
+                let slot = keys.partition_point(|&k| k <= suffix).checked_sub(1)?;
+                (slot, keys[slot])
+            };
             let v = if MAP {
                 // SAFETY: live map immediate per contract.
                 unsafe { H::immed(ep, im, slot) }
             } else {
                 H::NONE
             };
-            Some((keys[slot], v))
+            Some((k, v))
         }
 
         EdgeTag::Structural(
@@ -1134,15 +1235,25 @@ pub(crate) unsafe fn count_range<const MAP: bool>(
 }
 
 /// The key with `n` keys below it (0-based select), with its value.
-/// `n` must be below the subtree population.
+/// `n` must be below the subtree population. At a branch the children are
+/// summed from the end nearer to `n`: from the low end for a rank in the
+/// lower half of the branch population, from the high end otherwise.
+/// `top_pop` is the subtree's population, read only for a level-8 branch,
+/// whose edge carries none.
 ///
 /// # Safety
 ///
-/// Same contract as [`next`].
+/// Same contract as [`next`], and `top_pop` is the population of a level-8
+/// subtree.
 #[inline(always)]
-pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -> (u64, u64) {
+pub(crate) unsafe fn by_count<const MAP: bool>(
+    edge: &Edge,
+    n: u64,
+    level: u8,
+    top_pop: u64,
+) -> (u64, u64) {
     // SAFETY: forwarded contract.
-    unsafe { by_count_hit::<MAP, Val>(edge, n, level) }
+    unsafe { by_count_hit::<MAP, Val>(edge, n, level, top_pop) }
 }
 
 /// [`by_count`] returning the selected entry's value slot (map flavor).
@@ -1151,9 +1262,14 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
 ///
 /// As [`next_slot`]; `n` is below the subtree population.
 #[inline(always)]
-pub(crate) unsafe fn by_count_slot(edge: *const Edge, n: u64, level: u8) -> (u64, *mut u64) {
+pub(crate) unsafe fn by_count_slot(
+    edge: *const Edge,
+    n: u64,
+    level: u8,
+    top_pop: u64,
+) -> (u64, *mut u64) {
     // SAFETY: forwarded contract.
-    unsafe { by_count_hit::<true, Slot>(edge, n, level) }
+    unsafe { by_count_hit::<true, Slot>(edge, n, level, top_pop) }
 }
 
 /// The walk behind [`by_count`] and [`by_count_slot`].
@@ -1165,6 +1281,7 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
     ep: *const Edge,
     n: u64,
     level: u8,
+    top_pop: u64,
 ) -> (u64, H::Out) {
     // SAFETY: live edge per contract.
     let edge = unsafe { &*ep };
@@ -1245,18 +1362,37 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
             // SAFETY: live branch per contract.
             let (num, digits, edges_ptr) =
                 unsafe { linear_branch_parts(edge, matches!(t, EdgeType::BranchL3)) };
-            let mut n = n;
-            for (slot, &bd) in digits.iter().enumerate().take(num) {
-                // SAFETY: slot < num live child edges.
-                let child = unsafe { edges_ptr.add(slot) };
-                // SAFETY: live child per contract.
-                let pop = unsafe { edge_pop(&*child, bl - 1) };
-                if n < pop {
-                    // SAFETY: child subtree per contract.
-                    let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, bl - 1) };
-                    return ((dv << shift) | compose(bd, r, bl), v);
+            let own = if bl == 8 { top_pop } else { edge.pop0(bl) + 1 };
+            if n < own - n {
+                let mut n = n;
+                for (slot, &bd) in digits.iter().enumerate().take(num) {
+                    // SAFETY: slot < num live child edges.
+                    let child = unsafe { edges_ptr.add(slot) };
+                    // SAFETY: live child per contract.
+                    let pop = unsafe { edge_pop_fast(&*child, bl - 1) };
+                    if n < pop {
+                        // SAFETY: child subtree per contract.
+                        let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, bl - 1, 0) };
+                        return ((dv << shift) | compose(bd, r, bl), v);
+                    }
+                    n -= pop;
                 }
-                n -= pop;
+            } else {
+                // `m` keys lie above the selected one.
+                let mut m = own - 1 - n;
+                for (slot, &bd) in digits.iter().enumerate().take(num).rev() {
+                    // SAFETY: slot < num live child edges.
+                    let child = unsafe { edges_ptr.add(slot) };
+                    // SAFETY: live child per contract.
+                    let pop = unsafe { edge_pop_fast(&*child, bl - 1) };
+                    if m < pop {
+                        // SAFETY: child subtree per contract; pop - 1 - m < pop.
+                        let (r, v) =
+                            unsafe { by_count_hit::<MAP, H>(child, pop - 1 - m, bl - 1, 0) };
+                        return ((dv << shift) | compose(bd, r, bl), v);
+                    }
+                    m -= pop;
+                }
             }
             unreachable!("select beyond branch population")
         }
@@ -1274,26 +1410,53 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
             };
             // SAFETY: live BranchB per contract.
             let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
-            let mut n = n;
-            let mut cur = b.bitmap.next_set(0);
-            while let Some(bd) = cur {
-                let sub = (bd >> 5) as usize;
-                let rank = b.bitmap.subexpanse_rank(bd) as usize;
-                // SAFETY: bit set → subarray holds rank + 1 edges.
-                let child = unsafe { b.subarrays[sub].add(rank).cast_const() };
-                // SAFETY: live child per contract.
-                let pop = unsafe { edge_pop(&*child, bl - 1) };
-                if n < pop {
-                    // SAFETY: child subtree per contract.
-                    let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, bl - 1) };
-                    return ((dv << shift) | compose(bd, r, bl), v);
+            let own = if bl == 8 { top_pop } else { edge.pop0(bl) + 1 };
+            if n < own - n {
+                let mut n = n;
+                let mut cur = b.bitmap.next_set(0);
+                while let Some(bd) = cur {
+                    let sub = (bd >> 5) as usize;
+                    let rank = b.bitmap.subexpanse_rank(bd) as usize;
+                    // SAFETY: bit set → subarray holds rank + 1 edges.
+                    let child = unsafe { b.subarrays[sub].add(rank).cast_const() };
+                    // SAFETY: live child per contract.
+                    let pop = unsafe { edge_pop_fast(&*child, bl - 1) };
+                    if n < pop {
+                        // SAFETY: child subtree per contract.
+                        let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, bl - 1, 0) };
+                        return ((dv << shift) | compose(bd, r, bl), v);
+                    }
+                    n -= pop;
+                    cur = if bd == 255 {
+                        None
+                    } else {
+                        b.bitmap.next_set(bd + 1)
+                    };
                 }
-                n -= pop;
-                cur = if bd == 255 {
-                    None
-                } else {
-                    b.bitmap.next_set(bd + 1)
-                };
+            } else {
+                // `m` keys lie above the selected one.
+                let mut m = own - 1 - n;
+                let mut cur = b.bitmap.prev_set(255);
+                while let Some(bd) = cur {
+                    let sub = (bd >> 5) as usize;
+                    let rank = b.bitmap.subexpanse_rank(bd) as usize;
+                    // SAFETY: bit set → subarray holds rank + 1 edges.
+                    let child = unsafe { b.subarrays[sub].add(rank).cast_const() };
+                    // SAFETY: live child per contract.
+                    let pop = unsafe { edge_pop_fast(&*child, bl - 1) };
+                    if m < pop {
+                        // SAFETY: child subtree per contract; pop - 1 - m < pop.
+                        let (r, v) =
+                            unsafe { by_count_hit::<MAP, H>(child, pop - 1 - m, bl - 1, 0) };
+                        return ((dv << shift) | compose(bd, r, bl), v);
+                    }
+                    m -= pop;
+                    cur = if bd == 0 {
+                        None
+                    } else {
+                        b.bitmap.prev_set(bd - 1)
+                    };
+                }
             }
             unreachable!("select beyond branch population")
         }
@@ -1303,22 +1466,49 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
             // is taken from the stored node pointer, without a reference.
             let edges =
                 unsafe { (&raw const (*edge.node_ptr().cast::<BranchU>()).edges).cast::<Edge>() };
-            let mut n = n;
-            for bd in 0..=255u8 {
-                // SAFETY: a BranchU holds 256 live child edges.
-                let child = unsafe { edges.add(bd as usize) };
-                // SAFETY: as above.
-                if unsafe { (*child).is_null() } {
-                    continue;
+            let own = if level == 8 {
+                top_pop
+            } else {
+                edge.pop0(level) + 1
+            };
+            if n < own - n {
+                let mut n = n;
+                for bd in 0..=255u8 {
+                    // SAFETY: a BranchU holds 256 live child edges.
+                    let child = unsafe { edges.add(bd as usize) };
+                    // SAFETY: as above.
+                    if unsafe { (*child).is_null() } {
+                        continue;
+                    }
+                    // SAFETY: live child per contract.
+                    let pop = unsafe { edge_pop_fast(&*child, level - 1) };
+                    if n < pop {
+                        // SAFETY: child subtree per contract.
+                        let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, level - 1, 0) };
+                        return (compose(bd, r, level), v);
+                    }
+                    n -= pop;
                 }
-                // SAFETY: live child per contract.
-                let pop = unsafe { edge_pop(&*child, level - 1) };
-                if n < pop {
-                    // SAFETY: child subtree per contract.
-                    let (r, v) = unsafe { by_count_hit::<MAP, H>(child, n, level - 1) };
-                    return (compose(bd, r, level), v);
+            } else {
+                // `m` keys lie above the selected one.
+                let mut m = own - 1 - n;
+                for bd in (0..=255u8).rev() {
+                    // SAFETY: a BranchU holds 256 live child edges.
+                    let child = unsafe { edges.add(bd as usize) };
+                    // SAFETY: as above.
+                    if unsafe { (*child).is_null() } {
+                        continue;
+                    }
+                    // SAFETY: live child per contract.
+                    let pop = unsafe { edge_pop_fast(&*child, level - 1) };
+                    if m < pop {
+                        // SAFETY: child subtree per contract; pop - 1 - m < pop.
+                        let (r, v) =
+                            unsafe { by_count_hit::<MAP, H>(child, pop - 1 - m, level - 1, 0) };
+                        return (compose(bd, r, level), v);
+                    }
+                    m -= pop;
                 }
-                n -= pop;
             }
             unreachable!("select beyond branch population")
         }

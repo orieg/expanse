@@ -1848,9 +1848,11 @@ impl ExpanseSet {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => self.root_leaf_keys().get(n as usize).copied(),
-            // SAFETY: trie maintained/owned by this set's engine; n is
-            // below the population.
-            Root::Tree { top, .. } => Some(unsafe { crate::nav::by_count::<false>(top, n, 8) }.0),
+            Root::Tree { top, .. } => {
+                // SAFETY: trie maintained/owned by this set's engine; n is
+                // below the population, which `tree_pop` holds.
+                Some(unsafe { crate::nav::by_count::<false>(top, n, 8, self.tree_pop) }.0)
+            }
         }
     }
 
