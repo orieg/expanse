@@ -4097,7 +4097,7 @@ pub(crate) unsafe fn free_subtree<const OCC: bool, const MAP: bool>(
                 } else {
                     let b = &mut *bp;
                     for i in 0..b.hdr.num as usize {
-                        free_subtree::<OCC, MAP>(a, &mut b.edges[i]);
+                        free_child::<MAP>(a, &mut b.edges[i]);
                     }
                 }
                 a.free_node_dispatch::<OCC, _>(
@@ -4113,7 +4113,7 @@ pub(crate) unsafe fn free_subtree<const OCC: bool, const MAP: bool>(
                 } else {
                     let b = &mut *bp;
                     for i in 0..b.hdr.num as usize {
-                        free_subtree::<OCC, MAP>(a, &mut b.edges[i]);
+                        free_child::<MAP>(a, &mut b.edges[i]);
                     }
                 }
                 a.free_node_dispatch::<OCC, _>(
@@ -4129,7 +4129,7 @@ pub(crate) unsafe fn free_subtree<const OCC: bool, const MAP: bool>(
                         if OCC {
                             free_child_shared::<MAP>(a, sa.add(i));
                         } else {
-                            free_subtree::<OCC, MAP>(a, &mut *sa.add(i));
+                            free_child::<MAP>(a, &mut *sa.add(i));
                         }
                     }
                     if n > 0 {
@@ -4152,7 +4152,7 @@ pub(crate) unsafe fn free_subtree<const OCC: bool, const MAP: bool>(
                 } else {
                     let b = &mut *bp;
                     for child in &mut b.edges {
-                        free_subtree::<OCC, MAP>(a, child);
+                        free_child::<MAP>(a, child);
                     }
                 }
                 a.free_node_dispatch::<OCC, _>(
@@ -4176,8 +4176,40 @@ unsafe fn free_child_shared<const MAP: bool>(a: &NodeAlloc, child: *mut Edge) {
     // SAFETY: caller contract.
     unsafe {
         let mut c = Edge::load_at::<true>(child);
-        free_subtree::<true, MAP>(a, &mut c);
+        if owns_heap::<MAP>(&c) {
+            free_subtree::<true, MAP>(a, &mut c);
+        }
     }
+}
+
+/// [`free_subtree`] of a plain tree's child edge, skipped when the edge owns
+/// no heap block: the slot lies inside a node about to be freed, so it is
+/// neither read again nor worth resetting to null.
+///
+/// # Safety
+///
+/// As [`free_subtree`]; `child` is an edge slot inside a node being freed.
+#[inline(always)]
+unsafe fn free_child<const MAP: bool>(a: &NodeAlloc, child: &mut Edge) {
+    if owns_heap::<MAP>(child) {
+        // SAFETY: caller contract.
+        unsafe { free_subtree::<false, MAP>(a, child) };
+    }
+}
+
+/// False only for an edge [`free_subtree`] frees nothing for: the null edge,
+/// any tag at or above the immediate range on a set (immediates, the full
+/// expanse and unassigned bytes), and on a map a one-key immediate, whose
+/// value sits in the edge. Every other tag answers true and is decoded by
+/// [`free_subtree`] as before, so the test is a filter and never a second
+/// decoder. Most child edges of a random-key tree are immediates, and the
+/// test keeps a whole teardown from paying a call and a tag decode for each.
+#[inline(always)]
+pub(crate) const fn owns_heap<const MAP: bool>(edge: &Edge) -> bool {
+    let t = edge.tag_byte();
+    // Immediate tags are `key_bytes << 4 | (key_count - 1)` with
+    // `key_bytes >= 1`; structural tags are below 0x10, or 0x7F.
+    !(t == EdgeType::Null as u8 || (t >= 0x10 && (!MAP || t & 0x0F == 0)))
 }
 
 /// Frees an entire subtree that was **never published** to the tree or seen by any reader.
@@ -4529,5 +4561,100 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod owns_heap_tests {
+    use super::*;
+
+    /// Whether [`free_subtree`] frees anything for an edge whose tag byte is
+    /// `t`, read off its own decode: structural nodes other than null and the
+    /// full expanse own a block, and so does a map immediate of two or more
+    /// keys (its value array).
+    fn decode_frees(t: u8, map: bool) -> bool {
+        match EdgeTag::from_u8(t) {
+            None | Some(EdgeTag::Structural(EdgeType::Null | EdgeType::FullExpanse)) => false,
+            Some(EdgeTag::Structural(_)) => true,
+            Some(EdgeTag::Immed(im)) => map && im.key_count() > 1,
+        }
+    }
+
+    /// The teardown filter skips an edge only where the walk would free
+    /// nothing, and skips every immediate it can: on all 256 tag bytes, for
+    /// both flavors.
+    #[test]
+    fn owns_heap_skips_exactly_the_edges_that_own_nothing() {
+        let mut skipped = [0usize; 2];
+        for t in 0..=u8::MAX {
+            let mut e = Edge::NULL;
+            e.set_tag(t);
+            let (set, map) = (owns_heap::<false>(&e), owns_heap::<true>(&e));
+            assert!(
+                set || !decode_frees(t, false),
+                "set: tag {t:#04x} owns a block"
+            );
+            assert!(
+                map || !decode_frees(t, true),
+                "map: tag {t:#04x} owns a block"
+            );
+            if let Some(EdgeTag::Immed(im)) = EdgeTag::from_u8(t) {
+                assert!(!set, "set: immediate tag {t:#04x} not skipped");
+                assert_eq!(map, im.key_count() > 1, "map: immediate tag {t:#04x}");
+            }
+            skipped[0] += usize::from(!set);
+            skipped[1] += usize::from(!map);
+        }
+        assert!(!owns_heap::<false>(&Edge::NULL) && !owns_heap::<true>(&Edge::NULL));
+        assert!(skipped[0] > skipped[1] && skipped[1] > 1, "{skipped:?}");
+    }
+
+    /// Keys whose low bytes cluster, so the trees hold single-key and
+    /// multi-key immediates beside leaves and branches.
+    fn teardown_keys() -> Vec<u64> {
+        let mut x = 0x9E37_79B9_7F4A_7C15_u64;
+        let mut keys = Vec::new();
+        for i in 0..20_000u64 {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            keys.push(x);
+            if i % 3 == 0 {
+                keys.push(x ^ 1);
+            }
+            if i % 7 == 0 {
+                keys.push(x ^ 3);
+            }
+        }
+        // Groups of 512 keys under one 48-bit prefix: too many for a leaf, so
+        // a branch splits them on the second-lowest byte and each child holds
+        // two one-byte keys, a multi-key immediate.
+        for g in 1..=8u64 {
+            for sub in 0..256u64 {
+                for j in 1..=2u64 {
+                    keys.push((g << 56) | (sub << 8) | j);
+                }
+            }
+        }
+        keys
+    }
+
+    /// A plain clear frees every block on both flavors, with the filter in
+    /// the walk: no allocation and no byte is left live.
+    #[test]
+    fn plain_clear_with_skipped_immediates_frees_every_block() {
+        let keys = teardown_keys();
+        let mut map = crate::map::ExpanseMap::new();
+        let mut set = crate::set::ExpanseSet::new();
+        for &k in &keys {
+            map.insert(k, k.rotate_left(7));
+            set.insert(k);
+        }
+        let live = (map.live_allocs(), set.live_allocs());
+        map.clear_plain();
+        set.clear_plain();
+        assert!(live.0 > 1 && live.1 > 1, "{live:?}");
+        assert_eq!((map.live_allocs(), map.mem_used()), (0, 0));
+        assert_eq!((set.live_allocs(), set.mem_used()), (0, 0));
     }
 }
