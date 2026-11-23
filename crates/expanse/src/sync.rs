@@ -15543,8 +15543,10 @@ impl StrReader<'_> {
     }
 
     /// Smallest entry with key `> key`, without excluding writers. The
-    /// immediate successor of a NUL-free string is itself followed by `0x01`,
-    /// as in [`ExpanseStrMap::next_after`].
+    /// immediate successor of a NUL-free string is itself followed by `0x01`.
+    /// [`ExpanseStrMap::next_after`] runs its walk exclusively instead; this
+    /// reader's walk keeps the inclusive seek its read-set bound was derived
+    /// for (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.7.3).
     #[must_use]
     pub fn next_after(&self, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
         let mut succ = Vec::with_capacity(key.len() + 1);

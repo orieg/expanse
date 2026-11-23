@@ -1244,14 +1244,27 @@ impl StrNode {
         }
     }
 
-    /// Smallest entry with key `>= key[off..]`; appends bytes to `out`.
+    /// Smallest entry with key `>= key[off..]` (or `>` when `EXCLUSIVE`);
+    /// appends bytes to `out`.
     ///
     /// Iterative with an explicit backtrack stack. The recursion this
     /// replaces was not a plain descent: when the deeper call finds
     /// nothing at-or-after, the level *resumes* at its next sibling, so
     /// the stack has to carry both the node to resume at and the `out`
     /// length to truncate back to.
-    fn next_at_or_after(&self, key: &[u8], off: usize, out: &mut Vec<u8>) -> Option<NonNull<u64>> {
+    ///
+    /// `EXCLUSIVE` changes only the two places the key itself can match:
+    /// its terminal chunk, and a suffix leaf equal to its remainder. Every
+    /// other entry the walk meets differs from the key in some byte.
+    ///
+    /// A const parameter rather than `prev_at_or_before`'s runtime flag, so
+    /// that each instance has one caller and inlines into it.
+    fn next_at_or_after<const EXCLUSIVE: bool>(
+        &self,
+        key: &[u8],
+        off: usize,
+        out: &mut Vec<u8>,
+    ) -> Option<NonNull<u64>> {
         // (node to resume at, its target chunk, `out` length on entry)
         let mut stack: Vec<(*const StrNode, u64, usize)> = Vec::new();
         let mut node: *const StrNode = self;
@@ -1260,18 +1273,19 @@ impl StrNode {
         loop {
             // SAFETY: `self`, then continuation values — all live nodes.
             let n = unsafe { &*node };
-            let (target, _) = chunk_at(key, off);
-            let cursor = n.map.next_at_or_after(target);
-            if let Some((chunk, v)) = cursor
-                && chunk == target
-                && !is_terminal(chunk)
-            {
+            let (target, target_terminal) = chunk_at(key, off);
+            // Exact continuation first, by point lookup, as
+            // `prev_at_or_before` does: a range search here and a second one
+            // for the sibling when the suffix sorts below the target cost two
+            // ordered walks of the word map where one suffices.
+            if !target_terminal && let Some(v) = n.map.get(target) {
+                let chunk = target;
                 if is_suffix_ptr(v) {
                     let sfx = unpack_suffix(v);
                     // SAFETY: live suffix leaf, raw provenance over the bytes.
                     let bytes = unsafe { suffix_bytes(sfx) };
                     let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
-                    if rem <= bytes {
+                    if if EXCLUSIVE { rem < bytes } else { rem <= bytes } {
                         out.extend_from_slice(&chunk.to_be_bytes());
                         out.extend_from_slice(bytes);
                         // SAFETY: field-precise pointer to the value word.
@@ -1294,8 +1308,17 @@ impl StrNode {
                     off += CHUNK;
                     continue;
                 }
-            } else if let Some(slot) = n.take_from::<true>(cursor, out) {
-                return Some(slot);
+            } else {
+                // Then entries at or past the target chunk in this node. A
+                // terminal exclusive target must not match itself.
+                let cursor = if target_terminal && EXCLUSIVE {
+                    n.map.next_after(target)
+                } else {
+                    n.map.next_at_or_after(target)
+                };
+                if let Some(slot) = n.take_from::<true>(cursor, out) {
+                    return Some(slot);
+                }
             }
 
             // Nothing at or after here: unwind to the nearest ancestor
@@ -3747,20 +3770,17 @@ impl ExpanseStrMap {
         let key = key.as_bytes();
         let root = self.root.as_deref()?;
         let mut out = Vec::with_capacity(key.len() + CHUNK);
-        let slot = root.next_at_or_after(key, 0, &mut out)?;
+        let slot = root.next_at_or_after::<false>(key, 0, &mut out)?;
         Some((out, slot))
     }
 
-    /// Smallest entry with key `> key` (compat: `JudySLNext`). The
-    /// immediate successor of a NUL-free string is itself + `0x01`.
+    /// Smallest entry with key `> key` (compat: `JudySLNext`).
     pub fn next_after(&self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
-        let mut succ = Vec::with_capacity(key.len() + 1);
-        succ.extend_from_slice(key.as_bytes());
-        succ.push(1);
-        // SAFETY: `key` is NUL-free and the appended sentinel is `1`, so the
-        // successor is too. `1` rather than `0` precisely because `0` would
-        // leave the domain.
-        self.next_at_or_after(unsafe { NulFreeStr::new_unchecked(&succ) })
+        let key = key.as_bytes();
+        let root = self.root.as_deref()?;
+        let mut out = Vec::with_capacity(key.len() + CHUNK);
+        let slot = root.next_at_or_after::<true>(key, 0, &mut out)?;
+        Some((out, slot))
     }
 
     /// Largest entry with key `<= key` (compat: `JudySLLast`).
