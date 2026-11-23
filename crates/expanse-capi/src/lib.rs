@@ -1323,6 +1323,102 @@ mod oracle {
     /// or a reversed range writes it is settled here (COMPAT.md D7).
     /// Each call starts from a sentinel errno, so "left untouched" and
     /// "written" are told apart.
+    /// The eight Judy1 neighbour and empty-index searches on populations
+    /// that reach each node form the empty-index descent reads: aligned
+    /// runs of 256 (the bench shape), narrow nodes left by removals, dense
+    /// leaves with holes, and runs at the top of the key space, probed at
+    /// every key, its neighbours and the same key with one higher digit
+    /// changed.
+    #[test]
+    fn judy1_searches_on_mixed_shapes_match_stock_libjudy() {
+        let lib = Lib::open();
+        let o_set: F2i = lib.sym(c"Judy1Set");
+        let o_unset: F2i = lib.sym(c"Judy1Unset");
+        let o_free: FFree = lib.sym(c"Judy1FreeArray");
+        let names = [
+            "Judy1First",
+            "Judy1Next",
+            "Judy1Last",
+            "Judy1Prev",
+            "Judy1FirstEmpty",
+            "Judy1NextEmpty",
+            "Judy1LastEmpty",
+            "Judy1PrevEmpty",
+        ];
+        let theirs_fns: [FNav; 8] = names.map(|n| {
+            let c = std::ffi::CString::new(n).expect("no NUL");
+            lib.sym(&c)
+        });
+        type Ours = unsafe extern "C" fn(*const c_void, *mut Word, *mut JError) -> c_int;
+        let ours_fns: [Ours; 8] = [
+            Judy1First,
+            Judy1Next,
+            Judy1Last,
+            Judy1Prev,
+            Judy1FirstEmpty,
+            Judy1NextEmpty,
+            Judy1LastEmpty,
+            Judy1PrevEmpty,
+        ];
+        let mut rng = XorShift(0x1749_00A1);
+        for shape in 0..4 {
+            let mut keys: Vec<Word> = Vec::new();
+            let mut remove: Vec<Word> = Vec::new();
+            for top in 0..12 as Word {
+                let base = (top << 56) | (rng.next() as Word >> 8 & !0xFF);
+                match shape {
+                    0 => keys.extend(base..=base + 255),
+                    1 => {
+                        keys.extend(base..base + 200);
+                        remove.extend((base..base + 200).filter(|k| k % 200 >= 9));
+                    }
+                    2 => keys.extend((base..=base + 255).filter(|_| !rng.next().is_multiple_of(6))),
+                    _ => {
+                        keys.extend(Word::MAX - 300..=Word::MAX);
+                        keys.push(rng.next() as Word);
+                    }
+                }
+            }
+            let (mut ours, mut theirs) = (null_mut(), null_mut());
+            // SAFETY: two arrays owned by this test, freed below.
+            unsafe {
+                for &k in &keys {
+                    assert_eq!(
+                        Judy1Set(&raw mut ours, k, null_mut()),
+                        o_set(&raw mut theirs, k, null_mut())
+                    );
+                }
+                for &k in &remove {
+                    assert_eq!(
+                        Judy1Unset(&raw mut ours, k, null_mut()),
+                        o_unset(&raw mut theirs, k, null_mut())
+                    );
+                }
+                for &k in keys.iter().step_by(3) {
+                    let mut probes = vec![k.wrapping_sub(1), k, k.wrapping_add(1)];
+                    for j in 1..8 {
+                        probes.push(k ^ (1 << (8 * j)));
+                    }
+                    for p in probes {
+                        for f in 0..8 {
+                            let (mut i1, mut i2) = (p, p);
+                            let r1 = ours_fns[f](ours, &raw mut i1, null_mut());
+                            let r2 = theirs_fns[f](theirs, &raw mut i2, null_mut());
+                            assert_eq!(
+                                (r1, i1),
+                                (r2, i2),
+                                "shape {shape} {} from {p:#x}",
+                                names[f]
+                            );
+                        }
+                    }
+                }
+                assert!(Judy1FreeArray(&raw mut ours, null_mut()) > 0);
+                assert!(o_free(&raw mut theirs, null_mut()) > 0);
+            }
+        }
+    }
+
     #[test]
     fn count_errno_matches_stock_libjudy() {
         const SENTINEL: c_int = 99;

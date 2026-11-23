@@ -87,7 +87,8 @@ unsafe fn free_array<T>(
 
 /// Steps an empty-index search takes in key order before it falls back to
 /// rank bisection ([`first_absent_by_rank`]). A step is one present key, or
-/// one run of consecutive keys inside a bitmap, full or linear leaf; the
+/// one run of consecutive keys inside a bitmap, full or linear leaf (for
+/// `Judy1`, whose search descends the trie, one terminal node read); the
 /// bisection costs about 65 rank queries whatever the run length. The budget
 /// bounds a search through a very long run of present keys, while a gap
 /// within it is found by the walk alone.
