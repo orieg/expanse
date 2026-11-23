@@ -175,12 +175,42 @@ fn probes(keys: &BTreeSet<u64>, stride: usize) -> Vec<u64> {
     out
 }
 
-fn check(shape: &str, keys: &BTreeSet<u64>, stride: usize, rng: &mut XorShift) {
+/// What a [`check`] compared: probes, and of those the ones inside a run
+/// of present keys (where the empty searches walk to the run's end rather
+/// than return the probe itself).
+#[derive(Default)]
+struct Checked {
+    probes: usize,
+    in_runs: usize,
+}
+
+impl Checked {
+    fn add(&mut self, other: Checked) {
+        self.probes += other.probes;
+        self.in_runs += other.in_runs;
+    }
+}
+
+fn check(shape: &str, keys: &BTreeSet<u64>, stride: usize, rng: &mut XorShift) -> Checked {
     let arr = Array::build(keys, rng);
     let runs = runs_of(keys);
-    for p in probes(keys, stride) {
-        check_probe(&arr, keys, &runs, p, shape);
+    check_all(&arr, keys, &runs, &probes(keys, stride), shape)
+}
+
+fn check_all(
+    arr: &Array,
+    keys: &BTreeSet<u64>,
+    runs: &[(u64, u64)],
+    probes: &[u64],
+    shape: &str,
+) -> Checked {
+    let mut checked = Checked::default();
+    for &p in probes {
+        check_probe(arr, keys, runs, p, shape);
+        checked.probes += 1;
+        checked.in_runs += usize::from(keys.contains(&p));
     }
+    checked
 }
 
 fn run(lo: u64, len: u64) -> impl Iterator<Item = u64> {
@@ -189,21 +219,26 @@ fn run(lo: u64, len: u64) -> impl Iterator<Item = u64> {
 
 #[test]
 fn sparse_random_keys() {
+    let mut checked = Checked::default();
     // Single-key immediates under bitmap and uncompressed branches.
     let mut rng = XorShift(0x1749_0001);
     for n in [3, 40, 300, 30_000] {
         let keys: BTreeSet<u64> = (0..n).map(|_| rng.next()).collect();
-        check(
+        checked.add(check(
             &format!("random n={n}"),
             &keys,
             1 + n as usize / 2000,
             &mut rng,
-        );
+        ));
     }
+    // Both kinds of probe were compared: present keys, whose empty
+    // searches walk their run, and absent ones.
+    assert!(checked.in_runs > 0 && checked.probes > checked.in_runs);
 }
 
 #[test]
 fn small_groups_per_expanse() {
+    let mut checked = Checked::default();
     // Pairs and triples sharing their high bytes: multi-key immediates and
     // short linear leaves of every key width, some of them narrow.
     let mut rng = XorShift(0x1749_0002);
@@ -222,12 +257,16 @@ fn small_groups_per_expanse() {
                 keys.insert(((base & !span) | low).wrapping_add(1));
             }
         }
-        check(&format!("groups width={width}"), &keys, 1, &mut rng);
+        checked.add(check(&format!("groups width={width}"), &keys, 1, &mut rng));
     }
+    // Both kinds of probe were compared: present keys, whose empty
+    // searches walk their run, and absent ones.
+    assert!(checked.in_runs > 0 && checked.probes > checked.in_runs);
 }
 
 #[test]
 fn narrow_nodes() {
+    let mut checked = Checked::default();
     // A few keys per top-level expanse that share more digits than their
     // slot: narrow linear leaves, bitmap leaves and branches whose decode
     // digits a probe can differ from.
@@ -250,12 +289,21 @@ fn narrow_nodes() {
                 );
             }
         }
-        check(&format!("narrow shared={shared}"), &keys, 1, &mut rng);
+        checked.add(check(
+            &format!("narrow shared={shared}"),
+            &keys,
+            1,
+            &mut rng,
+        ));
     }
+    // Both kinds of probe were compared: present keys, whose empty
+    // searches walk their run, and absent ones.
+    assert!(checked.in_runs > 0 && checked.probes > checked.in_runs);
 }
 
 #[test]
 fn dense_expanses_and_runs() {
+    let mut checked = Checked::default();
     // Bitmap leaves (dense 256-key expanses with holes), full expanses,
     // runs that end on and cross 256- and 65,536-key boundaries, and runs
     // of adjacent full expanses under linear, bitmap and uncompressed
@@ -277,34 +325,45 @@ fn dense_expanses_and_runs() {
         keys.extend(run(rng.next() & !0xFFFF, len));
         keys.extend(run((rng.next() | 0xFFFF).wrapping_sub(len / 2), len));
     }
-    check("dense", &keys, 31, &mut rng);
+    checked.add(check("dense", &keys, 31, &mut rng));
+    // Both kinds of probe were compared: present keys, whose empty
+    // searches walk their run, and absent ones.
+    assert!(checked.in_runs > 0 && checked.probes > checked.in_runs);
 }
 
 #[test]
 fn runs_at_both_ends_of_the_key_space() {
+    let mut checked = Checked::default();
     let mut rng = XorShift(0x1749_0004);
     for len in [1, 2, 15, 255, 256, 257, 65_536, 70_000] {
         let mut keys: BTreeSet<u64> = run(0, len).collect();
         keys.extend(run(u64::MAX - (len - 1), len));
         // A few keys in between keep the root a branch.
         keys.extend((0..20).map(|_| rng.next()));
-        check(&format!("ends len={len}"), &keys, 3, &mut rng);
+        checked.add(check(&format!("ends len={len}"), &keys, 3, &mut rng));
     }
     // The whole top 65,536-key expanse full, with one hole near its start.
     let mut keys: BTreeSet<u64> = run(u64::MAX - 0xFFFF, 0x1_0000).collect();
     keys.remove(&(u64::MAX - 0xFFF0));
     keys.extend((0..20).map(|_| rng.next()));
-    check("top expanse", &keys, 5, &mut rng);
+    checked.add(check("top expanse", &keys, 5, &mut rng));
+    // Both kinds of probe were compared: present keys, whose empty
+    // searches walk their run, and absent ones.
+    assert!(checked.in_runs > 0 && checked.probes > checked.in_runs);
 }
 
 #[test]
 fn runs_past_the_walk_budget() {
+    let mut checked = Checked::default();
     // More than 1024 adjacent full leaves: the empty search spends its
     // walk budget and finishes by rank.
     let mut rng = XorShift(0x1749_0005);
     let mut keys: BTreeSet<u64> = run(0x4_0000_0000 - 3, 1100 * 256 + 9).collect();
     keys.extend((0..50).map(|_| rng.next()));
-    check("long run", &keys, 97, &mut rng);
+    checked.add(check("long run", &keys, 97, &mut rng));
+    // Both kinds of probe were compared: present keys, whose empty
+    // searches walk their run, and absent ones.
+    assert!(checked.in_runs > 0 && checked.probes > checked.in_runs);
 }
 
 #[test]
@@ -324,9 +383,8 @@ fn after_removals() {
         keys.remove(&k);
     }
     let runs = runs_of(&keys);
-    for p in probes(&keys, 3) {
-        check_probe(&arr, &keys, &runs, p, "after removals");
-    }
+    let checked = check_all(&arr, &keys, &runs, &probes(&keys, 3), "after removals");
+    assert!(checked.in_runs > 0 && checked.probes > checked.in_runs);
 }
 
 #[test]
@@ -350,8 +408,8 @@ fn narrow_leaves_left_by_removals() {
             }
         }
         let runs = runs_of(&keys);
-        for p in probes(&keys, 1) {
-            check_probe(&arr, &keys, &runs, p, &format!("narrow leaves keep={keep}"));
-        }
+        let shape = format!("narrow leaves keep={keep}");
+        let checked = check_all(&arr, &keys, &runs, &probes(&keys, 1), &shape);
+        assert!(checked.in_runs > 0 && checked.probes > checked.in_runs);
     }
 }
