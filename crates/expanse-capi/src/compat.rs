@@ -899,8 +899,13 @@ pub unsafe extern "C" fn JudySLGet(
     }
 }
 
+/// Bytes of the stack buffer a `JudySL` search builds its key in. A longer
+/// found key is fetched again through the allocating search, so this bounds
+/// only which keys allocate, never which keys are returned.
+const JUDYSL_KEY_SCRATCH: usize = 128;
+
 macro_rules! judysl_nav {
-    ($name:ident, $method:ident, $doc:literal) => {
+    ($name:ident, $into:ident, $method:ident, $doc:literal) => {
         #[doc = $doc]
         #[doc = ""]
         #[doc = "Writes the found string (NUL-terminated) back into the"]
@@ -921,11 +926,23 @@ macro_rules! judysl_nav {
                 let Some(map) = strmap_handle(parray) else {
                     return null_mut();
                 };
-                match map.$method(cstr_bytes(index)) {
-                    Some((key, slot)) => {
-                        write_cstr(index, &key);
+                // The key is built in a buffer of our own rather than in
+                // `index`, which holds the probe the search is still reading.
+                let mut scratch = [0u8; JUDYSL_KEY_SCRATCH];
+                match map.$into(cstr_bytes(index), &mut scratch) {
+                    Some(Ok((len, slot))) => {
+                        write_cstr(index, &scratch[..len]);
                         slot.as_ptr().cast()
                     }
+                    // Longer than the scratch buffer: search again with the
+                    // allocating form, which returns the whole key.
+                    Some(Err(_)) => match map.$method(cstr_bytes(index)) {
+                        Some((key, slot)) => {
+                            write_cstr(index, &key);
+                            slot.as_ptr().cast()
+                        }
+                        None => null_mut(),
+                    },
                     None => null_mut(),
                 }
             }
@@ -935,21 +952,25 @@ macro_rules! judysl_nav {
 
 judysl_nav!(
     JudySLFirst,
+    next_at_or_after_into,
     next_at_or_after,
     "Smallest stored string >= *index; returns its value slot."
 );
 judysl_nav!(
     JudySLNext,
+    next_after_into,
     next_after,
     "Smallest stored string > *index; returns its value slot."
 );
 judysl_nav!(
     JudySLLast,
+    prev_at_or_before_into,
     prev_at_or_before,
     "Largest stored string <= *index; returns its value slot."
 );
 judysl_nav!(
     JudySLPrev,
+    prev_before_into,
     prev_before,
     "Largest stored string < *index; returns its value slot."
 );

@@ -10,7 +10,9 @@
 //! leaves next to keys that continue below the same chunk, long keys, and
 //! the extreme byte values `0x01` and `0xFF`. Every probe is checked on all
 //! four searches: the returned slot, the value in it, and the string written
-//! back into the index buffer.
+//! back into the index buffer. Long keys of 127, 128 and 129 bytes sit on
+//! either side of the shims' 128-byte stack buffer, so both the
+//! allocation-free search and its allocating fallback answer probes.
 #![cfg(target_pointer_width = "64")]
 
 use core::ffi::c_void;
@@ -83,7 +85,7 @@ fn key_set() -> Vec<Vec<u8>> {
     }
     // Long keys sharing a long prefix, diverging at several depths.
     let long: Vec<u8> = (0..MAX_KEY).map(|i| b'a' + (i % 26) as u8).collect();
-    for cut in [40, 64, 65, 128, 199, 255, MAX_KEY] {
+    for cut in [40, 64, 65, 127, 128, 129, 199, 255, MAX_KEY] {
         keys.push(long[..cut].to_vec());
         let mut fork = long[..cut].to_vec();
         if let Some(b) = fork.last_mut() {
@@ -223,4 +225,93 @@ fn judysl_nav_matches_btreemap() {
     for f in [JudySLFirst, JudySLNext, JudySLLast, JudySLPrev] {
         assert_eq!(search(null_mut(), f, b"abc"), None);
     }
+}
+
+/// The engine's `*_into` searches, which the shims call with a fixed stack
+/// buffer, against the allocating searches, at every buffer length from 0 to
+/// one past the longest key: a key that fits is written whole, and a key
+/// that does not fit is reported as `Err(len)`, never returned as a
+/// truncated key.
+#[test]
+fn into_searches_report_keys_that_do_not_fit() {
+    use expanse_trie::strmap::{ExpanseStrMap, NulFreeStr};
+
+    let keys = key_set();
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in keys.iter().enumerate() {
+        map.insert(NulFreeStr::new(k).expect("NUL-free"), 1000 + i as u64);
+    }
+    type Into =
+        fn(&ExpanseStrMap, &NulFreeStr, &mut [u8]) -> Option<Result<(usize, NonNull<u64>), usize>>;
+    type Alloc = fn(&ExpanseStrMap, &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)>;
+    let pairs: [(&str, Into, Alloc); 4] = [
+        (
+            "next_at_or_after",
+            ExpanseStrMap::next_at_or_after_into,
+            ExpanseStrMap::next_at_or_after,
+        ),
+        (
+            "next_after",
+            ExpanseStrMap::next_after_into,
+            ExpanseStrMap::next_after,
+        ),
+        (
+            "prev_at_or_before",
+            ExpanseStrMap::prev_at_or_before_into,
+            ExpanseStrMap::prev_at_or_before,
+        ),
+        (
+            "prev_before",
+            ExpanseStrMap::prev_before_into,
+            ExpanseStrMap::prev_before,
+        ),
+    ];
+    let mut checked = (0usize, 0usize);
+    for p in probes(&keys).iter().step_by(7) {
+        let probe = NulFreeStr::new(p).expect("NUL-free");
+        for (name, into, alloc) in pairs {
+            let want = alloc(&map, probe);
+            for cap in [
+                0,
+                1,
+                7,
+                8,
+                9,
+                19,
+                20,
+                64,
+                127,
+                128,
+                129,
+                MAX_KEY,
+                MAX_KEY + 1,
+            ] {
+                let mut buf = vec![0xA5; cap];
+                let got = into(&map, probe, &mut buf);
+                match (&want, got) {
+                    (None, None) => {}
+                    (Some((k, slot)), Some(Ok((len, s)))) => {
+                        assert!(
+                            k.len() <= cap,
+                            "{name} {p:x?} cap {cap}: fitted a longer key"
+                        );
+                        assert_eq!(len, k.len(), "{name} {p:x?} cap {cap}");
+                        assert_eq!(&buf[..len], &k[..], "{name} {p:x?} cap {cap}");
+                        assert_eq!(s, *slot, "{name} {p:x?} cap {cap}");
+                        checked.0 += 1;
+                    }
+                    (Some((k, _)), Some(Err(len))) => {
+                        assert!(
+                            k.len() > cap,
+                            "{name} {p:x?} cap {cap}: a fitting key reported long"
+                        );
+                        assert_eq!(len, k.len(), "{name} {p:x?} cap {cap}");
+                        checked.1 += 1;
+                    }
+                    (w, g) => panic!("{name} {p:x?} cap {cap}: want {w:?}, got {g:?}"),
+                }
+            }
+        }
+    }
+    assert!(checked.0 > 1000 && checked.1 > 1000, "checked {checked:?}");
 }
