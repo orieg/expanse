@@ -1,0 +1,156 @@
+Making check in doc
+make[1]: Entering directory '/w/build-expanse/doc'
+make[1]: Nothing to be done for 'check'.
+make[1]: Leaving directory '/w/build-expanse/doc'
+Making check in examples
+make[1]: Entering directory '/w/build-expanse/examples'
+make[1]: Nothing to be done for 'check'.
+make[1]: Leaving directory '/w/build-expanse/examples'
+Making check in man
+make[1]: Entering directory '/w/build-expanse/man'
+make[1]: Nothing to be done for 'check'.
+make[1]: Leaving directory '/w/build-expanse/man'
+Making check in src
+make[1]: Entering directory '/w/build-expanse/src'
+make  check-recursive
+make[2]: Entering directory '/w/build-expanse/src'
+Making check in liblzma
+make[3]: Entering directory '/w/build-expanse/src/liblzma'
+make[3]: Nothing to be done for 'check'.
+make[3]: Leaving directory '/w/build-expanse/src/liblzma'
+Making check in helpers
+make[3]: Entering directory '/w/build-expanse/src/helpers'
+make[3]: Nothing to be done for 'check'.
+make[3]: Leaving directory '/w/build-expanse/src/helpers'
+Making check in helpers/fst
+make[3]: Entering directory '/w/build-expanse/src/helpers/fst'
+make[3]: Nothing to be done for 'check'.
+make[3]: Leaving directory '/w/build-expanse/src/helpers/fst'
+Making check in cocoa
+make[3]: Entering directory '/w/build-expanse/src/cocoa'
+make[3]: Nothing to be done for 'check'.
+make[3]: Leaving directory '/w/build-expanse/src/cocoa'
+make[3]: Entering directory '/w/build-expanse/src'
+make[3]: Nothing to be done for 'check-am'.
+make[3]: Leaving directory '/w/build-expanse/src'
+make[2]: Leaving directory '/w/build-expanse/src'
+make[1]: Leaving directory '/w/build-expanse/src'
+Making check in contrib
+make[1]: Entering directory '/w/build-expanse/contrib'
+Making check in rtlbrowse
+make[2]: Entering directory '/w/build-expanse/contrib/rtlbrowse'
+make  check-recursive
+make[3]: Entering directory '/w/build-expanse/contrib/rtlbrowse'
+make[4]: Entering directory '/w/build-expanse/contrib/rtlbrowse'
+make[4]: Nothing to be done for 'check-am'.
+make[4]: Leaving directory '/w/build-expanse/contrib/rtlbrowse'
+make[3]: Leaving directory '/w/build-expanse/contrib/rtlbrowse'
+make[2]: Leaving directory '/w/build-expanse/contrib/rtlbrowse'
+Making check in xml2stems
+make[2]: Entering directory '/w/build-expanse/contrib/xml2stems'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-expanse/contrib/xml2stems'
+Making check in bundle_for_osx
+make[2]: Entering directory '/w/build-expanse/contrib/bundle_for_osx'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-expanse/contrib/bundle_for_osx'
+Making check in fst_jni
+make[2]: Entering directory '/w/build-expanse/contrib/fst_jni'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-expanse/contrib/fst_jni'
+Making check in wlf2vcd
+make[2]: Entering directory '/w/build-expanse/contrib/wlf2vcd'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-expanse/contrib/wlf2vcd'
+Making check in fsdb2vcd
+make[2]: Entering directory '/w/build-expanse/contrib/fsdb2vcd'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-expanse/contrib/fsdb2vcd'
+make[2]: Entering directory '/w/build-expanse/contrib'
+make[2]: Nothing to be done for 'check-am'.
+make[2]: Leaving directory '/w/build-expanse/contrib'
+make[1]: Leaving directory '/w/build-expanse/contrib'
+Making check in share
+make[1]: Entering directory '/w/build-expanse/share'
+Making check in mime
+make[2]: Entering directory '/w/build-expanse/share/mime'
+Making check in packages
+make[3]: Entering directory '/w/build-expanse/share/mime/packages'
+make[3]: Nothing to be done for 'check'.
+make[3]: Leaving directory '/w/build-expanse/share/mime/packages'
+make[3]: Entering directory '/w/build-expanse/share/mime'
+make[3]: Nothing to be done for 'check-am'.
+make[3]: Leaving directory '/w/build-expanse/share/mime'
+make[2]: Leaving directory '/w/build-expanse/share/mime'
+Making check in icons
+make[2]: Entering directory '/w/build-expanse/share/icons'
+Making check in gnome
+make[3]: Entering directory '/w/build-expanse/share/icons/gnome'
+Making check in 16x16
+make[4]: Entering directory '/w/build-expanse/share/icons/gnome/16x16'
+Making check in mimetypes
+make[5]: Entering directory '/w/build-expanse/share/icons/gnome/16x16/mimetypes'
+make[5]: Nothing to be done for 'check'.
+make[5]: Leaving directory '/w/build-expanse/share/icons/gnome/16x16/mimetypes'
+make[5]: Entering directory '/w/build-expanse/share/icons/gnome/16x16'
+make[5]: Nothing to be done for 'check-am'.
+make[5]: Leaving directory '/w/build-expanse/share/icons/gnome/16x16'
+make[4]: Leaving directory '/w/build-expanse/share/icons/gnome/16x16'
+Making check in 32x32
+make[4]: Entering directory '/w/build-expanse/share/icons/gnome/32x32'
+Making check in mimetypes
+make[5]: Entering directory '/w/build-expanse/share/icons/gnome/32x32/mimetypes'
+make[5]: Nothing to be done for 'check'.
+make[5]: Leaving directory '/w/build-expanse/share/icons/gnome/32x32/mimetypes'
+make[5]: Entering directory '/w/build-expanse/share/icons/gnome/32x32'
+make[5]: Nothing to be done for 'check-am'.
+make[5]: Leaving directory '/w/build-expanse/share/icons/gnome/32x32'
+make[4]: Leaving directory '/w/build-expanse/share/icons/gnome/32x32'
+Making check in 48x48
+make[4]: Entering directory '/w/build-expanse/share/icons/gnome/48x48'
+Making check in mimetypes
+make[5]: Entering directory '/w/build-expanse/share/icons/gnome/48x48/mimetypes'
+make[5]: Nothing to be done for 'check'.
+make[5]: Leaving directory '/w/build-expanse/share/icons/gnome/48x48/mimetypes'
+make[5]: Entering directory '/w/build-expanse/share/icons/gnome/48x48'
+make[5]: Nothing to be done for 'check-am'.
+make[5]: Leaving directory '/w/build-expanse/share/icons/gnome/48x48'
+make[4]: Leaving directory '/w/build-expanse/share/icons/gnome/48x48'
+make[4]: Entering directory '/w/build-expanse/share/icons/gnome'
+make[4]: Nothing to be done for 'check-am'.
+make[4]: Leaving directory '/w/build-expanse/share/icons/gnome'
+make[3]: Leaving directory '/w/build-expanse/share/icons/gnome'
+Making check in hicolor
+make[3]: Entering directory '/w/build-expanse/share/icons/hicolor'
+Making check in scalable
+make[4]: Entering directory '/w/build-expanse/share/icons/hicolor/scalable'
+Making check in apps
+make[5]: Entering directory '/w/build-expanse/share/icons/hicolor/scalable/apps'
+make[5]: Nothing to be done for 'check'.
+make[5]: Leaving directory '/w/build-expanse/share/icons/hicolor/scalable/apps'
+make[5]: Entering directory '/w/build-expanse/share/icons/hicolor/scalable'
+make[5]: Nothing to be done for 'check-am'.
+make[5]: Leaving directory '/w/build-expanse/share/icons/hicolor/scalable'
+make[4]: Leaving directory '/w/build-expanse/share/icons/hicolor/scalable'
+make[4]: Entering directory '/w/build-expanse/share/icons/hicolor'
+make[4]: Nothing to be done for 'check-am'.
+make[4]: Leaving directory '/w/build-expanse/share/icons/hicolor'
+make[3]: Leaving directory '/w/build-expanse/share/icons/hicolor'
+make[3]: Entering directory '/w/build-expanse/share/icons'
+make[3]: Nothing to be done for 'check-am'.
+make[3]: Leaving directory '/w/build-expanse/share/icons'
+make[2]: Leaving directory '/w/build-expanse/share/icons'
+Making check in applications
+make[2]: Entering directory '/w/build-expanse/share/applications'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-expanse/share/applications'
+Making check in appdata
+make[2]: Entering directory '/w/build-expanse/share/appdata'
+make[2]: Nothing to be done for 'check'.
+make[2]: Leaving directory '/w/build-expanse/share/appdata'
+make[2]: Entering directory '/w/build-expanse/share'
+make[2]: Nothing to be done for 'check-am'.
+make[2]: Leaving directory '/w/build-expanse/share'
+make[1]: Leaving directory '/w/build-expanse/share'
+make[1]: Entering directory '/w/build-expanse'
+make[1]: Leaving directory '/w/build-expanse'

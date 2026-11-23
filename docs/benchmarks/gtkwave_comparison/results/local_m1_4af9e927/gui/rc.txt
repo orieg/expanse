@@ -1,0 +1,9 @@
+des.fst A rc=0
+transaction.fst A rc=0
+syn_large.fst A rc=0
+des.fst B rc=0
+transaction.fst B rc=0
+syn_large.fst B rc=0
+des.fst B1 rc=0
+transaction.fst B1 rc=0
+syn_large.fst B1 rc=0

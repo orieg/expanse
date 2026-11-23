@@ -1,0 +1,3 @@
+A vcd2fst: libJudy.so.1 => /lib/aarch64-linux-gnu/libJudy.so.1
+B vcd2fst: libexpanse.so.1 => /w/lib/libexpanse.so.1
+B1 vcd2fst: libJudy.so.1 => /w/compat/libJudy.so.1
