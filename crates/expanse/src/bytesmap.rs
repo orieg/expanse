@@ -1224,13 +1224,21 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     #[must_use]
     pub fn get_slot_ptr(&self, key: &[u8]) -> Option<NonNull<u64>> {
         let b_ptr = self.bucket_of(key)?.as_ptr();
+        // An index loop, as in `get`: the pointer walk forms its end pointer
+        // with two more instructions per hit, which the x86 Callgrind
+        // `judyhs_long_get` arms counted (#1760).
         // SAFETY: `b_ptr` is a live bucket owned by this map, and the key
         // search borrows key bytes only, never the value word the returned
-        // pointer writes. The value pointer is a raw place projection with
-        // the allocation's write provenance and no intermediate reference.
+        // pointer writes; `i < len` indexes one of its entries. The value
+        // pointer is a raw place projection with the allocation's write
+        // provenance and no intermediate reference.
         unsafe {
-            let e = bucket_search(b_ptr, key)?;
-            Some(NonNull::new_unchecked(&raw mut (*e).val))
+            let (entries, len) = (bucket_entries(b_ptr), bucket_len(b_ptr));
+            let at = (0..len).find(|&i| {
+                let e = entries.add(i);
+                core::slice::from_raw_parts((*e).key, (*e).key_len) == key
+            })?;
+            Some(NonNull::new_unchecked(&raw mut (*entries.add(at)).val))
         }
     }
 
