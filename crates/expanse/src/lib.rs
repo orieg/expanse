@@ -115,6 +115,8 @@ pub mod cursor;
 #[cfg(target_pointer_width = "64")]
 pub mod domain;
 #[cfg(target_pointer_width = "64")]
+mod gap;
+#[cfg(target_pointer_width = "64")]
 pub mod get;
 #[cfg(target_pointer_width = "64")]
 pub mod iter;

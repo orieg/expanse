@@ -1794,7 +1794,11 @@ impl ExpanseSet {
     /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
     #[doc(hidden)]
     pub fn first_absent_within(&self, from: Key, steps: usize) -> Result<Option<Key>, Key> {
-        self.range_fwd_raw(from).first_gap(from, steps)
+        match &self.root {
+            // SAFETY: trie maintained/owned by this set's engine.
+            Root::Tree { top, .. } => unsafe { Self::gap_result::<true>(top, from, steps) },
+            _ => self.range_fwd_raw(from).first_gap(from, steps),
+        }
     }
 
     /// Largest absent key `<= upto` (compat: `Judy1LastEmpty`; mirror of
@@ -1803,7 +1807,34 @@ impl ExpanseSet {
     /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
     #[doc(hidden)]
     pub fn last_absent_within(&self, upto: Key, steps: usize) -> Result<Option<Key>, Key> {
-        self.range_rev_raw(upto).last_gap(upto, steps)
+        match &self.root {
+            // SAFETY: trie maintained/owned by this set's engine.
+            Root::Tree { top, .. } => unsafe { Self::gap_result::<false>(top, upto, steps) },
+            _ => self.range_rev_raw(upto).last_gap(upto, steps),
+        }
+    }
+
+    /// The tree half of [`first_absent_within`](Self::first_absent_within)
+    /// (`FWD`) and [`last_absent_within`](Self::last_absent_within): one
+    /// descent that reads only the path to `start` and the children next to
+    /// it, a terminal read being one of the `steps`.
+    ///
+    /// # Safety
+    ///
+    /// `top` is this set's live level-8 root edge.
+    #[inline(always)]
+    unsafe fn gap_result<const FWD: bool>(
+        top: &Edge,
+        start: Key,
+        steps: usize,
+    ) -> Result<Option<Key>, Key> {
+        let mut budget = steps;
+        // SAFETY: forwarded contract.
+        match unsafe { crate::gap::gap::<FWD>(top, start, 8, &mut budget) } {
+            crate::gap::Gap::At(k) => Ok(Some(k)),
+            crate::gap::Gap::Full => Ok(None),
+            crate::gap::Gap::Budget(k) => Err(k),
+        }
     }
 
     /// The key with `n` keys below it — 0-based select (compat:
