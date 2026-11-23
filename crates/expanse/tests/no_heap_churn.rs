@@ -703,3 +703,122 @@ fn strmap_cursor_scan_does_not_allocate_per_branching_level() {
          a tenth of it: per-level cursor state is being allocated per level"
     );
 }
+
+/// The hash map files each key in a one-allocation bucket (#1760): a fresh
+/// long key costs exactly one allocation beyond what the hash trie takes to
+/// file its hash, a key added to a colliding bucket costs one (the
+/// replacement bucket), and so does removing one of several colliding keys.
+/// Before #1760 the three counts were 3, 3 and 2: a boxed key, an entry
+/// vector and the vector's box per bucket.
+///
+/// The hash trie's own allocations are cancelled rather than estimated: the
+/// hasher reads the key's first 8 bytes, so a bare `ExpanseMap` given the
+/// same words in the same order makes exactly the trie's allocations.
+#[test]
+fn bytesmap_bucket_costs_one_allocation() {
+    use expanse_trie::bytesmap::ExpanseBytesMap;
+    use std::hash::{BuildHasher, Hasher};
+
+    /// Keys of this length all hash to 0, so they share one bucket; every
+    /// other key hashes to its first 8 bytes (little-endian).
+    const COLLIDE_LEN: usize = 33;
+    struct Prefix(u64);
+    impl Hasher for Prefix {
+        fn finish(&self) -> u64 {
+            self.0
+        }
+        fn write(&mut self, b: &[u8]) {
+            self.0 = if b.len() == COLLIDE_LEN {
+                0
+            } else {
+                u64::from_le_bytes(b[..8].try_into().expect("8-byte prefix"))
+            };
+        }
+    }
+    struct PrefixBuild;
+    impl BuildHasher for PrefixBuild {
+        type Hasher = Prefix;
+        fn build_hasher(&self) -> Prefix {
+            Prefix(0)
+        }
+    }
+
+    // Route-shaped keys behind a distinct, non-zero 8-byte prefix.
+    let key = |i: u64| {
+        let mut k = (i.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
+            .to_le_bytes()
+            .to_vec();
+        k.extend_from_slice(
+            format!("/api/v2/tenants/{:06}/resources/{:04}", i / 16, i % 16).as_bytes(),
+        );
+        k
+    };
+    let collide = |i: u64| format!("{i:0>COLLIDE_LEN$}").into_bytes();
+
+    // Two populations: one allocation per key is a slope.
+    let pops: [u64; 2] = if cfg!(miri) { [40, 80] } else { [2_000, 8_000] };
+    for n in pops {
+        let keys: Vec<Vec<u8>> = (0..n).map(key).collect();
+        let words: Vec<u64> = keys
+            .iter()
+            .map(|k| u64::from_le_bytes(k[..8].try_into().expect("prefix")))
+            .collect();
+
+        let mut trie = ExpanseMap::new();
+        let trie_allocs = allocations_during(|| {
+            for &w in &words {
+                // SAFETY: the slot `ins_slot` just returned is live until the
+                // next mutation; a non-zero word, as a bucket pointer is.
+                unsafe { *trie.ins_slot(w).as_ptr() = 1 };
+            }
+        });
+        std::hint::black_box(&trie);
+        let mut m = ExpanseBytesMap::with_hasher(PrefixBuild);
+        let map_allocs = allocations_during(|| {
+            for (i, k) in keys.iter().enumerate() {
+                assert_eq!(m.insert(k, i as u64), None);
+            }
+        });
+        assert_eq!(
+            map_allocs - trie_allocs,
+            n as usize,
+            "{n} fresh keys cost {map_allocs} allocations against the trie's {trie_allocs}: \
+             expected one bucket allocation per key"
+        );
+
+        // Colliding keys: one bucket under hash 0, which the trie files once.
+        let c = 12u64;
+        let probes: Vec<Vec<u8>> = (0..c).map(collide).collect();
+        assert!(probes.iter().all(|k| k.len() == COLLIDE_LEN));
+        let mut one = ExpanseMap::new();
+        let one_allocs = allocations_during(|| {
+            // SAFETY: as above.
+            unsafe { *one.ins_slot(0).as_ptr() = 1 };
+        });
+        std::hint::black_box(&one);
+        let mut cm = ExpanseBytesMap::with_hasher(PrefixBuild);
+        let ins = allocations_during(|| {
+            for (i, k) in probes.iter().enumerate() {
+                assert_eq!(cm.insert(k, i as u64), None);
+            }
+        });
+        assert_eq!(
+            ins - one_allocs,
+            c as usize,
+            "{c} colliding inserts cost {ins} allocations against the trie's {one_allocs}: \
+             expected one bucket allocation each"
+        );
+        let rem = allocations_during(|| {
+            for (i, k) in probes[..c as usize - 1].iter().enumerate() {
+                assert_eq!(cm.remove(k), Some(i as u64));
+            }
+        });
+        assert_eq!(
+            rem,
+            (c - 1) as usize,
+            "{} colliding removes cost {rem} allocations: expected one replacement bucket each",
+            c - 1
+        );
+        assert_eq!(cm.len(), 1);
+    }
+}

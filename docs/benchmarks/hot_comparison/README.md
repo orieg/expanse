@@ -485,6 +485,8 @@ for the string arms and §11.6 for the concurrent arm:
 
 ## 6. String keys (#693): `ExpanseStrMap` and `ExpanseBytesMap` against HOT's C-string configuration
 
+> **Arm E (`ExpanseBytesMap`) is pending re-measurement.** [#1760](https://github.com/orieg/expanse/issues/1760) changed the map's collision bucket from three allocations (a boxed bucket, its entry vector and a boxed copy of each key) to one: a header, the entries and the key bytes. Every Arm E figure in this section, latency, insertion and memory, was measured on the earlier layout, and the explanation of its footprint below describes that layout. The figures stay as measured at their commits and are not re-estimated; they are pending a re-run of `run.sh strings` (Refs #1760).
+
 > **The memory census is re-measured after design B; the latency pillars are not.** Design B ([#1586](https://github.com/orieg/expanse/issues/1586), concurrency `METHODOLOGY.md` §47) made `ExpanseStrMap`'s node shells and suffix leaves blocks of the map's own allocator. `mem_used` now counts every block at its accounted size, and the allocator census sees slab pages where it saw one allocation per shell and suffix. Every memory figure in this section, its tables, the §6.4 sweep and the gate transcript come from `results/baseline_string_memory.json` and `results/baseline_string_memory_run2.json` at `c1b604ad`, two runs of `run.sh strings` through the `hot_string_memory` dispatch. The latency, insertion and scan figures remain the `b868fb2e` runs described next. The figures measured before design B are superseded, not overwritten. §6.1 gives each next to its replacement, and `.github/superseded-figures.json` registers them.
 
 > **Measured twice at `b868fb2e`, after key validation left the timed loops.**

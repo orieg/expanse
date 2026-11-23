@@ -252,3 +252,77 @@ fn lru_evict_reinsert_16_byte_hashed() {
 fn lru_evict_reinsert_40_byte_hashed() {
     case(wide_40, 3000);
 }
+
+/// The `vs_stock` `judyhs_long_*` shape (#1760): ~37-byte route strings
+/// with a long shared prefix, all on the hashed path.
+fn route(i: u64) -> Vec<u8> {
+    format!("/api/v2/tenants/{:06}/resources/{:04}", i / 16, i % 16).into_bytes()
+}
+
+/// Keys of every length from 0 to 72 bytes, so the short-key tries and the
+/// hashed buckets both see keys on either side of 8 bytes. Key 0 is the
+/// empty key; key `j + 1` is `1 + j % 72` bytes, a first byte `j / 72` and
+/// filler. Injective for `j / 72 < 256`: the length and the first byte
+/// together determine `j`.
+fn mixed_len(i: u64) -> Vec<u8> {
+    let Some(j) = i.checked_sub(1) else {
+        return Vec::new();
+    };
+    assert!(
+        j / 72 < 256,
+        "mixed_len is injective only below 1 + 72 * 256"
+    );
+    let mut k = vec![b'.'; 1 + (j % 72) as usize];
+    k[0] = (j / 72) as u8;
+    k
+}
+
+#[test]
+fn lru_evict_reinsert_route_keys() {
+    case(route, 3000);
+}
+
+#[test]
+fn lru_evict_reinsert_mixed_lengths() {
+    // The empty key plus 72 lengths x 40 first bytes: 2,881 distinct keys.
+    let pool = 1 + 72 * 40;
+    case(mixed_len, pool);
+}
+
+/// `JudyHSIns` on a key already present keeps its value and hands out the
+/// same slot, on both paths; a slot stays put across inserts of other keys
+/// of the same array only until the next insert (`docs/COMPAT.md` D10), so
+/// each check re-reads it.
+#[test]
+fn duplicate_inserts_keep_value_and_slot() {
+    let keys: Vec<Vec<u8>> = (0..400u64)
+        .map(|i| if i % 2 == 0 { route(i) } else { mixed_len(i) })
+        .collect();
+    let mut arr: *mut c_void = null_mut();
+    let hs = |k: &[u8]| (k.as_ptr().cast::<c_void>(), k.len() as Word);
+    // SAFETY: live (pointer, length) byte strings and the array word's
+    // address; each slot is used before the next call that changes the array.
+    unsafe {
+        for (i, k) in keys.iter().enumerate() {
+            let (kp, kl) = hs(k);
+            let s = JudyHSIns(&raw mut arr, kp, kl, null_mut());
+            assert_eq!(read(s), Some(0), "fresh {k:02x?}");
+            write(s, i as Word + 1);
+            let again = JudyHSIns(&raw mut arr, kp, kl, null_mut());
+            assert_eq!(again, s, "re-insert of {k:02x?} moved its slot");
+            assert_eq!(read(again), Some(i as Word + 1));
+            assert_eq!(JudyHSGet(arr, kp, kl), s, "get of {k:02x?}");
+            assert_eq!(s as usize % align_of::<Word>(), 0, "unaligned slot");
+        }
+        for (i, k) in keys.iter().enumerate() {
+            let (kp, kl) = hs(k);
+            assert_eq!(read(JudyHSGet(arr, kp, kl)), Some(i as Word + 1));
+        }
+        for (i, k) in keys.iter().enumerate().rev() {
+            let (kp, kl) = hs(k);
+            assert_eq!(JudyHSDel(&raw mut arr, kp, kl, null_mut()), 1, "{i}");
+            assert!(JudyHSGet(arr, kp, kl).is_null());
+        }
+        assert!(arr.is_null(), "emptied array word is not null");
+    }
+}
