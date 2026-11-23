@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use expanse_trie::strmap::NulFreeStr;
 use expanse_trie::sync::SyncExpanseStrMap;
@@ -154,6 +154,19 @@ const FORMS: [(&[u8], Option<&[u8]>); 3] = [
 fn str_cursor_scans_satisfy_the_scan_contract() {
     const SCANS: usize = 200;
     const READERS: usize = 2;
+    // The writer's cap: the checker's work is bounded by it whatever the
+    // schedule.
+    const MAX_WRITES: usize = 20_000;
+    // A reader that has seen no write complete during any of its `SCANS`
+    // scans keeps scanning, yielding between scans so a starved writer gets
+    // the CPU, until one does. A history with no overlap checks nothing
+    // concurrent, and on an oversubscribed runner the readers can finish
+    // `SCANS` before the writer is scheduled at all. The extension stops at
+    // `MAX_SCANS` scans, at `EXTEND_DEADLINE`, or once the writer has hit
+    // `MAX_WRITES` and no later scan can overlap; the overlap assertion
+    // below then fails by name.
+    const MAX_SCANS: usize = 2_000;
+    const EXTEND_DEADLINE: Duration = Duration::from_secs(10);
     let map = Arc::new(SyncExpanseStrMap::new());
     let mut stable = BTreeMap::new();
     for k in stable_keys() {
@@ -182,7 +195,7 @@ fn str_cursor_scans_satisfy_the_scan_contract() {
             let mut rng = 0x1234_5678_9ABC_DEF1u64;
             start.wait();
             // Bounded, so the checker's work is bounded whatever the schedule.
-            while !done.load(Ordering::Acquire) && local.len() < 20_000 {
+            while !done.load(Ordering::Acquire) && local.len() < MAX_WRITES {
                 rng ^= rng << 13;
                 rng ^= rng >> 7;
                 rng ^= rng << 17;
@@ -221,7 +234,18 @@ fn str_cursor_scans_satisfy_the_scan_contract() {
                 let rd = map.reader();
                 let mut local = Vec::new();
                 start.wait();
-                for i in 0..SCANS {
+                let began = Instant::now();
+                let mut seen_overlap = false;
+                for i in 0..MAX_SCANS {
+                    if i >= SCANS {
+                        if seen_overlap
+                            || began.elapsed() >= EXTEND_DEADLINE
+                            || writes_done.load(Ordering::Acquire) >= MAX_WRITES as u64
+                        {
+                            break;
+                        }
+                        thread::yield_now();
+                    }
                     let before = writes_done.load(Ordering::Acquire);
                     let t0 = Instant::now();
                     let mut got = Vec::new();
@@ -237,6 +261,7 @@ fn str_cursor_scans_satisfy_the_scan_contract() {
                     }
                     let t1 = Instant::now();
                     if writes_done.load(Ordering::Acquire) != before {
+                        seen_overlap = true;
                         overlapped.fetch_add(1, Ordering::Relaxed);
                     }
                     local.push(Scan {
@@ -264,8 +289,9 @@ fn str_cursor_scans_satisfy_the_scan_contract() {
     let scans = scans.lock().unwrap();
     assert!(
         overlapped.load(Ordering::Relaxed) > 0,
-        "no scan overlapped a write ({} writes): the history checks nothing concurrent",
-        writes.len()
+        "no scan overlapped a write ({} writes, {} scans): the history checks nothing concurrent",
+        writes.len(),
+        scans.len()
     );
     for scan in scans.iter() {
         let (lo, hi) = FORMS[scan.form];
