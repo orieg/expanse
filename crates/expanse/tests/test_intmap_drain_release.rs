@@ -226,3 +226,78 @@ fn a_set_drained_by_remove_keeps_its_blocks_until_shrink_to_fit() {
     assert_eq!(s.len(), 1_000);
     stop_counting();
 }
+
+/// 256 children under one byte, four keys each: the branch at that byte is
+/// a `BranchU`. Built before counting starts.
+fn branch_u_keys() -> Vec<u64> {
+    (0..256u64)
+        .flat_map(|d| (0..4u64).map(move |j| (d << 32) | (j * 0x0101_0101)))
+        .collect()
+}
+
+/// The 4,160-byte `BranchU` a removal downgrades to a `BranchB` is kept on
+/// its size-class freelist: it leaves `mem_used`, stays in `mem_held` and in
+/// the bytes live through the global allocator, and `shrink_to_fit` returns
+/// it (Refs #1680). Without a size class for it the downgrade frees the block
+/// to the system allocator, and the census assertion below fails.
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn a_downgraded_branch_u_is_kept_until_shrink_to_fit() {
+    const BRANCH_U: usize = 4160;
+    let (warm, _) = keys();
+    let ks = branch_u_keys();
+    start_counting(&warm);
+    let mut m = ExpanseMap::new();
+    let empty = live();
+    for &k in &ks {
+        m.insert(k, !k);
+    }
+    // Control: the tree holds exactly one BranchU, and nothing of its size
+    // is idle yet.
+    assert_eq!(m.stats().node_counts.branch_u, 1);
+    assert_eq!(m.stats().node_bytes.branch_u, BRANCH_U);
+    assert!(m.alloc_census().system_free.iter().all(|f| f.0 != BRANCH_U));
+    // Remove the children of the upper digits until the branch is below its
+    // demotion floor, whatever that floor is: the node count says when.
+    let mut removed = 0;
+    for &k in ks.iter().rev() {
+        assert_eq!(m.remove(k), Some(!k));
+        removed += 1;
+        if m.stats().node_counts.branch_u == 0 {
+            break;
+        }
+    }
+    assert!(removed < ks.len(), "the branch was demoted, not emptied");
+    assert!(!m.is_empty());
+    assert_eq!(m.stats().node_bytes.branch_u, 0);
+
+    // In a block: the census owns heap memory, which must be gone before the
+    // counted bytes are read below.
+    {
+        let census = m.alloc_census();
+        let mut kept = census.system_free.iter().filter(|f| f.0 == BRANCH_U);
+        assert_eq!(
+            kept.next(),
+            Some(&(BRANCH_U, 1, BRANCH_U)),
+            "the demoted BranchU is on its class freelist"
+        );
+        assert_eq!(kept.next(), None);
+    }
+    let used = m.mem_used();
+    assert_eq!(m.stats().node_bytes.total(), used);
+    assert!(m.mem_held() >= used + BRANCH_U);
+    assert_eq!(live() - empty, m.mem_held() as isize);
+
+    let released = m.shrink_to_fit();
+    assert!(released >= BRANCH_U);
+    assert_eq!(m.mem_used(), used, "shrink_to_fit moves nothing live");
+    assert!(
+        m.alloc_census().system_free.iter().all(|f| f.0 != BRANCH_U),
+        "shrink_to_fit returned the block"
+    );
+    assert_eq!(live() - empty, m.mem_held() as isize);
+    for &k in &ks[..ks.len() - removed] {
+        assert_eq!(m.get(k), Some(!k));
+    }
+    stop_counting();
+}

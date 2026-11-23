@@ -2678,6 +2678,72 @@ mod tests {
         assert_eq!(a.bytes_in_use(), 0);
     }
 
+    /// A freed `BranchU` goes to its class freelist and is not returned to
+    /// the system allocator: it stays in `bytes_held`, the next `BranchU`
+    /// reuses the same block zeroed, and `release_free` returns it. Without a
+    /// `(4160, CACHE_LINE)` class the free is a `dealloc` and this test stops
+    /// at the `class_for` lookup; the tree-level twin, which fails on its
+    /// census assertion, is `tests/test_intmap_drain_release.rs` (Refs #1680).
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn a_freed_branch_u_waits_on_its_class_freelist() {
+        const BYTES: usize = size_of::<BranchU>();
+        assert_eq!((BYTES, align_of::<BranchU>()), (4160, CACHE_LINE));
+        let class = class_for(BYTES, align_of::<BranchU>()).expect("BranchU has a size class");
+        assert_eq!(class, BRANCH_U_CLASS);
+        assert!(
+            !is_slab_class(class),
+            "larger than a slab page: one system allocation per block"
+        );
+
+        let mut a = pooled_alloc();
+        let node = a.alloc_node_zeroed::<BranchU>();
+        let addr = node.as_ptr() as usize;
+        assert_eq!(a.bytes_held(), BYTES);
+        // SAFETY: the node is live and owned here; the write stays inside it.
+        unsafe { node.as_ptr().cast::<u8>().add(BYTES - 1).write(0xA5) };
+        // SAFETY: `node` came from `alloc_node_zeroed` on this handle and is
+        // not used again.
+        unsafe { a.free_node(node) };
+        assert_eq!(a.bytes_in_use(), 0);
+        assert_eq!(a.bytes_held(), BYTES, "the freed block is kept, not freed");
+        assert_eq!(
+            a.freelists[class].load(Ordering::Relaxed) as usize,
+            addr,
+            "it is the head of its class freelist"
+        );
+        assert_eq!(a.census().system_free, [(BYTES, 1, BYTES)]);
+
+        // The next BranchU is the same block, zeroed again.
+        let again = a.alloc_node_zeroed::<BranchU>();
+        assert_eq!(again.as_ptr() as usize, addr);
+        // SAFETY: `again` is a live block of `BYTES` bytes.
+        let bytes = unsafe { core::slice::from_raw_parts(again.as_ptr().cast::<u8>(), BYTES) };
+        assert!(
+            bytes.iter().all(|&b| b == 0),
+            "a reused block reads as zeros"
+        );
+        assert_eq!(a.bytes_held(), BYTES, "reuse, not a second allocation");
+
+        // A second live node, so `release_free` takes its per-class path and
+        // not the nothing-live one.
+        let other = a.alloc_node_zeroed::<BranchU>();
+        // SAFETY: `again` came from `alloc_node_zeroed` and is not used again.
+        unsafe { a.free_node(again) };
+        assert_eq!(a.bytes_held(), 2 * BYTES);
+        assert_eq!(a.release_free(), BYTES);
+        assert_eq!(a.bytes_held(), BYTES);
+        assert!(a.census().system_free.is_empty());
+        // SAFETY: `other` came from `alloc_node_zeroed` and is not used again.
+        unsafe { a.free_node(other) };
+        assert_eq!(
+            a.release_free(),
+            BYTES,
+            "the nothing-live path frees it too"
+        );
+        assert_eq!(a.bytes_held(), 0);
+    }
+
     /// The census classifies each page by its live blocks and its parts sum
     /// to `bytes_held` and `bytes_in_use` exactly.
     #[test]
