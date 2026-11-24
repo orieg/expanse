@@ -49,9 +49,14 @@ def symbols(objdump: str, lib: str) -> dict[int, tuple[str, int]]:
     out: dict[int, tuple[str, int]] = {}
     for flag in ("-t", "-T"):
         for line in run([objdump, flag, "-C", lib]).splitlines():
-            m = re.match(r"^([0-9a-f]+)\s.*\sF\s+\.text\s+([0-9a-f]+)\s+(?:\S+\s+)?(.+)$", line)
+            m = re.match(r"^([0-9a-f]+)\s.*\sF\s+\.text\s+([0-9a-f]+)\s+(.+)$", line)
             if m:
                 addr, size, name = int(m.group(1), 16), int(m.group(2), 16), m.group(3).strip()
+                # Only the dynamic table (-T) has a version column before the
+                # name; a demangled Rust name contains spaces, so stripping a
+                # first token from a -t line would cut the name itself.
+                if flag == "-T":
+                    name = re.sub(r"^(?:\(?Base\)?|\S*@\S*|\(\S+\))\s+", "", name)
                 if size and (addr not in out or len(name) < len(out[addr][0])):
                     out[addr] = (name, size)
     return out
@@ -83,12 +88,14 @@ def expanse(objdump: str, lib: str) -> dict:
     starts = sorted(syms)
     todo = [by_name[e] for e in ENTRIES]
     seen: dict[int, dict] = {}
+    edges: dict[int, set[int]] = {}
     while todo:
         a = todo.pop()
         if a in seen:
             continue
         name, size = syms[a]
         calls = ijmps = icalls = 0
+        callees: set[int] = set()
         for line in disasm(objdump, lib, a, size):
             m = re.match(r"^\s*[0-9a-f]+:\s+(\S+)\s+(.*)$", line)
             if not m:
@@ -108,11 +115,28 @@ def expanse(objdump: str, lib: str) -> dict:
                         calls += 1
                     if target in syms and target != a and not (a <= target < a + size):
                         todo.append(target)
+                        callees.add(target)
+        edges[a] = callees
         seen[a] = {"name": name, "addr": hex(a), "size": size, "entry_align_64": a % LINE,
                    "lines_64": spans(a, size, LINE), "windows_32": spans(a, size, WINDOW),
                    "direct_calls": calls, "indirect_jumps": ijmps, "indirect_calls": icalls}
     fns = sorted(seen.values(), key=lambda f: -f["size"])
+
+    def reach(entry: str) -> dict:
+        stack, got = [by_name[entry]], set()
+        while stack:
+            x = stack.pop()
+            if x not in got:
+                got.add(x)
+                stack.extend(edges.get(x, ()))
+        sub = [seen[x] for x in got]
+        return {"functions": sorted(f["name"] for f in sub),
+                "bytes": sum(f["size"] for f in sub),
+                "lines_64": sum(f["lines_64"] for f in sub),
+                "indirect_jumps": sum(f["indirect_jumps"] for f in sub)}
+
     return {
+        "reach_per_entry": {e: reach(e) for e in ENTRIES},
         "library": Path(lib).name,
         "text_size": text_size(objdump, lib),
         "entries": {e: next(f for f in fns if f["addr"] == hex(by_name[e])) for e in ENTRIES},
