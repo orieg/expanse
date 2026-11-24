@@ -384,6 +384,11 @@ NO_ROUNDS = {
     # sits beside them in `misp_increment_raw/`.
     "stressng_comparison/results/diagnostic_misp_increment_keyoff_ref_run1.json",
     "stressng_comparison/results/diagnostic_misp_increment_keyoff_ref_run2.json",
+    # The #1680 heap-trim census: exact counts of allocator calls and program-
+    # break moves per (arm, W, repeat), untimed; nothing is sampled, so there
+    # are no rounds and no interval. Its cells are a dict keyed "<arm>/W<w>".
+    "stressng_comparison/results/diagnostic_trim_census_m1_amd64.json",
+    "stressng_comparison/results/diagnostic_trim_census_m1_arm64.json",
     # Per-process aggregates of the 4 Mi phases' [heap] frames: one record per
     # process with its counters and frame statistics, no interval and no
     # ratio, so there are no rounds to summarise. The rounds of the same
