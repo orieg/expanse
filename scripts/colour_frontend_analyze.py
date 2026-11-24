@@ -118,7 +118,8 @@ def samples(cell: dict, base: str) -> list[float]:
 
 
 def which_set(doc: dict) -> str:
-    req = {base_name(e) for e in doc["counters_requested"].split(",")}
+    raw = doc["counters_requested"]
+    req = {base_name(e) for e in (raw.split(",") if isinstance(raw, str) else raw)}
     hits = [k for k, evs in SETS.items() if set(evs) <= req]
     if len(hits) != 1:
         raise SystemExit(f"artifact requests {sorted(req)}: matches sets {hits}")
@@ -250,7 +251,7 @@ def _fake_doc(set_name: str, gen) -> dict:
                         for e in events}
             cells.append({"id": f"{arm}/pop={pop}/hit=100", "arm": arm, "population": pop,
                           "distinct_probes": 12 * pop + 2, "passes": 1, "counters": counters})
-    return {"counters_requested": ",".join(events), "provenance": {"commit": "selftest"},
+    return {"counters_requested": [f"cpu_core/{e}/" for e in events], "provenance": {"commit": "selftest"},
             "cells": cells}
 
 
