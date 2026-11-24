@@ -5764,6 +5764,69 @@ mod tests {
     fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &NulFreeStr {
         NulFreeStr::new(bytes.as_ref()).expect("test key contains a NUL")
     }
+    /// An ordered search that passes over a suffix leaf takes the chunk's
+    /// neighbour from the lookup's leaf (`NearStep`). Here every such
+    /// neighbour is a terminal chunk whose value is 0, the one value a
+    /// neighbour can carry that `NearStep`'s two-word result must not confuse
+    /// with "no neighbour": over a root-leaf word map and a tree, each search
+    /// must agree with a `BTreeMap`.
+    #[test]
+    fn ordered_search_takes_zero_valued_terminal_neighbours() {
+        use std::collections::BTreeMap;
+        for n in [6u32, 400] {
+            let mut m = ExpanseStrMap::new();
+            let mut model = BTreeMap::new();
+            for i in 0..n {
+                // An 8-byte chunk holding a suffix leaf, then a 7-byte key
+                // (a terminal chunk) that sorts right after it.
+                let sfx = format!("{i:07}aXYZ").into_bytes();
+                let term = format!("{:07}", i + 1).into_bytes();
+                m.insert(tk(&sfx), u64::from(i) + 1);
+                m.insert(tk(&term), 0);
+                model.insert(sfx, u64::from(i) + 1);
+                model.insert(term, 0);
+            }
+            let read = |r: Option<(Vec<u8>, NonNull<u64>)>| {
+                // SAFETY: the slot is live; `m` is not mutated meanwhile.
+                r.map(|(k, slot)| (k, unsafe { *slot.as_ptr() }))
+            };
+            for i in 0..n {
+                let up = format!("{i:07}aXZ").into_bytes();
+                let want = model
+                    .range::<[u8], _>((
+                        std::ops::Bound::Excluded(&up[..]),
+                        std::ops::Bound::Unbounded,
+                    ))
+                    .next()
+                    .map(|(k, v)| (k.clone(), *v));
+                assert_eq!(read(m.next_after(tk(&up))), want, "n {n}, next_after {i}");
+                assert_eq!(
+                    read(m.next_at_or_after(tk(&up))),
+                    want,
+                    "n {n}, next_at_or_after {i}"
+                );
+                let down = format!("{i:07}aXA").into_bytes();
+                let want = model
+                    .range::<[u8], _>((
+                        std::ops::Bound::Unbounded,
+                        std::ops::Bound::Excluded(&down[..]),
+                    ))
+                    .next_back()
+                    .map(|(k, v)| (k.clone(), *v));
+                assert_eq!(
+                    read(m.prev_before(tk(&down))),
+                    want,
+                    "n {n}, prev_before {i}"
+                );
+                assert_eq!(
+                    read(m.prev_at_or_before(tk(&down))),
+                    want,
+                    "n {n}, prev_at_or_before {i}"
+                );
+            }
+        }
+    }
+
     /// Keys that exercise every entry form the cursor has to walk: resolved
     /// inside a terminal chunk, held in a suffix leaf, and reached through a
     /// chain of child nodes; plus shared prefixes at each of those depths and
