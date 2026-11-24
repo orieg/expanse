@@ -20,13 +20,19 @@ PASS when the target and both bounds hold; otherwise FAIL, naming the cells.
 cell breaks it only when, besides the two verdicts above, G/M is itself SLOWER
 (its upper bound below 1.0 in both runs).
 
-Usage: diag_increment_analyze.py <host> <tag> <run1_prefix> <run2_prefix> [--l1-separated] [--target cell:W:metric ...]
+`--short-window=round` judges a process whose own load window has no foreign
+reading on its round window (`short_window.py`); every such row says so, and
+the count is printed per run. Without it, nothing changes.
+
+Usage: diag_increment_analyze.py <host> <tag> <run1_prefix> <run2_prefix> [--l1-separated] [--short-window=round] [--target cell:W:metric ...]
 """
 import json
 import math
 import sys
 from collections import defaultdict
 
+import analyze
+import short_window
 from analyze import PRIMARY, RESULTS, SECONDARY, family, run_void, shown, valid, value, verdict
 from bca_bootstrap import CI_METHOD_BCA, bca_bootstrap_ratio_ci_with_method
 
@@ -40,6 +46,7 @@ def analyse_run(prefix):
     prov = json.loads(open(f"{prefix}.provenance.json").read())
     if prov.get("arm_set") != "increment":
         sys.exit(f"STOP: {prefix} is not an increment run")
+    analyze.load_rows(recs, prov)
     by = defaultdict(list)
     for r in recs:
         by[(r["cell"], r["w"], r["arm"])].append(r)
@@ -66,13 +73,13 @@ def analyse_run(prefix):
                     {"round": r["round"], "arm": r["arm"], "order": r["order"],
                      "value": value(r, metric) if r["metrics"] else None, "valid": valid(r),
                      "foreign_busy_cpus": r["load"]["foreign_busy_cpus"], "wall_s": r["wall"],
-                     "rc": r["rc"]}
+                     "rc": r["rc"], **(short_window.row_fields(r) if analyze.SHORT_WINDOW else {})}
                     for r in sorted(by[(cell, w, num)] + by[(cell, w, den)],
                                     key=lambda r: (r["round"], r["arm"]))]
                 cells.append(out)
     void, worst, limit = run_void(prov)
     prov["void"] = {"void": void, "max_load1": worst, "limit": limit}
-    return {"provenance": prov, "cells": cells}, recs
+    return analyze.close_short_window({"provenance": prov, "cells": cells}, recs), recs
 
 
 def fmt(c):
@@ -81,7 +88,7 @@ def fmt(c):
 
 
 def main():
-    args = sys.argv[1:]
+    args = analyze.take_short_window_flag(sys.argv[1:])
     targets = []
     l1_separated = "--l1-separated" in args
     args = [a for a in args if a != "--l1-separated"]
@@ -94,11 +101,13 @@ def main():
     for n, prefix in enumerate(prefixes, 1):
         art, recs = analyse_run(prefix)
         dest = RESULTS / f"diagnostic_increment_{tag}_{host}_run{n}.json"
-        dest.write_text(json.dumps(art, indent=1) + "\n")
+        analyze.write_artifact(dest, art)
         v = art["provenance"]["void"]
         print(f"run {n}: {len(recs)} processes, {sum(not valid(r) for r in recs)} discarded; "
               f"max load1 {v['max_load1']} (void above {v['limit']}): "
               f"{'VOID' if v['void'] else 'valid'} -> {shown(dest)}")
+        if analyze.SHORT_WINDOW:
+            print(short_window.summary_line(n, art["provenance"]["short_window"]))
         arts.append(art)
         keyed.append({(c["workload_id"], c["w"], c["metric"], c["pair"]): c for c in art["cells"]})
     if any(a["provenance"]["void"]["void"] for a in arts):
