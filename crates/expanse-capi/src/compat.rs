@@ -85,9 +85,33 @@ unsafe fn free_array<T>(
     }
 }
 
-/// Finds the smallest absent key `>= from`, using rank queries — shared by
-/// the four `*Empty` search families. `count_range` is inclusive.
+/// Steps an empty-index search takes in key order before it falls back to
+/// rank bisection ([`first_absent_by_rank`]). A step is one present key, or
+/// one run of consecutive keys inside a bitmap, full or linear leaf (for
+/// `Judy1`, whose search descends the trie, one terminal node read); the
+/// bisection costs about 65 rank queries whatever the run length. The budget
+/// bounds a search through a very long run of present keys, while a gap
+/// within it is found by the walk alone.
+const EMPTY_WALK_BUDGET: usize = 1024;
+
+/// Finds the smallest absent key `>= from` — shared by the four `*Empty`
+/// search families. `walk` is the engine's ordered search from `from`
+/// (`first_absent_within`); when its budget runs out with `from..resume`
+/// present, the search continues by rank bisection from `resume`.
 fn first_absent(
+    walk: Result<Option<u64>, u64>,
+    contains: impl Fn(u64) -> bool,
+    count_range: impl Fn(u64, u64) -> u64,
+) -> Option<u64> {
+    match walk {
+        Ok(found) => found,
+        Err(resume) => first_absent_by_rank(contains, count_range, resume),
+    }
+}
+
+/// Finds the smallest absent key `>= from`, using rank queries.
+/// `count_range` is inclusive.
+fn first_absent_by_rank(
     contains: impl Fn(u64) -> bool,
     count_range: impl Fn(u64, u64) -> u64,
     from: u64,
@@ -113,8 +137,22 @@ fn first_absent(
     Some(hi)
 }
 
-/// Finds the largest absent key `<= upto` (mirror of [`first_absent`]).
+/// Finds the largest absent key `<= upto` (mirror of [`first_absent`]):
+/// `walk` is the engine's descending search (`last_absent_within`).
 fn last_absent(
+    walk: Result<Option<u64>, u64>,
+    contains: impl Fn(u64) -> bool,
+    count_range: impl Fn(u64, u64) -> u64,
+) -> Option<u64> {
+    match walk {
+        Ok(found) => found,
+        Err(resume) => last_absent_by_rank(contains, count_range, resume),
+    }
+}
+
+/// Finds the largest absent key `<= upto`, using rank queries (mirror of
+/// [`first_absent_by_rank`]).
+fn last_absent_by_rank(
     contains: impl Fn(u64) -> bool,
     count_range: impl Fn(u64, u64) -> u64,
     upto: u64,
@@ -331,8 +369,22 @@ judy1_nav!(
     "Largest set index < *pindex."
 );
 
+/// The engine's ascending empty-index search from `start`.
+macro_rules! walk_from {
+    ($tree:expr, $start:expr) => {
+        $tree.first_absent_within($start, EMPTY_WALK_BUDGET)
+    };
+}
+
+/// The engine's descending empty-index search from `start`.
+macro_rules! walk_upto {
+    ($tree:expr, $start:expr) => {
+        $tree.last_absent_within($start, EMPTY_WALK_BUDGET)
+    };
+}
+
 macro_rules! judy1_empty {
-    ($name:ident, $absent:ident, $adjust:expr, $doc:literal) => {
+    ($name:ident, $absent:ident, $keys:ident, $adjust:expr, $doc:literal) => {
         #[doc = $doc]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
@@ -352,7 +404,11 @@ macro_rules! judy1_empty {
                 };
                 let found = match set_handle(parray) {
                     None => Some(start),
-                    Some(set) => $absent(|k| set.contains(k), |a, b| set.count_range(a..=b), start),
+                    Some(set) => $absent(
+                        $keys!(set, start),
+                        |k| set.contains(k),
+                        |a, b| set.count_range(a..=b),
+                    ),
                 };
                 match found {
                     Some(k) => {
@@ -369,24 +425,28 @@ macro_rules! judy1_empty {
 judy1_empty!(
     Judy1FirstEmpty,
     first_absent,
+    walk_from,
     |k: u64| Some(k),
     "Smallest unset index >= *pindex."
 );
 judy1_empty!(
     Judy1NextEmpty,
     first_absent,
+    walk_from,
     |k: u64| k.checked_add(1),
     "Smallest unset index > *pindex."
 );
 judy1_empty!(
     Judy1LastEmpty,
     last_absent,
+    walk_upto,
     |k: u64| Some(k),
     "Largest unset index <= *pindex."
 );
 judy1_empty!(
     Judy1PrevEmpty,
     last_absent,
+    walk_upto,
     |k: u64| k.checked_sub(1),
     "Largest unset index < *pindex."
 );
@@ -551,10 +611,11 @@ pub unsafe extern "C" fn JudyLByCount(
         if nth == 0 {
             return null_mut();
         }
-        match map.by_count(nth as u64 - 1) {
-            Some((k, _)) => {
+        // One select returns the key and its value slot.
+        match map.by_count_slot(nth as u64 - 1) {
+            Some((k, slot)) => {
                 *pindex = k as Word;
-                slot_ptr(map.get_slot_ptr(k))
+                slot.as_ptr().cast()
             }
             None => null_mut(),
         }
@@ -579,10 +640,11 @@ macro_rules! judyl_nav {
                 let Some(map) = map_handle(parray) else {
                     return null_mut();
                 };
+                // One search returns the key and its value slot.
                 match map.$method(*pindex as u64) {
-                    Some((k, _)) => {
+                    Some((k, slot)) => {
                         *pindex = k as Word;
-                        slot_ptr(map.get_slot_ptr(k))
+                        slot.as_ptr().cast()
                     }
                     // A miss on a non-empty array leaves the index one
                     // step past the probe in the search direction,
@@ -600,31 +662,31 @@ macro_rules! judyl_nav {
 
 judyl_nav!(
     JudyLFirst,
-    next_at_or_after,
+    next_at_or_after_slot,
     wrapping_add,
     "Smallest key >= *pindex; returns its value slot."
 );
 judyl_nav!(
     JudyLNext,
-    next_after,
+    next_after_slot,
     wrapping_add,
     "Smallest key > *pindex; returns its value slot."
 );
 judyl_nav!(
     JudyLLast,
-    prev_at_or_before,
+    prev_at_or_before_slot,
     wrapping_sub,
     "Largest key <= *pindex; returns its value slot."
 );
 judyl_nav!(
     JudyLPrev,
-    prev_before,
+    prev_before_slot,
     wrapping_sub,
     "Largest key < *pindex; returns its value slot."
 );
 
 macro_rules! judyl_empty {
-    ($name:ident, $absent:ident, $adjust:expr, $doc:literal) => {
+    ($name:ident, $absent:ident, $keys:ident, $adjust:expr, $doc:literal) => {
         #[doc = $doc]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
@@ -645,9 +707,9 @@ macro_rules! judyl_empty {
                 let found = match map_handle(parray) {
                     None => Some(start),
                     Some(map) => $absent(
+                        $keys!(map, start),
                         |k| map.contains_key(k),
                         |a, b| map.count_range(a..=b),
-                        start,
                     ),
                 };
                 match found {
@@ -665,24 +727,28 @@ macro_rules! judyl_empty {
 judyl_empty!(
     JudyLFirstEmpty,
     first_absent,
+    walk_from,
     |k: u64| Some(k),
     "Smallest absent key >= *pindex."
 );
 judyl_empty!(
     JudyLNextEmpty,
     first_absent,
+    walk_from,
     |k: u64| k.checked_add(1),
     "Smallest absent key > *pindex."
 );
 judyl_empty!(
     JudyLLastEmpty,
     last_absent,
+    walk_upto,
     |k: u64| Some(k),
     "Largest absent key <= *pindex."
 );
 judyl_empty!(
     JudyLPrevEmpty,
     last_absent,
+    walk_upto,
     |k: u64| k.checked_sub(1),
     "Largest absent key < *pindex."
 );
@@ -833,8 +899,13 @@ pub unsafe extern "C" fn JudySLGet(
     }
 }
 
+/// Bytes of the stack buffer a `JudySL` search builds its key in. A longer
+/// found key is fetched again through the allocating search, so this bounds
+/// only which keys allocate, never which keys are returned.
+const JUDYSL_KEY_SCRATCH: usize = 128;
+
 macro_rules! judysl_nav {
-    ($name:ident, $method:ident, $doc:literal) => {
+    ($name:ident, $into:ident, $method:ident, $doc:literal) => {
         #[doc = $doc]
         #[doc = ""]
         #[doc = "Writes the found string (NUL-terminated) back into the"]
@@ -855,11 +926,23 @@ macro_rules! judysl_nav {
                 let Some(map) = strmap_handle(parray) else {
                     return null_mut();
                 };
-                match map.$method(cstr_bytes(index)) {
-                    Some((key, slot)) => {
-                        write_cstr(index, &key);
+                // The key is built in a buffer of our own rather than in
+                // `index`, which holds the probe the search is still reading.
+                let mut scratch = [0u8; JUDYSL_KEY_SCRATCH];
+                match map.$into(cstr_bytes(index), &mut scratch) {
+                    Some(Ok((len, slot))) => {
+                        write_cstr(index, &scratch[..len]);
                         slot.as_ptr().cast()
                     }
+                    // Longer than the scratch buffer: search again with the
+                    // allocating form, which returns the whole key.
+                    Some(Err(_)) => match map.$method(cstr_bytes(index)) {
+                        Some((key, slot)) => {
+                            write_cstr(index, &key);
+                            slot.as_ptr().cast()
+                        }
+                        None => null_mut(),
+                    },
                     None => null_mut(),
                 }
             }
@@ -869,21 +952,25 @@ macro_rules! judysl_nav {
 
 judysl_nav!(
     JudySLFirst,
+    next_at_or_after_into,
     next_at_or_after,
     "Smallest stored string >= *index; returns its value slot."
 );
 judysl_nav!(
     JudySLNext,
+    next_after_into,
     next_after,
     "Smallest stored string > *index; returns its value slot."
 );
 judysl_nav!(
     JudySLLast,
+    prev_at_or_before_into,
     prev_at_or_before,
     "Largest stored string <= *index; returns its value slot."
 );
 judysl_nav!(
     JudySLPrev,
+    prev_before_into,
     prev_before,
     "Largest stored string < *index; returns its value slot."
 );

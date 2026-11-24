@@ -168,15 +168,16 @@ pub unsafe extern "C" fn expanse_stats(
         (*out).node_counts.branch_u = stats.node_counts.branch_u as u64;
         (*out).node_counts.full_expanse = stats.node_counts.full_expanse as u64;
 
-        // Index form kept so codegen is unchanged; reviewed in #1724.
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..9 {
-            (*out).depth_histogram[i] = stats.depth_histogram[i] as u64;
+        let out = &mut *out;
+        for (dst, &src) in out.depth_histogram.iter_mut().zip(&stats.depth_histogram) {
+            *dst = src as u64;
         }
-        // Index form kept so codegen is unchanged; reviewed in #1724.
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..257 {
-            (*out).leaf_pop_histogram[i] = stats.leaf_pop_histogram[i] as u64;
+        for (dst, &src) in out
+            .leaf_pop_histogram
+            .iter_mut()
+            .zip(&stats.leaf_pop_histogram)
+        {
+            *dst = src as u64;
         }
     }
     1
@@ -1230,12 +1231,194 @@ mod oracle {
         }
     }
 
+    /// The eight `*Empty` searches on runs of present keys: runs of 256, runs
+    /// either side of the shim's 1024-key walk budget, and runs reaching 0
+    /// and `Word::MAX`, probed at and around each run's ends.
+    #[test]
+    fn empty_search_on_runs_matches_stock_libjudy() {
+        let lib = Lib::open();
+        let o_set: F2i = lib.sym(c"Judy1Set");
+        let o_ins: FpIns = lib.sym(c"JudyLIns");
+        let o_free1: FFree = lib.sym(c"Judy1FreeArray");
+        let o_freel: FFree = lib.sym(c"JudyLFreeArray");
+        let names = [
+            "Judy1FirstEmpty",
+            "Judy1NextEmpty",
+            "Judy1LastEmpty",
+            "Judy1PrevEmpty",
+            "JudyLFirstEmpty",
+            "JudyLNextEmpty",
+            "JudyLLastEmpty",
+            "JudyLPrevEmpty",
+        ];
+        let theirs_fns: [FNav; 8] = [
+            lib.sym(c"Judy1FirstEmpty"),
+            lib.sym(c"Judy1NextEmpty"),
+            lib.sym(c"Judy1LastEmpty"),
+            lib.sym(c"Judy1PrevEmpty"),
+            lib.sym(c"JudyLFirstEmpty"),
+            lib.sym(c"JudyLNextEmpty"),
+            lib.sym(c"JudyLLastEmpty"),
+            lib.sym(c"JudyLPrevEmpty"),
+        ];
+        type Ours = unsafe extern "C" fn(*const c_void, *mut Word, *mut JError) -> c_int;
+        let ours_fns: [Ours; 8] = [
+            Judy1FirstEmpty,
+            Judy1NextEmpty,
+            Judy1LastEmpty,
+            Judy1PrevEmpty,
+            JudyLFirstEmpty,
+            JudyLNextEmpty,
+            JudyLLastEmpty,
+            JudyLPrevEmpty,
+        ];
+        let max = Word::MAX;
+        let shapes: [&[(Word, Word)]; 4] = [
+            &[
+                (0x1_0000, 0x1_00FF),
+                (0x1_0400, 0x1_04FF),
+                (0x2_0000, 0x2_00FF),
+            ],
+            &[(1 << 20, (1 << 20) + 1023), (1 << 30, (1 << 30) + 1024)],
+            &[(0, 4), (max - 4, max)],
+            &[(0, 3000), (0xFF00, 0xFF00 + 3000), (max - 3000, max)],
+        ];
+        for (s, runs) in shapes.iter().enumerate() {
+            let (mut s1, mut sl, mut t1, mut tl) = (null_mut(), null_mut(), null_mut(), null_mut());
+            let mut probes = Vec::new();
+            // SAFETY: four arrays owned by this test, freed below.
+            unsafe {
+                for &(lo, hi) in *runs {
+                    for k in lo..=hi {
+                        Judy1Set(&raw mut s1, k, null_mut());
+                        *JudyLIns(&raw mut sl, k, null_mut()).cast::<Word>() = k;
+                        o_set(&raw mut t1, k, null_mut());
+                        *o_ins(&raw mut tl, k, null_mut()).cast::<Word>() = k;
+                    }
+                    for d in [0, 1, 255, 256, 1023, 1024, 1025] {
+                        probes.extend([lo.wrapping_add(d), hi.wrapping_sub(d)]);
+                    }
+                    probes.extend([lo.wrapping_sub(1), hi.wrapping_add(1), lo + (hi - lo) / 2]);
+                }
+                for &p in &probes {
+                    for f in 0..8 {
+                        let (ours, theirs) = if f < 4 { (s1, t1) } else { (sl, tl) };
+                        let (mut i1, mut i2) = (p, p);
+                        let r1 = ours_fns[f](ours, &raw mut i1, null_mut());
+                        let r2 = theirs_fns[f](theirs, &raw mut i2, null_mut());
+                        assert_eq!((r1, i1), (r2, i2), "shape {s} {} from {p:#x}", names[f]);
+                    }
+                }
+                assert!(Judy1FreeArray(&raw mut s1, null_mut()) > 0);
+                assert!(JudyLFreeArray(&raw mut sl, null_mut()) > 0);
+                assert!(o_free1(&raw mut t1, null_mut()) > 0);
+                assert!(o_freel(&raw mut tl, null_mut()) > 0);
+            }
+        }
+    }
+
     /// What `Judy1Count`/`JudyLCount` write to `*PJError`, case by case.
     /// The man pages (`Judy1_funcs(3)`) document only that a 0 return
     /// with `JU_ERRNO_NONE` is a real empty count; whether a nonzero count
     /// or a reversed range writes it is settled here (COMPAT.md D7).
     /// Each call starts from a sentinel errno, so "left untouched" and
     /// "written" are told apart.
+    /// The eight Judy1 neighbour and empty-index searches on populations
+    /// that reach each node form the empty-index descent reads: aligned
+    /// runs of 256 (the bench shape), narrow nodes left by removals, dense
+    /// leaves with holes, and runs at the top of the key space, probed at
+    /// every key, its neighbours and the same key with one higher digit
+    /// changed.
+    #[test]
+    fn judy1_searches_on_mixed_shapes_match_stock_libjudy() {
+        let lib = Lib::open();
+        let o_set: F2i = lib.sym(c"Judy1Set");
+        let o_unset: F2i = lib.sym(c"Judy1Unset");
+        let o_free: FFree = lib.sym(c"Judy1FreeArray");
+        let names = [
+            "Judy1First",
+            "Judy1Next",
+            "Judy1Last",
+            "Judy1Prev",
+            "Judy1FirstEmpty",
+            "Judy1NextEmpty",
+            "Judy1LastEmpty",
+            "Judy1PrevEmpty",
+        ];
+        let theirs_fns: [FNav; 8] = names.map(|n| {
+            let c = std::ffi::CString::new(n).expect("no NUL");
+            lib.sym(&c)
+        });
+        type Ours = unsafe extern "C" fn(*const c_void, *mut Word, *mut JError) -> c_int;
+        let ours_fns: [Ours; 8] = [
+            Judy1First,
+            Judy1Next,
+            Judy1Last,
+            Judy1Prev,
+            Judy1FirstEmpty,
+            Judy1NextEmpty,
+            Judy1LastEmpty,
+            Judy1PrevEmpty,
+        ];
+        let mut rng = XorShift(0x1749_00A1);
+        for shape in 0..4 {
+            let mut keys: Vec<Word> = Vec::new();
+            let mut remove: Vec<Word> = Vec::new();
+            for top in 0..12 as Word {
+                let base = (top << 56) | (rng.next() as Word >> 8 & !0xFF);
+                match shape {
+                    0 => keys.extend(base..=base + 255),
+                    1 => {
+                        keys.extend(base..base + 200);
+                        remove.extend((base..base + 200).filter(|k| k % 200 >= 9));
+                    }
+                    2 => keys.extend((base..=base + 255).filter(|_| !rng.next().is_multiple_of(6))),
+                    _ => {
+                        keys.extend(Word::MAX - 300..=Word::MAX);
+                        keys.push(rng.next() as Word);
+                    }
+                }
+            }
+            let (mut ours, mut theirs) = (null_mut(), null_mut());
+            // SAFETY: two arrays owned by this test, freed below.
+            unsafe {
+                for &k in &keys {
+                    assert_eq!(
+                        Judy1Set(&raw mut ours, k, null_mut()),
+                        o_set(&raw mut theirs, k, null_mut())
+                    );
+                }
+                for &k in &remove {
+                    assert_eq!(
+                        Judy1Unset(&raw mut ours, k, null_mut()),
+                        o_unset(&raw mut theirs, k, null_mut())
+                    );
+                }
+                for &k in keys.iter().step_by(3) {
+                    let mut probes = vec![k.wrapping_sub(1), k, k.wrapping_add(1)];
+                    for j in 1..8 {
+                        probes.push(k ^ (1 << (8 * j)));
+                    }
+                    for p in probes {
+                        for f in 0..8 {
+                            let (mut i1, mut i2) = (p, p);
+                            let r1 = ours_fns[f](ours, &raw mut i1, null_mut());
+                            let r2 = theirs_fns[f](theirs, &raw mut i2, null_mut());
+                            assert_eq!(
+                                (r1, i1),
+                                (r2, i2),
+                                "shape {shape} {} from {p:#x}",
+                                names[f]
+                            );
+                        }
+                    }
+                }
+                assert!(Judy1FreeArray(&raw mut ours, null_mut()) > 0);
+                assert!(o_free(&raw mut theirs, null_mut()) > 0);
+            }
+        }
+    }
+
     #[test]
     fn count_errno_matches_stock_libjudy() {
         const SENTINEL: c_int = 99;

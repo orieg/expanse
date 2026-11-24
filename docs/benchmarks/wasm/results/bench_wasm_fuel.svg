@@ -116,169 +116,169 @@
   <text x="20" y="102" class="t-note">fuel units per operation, exact; shorter is better; label is wasm64 ÷ wasm32</text>
   <text x="20" y="127" class="t-legend">insert</text>
   <text x="132" y="140" class="t-axis-label" text-anchor="end">sequential</text>
-    <rect x="138" y="131" width="63.7" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="137" width="32.1" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="207.70572647117797" y="140" class="t-val-accent" style="text-anchor:start">784 → 395  0.50×</text>
+    <rect x="138" y="131" width="71.2" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="137" width="27.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="215.2089077867881" y="140" class="t-val-accent" style="text-anchor:start">761 → 294  0.39×</text>
   <text x="132" y="154" class="t-axis-label" text-anchor="end">clustered</text>
-    <rect x="138" y="145" width="116.0" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="151" width="92.1" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="260.02380384654987" y="154" class="t-val-accent" style="text-anchor:start">1,427 → 1,133  0.79×</text>
+    <rect x="138" y="145" width="127.5" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="151" width="94.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="271.5499015860389" y="154" class="t-val-accent" style="text-anchor:start">1,364 → 1,011  0.74×</text>
   <text x="132" y="168" class="t-axis-label" text-anchor="end">random</text>
-    <rect x="138" y="159" width="123.0" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="165" width="132.0" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="276.0" y="168" class="t-val-blue" style="text-anchor:start">1,514 → 1,624  1.07×</text>
+    <rect x="138" y="159" width="132.0" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="165" width="129.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="276.0" y="168" class="t-val-accent" style="text-anchor:start">1,411 → 1,384  0.98×</text>
   <text x="20" y="190" class="t-legend">get / contains, 50% hit</text>
   <text x="132" y="203" class="t-axis-label" text-anchor="end">sequential</text>
-    <rect x="138" y="194" width="22.1" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="200" width="12.5" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="166.1437470533087" y="203" class="t-val-accent" style="text-anchor:start">272 → 154  0.56×</text>
+    <rect x="138" y="194" width="25.7" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="200" width="14.4" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="169.668092299732" y="203" class="t-val-accent" style="text-anchor:start">274 → 154  0.56×</text>
   <text x="132" y="217" class="t-axis-label" text-anchor="end">clustered</text>
-    <rect x="138" y="208" width="33.4" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="214" width="18.8" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="177.4481978442413" y="217" class="t-val-accent" style="text-anchor:start">411 → 231  0.56×</text>
+    <rect x="138" y="208" width="39.0" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="214" width="22.1" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="183.00199081271288" y="217" class="t-val-accent" style="text-anchor:start">417 → 236  0.57×</text>
   <text x="132" y="231" class="t-axis-label" text-anchor="end">random</text>
-    <rect x="138" y="222" width="25.8" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="228" width="13.9" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="169.78308558546354" y="231" class="t-val-accent" style="text-anchor:start">317 → 171  0.54×</text>
+    <rect x="138" y="222" width="29.7" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="228" width="16.2" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="173.70635501855932" y="231" class="t-val-accent" style="text-anchor:start">318 → 173  0.54×</text>
   <text x="20" y="253" class="t-legend">iterate</text>
   <text x="132" y="266" class="t-axis-label" text-anchor="end">sequential</text>
-    <rect x="138" y="257" width="17.1" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="263" width="6.5" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="161.09305312444116" y="266" class="t-val-accent" style="text-anchor:start">210 → 80.1  0.38×</text>
+    <rect x="138" y="257" width="19.7" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="263" width="7.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="163.72924947104755" y="266" class="t-val-accent" style="text-anchor:start">211 → 80.1  0.38×</text>
   <text x="132" y="280" class="t-axis-label" text-anchor="end">clustered</text>
-    <rect x="138" y="271" width="24.4" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="277" width="7.3" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="168.3922391602404" y="280" class="t-val-accent" style="text-anchor:start">300 → 89.2  0.30×</text>
+    <rect x="138" y="271" width="28.8" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="277" width="8.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="172.83875947602405" y="280" class="t-val-accent" style="text-anchor:start">308 → 90.6  0.29×</text>
   <text x="132" y="294" class="t-axis-label" text-anchor="end">random</text>
-    <rect x="138" y="285" width="45.4" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="291" width="18.8" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="189.43618347251652" y="294" class="t-val-accent" style="text-anchor:start">559 → 232  0.41×</text>
+    <rect x="138" y="285" width="52.5" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="291" width="21.7" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="196.51687067625346" y="294" class="t-val-accent" style="text-anchor:start">561 → 232  0.41×</text>
   <text x="20" y="316" class="t-legend">range, 100 windows</text>
   <text x="132" y="329" class="t-axis-label" text-anchor="end">sequential</text>
-    <rect x="138" y="320" width="18.1" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="326" width="9.1" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="162.0914246541194" y="329" class="t-val-accent" style="text-anchor:start">223 → 112  0.50×</text>
+    <rect x="138" y="320" width="20.9" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="326" width="10.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="164.89612039176814" y="329" class="t-val-accent" style="text-anchor:start">223 → 112  0.50×</text>
   <text x="132" y="343" class="t-axis-label" text-anchor="end">clustered</text>
-    <rect x="138" y="334" width="25.3" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="340" width="10.1" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="169.2786851931133" y="343" class="t-val-accent" style="text-anchor:start">311 → 124  0.40×</text>
+    <rect x="138" y="334" width="29.9" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="340" width="11.7" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="173.86439217288546" y="343" class="t-val-accent" style="text-anchor:start">319 → 125  0.39×</text>
   <text x="132" y="357" class="t-axis-label" text-anchor="end">random</text>
-    <rect x="138" y="348" width="45.9" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="354" width="21.3" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="189.9404050311875" y="357" class="t-val-accent" style="text-anchor:start">565 → 262  0.46×</text>
+    <rect x="138" y="348" width="53.1" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="354" width="24.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="197.0947969105308" y="357" class="t-val-accent" style="text-anchor:start">568 → 262  0.46×</text>
   <text x="20" y="379" class="t-legend">remove</text>
   <text x="132" y="392" class="t-axis-label" text-anchor="end">sequential</text>
-    <rect x="138" y="383" width="88.0" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="389" width="65.7" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="232.0447869982496" y="392" class="t-val-accent" style="text-anchor:start">1,083 → 808  0.75×</text>
+    <rect x="138" y="383" width="101.3" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="389" width="71.1" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="245.29686790846046" y="392" class="t-val-accent" style="text-anchor:start">1,083 → 760  0.70×</text>
   <text x="132" y="406" class="t-axis-label" text-anchor="end">clustered</text>
-    <rect x="138" y="397" width="108.4" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="403" width="92.1" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="252.44792146491878" y="406" class="t-val-accent" style="text-anchor:start">1,334 → 1,133  0.85×</text>
+    <rect x="138" y="397" width="131.4" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="403" width="103.7" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="275.43081931137226" y="406" class="t-val-accent" style="text-anchor:start">1,405 → 1,108  0.79×</text>
   <text x="132" y="420" class="t-axis-label" text-anchor="end">random</text>
-    <rect x="138" y="411" width="83.6" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="138" y="417" width="55.9" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="227.59279571232707" y="420" class="t-val-accent" style="text-anchor:start">1,028 → 688  0.67×</text>
+    <rect x="138" y="411" width="102.4" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="138" y="417" width="66.4" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="246.43634235516225" y="420" class="t-val-accent" style="text-anchor:start">1,095 → 710  0.65×</text>
   <line x1="430" y1="78" x2="430" y2="442" class="divider"/>
   <text x="445" y="88" class="t-chart-title">set arms, 32-bit vs 64-bit engine</text>
   <text x="445" y="102" class="t-note">fuel units per operation, exact; shorter is better; label is wasm64 ÷ wasm32</text>
   <text x="445" y="127" class="t-legend">insert</text>
   <text x="557" y="140" class="t-axis-label" text-anchor="end">sequential</text>
-    <rect x="563" y="131" width="69.4" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="137" width="14.6" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="638.3996883086827" y="140" class="t-val-accent" style="text-anchor:start">756 → 159  0.21×</text>
+    <rect x="563" y="131" width="71.2" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="137" width="14.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="640.2377647150078" y="140" class="t-val-accent" style="text-anchor:start">742 → 152  0.20×</text>
   <text x="557" y="154" class="t-axis-label" text-anchor="end">clustered</text>
-    <rect x="563" y="145" width="131.8" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="151" width="83.5" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="700.8118895404691" y="154" class="t-val-accent" style="text-anchor:start">1,436 → 910  0.63×</text>
+    <rect x="563" y="145" width="132.0" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="151" width="82.2" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="701.0" y="154" class="t-val-accent" style="text-anchor:start">1,376 → 857  0.62×</text>
   <text x="557" y="168" class="t-axis-label" text-anchor="end">random</text>
-    <rect x="563" y="159" width="132.0" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="165" width="120.2" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="701.0" y="168" class="t-val-accent" style="text-anchor:start">1,438 → 1,310  0.91×</text>
+    <rect x="563" y="159" width="131.0" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="165" width="109.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="700.0051233744061" y="168" class="t-val-accent" style="text-anchor:start">1,365 → 1,141  0.84×</text>
   <text x="445" y="190" class="t-legend">get / contains, 50% hit</text>
   <text x="557" y="203" class="t-axis-label" text-anchor="end">sequential</text>
-    <rect x="563" y="194" width="21.8" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="200" width="13.4" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="590.7921464942237" y="203" class="t-val-accent" style="text-anchor:start">237 → 146  0.62×</text>
+    <rect x="563" y="194" width="22.8" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="200" width="14.0" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="591.7811278780498" y="203" class="t-val-accent" style="text-anchor:start">237 → 146  0.62×</text>
   <text x="557" y="217" class="t-axis-label" text-anchor="end">clustered</text>
-    <rect x="563" y="208" width="34.5" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="214" width="23.2" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="603.4657318616022" y="217" class="t-val-accent" style="text-anchor:start">375 → 253  0.67×</text>
+    <rect x="563" y="208" width="36.0" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="214" width="24.2" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="605.0298718236797" y="217" class="t-val-accent" style="text-anchor:start">375 → 253  0.67×</text>
   <text x="557" y="231" class="t-axis-label" text-anchor="end">random</text>
-    <rect x="563" y="222" width="32.3" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="228" width="16.9" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="601.2798760216527" y="231" class="t-val-accent" style="text-anchor:start">352 → 184  0.52×</text>
+    <rect x="563" y="222" width="33.7" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="228" width="17.7" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="602.7448164517334" y="231" class="t-val-accent" style="text-anchor:start">352 → 184  0.52×</text>
   <text x="445" y="253" class="t-legend">iterate</text>
   <text x="557" y="266" class="t-axis-label" text-anchor="end">sequential</text>
-    <rect x="563" y="257" width="13.0" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="263" width="2.4" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="581.9696897544153" y="266" class="t-val-accent" style="text-anchor:start">141 → 25.7  0.18×</text>
+    <rect x="563" y="257" width="13.6" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="263" width="2.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="582.5602438300803" y="266" class="t-val-accent" style="text-anchor:start">141 → 25.7  0.18×</text>
   <text x="557" y="280" class="t-axis-label" text-anchor="end">clustered</text>
-    <rect x="563" y="271" width="23.8" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="277" width="16.6" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="592.7810706112056" y="280" class="t-val-accent" style="text-anchor:start">259 → 180  0.70×</text>
+    <rect x="563" y="271" width="25.0" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="277" width="17.3" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="593.968181022164" y="280" class="t-val-accent" style="text-anchor:start">260 → 180  0.69×</text>
   <text x="557" y="294" class="t-axis-label" text-anchor="end">random</text>
-    <rect x="563" y="285" width="57.2" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="291" width="23.2" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="626.2065634728401" y="294" class="t-val-accent" style="text-anchor:start">623 → 253  0.41×</text>
+    <rect x="563" y="285" width="60.1" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="291" width="24.3" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="629.0677561667212" y="294" class="t-val-accent" style="text-anchor:start">626 → 253  0.40×</text>
   <text x="445" y="316" class="t-legend">range, 100 windows</text>
   <text x="557" y="329" class="t-axis-label" text-anchor="end">sequential</text>
-    <rect x="563" y="320" width="14.1" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="326" width="5.2" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="583.0953233576628" y="329" class="t-val-accent" style="text-anchor:start">154 → 56.7  0.37×</text>
+    <rect x="563" y="320" width="14.7" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="326" width="5.4" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="583.7407038382527" y="329" class="t-val-accent" style="text-anchor:start">154 → 56.7  0.37×</text>
   <text x="557" y="343" class="t-axis-label" text-anchor="end">clustered</text>
-    <rect x="563" y="334" width="24.8" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="340" width="20.5" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="593.769217342699" y="343" class="t-val-accent" style="text-anchor:start">270 → 223  0.83×</text>
+    <rect x="563" y="334" width="26.0" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="340" width="21.4" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="595.0045308318066" y="343" class="t-val-accent" style="text-anchor:start">271 → 223  0.82×</text>
   <text x="557" y="357" class="t-axis-label" text-anchor="end">random</text>
-    <rect x="563" y="348" width="57.8" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="354" width="26.0" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="626.7843608175739" y="357" class="t-val-accent" style="text-anchor:start">630 → 283  0.45×</text>
+    <rect x="563" y="348" width="60.7" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="354" width="27.2" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="629.6711324600593" y="357" class="t-val-accent" style="text-anchor:start">632 → 283  0.45×</text>
   <text x="445" y="379" class="t-legend">remove</text>
   <text x="557" y="392" class="t-axis-label" text-anchor="end">sequential</text>
-    <rect x="563" y="383" width="70.2" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="389" width="59.4" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="639.167698162195" y="392" class="t-val-accent" style="text-anchor:start">764 → 647  0.85×</text>
+    <rect x="563" y="383" width="73.9" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="389" width="59.7" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="642.8649882491046" y="392" class="t-val-accent" style="text-anchor:start">770 → 622  0.81×</text>
   <text x="557" y="406" class="t-axis-label" text-anchor="end">clustered</text>
-    <rect x="563" y="397" width="120.7" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="403" width="91.8" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="689.740974445999" y="406" class="t-val-accent" style="text-anchor:start">1,315 → 1,001  0.76×</text>
+    <rect x="563" y="397" width="130.2" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="403" width="94.7" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="699.2374184654186" y="406" class="t-val-accent" style="text-anchor:start">1,357 → 987  0.73×</text>
   <text x="557" y="420" class="t-axis-label" text-anchor="end">random</text>
-    <rect x="563" y="411" width="101.5" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="563" y="417" width="66.9" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="670.4785294806704" y="420" class="t-val-accent" style="text-anchor:start">1,106 → 729  0.66×</text>
+    <rect x="563" y="411" width="111.1" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="563" y="417" width="74.5" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="680.1141736029869" y="420" class="t-val-accent" style="text-anchor:start">1,158 → 776  0.67×</text>
   <line x1="855" y1="78" x2="855" y2="442" class="divider"/>
   <text x="870" y="88" class="t-chart-title">bytes per key, the engine's own mem_used</text>
   <text x="870" y="102" class="t-note">N = 10,000 after the build; exact; label wasm64 ÷ wasm32</text>
   <text x="964" y="127" class="t-axis-label" text-anchor="end">map/sequential</text>
-    <rect x="970" y="118" width="9.3" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="970" y="124" width="18.0" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="993.967180174146" y="127" class="t-val-blue" style="text-anchor:start">4.42 → 8.58  1.94×</text>
+    <rect x="970" y="118" width="9.2" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="970" y="124" width="17.9" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="993.9239609782173" y="127" class="t-val-blue" style="text-anchor:start">4.42 → 8.58  1.94×</text>
   <text x="964" y="145" class="t-axis-label" text-anchor="end">map/clustered</text>
     <rect x="970" y="136" width="14.3" height="5" rx="1" style="fill:#1d4ed8"/>
-    <rect x="970" y="142" width="27.5" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="1003.5083724045546" y="145" class="t-val-blue" style="text-anchor:start">6.83 → 13.14  1.93×</text>
+    <rect x="970" y="142" width="27.4" height="5" rx="1" style="fill:#f59e0b"/>
+  <text x="1003.4422023252706" y="145" class="t-val-blue" style="text-anchor:start">6.83 → 13.14  1.93×</text>
   <text x="964" y="163" class="t-axis-label" text-anchor="end">map/random</text>
-    <rect x="970" y="154" width="27.0" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="970" y="154" width="26.9" height="5" rx="1" style="fill:#1d4ed8"/>
     <rect x="970" y="160" width="50.0" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="1026.0" y="163" class="t-val-blue" style="text-anchor:start">12.89 → 23.89  1.85×</text>
+  <text x="1026.0" y="163" class="t-val-blue" style="text-anchor:start">12.89 → 23.95  1.86×</text>
   <text x="964" y="181" class="t-axis-label" text-anchor="end">set/sequential</text>
     <rect x="970" y="172" width="1.0" height="5" rx="1" style="fill:#1d4ed8"/>
     <rect x="970" y="178" width="1.0" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="976.6262558606832" y="181" class="t-val-accent" style="text-anchor:start">0.30 → 0.09  0.30×</text>
+  <text x="976.624749432046" y="181" class="t-val-accent" style="text-anchor:start">0.30 → 0.09  0.30×</text>
   <text x="964" y="199" class="t-axis-label" text-anchor="end">set/clustered</text>
     <rect x="970" y="190" width="5.9" height="5" rx="1" style="fill:#1d4ed8"/>
     <rect x="970" y="196" width="6.6" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="982.584058941728" y="199" class="t-val-blue" style="text-anchor:start">2.83 → 3.15  1.11×</text>
+  <text x="982.568221301617" y="199" class="t-val-blue" style="text-anchor:start">2.83 → 3.15  1.11×</text>
   <text x="964" y="217" class="t-axis-label" text-anchor="end">set/random</text>
-    <rect x="970" y="208" width="25.0" height="5" rx="1" style="fill:#1d4ed8"/>
+    <rect x="970" y="208" width="24.9" height="5" rx="1" style="fill:#1d4ed8"/>
     <rect x="970" y="214" width="44.3" height="5" rx="1" style="fill:#f59e0b"/>
-  <text x="1020.3469524447421" y="217" class="t-val-blue" style="text-anchor:start">11.93 → 21.19  1.78×</text>
+  <text x="1020.2803688360283" y="217" class="t-val-blue" style="text-anchor:start">11.93 → 21.21  1.78×</text>
   <line x1="20" y1="452" x2="1160" y2="452" class="divider"/>
   <text x="20" y="472" class="t-legend">reading</text>
-  <text x="20" y="487" class="t-sub">the 64-bit engine consumes less fuel on 29 of 30 arms; the 32-bit engine holds a map key in 52–54% of the bytes</text>
+  <text x="20" y="487" class="t-sub">the 64-bit engine consumes less fuel on 30 of 30 arms; the 32-bit engine holds a map key in 52–54% of the bytes</text>
   <text x="20" y="501" class="t-note">fuel counts executed wasm instructions under wasmtime: not cycles, not wall clock, and not a mechanism — why one engine spends fewer is not measured (AGENTS.md §8.9)</text>
   <text x="20" y="516" class="t-note">measured: Darwin arm64, wasmtime 48.0.0 (Python bindings, fuel metering, two fresh-instance runs agreeing to the unit)</text>
-  <text x="20" y="529" class="t-note">wasm32 built by rustc 1.98.0 (88d9e12ae 2026-08-18); wasm64 built by rustc 1.100.0-nightly (2e2b193f8 2026-09-02) with -Z build-std</text>
-  <text x="20" y="542" class="t-note">commit 55d4de06; module crates/expanse-wasm-fuel, driver scripts/wasm_fuel.py; source results/baseline_wasm_fuel.json (N = 10,000); the same source builds both targets</text>
+  <text x="20" y="529" class="t-note">wasm32 built by rustc 1.98.1 (48a229cea 2026-09-01); wasm64 built by rustc 1.100.0-nightly (2e2b193f8 2026-09-02) with -Z build-std</text>
+  <text x="20" y="542" class="t-note">commit e63918ef; module crates/expanse-wasm-fuel, driver scripts/wasm_fuel.py; source results/baseline_wasm_fuel.json (N = 10,000); the same source builds both targets</text>
 </svg>

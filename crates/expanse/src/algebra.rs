@@ -235,7 +235,8 @@ impl<'e> BranchAccessor<'e> {
         match self {
             BranchAccessor::U(u) => {
                 let mut bm = Bitmap256::new();
-                // Index form kept so codegen is unchanged; reviewed in #1724.
+                // Index form kept: `d` indexes `u.edges` and is the digit set in the bitmap (`d
+                // as u8`).
                 #[allow(clippy::needless_range_loop)]
                 for d in 0..256 {
                     if !u.edges[d].is_null() {

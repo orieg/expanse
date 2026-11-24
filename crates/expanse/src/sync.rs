@@ -15543,8 +15543,10 @@ impl StrReader<'_> {
     }
 
     /// Smallest entry with key `> key`, without excluding writers. The
-    /// immediate successor of a NUL-free string is itself followed by `0x01`,
-    /// as in [`ExpanseStrMap::next_after`].
+    /// immediate successor of a NUL-free string is itself followed by `0x01`.
+    /// [`ExpanseStrMap::next_after`] runs its walk exclusively instead; this
+    /// reader's walk keeps the inclusive seek its read-set bound was derived
+    /// for (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.7.3).
     #[must_use]
     pub fn next_after(&self, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
         let mut succ = Vec::with_capacity(key.len() + 1);
@@ -16039,7 +16041,7 @@ impl SyncExpanseStrMap {
 /// lookups (`DashMap` et al.), unlike the multi-hop ordered
 /// [`SyncExpanseStrMap`]. Collision buckets are write-once after
 /// publication: structural changes publish a replacement bucket and
-/// retire the old one (shell, entry buffer, and key buffers) through
+/// retire the old one (one allocation: header, entries and key bytes) through
 /// the epoch [`Collector`]; only value words mutate in place, covered
 /// by the reader's final tree-version validation.
 ///
@@ -16240,10 +16242,12 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                     // Both remaining shapes add a key, so neither has a
                     // previous value to return.
                     let (new_raw, expected, old_ptr, shared_prefix) = match collision {
-                        None => {
-                            let bucket: Bucket = vec![(key.into(), val)];
-                            (Box::into_raw(Box::new(bucket)) as u64, None, None, 0)
-                        }
+                        None => (
+                            crate::bytesmap::bucket_single(key, val) as u64,
+                            None,
+                            None,
+                            0,
+                        ),
                         Some((word, len)) => {
                             // A real 64-bit hash collision: a chain change.
                             // SAFETY: as `bucket_find` above, with the length
@@ -16268,25 +16272,25 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                 }
                                 self.entry_pop.add(guard.slot_id(), 1);
                                 if let Some(old) = old_ptr {
-                                    dispose_bucket(old, true, Some(&self.shared.collector));
+                                    dispose_bucket(old, Some(&self.shared.collector));
                                 }
                                 guard.tick_advance(&self.shared.collector);
                                 crate::occ_stats::op_end();
                                 return Ok(None);
                             }
                             // CAS mismatch: another writer published. Drop unshared allocation.
-                            // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
-                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                            // SAFETY: `new_raw` was built above by `bucket_single` or a clone, never published.
+                            unsafe { crate::bytesmap::free_bucket(new_raw as *mut Bucket) };
                             stall!();
                         }
                         OlcOutcome::Retry => {
-                            // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
-                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                            // SAFETY: `new_raw` was built above by `bucket_single` or a clone, never published.
+                            unsafe { crate::bytesmap::free_bucket(new_raw as *mut Bucket) };
                             stall!();
                         }
                         OlcOutcome::Fallback(c) => {
-                            // SAFETY: `new_raw` was freshly allocated via Box::into_raw above.
-                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                            // SAFETY: `new_raw` was built above by `bucket_single` or a clone, never published.
+                            unsafe { crate::bytesmap::free_bucket(new_raw as *mut Bucket) };
                             cause = c;
                             break;
                         }
@@ -16466,11 +16470,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                 let prev = unsafe { crate::bytesmap::read_entry_value(word, 0) };
                                 self.shared.tree_pop.add(guard.slot_id(), -1);
                                 self.entry_pop.add(guard.slot_id(), -1);
-                                dispose_bucket(
-                                    word as *mut Bucket,
-                                    true,
-                                    Some(&self.shared.collector),
-                                );
+                                dispose_bucket(word as *mut Bucket, Some(&self.shared.collector));
                                 guard.tick_advance(&self.shared.collector);
                                 crate::occ_stats::op_end();
                                 return Ok(Some(prev));
@@ -16507,7 +16507,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                             // SAFETY: the publish above unlinked `word`.
                             let prev = unsafe { crate::bytesmap::read_entry_value(word, at) };
                             self.entry_pop.add(guard.slot_id(), -1);
-                            dispose_bucket(word as *mut Bucket, true, Some(&self.shared.collector));
+                            dispose_bucket(word as *mut Bucket, Some(&self.shared.collector));
                             guard.tick_advance(&self.shared.collector);
                             crate::occ_stats::op_end();
                             return Ok(Some(prev));
@@ -16515,12 +16515,12 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                         OlcOutcome::Done(_) | OlcOutcome::Retry => {
                             // SAFETY: `new_raw` was freshly allocated above and
                             // never published.
-                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                            unsafe { crate::bytesmap::free_bucket(new_raw as *mut Bucket) };
                             stall!();
                         }
                         OlcOutcome::Fallback(c) => {
                             // SAFETY: as above.
-                            drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                            unsafe { crate::bytesmap::free_bucket(new_raw as *mut Bucket) };
                             cause = c;
                             break;
                         }
@@ -16780,8 +16780,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                 return Ok(None);
                             }
                             let val = new.expect("checked at entry");
-                            let bucket: Bucket = vec![(key.into(), val)];
-                            let new_raw = Box::into_raw(Box::new(bucket)) as u64;
+                            let new_raw = crate::bytesmap::bucket_single(key, val) as u64;
                             match olc_cas_publish_bucket_map(&*self.shared, h, None, 0, new_raw) {
                                 OlcOutcome::Done(actual) => {
                                     if actual.is_none() {
@@ -16791,18 +16790,18 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                         crate::occ_stats::op_end();
                                         return Ok(None);
                                     }
-                                    // SAFETY: new_raw was created from Box::into_raw above and not published.
-                                    drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                    // SAFETY: `new_raw` was built above by `bucket_single` or a clone, never published.
+                                    unsafe { crate::bytesmap::free_bucket(new_raw as *mut Bucket) };
                                     stall!();
                                 }
                                 OlcOutcome::Retry => {
-                                    // SAFETY: new_raw was created from Box::into_raw above and not published.
-                                    drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                    // SAFETY: `new_raw` was built above by `bucket_single` or a clone, never published.
+                                    unsafe { crate::bytesmap::free_bucket(new_raw as *mut Bucket) };
                                     stall!();
                                 }
                                 OlcOutcome::Fallback(c) => {
-                                    // SAFETY: new_raw was created from Box::into_raw above and not published.
-                                    drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                    // SAFETY: `new_raw` was built above by `bucket_single` or a clone, never published.
+                                    unsafe { crate::bytesmap::free_bucket(new_raw as *mut Bucket) };
                                     cause = c;
                                     break;
                                 }
@@ -16838,7 +16837,6 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                                 self.entry_pop.add(guard.slot_id(), 1);
                                                 dispose_bucket(
                                                     word as *mut Bucket,
-                                                    true,
                                                     Some(&self.shared.collector),
                                                 );
                                                 guard.tick_advance(&self.shared.collector);
@@ -16923,7 +16921,6 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                                     self.entry_pop.add(guard.slot_id(), -1);
                                                     dispose_bucket(
                                                         word as *mut Bucket,
-                                                        true,
                                                         Some(&self.shared.collector),
                                                     );
                                                     guard.tick_advance(&self.shared.collector);
@@ -16969,7 +16966,6 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                                     self.entry_pop.add(guard.slot_id(), -1);
                                                     dispose_bucket(
                                                         word as *mut Bucket,
-                                                        true,
                                                         Some(&self.shared.collector),
                                                     );
                                                     guard.tick_advance(&self.shared.collector);
@@ -16980,24 +16976,30 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                                     // The value moved under the lock: nothing
                                                     // was published.
                                                     // SAFETY: `new_raw` was allocated above and never published.
-                                                    drop(unsafe {
-                                                        Box::from_raw(new_raw as *mut Bucket)
-                                                    });
+                                                    unsafe {
+                                                        crate::bytesmap::free_bucket(
+                                                            new_raw as *mut Bucket,
+                                                        )
+                                                    };
                                                     crate::occ_stats::op_end();
                                                     return Ok(Some(prev));
                                                 }
                                                 OlcOutcome::Done(_) | OlcOutcome::Retry => {
                                                     // SAFETY: `new_raw` was allocated above and publish failed; never published.
-                                                    drop(unsafe {
-                                                        Box::from_raw(new_raw as *mut Bucket)
-                                                    });
+                                                    unsafe {
+                                                        crate::bytesmap::free_bucket(
+                                                            new_raw as *mut Bucket,
+                                                        )
+                                                    };
                                                     stall!();
                                                 }
                                                 OlcOutcome::Fallback(c) => {
                                                     // SAFETY: `new_raw` was allocated above and publish failed; never published.
-                                                    drop(unsafe {
-                                                        Box::from_raw(new_raw as *mut Bucket)
-                                                    });
+                                                    unsafe {
+                                                        crate::bytesmap::free_bucket(
+                                                            new_raw as *mut Bucket,
+                                                        )
+                                                    };
                                                     cause = c;
                                                     break;
                                                 }
@@ -17180,16 +17182,16 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// share, [`ExpanseBytesMap::mem_used`] (read under the writer lock, as
     /// [`Self::mem_used`] reads), plus what its epoch collector holds for it
     /// — freed hash-trie blocks past their grace period, kept on the
-    /// collector's freelists for reuse, and retired trie blocks, collision
-    /// buckets and key buffers still in their grace period.
+    /// collector's freelists for reuse, and retired trie blocks and
+    /// collision buckets still in their grace period.
     ///
     /// The map's own share is `mem_used` rather than a separate held figure
     /// because a shared hash trie keeps nothing beyond it: its allocator
     /// frees into the collector, not onto per-tree freelists, and carves no
     /// slab pages (`defer_to` asserts both). Its collision buckets are
-    /// counted by `mem_used`'s estimate (key bytes plus fixed per-entry and
-    /// per-bucket overheads, no vector spare capacity); the collector's part
-    /// is exact. Compare this, not `mem_used`, with resident memory. Writers
+    /// counted by `mem_used` at their requested allocation size (header,
+    /// entries and key bytes; allocator rounding is not counted); the
+    /// collector's part is exact. Compare this, not `mem_used`, with resident memory. Writers
     /// wait for it, so it does not belong in a hot loop.
     #[must_use]
     pub fn mem_held(&self) -> usize {
@@ -17203,7 +17205,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// excluding either: writers that find the collector's lists empty
     /// allocate from the system, as on any miss. Blocks still in their grace
     /// period are released by a later call, once reclaimed. Retired
-    /// collision buckets and key buffers never reach a freelist: they are
+    /// collision buckets never reach a freelist: they are
     /// freed straight to the system at the end of their grace period.
     pub fn shrink_to_fit(&self) -> usize {
         self.shared.release_collector()

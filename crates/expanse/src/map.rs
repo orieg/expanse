@@ -3758,6 +3758,82 @@ impl MapCore {
         (keys[at], unsafe { *vals.add(at) })
     }
 
+    /// [`Self::leaf_entry`] with the value slot in place of the value.
+    fn leaf_entry_slot(&self, at: usize) -> (u64, NonNull<u64>) {
+        let Root::Leaf { ptr, pop } = &self.root else {
+            unreachable!("leaf_entry_slot outside root-leaf state")
+        };
+        let (keys, vals) = Self::leaf_parts(*ptr, *pop);
+        // SAFETY: at < pop values live behind the keys, so the slot is in
+        // bounds and non-null; `vals` derives from the stored leaf pointer.
+        (keys[at], unsafe { NonNull::new_unchecked(vals.add(at)) })
+    }
+
+    /// The root edge as the raw pointer the slot walks start from, as
+    /// [`Self::get_slot_ptr`] passes it to `get::locate_slot`.
+    #[inline(always)]
+    fn top_ptr(top: &Edge) -> *const Edge {
+        &raw const *top
+    }
+
+    /// [`Self::next_at_or_after`] returning the entry's value slot — the
+    /// pointer [`Self::get_slot_ptr`] returns for the found key, valid until
+    /// the next structural mutation.
+    #[inline(always)]
+    #[must_use]
+    pub(crate) fn next_at_or_after_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let (keys, _) = Self::leaf_parts(*ptr, *pop);
+                let at = keys.partition_point(|&k| k < key);
+                (at < *pop).then(|| self.leaf_entry_slot(at))
+            }
+            // SAFETY: trie maintained/owned by this map's engine.
+            Root::Tree { top, .. } => unsafe { crate::nav::next_slot(Self::top_ptr(top), key, 8) }
+                .and_then(|(k, p)| Some((k, NonNull::new(p)?))),
+        }
+    }
+
+    /// [`Self::prev_at_or_before`] returning the entry's value slot (as
+    /// [`Self::next_at_or_after_slot`]).
+    #[inline(always)]
+    #[must_use]
+    pub(crate) fn prev_at_or_before_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let (keys, _) = Self::leaf_parts(*ptr, *pop);
+                let at = keys.partition_point(|&k| k <= key).checked_sub(1)?;
+                Some(self.leaf_entry_slot(at))
+            }
+            // SAFETY: trie maintained/owned by this map's engine.
+            Root::Tree { top, .. } => unsafe { crate::nav::prev_slot(Self::top_ptr(top), key, 8) }
+                .and_then(|(k, p)| Some((k, NonNull::new(p)?))),
+        }
+    }
+
+    /// [`Self::by_count`] returning the entry's value slot (as
+    /// [`Self::next_at_or_after_slot`]; owner flushes first).
+    #[inline(always)]
+    #[must_use]
+    pub(crate) fn by_count_slot(&self, n: u64) -> Option<(u64, NonNull<u64>)> {
+        if n >= self.len() {
+            return None;
+        }
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { .. } => Some(self.leaf_entry_slot(n as usize)),
+            Root::Tree { top, .. } => {
+                // SAFETY: trie maintained/owned by this map's engine; n is
+                // below the population.
+                let (k, p) =
+                    unsafe { crate::nav::by_count_slot(Self::top_ptr(top), n, 8, self.tree_pop) };
+                Some((k, NonNull::new(p)?))
+            }
+        }
+    }
+
     /// Smallest entry in the map.
     #[inline(always)]
     #[must_use]
@@ -3829,7 +3905,9 @@ impl MapCore {
                 keys.partition_point(|&k| k < key) as u64
             }
             // SAFETY: trie maintained/owned by this map's engine.
-            Root::Tree { top, .. } => unsafe { crate::nav::count_below::<true>(top, key, 8) },
+            Root::Tree { top, .. } => unsafe {
+                crate::nav::count_below::<true>(top, key, 8, self.tree_pop)
+            },
         }
     }
 
@@ -3842,7 +3920,29 @@ impl MapCore {
         if a > b {
             return 0;
         }
-        self.count_below(b) + u64::from(self.contains_key(b)) - self.count_below(a)
+        match &self.root {
+            Root::Empty => 0,
+            Root::Leaf { ptr, pop } => {
+                let (keys, _) = Self::leaf_parts(*ptr, *pop);
+                (keys.partition_point(|&k| k <= b) - keys.partition_point(|&k| k < a)) as u64
+            }
+            // SAFETY: trie maintained/owned by this map's engine.
+            Root::Tree { top, .. } => unsafe {
+                crate::nav::count_range::<true>(top, a, b, 8, self.tree_pop)
+            },
+        }
+    }
+
+    /// Smallest absent key `>= from` within `steps` (see
+    /// [`RawIter::first_gap`](crate::iter::RawIter::first_gap)).
+    pub(crate) fn first_absent_within(&self, from: Key, steps: usize) -> Result<Option<Key>, Key> {
+        self.range_fwd_raw(from).first_gap(from, steps)
+    }
+
+    /// Largest absent key `<= upto` within `steps` (see
+    /// [`RawIter::last_gap`](crate::iter::RawIter::last_gap)).
+    pub(crate) fn last_absent_within(&self, upto: Key, steps: usize) -> Result<Option<Key>, Key> {
+        self.range_rev_raw(upto).last_gap(upto, steps)
     }
 
     /// The entry with `n` keys below it — 0-based select (compat:
@@ -3856,9 +3956,11 @@ impl MapCore {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => Some(self.leaf_entry(n as usize)),
-            // SAFETY: trie maintained/owned by this map's engine; n is
-            // below the population.
-            Root::Tree { top, .. } => Some(unsafe { crate::nav::by_count::<true>(top, n, 8) }),
+            Root::Tree { top, .. } => {
+                // SAFETY: trie maintained/owned by this map's engine; n is
+                // below the population, which `tree_pop` holds.
+                Some(unsafe { crate::nav::by_count::<true>(top, n, 8, self.tree_pop) })
+            }
         }
     }
 
@@ -5069,12 +5171,86 @@ impl ExpanseMap {
         self.core.count_range(range)
     }
 
+    /// Smallest absent key `>= from`, reading at most `steps` present keys
+    /// or in-leaf runs (compat: `JudyLFirstEmpty`). `Ok(None)` means every
+    /// key from `from` through `u64::MAX` is present; `Err(resume)` means
+    /// the budget ran out with `from..resume` all present.
+    ///
+    /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
+    #[doc(hidden)]
+    pub fn first_absent_within(&self, from: Key, steps: usize) -> Result<Option<Key>, Key> {
+        self.core.first_absent_within(from, steps)
+    }
+
+    /// Largest absent key `<= upto` (compat: `JudyLLastEmpty`; mirror of
+    /// [`first_absent_within`](Self::first_absent_within)).
+    ///
+    /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
+    #[doc(hidden)]
+    pub fn last_absent_within(&self, upto: Key, steps: usize) -> Result<Option<Key>, Key> {
+        self.core.last_absent_within(upto, steps)
+    }
+
     /// The entry with `n` keys below it — 0-based select (compat:
     /// `JudyLByCount`, which is 1-based).
     #[must_use]
     pub fn by_count(&self, n: u64) -> Option<(u64, u64)> {
         self.flush_path();
         self.core.by_count(n)
+    }
+
+    /// [`next_at_or_after`](Self::next_at_or_after) returning the found
+    /// key's **value slot** in place of its value, from the same search:
+    /// the pointer [`get_slot_ptr`](Self::get_slot_ptr) returns for that
+    /// key, valid until the next structural mutation (the classic JudyL
+    /// slot contract).
+    ///
+    /// The `libexpanse` `JudyLFirst` shim's search; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_at_or_after_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        self.core.next_at_or_after_slot(key)
+    }
+
+    /// [`next_after`](Self::next_after) returning the value slot (as
+    /// [`next_at_or_after_slot`](Self::next_at_or_after_slot)).
+    ///
+    /// The `libexpanse` `JudyLNext` shim's search; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_after_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        self.core.next_at_or_after_slot(key.checked_add(1)?)
+    }
+
+    /// [`prev_at_or_before`](Self::prev_at_or_before) returning the value
+    /// slot (as [`next_at_or_after_slot`](Self::next_at_or_after_slot)).
+    ///
+    /// The `libexpanse` `JudyLLast` shim's search; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn prev_at_or_before_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        self.core.prev_at_or_before_slot(key)
+    }
+
+    /// [`prev_before`](Self::prev_before) returning the value slot (as
+    /// [`next_at_or_after_slot`](Self::next_at_or_after_slot)).
+    ///
+    /// The `libexpanse` `JudyLPrev` shim's search; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn prev_before_slot(&self, key: Key) -> Option<(u64, NonNull<u64>)> {
+        self.core.prev_at_or_before_slot(key.checked_sub(1)?)
+    }
+
+    /// [`by_count`](Self::by_count) returning the value slot (as
+    /// [`next_at_or_after_slot`](Self::next_at_or_after_slot)).
+    ///
+    /// The `libexpanse` `JudyLByCount` shim's select; not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn by_count_slot(&self, n: u64) -> Option<(u64, NonNull<u64>)> {
+        self.flush_path();
+        self.core.by_count_slot(n)
     }
 
     /// Creates a stateful forward [`MapCursor`](crate::cursor::MapCursor) for
@@ -6089,6 +6265,129 @@ mod tests {
         }
         nav_differential(&map, &model, &probes);
         map.clear();
+    }
+
+    /// Populations that between them put every node form under a count:
+    /// a root leaf, single-key immediates, linear and bitmap leaves, runs of
+    /// two full 256-key expanses, a 256-child top branch, narrow linear and bitmap
+    /// branches below one top digit, and a random mix, each holding the
+    /// boundary keys `0` and `u64::MAX` (#1749).
+    fn count_form_populations() -> Vec<Vec<u64>> {
+        let mut rng = XorShift(0xC0DE_C0FF_EE00_1749);
+        let mut pops: Vec<Vec<u64>> = vec![
+            vec![0, 7, 0x1234, 1 << 40, u64::MAX],
+            (0..300u64).map(|i| i << 40).collect(),
+            (0..30u64)
+                .flat_map(|g| (0..15u64).map(move |j| (g << 32) | (j * 3)))
+                .collect(),
+            (0..20u64)
+                .flat_map(|g| (0..40u64).map(move |j| (g << 24) | (j * 5)))
+                .collect(),
+            (0..3u64)
+                .flat_map(|g| (0..512u64).map(move |j| (g << 20) | j))
+                .collect(),
+            (0..256u64)
+                .flat_map(|d| [(d << 56) | 1, (d << 56) | (d << 8)])
+                .collect(),
+        ];
+        let base = 0x1234_5600_0000_0000u64;
+        for children in [2u64, 5, 7, 40, 120] {
+            pops.push(
+                (0..children)
+                    .flat_map(|x| {
+                        // Unequal child populations, so a mis-indexed child
+                        // changes a sum.
+                        (0..20 + (x % 13) * 3).map(move |j| base | ((x * 2) << 24) | (j * 3))
+                    })
+                    .collect(),
+            );
+        }
+        pops.push((0..2000).map(|_| rng.next()).collect());
+        for p in &mut pops {
+            p.push(0);
+            p.push(u64::MAX);
+            p.sort_unstable();
+            p.dedup();
+        }
+        pops
+    }
+
+    /// Range ends for `count_form_populations`: present keys, their
+    /// neighbours and their digit-boundary neighbours, the boundaries, and a
+    /// few random words.
+    fn count_probes(sorted: &[u64]) -> Vec<u64> {
+        let mut rng = XorShift(0x5EED_0000_1749_0001);
+        let step = (sorted.len() / if cfg!(miri) { 4 } else { 24 }).max(1);
+        let mut probes = vec![0, 1, u64::MAX - 1, u64::MAX];
+        for &k in sorted.iter().step_by(step) {
+            probes.extend([
+                k,
+                k.wrapping_add(1),
+                k.wrapping_sub(1),
+                k & !0xFF,
+                k | 0xFF,
+                k & !0xFF_FFFF,
+                k | 0xFF_FFFF,
+            ]);
+        }
+        for _ in 0..if cfg!(miri) { 2 } else { 8 } {
+            probes.push(rng.next());
+        }
+        probes.sort_unstable();
+        probes.dedup();
+        probes
+    }
+
+    #[test]
+    fn count_range_matches_model_across_forms() {
+        let mut seen = crate::validate::NodeCounts::default();
+        // Each population inserted key by key, and built by the bulk builder.
+        let builds = count_form_populations().into_iter().flat_map(|keys| {
+            let mut map = ExpanseMap::new();
+            for &k in &keys {
+                map.insert(k, !k);
+            }
+            let built = ExpanseMap::from_sorted_iter(keys.iter().map(|&k| (k, !k)));
+            [(keys.clone(), map), (keys, built)]
+        });
+        for (keys, mut map) in builds {
+            map.validate();
+            let c = map.stats().node_counts;
+            seen.immed += c.immed;
+            seen.leaf_linear += c.leaf_linear;
+            seen.leaf_bitmap += c.leaf_bitmap;
+            seen.branch_l3 += c.branch_l3;
+            seen.branch_l7 += c.branch_l7;
+            seen.branch_b += c.branch_b;
+            seen.branch_u += c.branch_u;
+            let probes = count_probes(&keys);
+            let rank = |k: u64| keys.partition_point(|&x| x < k) as u64;
+            for &a in &probes {
+                assert_eq!(map.count_below(a), rank(a), "rank {a:#x}");
+                for &b in &probes {
+                    let want = if a > b {
+                        0
+                    } else {
+                        keys.partition_point(|&x| x <= b) as u64 - rank(a)
+                    };
+                    assert_eq!(map.count_range(a..=b), want, "count {a:#x}..={b:#x}");
+                }
+            }
+            assert_eq!(map.count_range(0..=u64::MAX), keys.len() as u64);
+            map.clear();
+        }
+        // Every form the engine builds for a map was counted through.
+        for (name, n) in [
+            ("immed", seen.immed),
+            ("leaf_linear", seen.leaf_linear),
+            ("leaf_bitmap", seen.leaf_bitmap),
+            ("branch_l3", seen.branch_l3),
+            ("branch_l7", seen.branch_l7),
+            ("branch_b", seen.branch_b),
+            ("branch_u", seen.branch_u),
+        ] {
+            assert!(n > 0, "no {name} node in the count populations");
+        }
     }
 
     #[test]

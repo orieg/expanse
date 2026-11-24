@@ -1759,7 +1759,9 @@ impl ExpanseSet {
             Root::Empty => 0,
             Root::Leaf { .. } => self.root_leaf_keys().partition_point(|&k| k < key) as u64,
             // SAFETY: trie maintained/owned by this set's engine.
-            Root::Tree { top, .. } => unsafe { crate::nav::count_below::<false>(top, key, 8) },
+            Root::Tree { top, .. } => unsafe {
+                crate::nav::count_below::<false>(top, key, 8, self.tree_pop)
+            },
         }
     }
 
@@ -1770,7 +1772,69 @@ impl ExpanseSet {
         if a > b {
             return 0;
         }
-        self.count_below(b) + u64::from(self.contains(b)) - self.count_below(a)
+        self.flush_path();
+        match &self.root {
+            Root::Empty => 0,
+            Root::Leaf { .. } => {
+                let keys = self.root_leaf_keys();
+                (keys.partition_point(|&k| k <= b) - keys.partition_point(|&k| k < a)) as u64
+            }
+            // SAFETY: trie maintained/owned by this set's engine.
+            Root::Tree { top, .. } => unsafe {
+                crate::nav::count_range::<false>(top, a, b, 8, self.tree_pop)
+            },
+        }
+    }
+
+    /// Smallest absent key `>= from`, reading at most `steps` present keys
+    /// or in-leaf runs (compat: `Judy1FirstEmpty`). `Ok(None)` means every
+    /// key from `from` through `u64::MAX` is present; `Err(resume)` means
+    /// the budget ran out with `from..resume` all present.
+    ///
+    /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
+    #[doc(hidden)]
+    pub fn first_absent_within(&self, from: Key, steps: usize) -> Result<Option<Key>, Key> {
+        match &self.root {
+            // SAFETY: trie maintained/owned by this set's engine.
+            Root::Tree { top, .. } => unsafe { Self::gap_result::<true>(top, from, steps) },
+            _ => self.range_fwd_raw(from).first_gap(from, steps),
+        }
+    }
+
+    /// Largest absent key `<= upto` (compat: `Judy1LastEmpty`; mirror of
+    /// [`first_absent_within`](Self::first_absent_within)).
+    ///
+    /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
+    #[doc(hidden)]
+    pub fn last_absent_within(&self, upto: Key, steps: usize) -> Result<Option<Key>, Key> {
+        match &self.root {
+            // SAFETY: trie maintained/owned by this set's engine.
+            Root::Tree { top, .. } => unsafe { Self::gap_result::<false>(top, upto, steps) },
+            _ => self.range_rev_raw(upto).last_gap(upto, steps),
+        }
+    }
+
+    /// The tree half of [`first_absent_within`](Self::first_absent_within)
+    /// (`FWD`) and [`last_absent_within`](Self::last_absent_within): one
+    /// descent that reads only the path to `start` and the children next to
+    /// it, a terminal read being one of the `steps`.
+    ///
+    /// # Safety
+    ///
+    /// `top` is this set's live level-8 root edge.
+    #[inline(always)]
+    unsafe fn gap_result<const FWD: bool>(
+        top: &Edge,
+        start: Key,
+        steps: usize,
+    ) -> Result<Option<Key>, Key> {
+        let mut budget = steps;
+        // SAFETY: forwarded contract.
+        match unsafe { crate::gap::gap::<FWD>(top, start, 8, &mut budget) } {
+            crate::gap::Gap::At(k) => Ok(Some(k)),
+            crate::gap::Gap::Full => Ok(None),
+            crate::gap::Gap::Budget(k) => Err(k),
+        }
     }
 
     /// The key with `n` keys below it — 0-based select (compat:
@@ -1784,9 +1848,11 @@ impl ExpanseSet {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => self.root_leaf_keys().get(n as usize).copied(),
-            // SAFETY: trie maintained/owned by this set's engine; n is
-            // below the population.
-            Root::Tree { top, .. } => Some(unsafe { crate::nav::by_count::<false>(top, n, 8) }.0),
+            Root::Tree { top, .. } => {
+                // SAFETY: trie maintained/owned by this set's engine; n is
+                // below the population, which `tree_pop` holds.
+                Some(unsafe { crate::nav::by_count::<false>(top, n, 8, self.tree_pop) }.0)
+            }
         }
     }
 
@@ -3795,6 +3861,132 @@ mod tests {
         }
         nav_differential(&set, &model, &probes);
         set.clear();
+    }
+
+    /// Populations that between them put every node form under a count:
+    /// a root leaf, single-key immediates, linear and bitmap leaves, runs of
+    /// two full 256-key expanses, a 256-child top branch, narrow linear and bitmap
+    /// branches below one top digit, and a random mix, each holding the
+    /// boundary keys `0` and `u64::MAX` (#1749).
+    fn count_form_populations() -> Vec<Vec<u64>> {
+        let mut rng = XorShift(0xC0DE_C0FF_EE00_1749);
+        let mut pops: Vec<Vec<u64>> = vec![
+            vec![0, 7, 0x1234, 1 << 40, u64::MAX],
+            (0..300u64).map(|i| i << 40).collect(),
+            (0..30u64)
+                .flat_map(|g| (0..15u64).map(move |j| (g << 32) | (j * 3)))
+                .collect(),
+            (0..20u64)
+                .flat_map(|g| (0..40u64).map(move |j| (g << 24) | (j * 5)))
+                .collect(),
+            (0..3u64)
+                .flat_map(|g| (0..512u64).map(move |j| (g << 20) | j))
+                .collect(),
+            (0..256u64)
+                .flat_map(|d| [(d << 56) | 1, (d << 56) | (d << 8)])
+                .collect(),
+        ];
+        let base = 0x1234_5600_0000_0000u64;
+        for children in [2u64, 5, 7, 40, 120] {
+            pops.push(
+                (0..children)
+                    .flat_map(|x| {
+                        // Unequal child populations, so a mis-indexed child
+                        // changes a sum.
+                        (0..20 + (x % 13) * 3).map(move |j| base | ((x * 2) << 24) | (j * 3))
+                    })
+                    .collect(),
+            );
+        }
+        pops.push((0..2000).map(|_| rng.next()).collect());
+        for p in &mut pops {
+            p.push(0);
+            p.push(u64::MAX);
+            p.sort_unstable();
+            p.dedup();
+        }
+        pops
+    }
+
+    /// Range ends for `count_form_populations`: present keys, their
+    /// neighbours and their digit-boundary neighbours, the boundaries, and a
+    /// few random words.
+    fn count_probes(sorted: &[u64]) -> Vec<u64> {
+        let mut rng = XorShift(0x5EED_0000_1749_0001);
+        let step = (sorted.len() / if cfg!(miri) { 4 } else { 24 }).max(1);
+        let mut probes = vec![0, 1, u64::MAX - 1, u64::MAX];
+        for &k in sorted.iter().step_by(step) {
+            probes.extend([
+                k,
+                k.wrapping_add(1),
+                k.wrapping_sub(1),
+                k & !0xFF,
+                k | 0xFF,
+                k & !0xFF_FFFF,
+                k | 0xFF_FFFF,
+            ]);
+        }
+        for _ in 0..if cfg!(miri) { 2 } else { 8 } {
+            probes.push(rng.next());
+        }
+        probes.sort_unstable();
+        probes.dedup();
+        probes
+    }
+
+    #[test]
+    fn count_range_matches_model_across_forms() {
+        let mut seen = crate::validate::NodeCounts::default();
+        // Each population inserted key by key, and built by the bulk
+        // builder, which emits level-1 full expanses.
+        let builds = count_form_populations().into_iter().flat_map(|keys| {
+            let mut set = ExpanseSet::new();
+            for &k in &keys {
+                set.insert(k);
+            }
+            let built = ExpanseSet::from_sorted_iter(keys.iter().copied());
+            [(keys.clone(), set), (keys, built)]
+        });
+        for (keys, mut set) in builds {
+            set.validate();
+            let c = set.stats().node_counts;
+            seen.immed += c.immed;
+            seen.leaf_linear += c.leaf_linear;
+            seen.leaf_bitmap += c.leaf_bitmap;
+            seen.branch_l3 += c.branch_l3;
+            seen.branch_l7 += c.branch_l7;
+            seen.branch_b += c.branch_b;
+            seen.branch_u += c.branch_u;
+            seen.full_expanse += c.full_expanse;
+            let probes = count_probes(&keys);
+            let rank = |k: u64| keys.partition_point(|&x| x < k) as u64;
+            for &a in &probes {
+                assert_eq!(set.count_below(a), rank(a), "rank {a:#x}");
+                for &b in &probes {
+                    let want = if a > b {
+                        0
+                    } else {
+                        keys.partition_point(|&x| x <= b) as u64 - rank(a)
+                    };
+                    assert_eq!(set.count_range(a..=b), want, "count {a:#x}..={b:#x}");
+                }
+            }
+            assert_eq!(set.count_range(0..=u64::MAX), keys.len() as u64);
+            set.clear();
+        }
+        // Every form the engine builds for a set was counted through.
+        for (name, n) in [
+            ("immed", seen.immed),
+            ("leaf_linear", seen.leaf_linear),
+            ("leaf_bitmap", seen.leaf_bitmap),
+            ("branch_l3", seen.branch_l3),
+            ("branch_l7", seen.branch_l7),
+            ("branch_b", seen.branch_b),
+            ("branch_u", seen.branch_u),
+            ("full_expanse", seen.full_expanse),
+        ] {
+            assert!(n > 0, "no {name} node in the count populations");
+        }
     }
 
     #[test]

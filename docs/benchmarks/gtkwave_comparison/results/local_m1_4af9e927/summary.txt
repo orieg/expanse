@@ -1,0 +1,39 @@
+== tests/summary.txt
+make check A rc=0
+make check B rc=0
+== corr/mapped.txt
+A vcd2fst: libJudy.so.1 => /lib/aarch64-linux-gnu/libJudy.so.1
+B vcd2fst: libexpanse.so.1 => /w/lib/libexpanse.so.1
+B1 vcd2fst: libJudy.so.1 => /w/compat/libJudy.so.1
+== corr/stock_vs_stock.txt
+stock vs stock FST: identical
+== gui/rc.txt
+des.fst A rc=0
+transaction.fst A rc=0
+syn_large.fst A rc=0
+des.fst B rc=0
+transaction.fst B rc=0
+syn_large.fst B rc=0
+des.fst B1 rc=0
+transaction.fst B1 rc=0
+syn_large.fst B1 rc=0
+== gui/compare.txt
+des identical lines=1436 A=594de703be2a884001627c5f070964c21bab72204a3f7cbc1d1005c8c16e0b46 B=594de703be2a884001627c5f070964c21bab72204a3f7cbc1d1005c8c16e0b46 B1=594de703be2a884001627c5f070964c21bab72204a3f7cbc1d1005c8c16e0b46
+transaction identical lines=5 A=8615c8384288d445d8f07acc740537299110f33ba9c17650765f686d89686d82 B=8615c8384288d445d8f07acc740537299110f33ba9c17650765f686d89686d82 B1=8615c8384288d445d8f07acc740537299110f33ba9c17650765f686d89686d82
+syn_large identical lines=32803 A=24f7af14ca57adbb8f7c30620cb9bc8c5b4173685758bc0f3f1dc0196620f634 B=24f7af14ca57adbb8f7c30620cb9bc8c5b4173685758bc0f3f1dc0196620f634 B1=24f7af14ca57adbb8f7c30620cb9bc8c5b4173685758bc0f3f1dc0196620f634
+== corr/compare.txt: 14 outputs, 0 differ across arms
+== Callgrind self Ir by object, and peak RSS (ratio = arm / A)
+   judy = libJudy.so.1.0.3 (A) or libexpanse.so.1 (B, B1); the columns sum to total
+workload           arm       total Ir   ratio     program Ir   ratio        judy Ir   ratio        libc Ir   ratio       other Ir   ratio maxrss kB   ratio
+fst2vcd_syn_large  A      520,652,504  1.0000    407,000,040  1.0000             57  1.0000    112,892,471  1.0000        759,936  1.0000     6,908  1.0000
+fst2vcd_syn_large  B      520,690,657  1.0001    407,000,040  1.0000            291  5.1053    112,892,690  1.0000        797,636  1.0496     7,164  1.0371
+fst2vcd_syn_large  B1     520,692,133  1.0001    407,000,040  1.0000            291  5.1053    112,892,709  1.0000        799,093  1.0515     7,264  1.0515
+fst2vcd_syn_small  A      226,997,405  1.0000    192,111,699  1.0000             57  1.0000     34,581,686  1.0000        303,963  1.0000     3,588  1.0000
+fst2vcd_syn_small  B      227,035,558  1.0002    192,111,699  1.0000            291  5.1053     34,581,905  1.0000        341,663  1.1240     3,868  1.0780
+fst2vcd_syn_small  B1     227,037,034  1.0002    192,111,699  1.0000            291  5.1053     34,581,924  1.0000        343,120  1.1288     3,860  1.0758
+vcd2fst_syn_large  A    1,488,197,660  1.0000    689,368,582  1.0000     50,764,430  1.0000    575,783,126  1.0000    172,281,522  1.0000    28,156  1.0000
+vcd2fst_syn_large  B    1,488,542,255  1.0002    689,368,582  1.0000     31,672,765  0.6239    595,180,113  1.0337    172,320,795  1.0002    31,812  1.1298
+vcd2fst_syn_large  B1   1,488,543,590  1.0002    689,368,582  1.0000     31,666,590  0.6238    595,187,736  1.0337    172,320,682  1.0002    31,816  1.1300
+vcd2fst_syn_small  A      553,441,389  1.0000    313,140,403  1.0000     13,638,051  1.0000    219,023,861  1.0000      7,639,074  1.0000    15,316  1.0000
+vcd2fst_syn_small  B      548,247,235  0.9906    313,140,403  1.0000      5,970,416  0.4378    221,458,069  1.0111      7,678,347  1.0051    16,324  1.0658
+vcd2fst_syn_small  B1     548,242,874  0.9906    313,140,403  1.0000      5,969,833  0.4377    221,454,404  1.0111      7,678,234  1.0051    16,580  1.0825

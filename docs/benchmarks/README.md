@@ -24,14 +24,16 @@ classifies them as *Group 5: Standalone Examples & Profile Drivers* and holds
 them to the same workload-shape declarations. The split is intentional: they are
 not reachable as `/benchmark` tokens and so do not appear below.
 
-**Drop-in evaluation suites without a `/benchmark` token.** Three suites run
+**Drop-in evaluation suites without a `/benchmark` token.** Four suites run
 unmodified third-party programs against stock libJudy and `libexpanse`, and are
 not reachable from the bare-metal workflow, so they do not appear below:
 [`stressng_comparison/`](stressng_comparison/README.md) (stress-ng's `judy` and
 `sparsematrix` stressors), [`zmap_comparison/`](zmap_comparison/README.md)
-(zmap's JudyHS response dedup) and
+(zmap's JudyHS response dedup),
 [`oqgraph_comparison/`](oqgraph_comparison/README.md) (MariaDB OQGraph's Judy1
-colour map). They are the evaluation records behind the
+colour map) and [`gtkwave_comparison/`](gtkwave_comparison/README.md)
+(gtkwave's JudySL/JudyHS symbol tables and FST alias search, a local
+Callgrind and RSS evaluation). They are the evaluation records behind the
 top-level README's *Verified in real projects* table.
 
 **Cross-language binding harnesses** are documented separately in

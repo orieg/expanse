@@ -1,0 +1,31 @@
+== header resolved by arm B's include path
+. /w/expanse/include/Judy.h
+== header resolved by arm A's include path
+. /usr/include/Judy.h
+== A src/helpers/vcd2fst
+	libJudy.so.1 => /lib/aarch64-linux-gnu/libJudy.so.1
+== B src/helpers/vcd2fst
+	libexpanse.so.1 => /w/lib/libexpanse.so.1
+== B1 src/helpers/vcd2fst
+	libJudy.so.1 => /w/compat/libJudy.so.1
+== A src/helpers/fst2vcd
+	libJudy.so.1 => /lib/aarch64-linux-gnu/libJudy.so.1
+== B src/helpers/fst2vcd
+	libexpanse.so.1 => /w/lib/libexpanse.so.1
+== B1 src/helpers/fst2vcd
+	libJudy.so.1 => /w/compat/libJudy.so.1
+== A src/gtkwave
+	libJudy.so.1 => /lib/aarch64-linux-gnu/libJudy.so.1
+== B src/gtkwave
+	libexpanse.so.1 => /w/lib/libexpanse.so.1
+== B1 src/gtkwave
+	libJudy.so.1 => /w/compat/libJudy.so.1
+== -D_WAVE_HAVE_JUDY in both builds
+/w/build-stock/Makefile:LIBJUDY_CFLAGS = -D_WAVE_HAVE_JUDY
+/w/build-stock/Makefile:LIBJUDY_LDADD = -lJudy
+/w/build-expanse/Makefile:LIBJUDY_CFLAGS = -D_WAVE_HAVE_JUDY
+/w/build-expanse/Makefile:LIBJUDY_LDADD = -lJudy
+== warnings mentioning Judy in each build log
+A: 0  B: 0
+== total compiler warnings in each build log
+A: 13  B: 13
