@@ -5395,6 +5395,110 @@ mod tests {
         }
     }
 
+    /// `get_near` answers what `get` answers, and a leaf neighbour it hands
+    /// out is exactly the entry `next_after` / `prev_before` would return:
+    /// over root leaves of up to 4, up to 8 and more keys, one-key and
+    /// multi-key immediates, linear leaves of every key width and bitmap
+    /// leaves. `None` from `neighbour` is allowed (the caller then descends
+    /// again) but must not be the only answer: every population but the
+    /// bitmap-leaf one, whose form reports no position, must hand out
+    /// neighbours in both directions.
+    #[test]
+    fn get_near_neighbours_match_next_after_and_prev_before() {
+        let mut rng = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = move || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
+        let n = if cfg!(miri) { 120 } else { 3_000 };
+        const LEAF_NAMES: [&str; 7] = ["kb 1", "kb 2", "kb 3", "kb 4", "kb 5", "kb 6", "kb 7"];
+        let mut populations: Vec<(&str, Vec<u64>)> = vec![
+            ("root leaf 3", vec![5, 9, 200]),
+            ("root leaf 7", (0..7).map(|i| i * 1_000 + 3).collect()),
+            ("root leaf 20", (0..20).map(|i| i * 77 + 1).collect()),
+            // Dense low bytes under shared prefixes: bitmap leaves.
+            (
+                "dense runs",
+                (0..n as u64).map(|i| (i / 200) << 20 | (i % 200)).collect(),
+            ),
+        ];
+        // Sparse random keys: one-key and multi-key immediates near the top.
+        populations.push(("random", (0..n).map(|_| next()).collect()));
+        // Three keys under each of a few hundred 7-byte prefixes that share
+        // their top 6 bytes: a branch at the second byte over multi-key
+        // immediates at the bottom level.
+        populations.push((
+            "triples",
+            (0..4u64)
+                .flat_map(|q| (0..250u64).map(move |b| (q << 40) | (b << 8)))
+                .flat_map(|hi| [hi | 1, hi | 50, hi | 200])
+                .collect(),
+        ));
+        // Keys varying only in their low `kb` bytes, a few hundred per
+        // prefix: linear leaves of each width.
+        for kb in 1..=7u32 {
+            let mask = (1u64 << (8 * kb)) - 1;
+            // About 20 keys under each prefix, random in the low `kb` bytes.
+            let keys = (0..n as u64)
+                .map(|i| ((i / 20 + 1) << (8 * kb)) | (next() & mask))
+                .collect();
+            populations.push((LEAF_NAMES[kb as usize - 1], keys));
+        }
+        for (name, keys) in populations {
+            let mut m = ExpanseMap::new();
+            for (i, &k) in keys.iter().enumerate() {
+                m.insert(k, i as u64 * 7 + 1);
+            }
+            // The forms this test claims to cover are present.
+            let st = m.stats();
+            if let Some(kb) = LEAF_NAMES.iter().position(|&l| l == name) {
+                assert!(
+                    st.leaf_depth_histogram[kb + 1] > 0,
+                    "{name}: no linear leaf at level {}",
+                    kb + 1
+                );
+            }
+            match name {
+                "dense runs" => assert!(st.node_counts.leaf_bitmap > 0, "no bitmap leaf"),
+                "triples" => assert!(st.node_counts.immed > 0, "no immediate"),
+                _ => {}
+            }
+            let (mut fwd, mut back) = (0usize, 0usize);
+            for &k in &keys {
+                let got = m.core.get_near(k, |v, pos| {
+                    // SAFETY: `pos` comes from this lookup; `m` is not
+                    // mutated while it is used.
+                    unsafe { (v, pos.neighbour::<true>(k), pos.neighbour::<false>(k)) }
+                });
+                let (v, after, before) = got.expect("present key");
+                assert_eq!(Some(v), m.core.get(k), "{name}: value of {k:#x}");
+                if let Some(e) = after {
+                    assert_eq!(Some(e), m.core.next_after(k), "{name}: after {k:#x}");
+                    fwd += 1;
+                }
+                if let Some(e) = before {
+                    assert_eq!(Some(e), m.core.prev_before(k), "{name}: before {k:#x}");
+                    back += 1;
+                }
+                let absent = k ^ 0x8000_0000_0000_0000;
+                if m.core.get(absent).is_none() {
+                    assert!(
+                        m.core.get_near(absent, |_, _| ()).is_none(),
+                        "{name}: absent"
+                    );
+                }
+            }
+            if name != "dense runs" {
+                assert!(
+                    fwd > 0 && back > 0,
+                    "{name}: no leaf neighbours ({fwd}, {back})"
+                );
+            }
+        }
+    }
+
     /// Pins the hazard `docs/ARCHITECTURE.md` "Snapshots" documents (#1103):
     /// a copy of the root edge is not a snapshot. The engine mutates nodes in
     /// place, so a value overwrite and an insert below the root are both
