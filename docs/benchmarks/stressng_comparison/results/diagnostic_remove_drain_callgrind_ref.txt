@@ -1,0 +1,111 @@
+Callgrind, reference host (Intel Core i9-12900F), valgrind 3.27.1, rustc 1.98.1.
+base = main 09681eb51; A = base plus the downgrade_u_to_b change; AB = A plus the branch_u_digits_after_null change.
+Arms: crates/expanse/benches/instructions.rs, 315 per build. An unregistered diagnostic.
+
+== Arm counts
+315 315 315
+== A vs base moved 45 of 315 ; worse: 18 max worse 0.000%
+    -4.97%      9,268,145 ->     8,807,317  sync_map_branchu_band top:built_sync_map_band("top")
+    -2.80%    174,777,555 ->   169,886,592  map_remove_revgen gen_256k:built_gen_map("gen_256k")
+    -2.79%  2,806,593,090 -> 2,728,408,701  map_remove_revgen gen_4m:built_gen_map("gen_4m")
+    -1.74%        200,767 ->       197,279  sync_set_drain_floor top:built_sync_set_floor("top")
+    -1.72%        203,162 ->       199,674  sync_map_drain_floor top:built_sync_map_floor("top")
+    -0.80%        599,432 ->       594,661  map_remove_revgen gen_1k:built_gen_map("gen_1k")
+  (small) +0.000% set_clone random:built_set("random")
+  (small) +0.000% map_compact_drained random60:drained_partial_map("random60")
+  (small) +0.000% set_insert clustered:keys("clustered")
+  (small) +0.000% set_insert sequential:keys("sequential")
+  (small) +0.000% set_clone sequential:built_set("sequential")
+== A+B vs A moved 21 of 315 ; worse: 8 max worse 0.642%
+    -1.53%    169,886,592 ->   167,293,272  map_remove_revgen gen_256k:built_gen_map("gen_256k")
+    -1.52%  2,728,408,701 -> 2,686,969,941  map_remove_revgen gen_4m:built_gen_map("gen_4m")
+    -0.61%        594,661 ->       591,037  map_remove_revgen gen_1k:built_gen_map("gen_1k")
+    +0.28%        199,674 ->       200,239  sync_map_drain_floor top:built_sync_map_floor("top")
+    +0.64%      8,807,317 ->     8,863,817  sync_map_branchu_band top:built_sync_map_band("top")
+  (small) +0.000% map_from_sorted_iter random_sorted:entries("random_sorted")
+  (small) +0.000% map32_insert_sorted random:entries32_build("random")
+  (small) +0.000% map32_insert_sorted random_sorted:entries32_build("random_sorted")
+  (small) +0.000% set32_rebuild_drained random28:drained_partial_set32("random28")
+  (small) +0.000% map_from_sorted_iter sequential:entries("sequential")
+== A+B vs base moved 38 of 315 ; worse: 17 max worse 0.000%
+    -4.36%      9,268,145 ->     8,863,817  sync_map_branchu_band top:built_sync_map_band("top")
+    -4.28%    174,777,555 ->   167,293,272  map_remove_revgen gen_256k:built_gen_map("gen_256k")
+    -4.26%  2,806,593,090 -> 2,686,969,941  map_remove_revgen gen_4m:built_gen_map("gen_4m")
+    -1.74%        200,767 ->       197,279  sync_set_drain_floor top:built_sync_set_floor("top")
+    -1.44%        203,162 ->       200,239  sync_map_drain_floor top:built_sync_map_floor("top")
+    -1.40%        599,432 ->       591,037  map_remove_revgen gen_1k:built_gen_map("gen_1k")
+  (small) +0.000% set_insert dense_leaf:keys("dense_leaf")
+  (small) +0.000% set_clone random:built_set("random")
+  (small) +0.000% set_insert clustered:keys("clustered")
+  (small) +0.000% set_insert sequential:keys("sequential")
+  (small) +0.000% set_clone sequential:built_set("sequential")
+
+== Per-function ranking, map_remove_revgen gen_4m (callgrind_annotate --inclusive=no)
+=== base
+--------------------------------------------------------------------------------
+Profile data file 'src-base/target/iai/expanse-trie/instructions/cost/map_remove_revgen.gen_4m/callgrind.map_remove_revgen.gen_4m.out' (creator: callgrind-3.27.1)
+--------------------------------------------------------------------------------
+I1 cache: 32768 B, 64 B, 8-way associative
+D1 cache: 32768 B, 64 B, 8-way associative
+LL cache: 8388608 B, 64 B, 16-way associative
+Timerange: Basic block 0 - 933826450
+Trigger: Program termination
+Profiled target:  /var/tmp/stressng-eval/rdc/src-base/target/release/deps/instructions-882318377cd35782 --iai-run cost 11 2 instructions::cost::map_remove_revgen (PID 2296404, part 1, thread 1)
+Events recorded:  Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Events shown:     Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Event sort order: Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Thresholds:       99 0 0 0 0 0 0 0 0
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+--------------------------------------------------------------------------------
+Ir                     Dr                   Dw                   I1mr         D1mr                D1mw               ILmr         DLmr               DLmw            
+--------------------------------------------------------------------------------
+2,806,593,090 (100.0%) 526,642,476 (100.0%) 295,732,460 (100.0%) 498 (100.0%) 32,256,349 (100.0%) 1,555,081 (100.0%) 200 (100.0%) 1,620,333 (100.0%) 53,646 (100.0%)  PROGRAM TOTALS
+--------------------------------------------------------------------------------
+Ir                     Dr                   Dw                   I1mr         D1mr                D1mw               ILmr        DLmr               DLmw             file:function
+--------------------------------------------------------------------------------
+2,047,603,278 (72.96%) 386,028,310 (73.30%) 208,455,475 (70.49%) 172 (34.54%) 29,365,658 (91.04%)     4,193 ( 0.27%) 56 (28.00%) 1,069,952 (66.03%)     21 ( 0.04%)  ???:expanse_trie::mutate_map::map_remove::<false, false>'2 [/var/
+  306,182,002 (10.91%)  62,914,110 (11.95%)  33,554,192 (11.35%)   6 ( 1.20%)        139 ( 0.00%)         1 ( 0.00%)  6 ( 3.00%)         5 ( 0.00%)      1 ( 0.00%)  ???:expanse_trie::mutate_map::map_remove::<false, false> [/var/tm
+  121,637,983 ( 4.33%)  20,972,111 ( 3.98%)  12,583,333 ( 4.25%)  38 ( 7.63%)    524,392 ( 1.63%)         1 ( 0.00%) 38 (19.00%)   524,297 (32.36%)      1 ( 0.00%)  ???:instructions::map_remove_revgen::__iai_callgrind_wrapper_mod:
+  111,975,090 ( 3.99%)  16,811,010 ( 3.19%)  11,453,115 ( 3.87%)  76 (15.26%)     16,848 ( 0.05%)    16,585 ( 1.07%) 12 ( 6.00%)       256 ( 0.02%)    258 ( 0.48%)  ???:expanse_trie::mutate::downgrade_u_to_b::<false> [/var/tmp/str
+   77,607,785 ( 2.77%)  11,899,523 ( 2.26%)  11,635,586 ( 3.93%)   3 ( 0.60%)    244,256 ( 0.76%)   269,226 (17.31%)  3 ( 1.50%)       123 ( 0.01%)  9,017 (16.81%)  ???:0x00000000000a38d0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   46,556,175 ( 1.66%)   6,528,474 ( 1.24%)   3,116,575 ( 1.05%)   0           1,220,167 ( 3.78%)         2 ( 0.00%)  0              5,386 ( 0.33%)      2 ( 0.00%)  ???:0x00000000001a0840 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   30,122,408 ( 1.07%)   8,599,773 ( 1.63%)   3,885,874 ( 1.31%)  62 (12.45%)    346,106 ( 1.07%)     4,241 ( 0.27%)  6 ( 3.00%)       754 ( 0.05%)     26 ( 0.05%)  ???:0x00000000000a25c0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   17,769,600 ( 0.63%)   3,455,200 ( 0.66%)   1,234,000 ( 0.42%)   0               4,956 ( 0.02%)        70 ( 0.00%)  0                  8 ( 0.00%)      7 ( 0.01%)  ???:calloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   16,703,632 ( 0.60%)   1,020,747 ( 0.19%)   5,347,166 ( 1.81%)   0                 661 ( 0.00%) 1,260,356 (81.05%)  0                  0          44,300 (82.58%)  ???:0x00000000001a1000 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   11,016,720 ( 0.39%)   4,005,830 ( 0.76%)   1,013,847 ( 0.34%)   0             456,003 ( 1.41%)         0           0             18,212 ( 1.12%)      .           ???:0x00000000000a1630 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+=== AB
+--------------------------------------------------------------------------------
+Profile data file 'src-AB/target/iai/expanse-trie/instructions/cost/map_remove_revgen.gen_4m/callgrind.map_remove_revgen.gen_4m.out' (creator: callgrind-3.27.1)
+--------------------------------------------------------------------------------
+I1 cache: 32768 B, 64 B, 8-way associative
+D1 cache: 32768 B, 64 B, 8-way associative
+LL cache: 8388608 B, 64 B, 16-way associative
+Timerange: Basic block 0 - 911002062
+Trigger: Program termination
+Profiled target:  /var/tmp/stressng-eval/rdc/src-AB/target/release/deps/instructions-882318377cd35782 --iai-run cost 11 2 instructions::cost::map_remove_revgen (PID 2301869, part 1, thread 1)
+Events recorded:  Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Events shown:     Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Event sort order: Ir Dr Dw I1mr D1mr D1mw ILmr DLmr DLmw
+Thresholds:       99 0 0 0 0 0 0 0 0
+Include dirs:     
+User annotated:   
+Auto-annotation:  on
+--------------------------------------------------------------------------------
+Ir                     Dr                   Dw                   I1mr         D1mr                D1mw               ILmr         DLmr               DLmw            
+--------------------------------------------------------------------------------
+2,686,969,941 (100.0%) 503,654,081 (100.0%) 287,097,565 (100.0%) 200 (100.0%) 28,980,652 (100.0%) 1,555,254 (100.0%) 200 (100.0%) 1,620,344 (100.0%) 53,660 (100.0%)  PROGRAM TOTALS
+--------------------------------------------------------------------------------
+Ir                     Dr                   Dw                   I1mr        D1mr                D1mw               ILmr        DLmr               DLmw             file:function
+--------------------------------------------------------------------------------
+2,006,164,518 (74.66%) 372,952,840 (74.05%) 208,455,475 (72.61%) 54 (27.00%) 26,089,116 (90.02%)     4,193 ( 0.27%) 54 (27.00%) 1,069,963 (66.03%)     21 ( 0.04%)  ???:expanse_trie::mutate_map::map_remove::<false, false>'2 [/var/t
+  306,182,002 (11.40%)  62,914,110 (12.49%)  33,554,192 (11.69%)  5 ( 2.50%)        139 ( 0.00%)         1 ( 0.00%)  5 ( 2.50%)         5 ( 0.00%)      1 ( 0.00%)  ???:expanse_trie::mutate_map::map_remove::<false, false> [/var/tmp
+  121,637,983 ( 4.53%)  20,972,111 ( 4.16%)  12,583,333 ( 4.38%) 35 (17.50%)    524,392 ( 1.81%)         1 ( 0.00%) 35 (17.50%)   524,297 (32.36%)      1 ( 0.00%)  ???:instructions::map_remove_revgen::__iai_callgrind_wrapper_mod::
+   77,607,785 ( 2.89%)  11,899,523 ( 2.36%)  11,635,586 ( 4.05%)  3 ( 1.50%)    245,023 ( 0.85%)   269,120 (17.30%)  3 ( 1.50%)       123 ( 0.01%)  9,015 (16.80%)  ???:0x00000000000a38d0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   52,852,846 ( 1.97%)   8,166,974 ( 1.62%)   4,509,300 ( 1.57%)  0           1,220,308 ( 4.21%)         2 ( 0.00%)  0              5,385 ( 0.33%)      2 ( 0.00%)  ???:0x00000000001a0840 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   30,122,408 ( 1.12%)   8,599,773 ( 1.71%)   3,885,874 ( 1.35%)  4 ( 2.00%)    346,126 ( 1.19%)     4,241 ( 0.27%)  4 ( 2.00%)       754 ( 0.05%)     26 ( 0.05%)  ???:0x00000000000a25c0 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   27,494,030 ( 1.02%)   5,259,585 ( 1.04%)   1,425,495 ( 0.50%) 20 (10.00%)     16,838 ( 0.06%)    16,582 ( 1.07%) 20 (10.00%)       257 ( 0.02%)    258 ( 0.48%)  ???:expanse_trie::mutate::downgrade_u_to_b::<false> [/var/tmp/stre
+   17,769,600 ( 0.66%)   3,455,200 ( 0.69%)   1,234,000 ( 0.43%)  0               4,937 ( 0.02%)        70 ( 0.00%)  0                  8 ( 0.00%)      7 ( 0.01%)  ???:calloc [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   16,703,632 ( 0.62%)   1,020,747 ( 0.20%)   5,347,166 ( 1.86%)  0                 661 ( 0.00%) 1,260,638 (81.06%)  0                  0          44,315 (82.58%)  ???:0x00000000001a1000 [/usr/lib/x86_64-linux-gnu/libc.so.6]
+   11,016,720 ( 0.41%)   4,005,830 ( 0.80%)   1,013,847 ( 0.35%)  0             455,957 ( 1.57%)         0           0             18,212 ( 1.12%)      .           ???:0x00000000000a1630 [/usr/lib/x86_64-linux-gnu/libc.so.6]

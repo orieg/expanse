@@ -2266,6 +2266,76 @@ This is consistent with PR 1779's own reference-host diagnostic (unregistered; i
 
 Refs #1680.
 
+## Pre-registration: the removal walk's `BranchU` drain ([#1679](https://github.com/orieg/expanse/issues/1679))
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. The change under test is two commits to `crates/expanse/src/mutate.rs` and nothing else:
+
+- **A, `downgrade_u_to_b`.** The demotion of a `BranchU` to a `BranchB` read the 256 slots twice, once to count each 32-slot subexpanse and once to copy. It reads them once: each subexpanse is reduced to its membership mask, the mask's population sizes the subarray, a full subexpanse is copied as one block and a partial one by the mask's set bits, and the mask is the subexpanse's half of a bitmap word.
+- **B, `branch_u_digits_after_null`.** When a draining `BranchU`'s header bound (`digits_lower`) reaches the demotion floor, the map walks recount its slots. The recount stopped one 16-slot block past the floor, so the bound it stored let about 16 removals pass before the next recount. It counts all 256 slots and stores the exact count, so a branch drained one slot at a time is counted on its first removal and once more at its floor.
+
+Neither changes a node layout, an `Edge` or `ValueSlot` encoding, a threshold, or which node form a removal leaves. The set walks (`mutate.rs`, the two `branch_u_digits_to_floor` call sites) are not touched.
+
+**Build fixed by the owner.** The stress-ng claim is gated on the aligned build: G and M are built by `scripts/build_layout_lib.sh` with `-C llvm-args=-align-all-functions=6` and hash-recorded. The result describes that build; the default-flag build is not measured by this record. Allocator settings are glibc's defaults in every arm.
+
+**Owner exemption (2026-11-15): not invoked.** No Callgrind arm is named above +0.1%.
+
+**Observed before this commit, and therefore not evidence for it.**
+
+- (measured: reference host Intel Core i9-12900F, valgrind 3.27.1, rustc 1.98.1, main `09681eb51` and that commit plus A, and plus A and B; artifact `results/diagnostic_remove_drain_callgrind_ref.txt`; exact instruction counts, so no interval applies) (workload: `instructions`, the arms named) Over the 315 arms of `crates/expanse/benches/instructions.rs`, A and B against main: `map_remove_revgen` `gen_4m` 2,806,593,090 to 2,686,969,941 (−4.26%), `gen_256k` −4.28%, `gen_1k` −1.40%; `sync_map_branchu_band` `top` −4.36%; `sync_set_drain_floor` `top` −1.74%; `sync_map_drain_floor` `top` −1.44%; 38 arms moved and none is above +0.000%. A alone: `gen_4m` −2.79%. B against A raises two arms that stay below main: `sync_map_branchu_band` `top` +0.64% and `sync_map_drain_floor` `top` +0.28%.
+- The same artifact's per-function ranking of `gen_4m` (`callgrind_annotate --inclusive=no`), main to A and B: the recursive `map_remove` walk 2,047,603,278 instructions (72.96% of the arm) to 2,006,164,518; `downgrade_u_to_b` 111,975,090 (3.99%) to 27,494,030; one unnamed C-library routine 46,556,175 to 52,852,846; the second `map_remove` entry (306,182,002) and the bench body (121,637,983) unchanged. Simulated first-level data read misses in the walk: 29,365,658 to 26,089,116.
+- (measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, the increment driver restricted to `sng_judy_4m` by the host-side wrapper of the attribution diagnostics above, G main `09681eb51` plus this change's `mutate.rs` diff, uncommitted at the time (sha256 `fb253d1e…`), M main `09681eb51` (`255fb9d2…`), both aligned builds, S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_remove_drain_ref_run{1,2}.json`) (workload: `sng_judy_4m`) An unregistered diagnostic, two runs of 12 rounds on 2026-11-24 under the host bench lock, 16:01:37–16:04:32 and 16:19:05–16:22:00 UTC, no process discarded, max load1 3.35 and 3.81 against a void limit of 12. `judy-delete-operations-per-sec`, BCa 95% (some intervals are the estimator's bias-corrected construction; each artifact row names its own), run 1 | run 2:
+
+  | W | G/M | G/S | M/S |
+  |---|---|---|---|
+  | 1 | 1.082 [1.079, 1.087] \| 1.083 [1.080, 1.088] | 1.012 [1.009, 1.018] \| 1.014 [1.011, 1.017] | 0.935 [0.932, 0.940] \| 0.936 [0.932, 0.939] |
+  | 2 | 1.081 [1.076, 1.086] \| 1.081 [1.078, 1.085] | 1.016 [1.012, 1.020] \| 1.016 [1.012, 1.020] | 0.940 [0.937, 0.943] \| 0.940 [0.937, 0.942] |
+  | 4 | 1.076 [1.069, 1.084] \| 1.087 [1.080, 1.094] | 0.999 [0.993, 1.005] \| 1.006 [1.000, 1.013] | 0.928 [0.921, 0.934] \| 0.925 [0.919, 0.932] |
+  | 8 | 1.075 [1.074, 1.077] \| 1.076 [1.073, 1.078] | 1.026 [1.024, 1.028] \| 1.027 [1.025, 1.029] | 0.954 [0.953, 0.956] \| 0.955 [0.954, 0.957] |
+
+- In the same two runs, `judy-insert-operations-per-sec` G/M reads 0.992 to 1.005; its interval lies below 1 in one run and not the other at W = 1 ([0.994, 0.998] in run 2), W = 2 ([0.988, 0.997] in run 2) and W = 8 ([0.994, 0.998] in run 1). `judy-find-operations-per-sec` G/M reads 0.987 to 1.010, below 1 in one run at W = 2 ([0.973, 0.998] in run 2).
+- **A discarded run.** A run between the two (the driver's scratch run 32) was stopped in its eighth round by a login to the host and is discarded whole; the second artifact is its replacement (scratch run 33, the artifact's `provenance.run`).
+- No other stress-ng cell, no second-host run, and no CI job has measured this change.
+
+**Derived before the runs.**
+
+- If cycles per delete followed instructions on `gen_4m`, the delete rate would rise by 1 / (1 − 0.0426) = 1.044. The target floor below is 1.03, under that figure.
+- The diagnostic's G/M of 1.075 to 1.087 is above 1.044. The excess is not explained: the fall in simulated read misses is a count on the Callgrind arm, not a measurement on stress-ng; the cause is unknown and unmeasured.
+- The floor and the stock-side prediction were written after the diagnostic above was read. The instrument is wall clock on fresh processes and the registered runs are new, so they remain predictions, informed and not blind.
+
+**Definitions.** G (the PR head), M (its merge base on main), S, the cells, the metrics and the verdict rule are those of [`METHODOLOGY.md`](METHODOLOGY.md) §4–§8 and of `scripts/diag_increment.py`: two-sample BCa 95% intervals of the ratio of means over each run's 12 rounds, two independent runs per host, every cell of §5. *Instruction change* is an arm's change against main in the named CI job.
+
+**Hygiene, beyond METHODOLOGY.md §7.**
+
+- A run during which a login is made to the host, or a bench workflow starts, is void and is replaced whole; the replacement and its reason are disclosed.
+- The cells whose processes are shorter than the load window's minimum read load by the opt-in round window of PR 1778 (owner decision). The registered runs start only from a harness that contains that change.
+- If the head changes after a run, both runs on that host are taken again on the new head.
+
+**Target, all of which must hold.**
+
+- T1, reference host (Intel Core i9-12900F): `sng_judy_4m` `judy-delete-operations-per-sec` G/M lower end above 1.03 in both runs, at each of W = 1, 2, 4 and 8.
+- T2, second host (AMD Ryzen 9 9955HX): the same. That host runs only with the owner's approval (METHODOLOGY.md §3); without it, or if its bench lock is not free, T2 is pending and the verdict says so.
+- T3, deterministic: `map_remove_revgen` `gen_4m`, `gen_256k` and `gen_1k` each read below main's count in the PR's `instruction-counts` job.
+
+**Bounds, every one of which must hold.**
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| `git diff` against the merge base | `crates/`, `include/` | `crates/expanse/src/mutate.rs` only |
+| x86-64 deterministic, x86-64 smoke and AArch64 Callgrind; wasm32 and wasm64 fuel | every arm | ≤ +0.1% against main |
+| stress-ng, both hosts | `sng_judy_4m` `judy-insert-operations-per-sec`, every W (L2, named as the likeliest falsifier) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every other primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every primary cell-metric (L1b) | not SLOWER against stock where the merge base is FASTER or EQUIVALENT and G/M is SLOWER |
+| `memory-budget` | every row | unchanged |
+| CI | workspace tests (`PROPTEST_CASES=500`), Tier-1 Miri, ASan, loom, `differential-oracle`, `php-judy-*` | pass |
+
+**The comparison with stock, reported under its own label and not gated.** `sng_judy_4m` `judy-delete-operations-per-sec` G/S: *BEAT* if the lower end is above 1.0 in both runs at every W on both hosts; *INTERMEDIATE* if that holds on one host or at some W only; *NOT MET* otherwise. Predicted on the reference host: the lower end is above 1.0 in both runs at W = 1, 2 and 8. W = 4 on the reference host and every W on the second host are not predicted. The delete cells at 1 Ki and 256 Ki keys are reported and not predicted.
+
+**Not predicted.** Every magnitude on the second host; G/M on the 1 Ki and 256 Ki cells and on both sparsematrix families; every `max-rss` ratio.
+
+**Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved (§8.19). A PASS with T2 pending is recorded as PASS on the reference host only. The PR carries no `allow-regression:` line.
+
+Refs #1679, #1680.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
