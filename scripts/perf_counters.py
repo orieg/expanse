@@ -752,9 +752,10 @@ def run_cell(
                 hugetlb=hugetlb,
             )
             rc, csv_text, out, err = run_perf(events, [str(workload)], env, pin=pin)
-            if rc != 0:
+            why = phase_failure(rc, out, err)
+            if why:
                 raise Preflight(
-                    f"the workload exited {rc} for {cell_id(arm, pop, hit_pct)} phase={phase}. "
+                    f"the workload failed for {cell_id(arm, pop, hit_pct)} phase={phase}: {why}. "
                     "A partial sweep is not a result.\n"
                     f"  stdout: {out.strip()[:300]}\n  stderr: {err.strip()[:300]}"
                 )
@@ -767,6 +768,44 @@ def run_cell(
     thp_post = read_thp_vmstat()
     thp_delta = {k: thp_post.get(k, 0) - thp_pre.get(k, 0) for k in thp_post}
     return phases, thp_delta
+
+
+# What a workload's stderr carries when it died rather than exited: a Rust
+# panic message (the release profile aborts on panic) or the shell's and perf's
+# reports of a fatal signal.
+DEATH_MARKERS = ("panicked at", "terminated by signal", "Aborted", "core dumped",
+                 "Segmentation fault", "Killed")
+
+
+def has_ops_echo(shape: str) -> bool:
+    """Whether a workload's echo line carries its `ops=` field."""
+    return any(f.startswith("ops=") and f[4:].isdigit() for f in shape.split())
+
+
+def phase_failure(rc: int, out: str, err: str) -> str | None:
+    """Why one phase's process is not a measurement, or None.
+
+    `perf stat`'s exit status is not the workload's: a workload that aborts
+    (panic = "abort") or dies on a signal can leave perf exiting 0 with an
+    empty stdout, and its counts are then process setup with no workload in
+    them. #1682 A2's first run recorded every stock cell that way (no echo,
+    exit 0, probe - build about 0 cycles). Every workload this driver wraps
+    prints an `ops=` echo in both phases, so its absence is a failure,
+    whatever the exit status says.
+    """
+    if rc != 0:
+        return f"exit status {rc}"
+    if not has_ops_echo(out):
+        return "no `ops=` echo on stdout (the workload did not complete)"
+    for marker in DEATH_MARKERS:
+        if marker in err:
+            return f"stderr reports {marker!r}"
+    return None
+
+
+def void_cells(doc: dict) -> list[str]:
+    """Cells of a written artifact whose probe echo lacks `ops=`."""
+    return [c["id"] for c in doc.get("cells", []) if not has_ops_echo(c.get("workload_echo", ""))]
 
 
 def echoed_ops(shape: str, default: int) -> int:
@@ -1147,10 +1186,23 @@ def main() -> int:
     )
     ap.add_argument("--preflight-only", action="store_true")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument(
+        "--check-artifact",
+        metavar="JSON",
+        help="exit 1 if any cell of a written artifact has no `ops=` echo (a void cell)",
+    )
     args = ap.parse_args()
 
     if args.self_test:
         return self_test()
+    if args.check_artifact:
+        bad = void_cells(json.loads(Path(args.check_artifact).read_text(encoding="utf-8")))
+        if bad:
+            print(f"::error::{args.check_artifact}: void cell(s) with no `ops=` echo: "
+                  f"{', '.join(bad)}", file=sys.stderr)
+            return 1
+        print(f"{args.check_artifact}: every cell carries its `ops=` echo")
+        return 0
 
     wl = WORKLOADS[args.workload]
     for field in ("arms", "pops", "hit_pcts"):
@@ -1506,6 +1558,20 @@ def self_test() -> int:
 
     _self_test_coscheduled_zero()
     _self_test_zero_in_every_run()
+
+    # A phase is judged by its echo, not by perf's exit status. The #1682 A2
+    # void-run shape: exit 0 and an empty stdout.
+    assert phase_failure(0, "", "") is not None
+    assert phase_failure(0, "\n", "") is not None
+    assert phase_failure(0, "arm=stock pop=10000 passes=1 sink=1", "") is not None
+    assert phase_failure(0, "arm=stock pop=10000 passes=1 ops=120002 sink=1", "") is None
+    assert phase_failure(0, "arm=stock pop=10000 passes=1 ops=120002 sink=1",
+                         "thread 'main' panicked at colour_map.rs") is not None
+    assert phase_failure(1, "arm=stock pop=10000 passes=1 ops=120002 sink=1", "") is not None
+    void_doc = {"cells": [{"id": "stock/pop=10000/hit=100", "workload_echo": ""},
+                          {"id": "expanse_dl/pop=10000/hit=100",
+                           "workload_echo": "arm=expanse_dl pop=10000 passes=1 ops=120002 sink=7"}]}
+    assert void_cells(void_doc) == ["stock/pop=10000/hit=100"], void_cells(void_doc)
 
     # --hugetlb flag handling and provenance
     assert _workload_env({}, hugetlb=True).get("GLIBC_TUNABLES") == "glibc.malloc.hugetlb=1"

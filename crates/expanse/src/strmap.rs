@@ -715,6 +715,64 @@ fn push_terminal(out: &mut Vec<u8>, chunk: u64) {
     out.truncate(len);
 }
 
+/// The [`OnFound`](crate::get::OnFound) of an ordered search's point lookup
+/// of a non-terminal chunk `target` (forward when `FWD`). Its result comes
+/// back from [`MapCore::get_near`] in two words, so in registers:
+///
+/// - `(v, 0)` with `v != 0`: the chunk's entry `v` is the search's next step,
+///   a continuation to descend into or a suffix leaf on the key's side.
+/// - `(k, w)` with `w != 0`: the chunk holds a suffix leaf the key passes
+///   over, and `(k, w)` is the neighbouring entry in the direction of the
+///   search, read from the leaf the lookup searched.
+/// - `(0, 0)`: the chunk is absent (the lookup's miss value), or its
+///   neighbour is not in that leaf; the search finds the neighbour by
+///   descent.
+///
+/// `v` is never 0: continuation and suffix values are non-null pointers. `w`
+/// is the neighbour's value, except that 0 is reported as 1: only a terminal
+/// chunk's value can be 0, and `take_from` reads a terminal chunk's slot by
+/// lookup rather than from the value it is handed.
+#[derive(Clone, Copy)]
+struct NearStep<'a, const FWD: bool> {
+    /// The searched key, and the offset of the chunk `target` in it: a
+    /// suffix leaf is compared to the key's bytes after the chunk.
+    key: &'a [u8],
+    off: usize,
+    target: u64,
+    exclusive: bool,
+}
+
+impl<const FWD: bool> crate::get::OnFound<(u64, u64)> for NearStep<'_, FWD> {
+    #[inline(always)]
+    fn found(self, v: u64, pos: crate::get::LeafPos) -> (u64, u64) {
+        debug_assert_ne!(v, 0, "a non-terminal entry is a non-null pointer");
+        if !is_suffix_ptr(v) {
+            return (v, 0);
+        }
+        let (key, off) = (self.key, self.off);
+        let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
+        // SAFETY: a suffix-tagged value is a live suffix leaf; raw provenance
+        // over its bytes.
+        let cmp = rem.cmp(unsafe { suffix_bytes(unpack_suffix(v)) });
+        // Does the key pass over the suffix leaf in the search's direction?
+        let past = match (FWD, self.exclusive) {
+            (true, true) => cmp != core::cmp::Ordering::Less,
+            (true, false) => cmp == core::cmp::Ordering::Greater,
+            (false, true) => cmp != core::cmp::Ordering::Greater,
+            (false, false) => cmp == core::cmp::Ordering::Less,
+        };
+        if !past {
+            return (v, 0);
+        }
+        // SAFETY: `pos` comes from the lookup of `target` that found `v`, and
+        // an ordered search does not mutate the map.
+        match unsafe { pos.neighbour::<FWD>(self.target) } {
+            Some((k, w)) => (k, w.max(1)),
+            None => (0, 0),
+        }
+    }
+}
+
 /// The `*_into` searches' result: the key's length and slot when it fitted
 /// in the buffer, or its length alone when it did not.
 #[inline(always)]
@@ -1357,32 +1415,32 @@ impl StrNode {
             // SAFETY: `self`, then continuation values — all live nodes.
             let n = unsafe { &*node };
             let (target, target_terminal) = chunk_at(key, off);
-            // Exact continuation first, by point lookup, as
-            // `prev_at_or_before` does: a range search here and a second one
-            // for the sibling when the suffix sorts below the target cost two
-            // ordered walks of the word map where one suffices.
-            if !target_terminal && let Some(v) = n.map.get(target) {
-                let chunk = target;
-                if is_suffix_ptr(v) {
-                    let sfx = unpack_suffix(v);
-                    // SAFETY: live suffix leaf, raw provenance over the bytes.
-                    let bytes = unsafe { suffix_bytes(sfx) };
-                    let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
-                    if if EXCLUSIVE { rem < bytes } else { rem <= bytes } {
+            // Exact chunk first, by point lookup. A suffix leaf there that
+            // sorts below the key sends the search to the chunk's successor in
+            // this word map; the lookup hands that over from the leaf it found
+            // the chunk in (`NearStep`), so only a chunk at the end of its
+            // leaf pays the second descent of `next_after`.
+            if !target_terminal {
+                let step = NearStep::<true> {
+                    key,
+                    off,
+                    target,
+                    exclusive: EXCLUSIVE,
+                };
+                let (a, w) = n.map.get_near(target, (0, 0), step);
+                if w == 0 && a != 0 {
+                    let (chunk, v) = (target, a);
+                    if is_suffix_ptr(v) {
+                        let sfx = unpack_suffix(v);
                         out.extend_from_slice(&chunk.to_be_bytes());
-                        out.extend_from_slice(bytes);
+                        // SAFETY: live suffix leaf, raw provenance over the bytes.
+                        out.extend_from_slice(unsafe { suffix_bytes(sfx) });
                         // SAFETY: field-precise pointer to the value word.
                         return Some(
                             NonNull::new(unsafe { &raw mut (*sfx).value })
                                 .expect("non-null value slot"),
                         );
                     }
-                    // Suffix is strictly less than target key remainder; resume at next sibling.
-                    let sibling = n.map.next_after(target);
-                    if let Some(slot) = n.take_from::<true, _>(sibling, out) {
-                        return Some(slot);
-                    }
-                } else {
                     // Exact continuation: the answer, if there is one, is
                     // deeper. Record where to resume if it is not.
                     stack.push((node, target, out.len()));
@@ -1391,10 +1449,20 @@ impl StrNode {
                     off += CHUNK;
                     continue;
                 }
+                // The successor of the chunk: read from the leaf, or by
+                // descent. An absent chunk has the same successor.
+                let sibling = if w != 0 {
+                    Some((a, w))
+                } else {
+                    n.map.next_after(target)
+                };
+                if let Some(slot) = n.take_from::<true, _>(sibling, out) {
+                    return Some(slot);
+                }
             } else {
-                // Then entries at or past the target chunk in this node. A
-                // terminal exclusive target must not match itself.
-                let cursor = if target_terminal && EXCLUSIVE {
+                // Entries at or past the terminal target chunk in this node.
+                // An exclusive target must not match itself.
+                let cursor = if EXCLUSIVE {
                     n.map.next_after(target)
                 } else {
                     n.map.next_at_or_after(target)
@@ -1439,47 +1507,52 @@ impl StrNode {
             // SAFETY: as in `next_at_or_after`.
             let n = unsafe { &*node };
             let (target, target_terminal) = chunk_at(key, off);
-            // Exact continuation first: deeper entries share this chunk
-            // and all sort above anything below it in this node.
-            if !target_terminal && let Some(v) = n.map.get(target) {
-                if is_suffix_ptr(v) {
-                    let sfx = unpack_suffix(v);
-                    // SAFETY: live suffix leaf, raw provenance over the bytes.
-                    let bytes = unsafe { suffix_bytes(sfx) };
-                    let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
-                    let cmp = rem.cmp(bytes);
-                    let match_ok = if exclusive {
-                        cmp == core::cmp::Ordering::Greater
-                    } else {
-                        cmp != core::cmp::Ordering::Less
-                    };
-                    if match_ok {
+            // Exact chunk first: deeper entries share this chunk and all sort
+            // above anything below it in this node. A suffix leaf above the
+            // key sends the search to the chunk's predecessor, taken from the
+            // lookup's leaf as in `next_at_or_after`.
+            if !target_terminal {
+                let step = NearStep::<false> {
+                    key,
+                    off,
+                    target,
+                    exclusive,
+                };
+                let (a, w) = n.map.get_near(target, (0, 0), step);
+                if w == 0 && a != 0 {
+                    let v = a;
+                    if is_suffix_ptr(v) {
+                        let sfx = unpack_suffix(v);
                         out.extend_from_slice(&target.to_be_bytes());
-                        out.extend_from_slice(bytes);
+                        // SAFETY: live suffix leaf, raw provenance over the bytes.
+                        out.extend_from_slice(unsafe { suffix_bytes(sfx) });
                         // SAFETY: field-precise pointer to the value word.
                         return Some(
                             NonNull::new(unsafe { &raw mut (*sfx).value })
                                 .expect("non-null value slot"),
                         );
                     }
-                    let sibling = n.map.prev_before(target);
-                    if let Some(slot) = n.take_from::<false, _>(sibling, out) {
-                        return Some(slot);
-                    }
-                } else {
                     stack.push((node, target, out.len()));
                     out.extend_from_slice(&target.to_be_bytes());
                     node = unpack_child(v);
                     off += CHUNK;
                     continue;
                 }
-            } else {
-                // Then entries at or below the target chunk in this node. A
-                // terminal exclusive target must not match itself.
-                let cursor = if target_terminal && !exclusive {
-                    n.map.prev_at_or_before(target)
+                let sibling = if w != 0 {
+                    Some((a, w))
                 } else {
                     n.map.prev_before(target)
+                };
+                if let Some(slot) = n.take_from::<false, _>(sibling, out) {
+                    return Some(slot);
+                }
+            } else {
+                // Entries at or below the terminal target chunk in this node.
+                // An exclusive target must not match itself.
+                let cursor = if exclusive {
+                    n.map.prev_before(target)
+                } else {
+                    n.map.prev_at_or_before(target)
                 };
                 if let Some(slot) = n.take_from::<false, _>(cursor, out) {
                     return Some(slot);
@@ -5691,6 +5764,69 @@ mod tests {
     fn tk<B: AsRef<[u8]> + ?Sized>(bytes: &B) -> &NulFreeStr {
         NulFreeStr::new(bytes.as_ref()).expect("test key contains a NUL")
     }
+    /// An ordered search that passes over a suffix leaf takes the chunk's
+    /// neighbour from the lookup's leaf (`NearStep`). Here every such
+    /// neighbour is a terminal chunk whose value is 0, the one value a
+    /// neighbour can carry that `NearStep`'s two-word result must not confuse
+    /// with "no neighbour": over a root-leaf word map and a tree, each search
+    /// must agree with a `BTreeMap`.
+    #[test]
+    fn ordered_search_takes_zero_valued_terminal_neighbours() {
+        use std::collections::BTreeMap;
+        for n in [6u32, 400] {
+            let mut m = ExpanseStrMap::new();
+            let mut model = BTreeMap::new();
+            for i in 0..n {
+                // An 8-byte chunk holding a suffix leaf, then a 7-byte key
+                // (a terminal chunk) that sorts right after it.
+                let sfx = format!("{i:07}aXYZ").into_bytes();
+                let term = format!("{:07}", i + 1).into_bytes();
+                m.insert(tk(&sfx), u64::from(i) + 1);
+                m.insert(tk(&term), 0);
+                model.insert(sfx, u64::from(i) + 1);
+                model.insert(term, 0);
+            }
+            let read = |r: Option<(Vec<u8>, NonNull<u64>)>| {
+                // SAFETY: the slot is live; `m` is not mutated meanwhile.
+                r.map(|(k, slot)| (k, unsafe { *slot.as_ptr() }))
+            };
+            for i in 0..n {
+                let up = format!("{i:07}aXZ").into_bytes();
+                let want = model
+                    .range::<[u8], _>((
+                        std::ops::Bound::Excluded(&up[..]),
+                        std::ops::Bound::Unbounded,
+                    ))
+                    .next()
+                    .map(|(k, v)| (k.clone(), *v));
+                assert_eq!(read(m.next_after(tk(&up))), want, "n {n}, next_after {i}");
+                assert_eq!(
+                    read(m.next_at_or_after(tk(&up))),
+                    want,
+                    "n {n}, next_at_or_after {i}"
+                );
+                let down = format!("{i:07}aXA").into_bytes();
+                let want = model
+                    .range::<[u8], _>((
+                        std::ops::Bound::Unbounded,
+                        std::ops::Bound::Excluded(&down[..]),
+                    ))
+                    .next_back()
+                    .map(|(k, v)| (k.clone(), *v));
+                assert_eq!(
+                    read(m.prev_before(tk(&down))),
+                    want,
+                    "n {n}, prev_before {i}"
+                );
+                assert_eq!(
+                    read(m.prev_at_or_before(tk(&down))),
+                    want,
+                    "n {n}, prev_at_or_before {i}"
+                );
+            }
+        }
+    }
+
     /// Keys that exercise every entry form the cursor has to walk: resolved
     /// inside a terminal chunk, held in a suffix leaf, and reached through a
     /// chain of child nodes; plus shared prefixes at each of those depths and

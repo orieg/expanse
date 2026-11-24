@@ -1980,11 +1980,11 @@ The insert rate itself is behind stock on this host for both libraries (G/S 0.97
 
 (measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `50379ff42`, binary `490c0595…`; artifacts `results/diagnostic_increment_first_page_512_ref_run{1,2}.json`) (workloads: every cell of METHODOLOGY.md §5)
 
-The change is pre-registered in METHODOLOGY.md §11 and **fails it**: instruction bounds break on x86-64, AArch64 and wasm64 (CI [run 43751893016](https://github.com/orieg/expanse/actions/runs/43751893016)), and the stress-ng bounds L1b and L2 break on the plain `judy` delete cells below. It is not landed and no bound is moved (AGENTS.md §8.19). These runs are kept because they measure how much of the hashjudy gap is the per-array page floor.
+The change is pre-registered in METHODOLOGY.md §12 and **fails it**: instruction bounds break on x86-64, AArch64 and wasm64 (CI [run 43751893016](https://github.com/orieg/expanse/actions/runs/43751893016)), and the stress-ng bounds L1b and L2 break on the plain `judy` delete cells below. It is not landed and no bound is moved (AGENTS.md §8.19). These runs are kept because they measure how much of the hashjudy gap is the per-array page floor.
 
 Arms: G, the change (`976348246`, libexpanse sha256 `3ca53187…`); M, main's engine (`9b42a88b…`); S, stock (`76f121a8…`). Run 1 ran 20:01:49–20:11:42 UTC on 2026-11-15 and run 2 21:01:28–21:11:22, each under the bench lock; 720 processes per run, none discarded; max load1 4.77 and 5.03 against a void limit of 12; largest foreign load in any window 0.10 core-equivalents.
 
-**The hashjudy cells: the §11 targets are met.** G/M, BCa 95%, run 1 | run 2:
+**The hashjudy cells: the §12 targets are met.** G/M, BCa 95%, run 1 | run 2:
 
 | cell | W | puts/s | max-rss | bogo-ops/s | wall |
 |---|---|---|---|---|---|

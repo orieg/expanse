@@ -217,6 +217,9 @@ CI_METHOD_PRODUCERS = {
     # #1682 measurement (c): the top-node skip's saving per test call, BCa
     # over interleaved process pairs, recorded with its `ci_method`.
     "scripts/colour_top_skip.py",
+    # #1682 step A2: front-end node deltas over paired runs, each interval
+    # recorded with its `ci_method`.
+    "scripts/colour_frontend_analyze.py",
     # #1682 measurement (a): per-category top-down deltas over paired runs,
     # each interval recorded with its `ci_method`.
     "scripts/colour_topdown_analyze.py",
