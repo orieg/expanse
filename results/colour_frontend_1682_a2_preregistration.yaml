@@ -180,3 +180,30 @@ record_requirements: >-
   intervals (tagged measured: host description, commit, artifact), the gate
   outcome per node and population, the verdict (A5/A1/MIXED/VOID), and P0-P3
   against outcome. #1682 stays open either way (Refs, never a closing verb).
+
+# ---------------------------------------------------------------------------
+# Correction, 2026-11-24, appended before any admissible data (the lines above
+# are unchanged, §8.7). No threshold, method, sample size or prediction moves.
+correction_2026_11_24:
+  field: stock_library
+  was: "distro libJudy.so.1, black box (AGENTS.md §3)"
+  now: >-
+    The stock libJudy 1.0.3 build under the bench user's local lib dir
+    (libJudy.so.1 -> libJudy.so.1.0.3, sha256
+    0423c1bb484c979608abb384227d7181e2cb36e1efee7866873b79ed0e19ba0e), loaded
+    through LD_LIBRARY_PATH set to that directory. Still a black box (§3).
+    The host's system library path carries no libJudy.
+  why: >-
+    The first run of the driver (06:48-07:04 UTC, 2026-11-24) was launched
+    without LD_LIBRARY_PATH. The stock arm's dlopen found no libJudy, the
+    workload printed nothing, perf stat exited 0, and perf_counters.py
+    recorded every stock cell as process setup only (empty workload_echo,
+    probe - build about 0 cycles, distinct_probes falling back to the
+    population). All 20 artifacts of that run are void and discarded, not
+    committed; none of their numbers is used. perf_counters.py now refuses a
+    phase without its ops= echo, and the re-run's artifacts are checked with
+    `perf_counters.py --check-artifact` before analysis.
+  syntax_note: >-
+    The `falsifiers:` line under `predictions` sits at the list items' indent,
+    so a strict YAML parser rejects the original file. Its text stands as
+    written; no tool parses this file. This appended block parses on its own.
