@@ -1,0 +1,451 @@
+{
+ "issue": 1682,
+ "step": "A2 static layout",
+ "commit": "39a2d84ac",
+ "objdump": "GNU objdump (GNU Binutils) 2.45.1",
+ "expanse": {
+  "reach_per_entry": {
+   "Judy1Test": {
+    "functions": [
+     "Judy1Test"
+    ],
+    "bytes": 324,
+    "lines_64": 6,
+    "indirect_jumps": 0
+   },
+   "Judy1Set": {
+    "functions": [
+     "<[u8]>::copy_within::<core::ops::range::Range<usize>>",
+     "Judy1Set",
+     "expanse_trie::leaf::locate",
+     "expanse_trie::leaf::lower_bound_fixed::<2>",
+     "expanse_trie::leaf::lower_bound_fixed::<3>",
+     "expanse_trie::leaf::lower_bound_fixed::<4>",
+     "expanse_trie::leaf::lower_bound_fixed::<5>",
+     "expanse_trie::leaf::lower_bound_fixed::<6>",
+     "expanse_trie::leaf::lower_bound_fixed::<7>",
+     "expanse_trie::mutate::build_leaf::<false>",
+     "expanse_trie::mutate::insert_with_path_flat",
+     "expanse_trie::mutate::upgrade_b_to_u::<false>",
+     "expanse_trie::mutate::upgrade_l3_to_l7::<false>",
+     "expanse_trie::mutate::upgrade_l7_to_b::<false>",
+     "expanse_trie::mutate::wrap_skip_level::<false>"
+    ],
+    "bytes": 40175,
+    "lines_64": 643,
+    "indirect_jumps": 12
+   },
+   "Judy1Unset": {
+    "functions": [
+     "<core::iter::adapters::take::Take<core::iter::adapters::enumerate::Enumerate<core::slice::iter::Iter<u8>>> as core::iter::traits::iterator::Iterator>::nth",
+     "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+     "Judy1Unset",
+     "core::ptr::drop_glue::<alloc::boxed::Box<expanse_trie::set::ExpanseSet>>",
+     "expanse_trie::bits::find_byte_8",
+     "expanse_trie::leaf::locate",
+     "expanse_trie::leaf::lower_bound_fixed::<7>",
+     "expanse_trie::mutate::build_leaf::<false>",
+     "expanse_trie::mutate::downgrade_b_to_l7::<false>",
+     "expanse_trie::mutate::downgrade_l7_to_l3::<false>",
+     "expanse_trie::mutate::downgrade_u_to_b::<false>",
+     "expanse_trie::mutate::free_branch_node::<false>",
+     "expanse_trie::mutate::free_subtree::<false, false>",
+     "expanse_trie::mutate::linear_remove_slot",
+     "expanse_trie::mutate::remove::<false, false>",
+     "expanse_trie::nav::next_hit::<false, expanse_trie::nav::Key>"
+    ],
+    "bytes": 24907,
+    "lines_64": 403,
+    "indirect_jumps": 11
+   }
+  },
+  "library": "libexpanse.so",
+  "text_size": 2593187,
+  "entries": {
+   "Judy1Test": {
+    "name": "Judy1Test",
+    "addr": "0x49e50",
+    "size": 324,
+    "entry_align_64": 16,
+    "lines_64": 6,
+    "windows_32": 11,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 3
+   },
+   "Judy1Set": {
+    "name": "Judy1Set",
+    "addr": "0x48db0",
+    "size": 4242,
+    "entry_align_64": 48,
+    "lines_64": 68,
+    "windows_32": 134,
+    "direct_calls": 3,
+    "indirect_jumps": 0,
+    "indirect_calls": 23
+   },
+   "Judy1Unset": {
+    "name": "Judy1Unset",
+    "addr": "0x49fa0",
+    "size": 1846,
+    "entry_align_64": 32,
+    "lines_64": 30,
+    "windows_32": 58,
+    "direct_calls": 3,
+    "indirect_jumps": 0,
+    "indirect_calls": 16
+   }
+  },
+  "reached_functions": [
+   {
+    "name": "expanse_trie::mutate::insert_with_path_flat",
+    "addr": "0xc3ba0",
+    "size": 25921,
+    "entry_align_64": 32,
+    "lines_64": 406,
+    "windows_32": 811,
+    "direct_calls": 14,
+    "indirect_jumps": 9,
+    "indirect_calls": 99
+   },
+   {
+    "name": "expanse_trie::mutate::remove::<false, false>",
+    "addr": "0xaa430",
+    "size": 7669,
+    "entry_align_64": 48,
+    "lines_64": 121,
+    "windows_32": 241,
+    "direct_calls": 14,
+    "indirect_jumps": 3,
+    "indirect_calls": 62
+   },
+   {
+    "name": "Judy1Set",
+    "addr": "0x48db0",
+    "size": 4242,
+    "entry_align_64": 48,
+    "lines_64": 68,
+    "windows_32": 134,
+    "direct_calls": 3,
+    "indirect_jumps": 0,
+    "indirect_calls": 23
+   },
+   {
+    "name": "expanse_trie::nav::next_hit::<false, expanse_trie::nav::Key>",
+    "addr": "0x8b790",
+    "size": 4222,
+    "entry_align_64": 16,
+    "lines_64": 67,
+    "windows_32": 133,
+    "direct_calls": 6,
+    "indirect_jumps": 4,
+    "indirect_calls": 6
+   },
+   {
+    "name": "expanse_trie::mutate::upgrade_l7_to_b::<false>",
+    "addr": "0xa66e0",
+    "size": 2090,
+    "entry_align_64": 32,
+    "lines_64": 34,
+    "windows_32": 66,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 13
+   },
+   {
+    "name": "expanse_trie::leaf::locate",
+    "addr": "0xc2590",
+    "size": 2087,
+    "entry_align_64": 16,
+    "lines_64": 33,
+    "windows_32": 66,
+    "direct_calls": 1,
+    "indirect_jumps": 1,
+    "indirect_calls": 0
+   },
+   {
+    "name": "Judy1Unset",
+    "addr": "0x49fa0",
+    "size": 1846,
+    "entry_align_64": 32,
+    "lines_64": 30,
+    "windows_32": 58,
+    "direct_calls": 3,
+    "indirect_jumps": 0,
+    "indirect_calls": 16
+   },
+   {
+    "name": "expanse_trie::mutate::build_leaf::<false>",
+    "addr": "0xa3d80",
+    "size": 1733,
+    "entry_align_64": 0,
+    "lines_64": 28,
+    "windows_32": 55,
+    "direct_calls": 0,
+    "indirect_jumps": 1,
+    "indirect_calls": 9
+   },
+   {
+    "name": "expanse_trie::mutate::downgrade_b_to_l7::<false>",
+    "addr": "0xa8e20",
+    "size": 1629,
+    "entry_align_64": 32,
+    "lines_64": 26,
+    "windows_32": 51,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 9
+   },
+   {
+    "name": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+    "addr": "0xa7e80",
+    "size": 1579,
+    "entry_align_64": 0,
+    "lines_64": 25,
+    "windows_32": 50,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 12
+   },
+   {
+    "name": "expanse_trie::mutate::free_subtree::<false, false>",
+    "addr": "0xa4450",
+    "size": 1381,
+    "entry_align_64": 16,
+    "lines_64": 22,
+    "windows_32": 44,
+    "direct_calls": 12,
+    "indirect_jumps": 1,
+    "indirect_calls": 10
+   },
+   {
+    "name": "<expanse_trie::set::ExpanseSet>::condense_to_root_leaf::<false>",
+    "addr": "0x5f4f0",
+    "size": 1202,
+    "entry_align_64": 48,
+    "lines_64": 20,
+    "windows_32": 39,
+    "direct_calls": 2,
+    "indirect_jumps": 0,
+    "indirect_calls": 12
+   },
+   {
+    "name": "expanse_trie::mutate::upgrade_l3_to_l7::<false>",
+    "addr": "0xa8510",
+    "size": 1020,
+    "entry_align_64": 16,
+    "lines_64": 17,
+    "windows_32": 33,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 4
+   },
+   {
+    "name": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+    "addr": "0xa5e90",
+    "size": 861,
+    "entry_align_64": 16,
+    "lines_64": 14,
+    "windows_32": 28,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 6
+   },
+   {
+    "name": "expanse_trie::mutate::wrap_skip_level::<false>",
+    "addr": "0xa7920",
+    "size": 584,
+    "entry_align_64": 32,
+    "lines_64": 10,
+    "windows_32": 19,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 8
+   },
+   {
+    "name": "expanse_trie::mutate::linear_remove_slot",
+    "addr": "0xc3a00",
+    "size": 402,
+    "entry_align_64": 0,
+    "lines_64": 7,
+    "windows_32": 13,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 2
+   },
+   {
+    "name": "expanse_trie::leaf::lower_bound_fixed::<7>",
+    "addr": "0x8e070",
+    "size": 330,
+    "entry_align_64": 48,
+    "lines_64": 6,
+    "windows_32": 11,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 0
+   },
+   {
+    "name": "expanse_trie::mutate::downgrade_l7_to_l3::<false>",
+    "addr": "0xa9480",
+    "size": 327,
+    "entry_align_64": 0,
+    "lines_64": 6,
+    "windows_32": 11,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 3
+   },
+   {
+    "name": "Judy1Test",
+    "addr": "0x49e50",
+    "size": 324,
+    "entry_align_64": 16,
+    "lines_64": 6,
+    "windows_32": 11,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 3
+   },
+   {
+    "name": "expanse_trie::leaf::lower_bound_fixed::<2>",
+    "addr": "0x8dba0",
+    "size": 271,
+    "entry_align_64": 32,
+    "lines_64": 5,
+    "windows_32": 9,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 0
+   },
+   {
+    "name": "expanse_trie::leaf::lower_bound_fixed::<5>",
+    "addr": "0x8de70",
+    "size": 246,
+    "entry_align_64": 48,
+    "lines_64": 5,
+    "windows_32": 9,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 0
+   },
+   {
+    "name": "expanse_trie::leaf::lower_bound_fixed::<6>",
+    "addr": "0x8df70",
+    "size": 246,
+    "entry_align_64": 48,
+    "lines_64": 5,
+    "windows_32": 9,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 0
+   },
+   {
+    "name": "expanse_trie::leaf::lower_bound_fixed::<3>",
+    "addr": "0x8dcb0",
+    "size": 233,
+    "entry_align_64": 48,
+    "lines_64": 5,
+    "windows_32": 8,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 0
+   },
+   {
+    "name": "expanse_trie::leaf::lower_bound_fixed::<4>",
+    "addr": "0x8dda0",
+    "size": 197,
+    "entry_align_64": 32,
+    "lines_64": 4,
+    "windows_32": 7,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 0
+   },
+   {
+    "name": "expanse_trie::bits::find_byte_8",
+    "addr": "0xc23b0",
+    "size": 142,
+    "entry_align_64": 48,
+    "lines_64": 3,
+    "windows_32": 5,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 0
+   },
+   {
+    "name": "core::ptr::drop_glue::<alloc::boxed::Box<expanse_trie::set::ExpanseSet>>",
+    "addr": "0xac3e0",
+    "size": 138,
+    "entry_align_64": 32,
+    "lines_64": 3,
+    "windows_32": 5,
+    "direct_calls": 0,
+    "indirect_jumps": 1,
+    "indirect_calls": 5
+   },
+   {
+    "name": "<core::iter::adapters::take::Take<core::iter::adapters::enumerate::Enumerate<core::slice::iter::Iter<u8>>> as core::iter::traits::iterator::Iterator>::nth",
+    "addr": "0xcfb50",
+    "size": 126,
+    "entry_align_64": 16,
+    "lines_64": 3,
+    "windows_32": 5,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 0
+   },
+   {
+    "name": "<[u8]>::copy_within::<core::ops::range::Range<usize>>",
+    "addr": "0x554e0",
+    "size": 114,
+    "entry_align_64": 32,
+    "lines_64": 3,
+    "windows_32": 4,
+    "direct_calls": 0,
+    "indirect_jumps": 1,
+    "indirect_calls": 3
+   },
+   {
+    "name": "expanse_trie::mutate::free_branch_node::<false>",
+    "addr": "0xa84b0",
+    "size": 94,
+    "entry_align_64": 48,
+    "lines_64": 3,
+    "windows_32": 4,
+    "direct_calls": 0,
+    "indirect_jumps": 0,
+    "indirect_calls": 2
+   }
+  ],
+  "reached_total_bytes": 61256,
+  "reached_total_lines_64": 985,
+  "reached_indirect_jumps": 21,
+  "scope_note": "every direct call/jmp target from the three entries, cold paths included; code reached only indirectly is not followed",
+  "function_count_in_library": 1406
+ },
+ "stock": {
+  "library": "libJudy.so.1",
+  "text_size": 275744,
+  "entries": {
+   "Judy1Set": {
+    "addr": "0x313a0",
+    "size": 800,
+    "entry_align_64": 32,
+    "lines_64": 13
+   },
+   "Judy1Test": {
+    "addr": "0x316c0",
+    "size": 5451,
+    "entry_align_64": 0,
+    "lines_64": 86
+   },
+   "Judy1Unset": {
+    "addr": "0x36630",
+    "size": 1199,
+    "entry_align_64": 48,
+    "lines_64": 20
+   }
+  },
+  "scope_note": "symbol table only; stock is never disassembled (AGENTS.md \u00a73)"
+ }
+}
