@@ -509,3 +509,37 @@ return slot;
 ```
 Because `node.map.len()` is an $O(1)$ read of `MapCore`'s population counter, this eliminates an entire trie descent without altering traversal semantics or introducing mutation overhead.
 
+
+### 7.3 Ordered Searches: the Neighbour Comes From the Lookup's Leaf
+`next_at_or_after` / `next_after` and `prev_at_or_before` / `prev_before` (`JudySLFirst`,
+`JudySLNext`, `JudySLLast`, `JudySLPrev`) visit one word map per 8-byte chunk of the key.
+At a non-terminal chunk a point lookup decides between three cases: a continuation (descend),
+a suffix leaf on the key's side of the search (the answer), or a suffix leaf the key passes
+over. In the third case the answer is the chunk's neighbour in the same word map. That
+neighbour is usually the next (previous) entry of the leaf the lookup has just searched, so
+`MapCore::get_near` hands the found key's leaf position to its caller (`get::LeafPos`:
+the slot, the leaf's population, its packed keys and values), and the search reads the
+neighbour from it. Only when the found chunk is the first or last entry of its leaf, or sits
+in a form whose neighbour is not a slot away (a one-key immediate, a bitmap leaf), does the
+search fall back to `next_after` / `prev_before`, a second descent from the word map's root.
+A traversal by `JudySLNext` / `JudySLPrev` over keys held in suffix leaves meets the third
+case on every call, since the key it is handed is the one stored there.
+
+`get_near` shares `get`'s walk (`get::walk_map_impl`, generic over what it does with the
+found value), and `get` instantiates it with a closure that ignores the position.
+
+**Pre-registration (frozen before the first measurement; Refs #1749).** Instrument:
+Callgrind instruction counts, the `vs_stock` harness (workload: capi_vs_stock) and the
+`instructions` harness, base = `origin/main` at the commit this branch starts from, measured
+the same way. The `judysl_next_*` and `judysl_prev_*` arms run 30,000 searches each.
+
+- **G1.** `judysl_next_expanse_dl` and `judysl_prev_expanse_dl` (and their rlib twins
+  `judysl_next_expanse`, `judysl_prev_expanse`) each fall by at least 202 Ir per search
+  against base, that is by at least 6,060,000 Ir per arm.
+- **G2.** Every other `instructions` and `vs_stock` arm stays within +0.1% of base, the
+  `map_get` arms (`sequential`, `random`, `clustered`, `dense_leaf`, `linear_leaf`,
+  `sm_10k`, `sm_1m`), `map_get_slot_ptr`, `map_get_batch`, `sync_map_get` and
+  `judyl_get_expanse*` included. `get` must compile to the code it compiles to on base.
+- The projected saving of 430–460 Ir per search is unmeasured.
+- Thresholds, arms and instrument are fixed here. If G1 or G2 fails, the result is
+  reported as failed; no threshold is moved after a measurement.
