@@ -7,7 +7,11 @@ writes `results/baseline_<host>_run<N>.json`: the run's provenance, and per
 `ci_method`, the valid sample counts and `rounds_raw`, every process verbatim.
 It then prints the §8 verdict table, the headline H, and the timer cross-check.
 
-Usage: analyze.py <host_label> <run1_prefix> <run2_prefix>
+With `--short-window=round`, a process whose own load window has no foreign
+reading is judged on its round window instead (`short_window.py`); every such
+row says so, and the count is printed per run. Without it, nothing changes.
+
+Usage: analyze.py <host_label> <run1_prefix> <run2_prefix> [--short-window=round]
 """
 import json
 import math
@@ -20,6 +24,7 @@ SUITE = Path(__file__).resolve().parent.parent
 REPO_ROOT = SUITE.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from bca_bootstrap import CI_METHOD_BCA, bca_bootstrap_ratio_ci_with_method  # noqa: E402
+import short_window
 
 # `SNG_RESULTS_DIR` redirects the artifacts, so a dry run over old rows never
 # writes into the committed results directory.
@@ -39,6 +44,9 @@ def shown(path):
 
 FOREIGN_MAX = 0.5
 MIN_VALID = 8
+# Set by `--short-window=round` (`take_short_window_flag`). While it is False,
+# `valid` reads the process window alone and no artifact gains a field.
+SHORT_WINDOW = False
 PRIMARY = {
     "sng_judy": ["judy-insert-operations-per-sec", "judy-find-operations-per-sec",
                  "judy-delete-operations-per-sec"],
@@ -60,9 +68,43 @@ def value(rec, metric):
 
 
 def valid(rec):
+    foreign = short_window.reading(rec)[0] if SHORT_WINDOW else rec["load"]["foreign_busy_cpus"]
     return (rec["rc"] == 0 and not rec["failed"]
-            and rec["load"]["foreign_busy_cpus"] is not None
-            and rec["load"]["foreign_busy_cpus"] <= FOREIGN_MAX)
+            and foreign is not None
+            and foreign <= FOREIGN_MAX)
+
+
+def take_short_window_flag(args):
+    """`args` without the short-window opt-in, which this switches on if present."""
+    global SHORT_WINDOW
+    unknown = [a for a in args if a.startswith("--short-window") and a != short_window.OPT_IN]
+    if unknown:
+        sys.exit(f"STOP: {unknown[0]} is not {short_window.OPT_IN}")
+    SHORT_WINDOW = short_window.OPT_IN in args
+    return [a for a in args if a != short_window.OPT_IN]
+
+
+def load_rows(recs, prov):
+    """The raw rows, with their round-window fallback blocks under the opt-in."""
+    if SHORT_WINDOW:
+        return short_window.annotate(recs, prov)
+    short_window.refuse_prelabelled(recs)
+    return recs
+
+
+def close_short_window(art, recs):
+    """Under the opt-in: the artifact's count of fallback rows, after the label check."""
+    if SHORT_WINDOW:
+        short_window.require_labelled(art["cells"])
+        art["provenance"]["short_window"] = short_window.summary(recs, valid, FOREIGN_MAX)
+    return art
+
+
+def write_artifact(dest, art):
+    """Writes one run's artifact; the opt-in never replaces one written without it."""
+    if SHORT_WINDOW:
+        short_window.refuse_overwrite(dest)
+    dest.write_text(json.dumps(art, indent=1) + "\n")
 
 
 def run_void(prov):
@@ -75,6 +117,7 @@ def run_void(prov):
 def analyse_run(prefix):
     recs = [json.loads(line) for line in open(f"{prefix}.jsonl")]
     prov = json.loads(Path(f"{prefix}.provenance.json").read_text())
+    load_rows(recs, prov)
     by = defaultdict(list)
     for r in recs:
         by[(r["cell"], r["w"], r["arm"])].append(r)
@@ -98,12 +141,13 @@ def analyse_run(prefix):
             out["rounds_raw"] = [
                 {"round": r["round"], "arm": r["arm"], "value": value(r, metric) if r["metrics"] else None,
                  "valid": valid(r), "foreign_busy_cpus": r["load"]["foreign_busy_cpus"],
-                 "wall_s": r["wall"], "rc": r["rc"]}
+                 "wall_s": r["wall"], "rc": r["rc"],
+                 **(short_window.row_fields(r) if SHORT_WINDOW else {})}
                 for r in sorted(by[(cell, w, "S")] + by[(cell, w, "E")], key=lambda r: (r["round"], r["arm"]))]
             cells.append(out)
     void, worst, limit = run_void(prov)
     prov["void"] = {"void": void, "max_load1": worst, "limit": limit}
-    return {"provenance": prov, "cells": cells}, recs
+    return close_short_window({"provenance": prov, "cells": cells}, recs), recs
 
 
 def verdict(cis):
@@ -117,16 +161,19 @@ def verdict(cis):
 
 
 def main():
-    host, prefixes = sys.argv[1], sys.argv[2:4]
+    args = take_short_window_flag(sys.argv[1:])
+    host, prefixes = args[0], args[1:3]
     arts = []
     for n, prefix in enumerate(prefixes, 1):
         art, recs = analyse_run(prefix)
         dest = RESULTS / f"baseline_{host}_run{n}.json"
-        dest.write_text(json.dumps(art, indent=1) + "\n")
+        write_artifact(dest, art)
         disc = [r for r in recs if not valid(r)]
         v = art["provenance"]["void"]
         print(f"run {n}: {len(recs)} processes, {len(disc)} discarded; max load1 {v['max_load1']} "
               f"(void above {v['limit']}): {'VOID' if v['void'] else 'valid'} -> {shown(dest)}")
+        if SHORT_WINDOW:
+            print(short_window.summary_line(n, art["provenance"]["short_window"]))
         arts.append(art)
     if any(a["provenance"]["void"]["void"] for a in arts):
         sys.exit("a run is void (METHODOLOGY.md §7); no verdict")
