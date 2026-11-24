@@ -1361,24 +1361,45 @@ impl StrNode {
             // `prev_at_or_before` does: a range search here and a second one
             // for the sibling when the suffix sorts below the target cost two
             // ordered walks of the word map where one suffices.
-            if !target_terminal && let Some(v) = n.map.get(target) {
+            //
+            // A suffix leaf that sorts below the key sends the search to the
+            // chunk's successor in this word map. The lookup hands that over
+            // from the leaf it found the chunk in (`LeafPos::neighbour`); only
+            // a chunk that is its leaf's last entry pays the second descent
+            // of `next_after`.
+            let hit = if target_terminal {
+                None
+            } else {
+                n.map.get_near(target, |v, pos| {
+                    // `Some` only for a suffix leaf the key passes over.
+                    let past = is_suffix_ptr(v) && {
+                        // SAFETY: live suffix leaf, raw provenance over the bytes.
+                        let bytes = unsafe { suffix_bytes(unpack_suffix(v)) };
+                        let rem =
+                            &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
+                        !if EXCLUSIVE { rem < bytes } else { rem <= bytes }
+                    };
+                    // SAFETY: `pos` comes from this lookup of `target`, and
+                    // the map is not mutated during the search.
+                    (v, past.then(|| unsafe { pos.neighbour::<true>(target) }))
+                })
+            };
+            if let Some((v, past)) = hit {
                 let chunk = target;
                 if is_suffix_ptr(v) {
-                    let sfx = unpack_suffix(v);
-                    // SAFETY: live suffix leaf, raw provenance over the bytes.
-                    let bytes = unsafe { suffix_bytes(sfx) };
-                    let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
-                    if if EXCLUSIVE { rem < bytes } else { rem <= bytes } {
+                    let Some(near) = past else {
+                        let sfx = unpack_suffix(v);
                         out.extend_from_slice(&chunk.to_be_bytes());
-                        out.extend_from_slice(bytes);
+                        // SAFETY: live suffix leaf, raw provenance over the bytes.
+                        out.extend_from_slice(unsafe { suffix_bytes(sfx) });
                         // SAFETY: field-precise pointer to the value word.
                         return Some(
                             NonNull::new(unsafe { &raw mut (*sfx).value })
                                 .expect("non-null value slot"),
                         );
-                    }
-                    // Suffix is strictly less than target key remainder; resume at next sibling.
-                    let sibling = n.map.next_after(target);
+                    };
+                    // The suffix sorts below the key: resume at the next sibling.
+                    let sibling = near.or_else(|| n.map.next_after(target));
                     if let Some(slot) = n.take_from::<true, _>(sibling, out) {
                         return Some(slot);
                     }
@@ -1441,28 +1462,44 @@ impl StrNode {
             let (target, target_terminal) = chunk_at(key, off);
             // Exact continuation first: deeper entries share this chunk
             // and all sort above anything below it in this node.
-            if !target_terminal && let Some(v) = n.map.get(target) {
-                if is_suffix_ptr(v) {
-                    let sfx = unpack_suffix(v);
-                    // SAFETY: live suffix leaf, raw provenance over the bytes.
-                    let bytes = unsafe { suffix_bytes(sfx) };
-                    let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
-                    let cmp = rem.cmp(bytes);
-                    let match_ok = if exclusive {
-                        cmp == core::cmp::Ordering::Greater
-                    } else {
-                        cmp != core::cmp::Ordering::Less
+            // A suffix leaf above the key sends the search to the chunk's
+            // predecessor, taken from the lookup's leaf as in
+            // `next_at_or_after`.
+            let hit = if target_terminal {
+                None
+            } else {
+                n.map.get_near(target, |v, pos| {
+                    // `Some` only for a suffix leaf that sorts above the key.
+                    let past = is_suffix_ptr(v) && {
+                        let rem =
+                            &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
+                        // SAFETY: live suffix leaf, raw provenance over the bytes.
+                        let cmp = rem.cmp(unsafe { suffix_bytes(unpack_suffix(v)) });
+                        if exclusive {
+                            cmp != core::cmp::Ordering::Greater
+                        } else {
+                            cmp == core::cmp::Ordering::Less
+                        }
                     };
-                    if match_ok {
+                    // SAFETY: `pos` comes from this lookup of `target`, and
+                    // the map is not mutated during the search.
+                    (v, past.then(|| unsafe { pos.neighbour::<false>(target) }))
+                })
+            };
+            if let Some((v, past)) = hit {
+                if is_suffix_ptr(v) {
+                    let Some(near) = past else {
+                        let sfx = unpack_suffix(v);
                         out.extend_from_slice(&target.to_be_bytes());
-                        out.extend_from_slice(bytes);
+                        // SAFETY: live suffix leaf, raw provenance over the bytes.
+                        out.extend_from_slice(unsafe { suffix_bytes(sfx) });
                         // SAFETY: field-precise pointer to the value word.
                         return Some(
                             NonNull::new(unsafe { &raw mut (*sfx).value })
                                 .expect("non-null value slot"),
                         );
-                    }
-                    let sibling = n.map.prev_before(target);
+                    };
+                    let sibling = near.or_else(|| n.map.prev_before(target));
                     if let Some(slot) = n.take_from::<false, _>(sibling, out) {
                         return Some(slot);
                     }

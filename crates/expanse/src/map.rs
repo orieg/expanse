@@ -897,6 +897,99 @@ impl MapCore {
         }
     }
 
+    /// The slot of `key` in a root leaf of `pop` sorted keys at `kptr`: the
+    /// search [`Self::get`] and [`Self::get_near`] share.
+    ///
+    /// # Safety
+    ///
+    /// `kptr` points to a live root leaf's `pop` keys.
+    #[inline(always)]
+    unsafe fn root_leaf_slot(kptr: *const u64, pop: usize, key: Key) -> Option<usize> {
+        let at = if pop <= 4 {
+            // SAFETY: root leaf holds `pop` keys.
+            unsafe {
+                if pop >= 1 && *kptr == key {
+                    0
+                } else if pop >= 2 && *kptr.add(1) == key {
+                    1
+                } else if pop >= 3 && *kptr.add(2) == key {
+                    2
+                } else if pop >= 4 && *kptr.add(3) == key {
+                    3
+                } else {
+                    return None;
+                }
+            }
+        } else if pop <= 8 {
+            // SAFETY: root leaf holds `pop` keys.
+            unsafe {
+                if *kptr == key {
+                    0
+                } else if *kptr.add(1) == key {
+                    1
+                } else if *kptr.add(2) == key {
+                    2
+                } else if *kptr.add(3) == key {
+                    3
+                } else if pop >= 5 && *kptr.add(4) == key {
+                    4
+                } else if pop >= 6 && *kptr.add(5) == key {
+                    5
+                } else if pop >= 7 && *kptr.add(6) == key {
+                    6
+                } else if pop >= 8 && *kptr.add(7) == key {
+                    7
+                } else {
+                    return None;
+                }
+            }
+        } else {
+            // SAFETY: root leaf holds `pop` keys.
+            let keys = unsafe { core::slice::from_raw_parts(kptr, pop) };
+            keys.binary_search(&key).ok()?
+        };
+        Some(at)
+    }
+
+    /// [`Self::get`] that also hands the found key's leaf position to
+    /// `found`, whose result it returns: the ordered string searches use it
+    /// to take the found key's neighbour without a second descent
+    /// ([`get::LeafPos::neighbour`]). Nothing is read for the position
+    /// unless `found` uses it.
+    #[inline(always)]
+    pub(crate) fn get_near<R, F: FnOnce(u64, get::LeafPos) -> R>(
+        &self,
+        key: Key,
+        found: F,
+    ) -> Option<R> {
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let pop = *pop;
+                let kptr = ptr.as_ptr().cast::<u64>();
+                // SAFETY: root leaf holds `pop` keys.
+                let at = unsafe { Self::root_leaf_slot(kptr, pop, key) }?;
+                // SAFETY: root leaf values live at values offset.
+                let vptr = unsafe { ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>() };
+                // SAFETY: `at < pop` values live behind the keys.
+                let v = unsafe { *vptr.add(at) };
+                Some(found(
+                    v,
+                    get::LeafPos {
+                        keys: kptr.cast_const().cast::<u8>(),
+                        vals: vptr.cast_const(),
+                        slot: at,
+                        pop,
+                        kb: 8,
+                    },
+                ))
+            }
+            // SAFETY: the trie is maintained by the map mutation engine
+            // and satisfies the lookup contract.
+            Root::Tree { top, .. } => unsafe { get::get_map_near(top, key, 8, found) },
+        }
+    }
+
     /// Returns the value stored for `key`.
     #[inline(always)]
     #[must_use]
@@ -906,49 +999,8 @@ impl MapCore {
             Root::Leaf { ptr, pop } => {
                 let pop = *pop;
                 let kptr = ptr.as_ptr().cast::<u64>();
-                let at = if pop <= 4 {
-                    // SAFETY: root leaf holds `pop` keys.
-                    unsafe {
-                        if pop >= 1 && *kptr == key {
-                            0
-                        } else if pop >= 2 && *kptr.add(1) == key {
-                            1
-                        } else if pop >= 3 && *kptr.add(2) == key {
-                            2
-                        } else if pop >= 4 && *kptr.add(3) == key {
-                            3
-                        } else {
-                            return None;
-                        }
-                    }
-                } else if pop <= 8 {
-                    // SAFETY: root leaf holds `pop` keys.
-                    unsafe {
-                        if *kptr == key {
-                            0
-                        } else if *kptr.add(1) == key {
-                            1
-                        } else if *kptr.add(2) == key {
-                            2
-                        } else if *kptr.add(3) == key {
-                            3
-                        } else if pop >= 5 && *kptr.add(4) == key {
-                            4
-                        } else if pop >= 6 && *kptr.add(5) == key {
-                            5
-                        } else if pop >= 7 && *kptr.add(6) == key {
-                            6
-                        } else if pop >= 8 && *kptr.add(7) == key {
-                            7
-                        } else {
-                            return None;
-                        }
-                    }
-                } else {
-                    // SAFETY: root leaf holds `pop` keys.
-                    let keys = unsafe { core::slice::from_raw_parts(kptr, pop) };
-                    keys.binary_search(&key).ok()?
-                };
+                // SAFETY: root leaf holds `pop` keys.
+                let at = unsafe { Self::root_leaf_slot(kptr, pop, key) }?;
                 // SAFETY: root leaf values live at values offset.
                 let vptr = unsafe { ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>() };
                 // SAFETY: `at < pop` values live behind the keys.

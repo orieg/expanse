@@ -100,6 +100,71 @@ fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) ->
     (0..n).find(|&i| unsafe { crate::mutate::read_packed_fixed::<KB>(ptr, i) } == needle)
 }
 
+/// Where a map lookup found its key: the key's slot among the `pop` sorted
+/// keys of the leaf (or multi-key immediate, or root leaf) that holds it, and
+/// those keys' value array. A found key's neighbour in that leaf is then one
+/// read away ([`LeafPos::neighbour`]), where a second search would descend
+/// from the root again. Forms whose neighbour is not a slot away (a
+/// one-key immediate, a bitmap leaf) report [`LeafPos::NONE`].
+///
+/// Valid only while the tree it was read from is not mutated.
+#[derive(Clone, Copy)]
+pub(crate) struct LeafPos {
+    /// `pop` keys of `kb` bytes, packed as `leaf::search` reads them, or
+    /// full `u64` keys when `kb == 8` (a `MapCore` root leaf).
+    pub(crate) keys: *const u8,
+    /// The `pop` values, parallel to `keys`.
+    pub(crate) vals: *const u64,
+    pub(crate) slot: usize,
+    pub(crate) pop: usize,
+    pub(crate) kb: u8,
+}
+
+impl LeafPos {
+    /// No neighbour information: [`Self::neighbour`] answers `None`.
+    pub(crate) const NONE: Self = Self {
+        keys: core::ptr::null(),
+        vals: core::ptr::null(),
+        slot: 0,
+        pop: 0,
+        kb: 0,
+    };
+
+    /// The entry after (`FWD`) or before the found key `key` in the same
+    /// leaf, as `(key, value)`; `None` when the found key is that leaf's last
+    /// (first) entry or the position is [`Self::NONE`]. `None` therefore
+    /// means "not in this leaf", never "no such entry".
+    ///
+    /// # Safety
+    ///
+    /// `self` came from a lookup of `key` in a tree that has not been
+    /// mutated since.
+    #[inline(always)]
+    pub(crate) unsafe fn neighbour<const FWD: bool>(self, key: Key) -> Option<(Key, u64)> {
+        let s = if FWD {
+            self.slot + 1
+        } else {
+            self.slot.wrapping_sub(1)
+        };
+        if s >= self.pop {
+            return None;
+        }
+        // SAFETY: `s < pop`, and per the contract `keys` and `vals` hold
+        // `pop` live entries of the leaf the lookup found `key` in.
+        unsafe {
+            let k = if self.kb == 8 {
+                *self.keys.cast::<u64>().add(s)
+            } else {
+                // The leaf holds every key sharing `key`'s bytes above its
+                // `kb` low bytes, so the neighbour differs only there.
+                (key & !IMM_MASKS[self.kb as usize])
+                    | crate::mutate::read_packed(self.keys, s, self.kb as usize)
+            };
+            Some((k, *self.vals.add(s)))
+        }
+    }
+}
+
 /// The shared descent; `MAP` selects map flavor (values) over set flavor.
 ///
 /// # Safety
@@ -260,7 +325,12 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
 }
 
 #[inline(always)]
-unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
+unsafe fn walk_map_impl<R, F: FnOnce(u64, LeafPos) -> R>(
+    edge: &Edge,
+    key: Key,
+    level: u8,
+    found: F,
+) -> Option<R> {
     let (mut edge, mut level) = (edge, level);
     loop {
         debug_assert!((1..=8).contains(&level));
@@ -351,7 +421,7 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 // SAFETY: `sub < 8` accesses a valid values subarray pointer.
                 let vals = unsafe { *l.values.as_ptr().add(sub) };
                 // SAFETY: the bit is set, so the value subarray is non-null and holds at least `slot + 1` values.
-                return Some(unsafe { *vals.add(slot) });
+                return Some(found(unsafe { *vals.add(slot) }, LeafPos::NONE));
             }
 
             0x05..=0x0B => {
@@ -365,8 +435,19 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
                 // SAFETY: keys spans pop * lf readable bytes.
                 let slot = (unsafe { leaf::search(keys, pop, lf, key) })?;
+                let vals = base.cast::<u64>();
                 // SAFETY: slot < pop values live at the base.
-                return Some(unsafe { *base.cast::<u64>().add(slot) });
+                let v = unsafe { *vals.add(slot) };
+                return Some(found(
+                    v,
+                    LeafPos {
+                        keys: keys.cast_const(),
+                        vals: vals.cast_const(),
+                        slot,
+                        pop,
+                        kb: lf,
+                    },
+                ));
             }
 
             0x7F => {
@@ -376,7 +457,7 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
             0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
                 let kb = (tag >> 4) as usize;
                 return if ((key ^ edge.aux_word()) & IMM_MASKS[kb]) == 0 {
-                    Some(edge.word0())
+                    Some(found(edge.word0(), LeafPos::NONE))
                 } else {
                     None
                 };
@@ -396,9 +477,19 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 let n = im.key_count() as usize;
                 debug_assert!(kb_usize * n <= 7, "map immediates keep keys in aux");
                 let slot = immed_find(im, edge.aux_bytes(), key)?;
-                let vals = edge.node_ptr().cast::<u64>();
+                let vals = edge.node_ptr().cast::<u64>().cast_const();
                 // SAFETY: multi-key map immediates store a pointer to a live array of `key_count` values in word 0.
-                return Some(unsafe { *vals.add(slot) });
+                let v = unsafe { *vals.add(slot) };
+                return Some(found(
+                    v,
+                    LeafPos {
+                        keys: edge.aux_bytes().as_ptr(),
+                        vals,
+                        slot,
+                        pop: n,
+                        kb: im.key_bytes(),
+                    },
+                ));
             }
         }
     }
@@ -526,7 +617,7 @@ pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     #[cfg(not(all(target_arch = "x86_64", not(target_feature = "popcnt"))))]
     {
         // SAFETY: forwarded caller contract.
-        unsafe { walk_map_impl(edge, key, level) }
+        unsafe { walk_map_impl(edge, key, level, |v, _| v) }
     }
 }
 
@@ -540,7 +631,7 @@ pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 #[inline(never)]
 unsafe fn get_map_swar(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     // SAFETY: forwarded caller contract.
-    unsafe { walk_map_impl(edge, key, level) }
+    unsafe { walk_map_impl(edge, key, level, |v, _| v) }
 }
 
 /// [`get_map`] compiled with `popcnt` — see [`test_set_popcnt`].
@@ -552,7 +643,72 @@ unsafe fn get_map_swar(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 #[target_feature(enable = "popcnt")]
 unsafe fn get_map_popcnt(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     // SAFETY: contract forwarded.
-    unsafe { walk_map_impl(edge, key, level) }
+    unsafe { walk_map_impl(edge, key, level, |v, _| v) }
+}
+
+/// [`get_map`] that also hands the found key's [`LeafPos`] to `found`,
+/// whose result it returns. Nothing is read for the position unless `found`
+/// uses it, so a caller that only needs the neighbour on some hits pays for
+/// it on those alone.
+///
+/// # Safety
+///
+/// Same contract as [`get_map`].
+#[inline(always)]
+pub(crate) unsafe fn get_map_near<R, F: FnOnce(u64, LeafPos) -> R>(
+    edge: &Edge,
+    key: Key,
+    level: u8,
+    found: F,
+) -> Option<R> {
+    #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+    // SAFETY: contracts forwarded — see `test_set` for the shape.
+    unsafe {
+        if crate::bits::popcnt_rt::available() {
+            get_map_near_popcnt(edge, key, level, found)
+        } else {
+            get_map_near_swar(edge, key, level, found)
+        }
+    }
+    #[cfg(not(all(target_arch = "x86_64", not(target_feature = "popcnt"))))]
+    {
+        // SAFETY: forwarded caller contract.
+        unsafe { walk_map_impl(edge, key, level, found) }
+    }
+}
+
+/// The portable half of [`get_map_near`]'s dispatch pair.
+///
+/// # Safety
+///
+/// Same contract as [`get_map`].
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[inline(never)]
+unsafe fn get_map_near_swar<R, F: FnOnce(u64, LeafPos) -> R>(
+    edge: &Edge,
+    key: Key,
+    level: u8,
+    found: F,
+) -> Option<R> {
+    // SAFETY: forwarded caller contract.
+    unsafe { walk_map_impl(edge, key, level, found) }
+}
+
+/// [`get_map_near`] compiled with `popcnt`.
+///
+/// # Safety
+///
+/// Same contract as [`get_map`]; the CPU must support `popcnt`.
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[target_feature(enable = "popcnt")]
+unsafe fn get_map_near_popcnt<R, F: FnOnce(u64, LeafPos) -> R>(
+    edge: &Edge,
+    key: Key,
+    level: u8,
+    found: F,
+) -> Option<R> {
+    // SAFETY: contract forwarded.
+    unsafe { walk_map_impl(edge, key, level, found) }
 }
 
 // ---------------------------------------------------------------------------
