@@ -3969,30 +3969,40 @@ pub(crate) unsafe fn downgrade_u_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut
     // SAFETY: live BranchU per contract.
     unsafe {
         let old = &*edge.node_ptr().cast::<BranchU>();
-        (*new.as_ptr()).level = level;
-        for (d, child) in old.edges.iter().enumerate() {
-            if !child.is_null() {
-                (*new.as_ptr()).pop_counts[d >> 5] += 1;
-                (*new.as_ptr()).bitmap.set(d as u8);
+        let nb = new.as_ptr();
+        (*nb).level = level;
+        // One read of the node: each 32-slot subexpanse is reduced to its
+        // membership mask, which is the subexpanse's half of a bitmap word
+        // and whose population sizes the subarray, and then only the
+        // non-null slots are copied out.
+        for (sub, block) in old.edges.as_chunks::<32>().0.iter().enumerate() {
+            let mut mask = 0u32;
+            for (i, child) in block.iter().enumerate() {
+                mask |= u32::from(!child.is_null()) << i;
             }
-        }
-        for sub in 0..8 {
-            let n = (*new.as_ptr()).pop_counts[sub] as usize;
-            if n > 0 {
-                (*new.as_ptr()).subarrays[sub] = a
-                    .alloc_bytes_dispatch::<OCC>(sub_edges_size(n))
-                    .cast::<Edge>()
-                    .as_ptr();
+            if mask == 0 {
+                continue;
             }
-        }
-        let mut filled = [0usize; 8];
-        for (d, child) in old.edges.iter().enumerate() {
-            if !child.is_null() {
-                (*new.as_ptr()).subarrays[d >> 5]
-                    .add(filled[d >> 5])
-                    .write(*child);
-                filled[d >> 5] += 1;
+            let n = mask.count_ones() as usize;
+            let arr = a
+                .alloc_bytes_dispatch::<OCC>(sub_edges_size(n))
+                .cast::<Edge>()
+                .as_ptr();
+            if mask == u32::MAX {
+                arr.copy_from_nonoverlapping(block.as_ptr(), 32);
+            } else {
+                let mut rest = mask;
+                let mut filled = 0usize;
+                while rest != 0 {
+                    arr.add(filled)
+                        .write(block[(rest.trailing_zeros() & 31) as usize]);
+                    filled += 1;
+                    rest &= rest - 1;
+                }
             }
+            (*nb).subarrays[sub] = arr;
+            (*nb).pop_counts[sub] = n as u16;
+            (*nb).bitmap.words[sub >> 1] |= u64::from(mask) << (32 * (sub & 1));
         }
     }
     let aux = *edge.aux_bytes();
