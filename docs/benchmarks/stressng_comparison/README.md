@@ -2199,6 +2199,9 @@ Run 31 is an untimed census of the same processes under `strace -f` on `brk`, `m
 - **P5.** At least 99% of N's trims are made by frees called from `libexpanse.so.1.0.0`, and of S's from `libJudy.so.1`.
 - **Not predicted:** S's split by phase and its free sizes; the pages grown per phase; whether the W-dependence the earlier census found reproduces here.
 
+**Amendment: a third arm, PR 1779** (fixed after N and S had been run on arm64 and while amd64 was running, before any P process ran). [PR 1779](https://github.com/orieg/expanse/pull/1779) is a draft candidate for #1680 that gives the 64-bit `BranchU` (4,160 B at 64 B alignment) a size class, so a demoted `BranchU` waits on the tree's freelist instead of going back to glibc. Arm P is libexpanse from its head `d28028b0b`, whose `crates/` are identical to `f4b78d1bf`, the code that PR measured, built as N is. P runs the same cell, instruments and repeats. The census then says whether that candidate removes the mechanism found here; it is not a measurement of its cost, which PR 1779 records.
+- **P6.** At every W, P's delete-phase trims are at most 10% of N's, P frees no block of the `BranchU`'s usable size in the delete phase, and P gives back fewer pages per worker than N. P against S is reported, not predicted.
+
 **Reading rule.** Each prediction is HELD or NOT HELD on both repeats at every W on amd64, exactly as stated, except P1, which is read on arm64; arm64's readings of P2 to P5 are reported beside amd64's and decide nothing. A prediction not held is reported with its numbers, and the mechanism is then stated from the counts, not from the prediction. Fix candidates are proposed from the attributed mechanism, with their projected cost on the Callgrind arms labelled projected; none is built here.
 
 ## Reproduce
