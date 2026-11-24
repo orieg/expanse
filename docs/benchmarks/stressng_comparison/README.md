@@ -2336,6 +2336,42 @@ Neither changes a node layout, an `Edge` or `ValueSlot` encoding, a threshold, o
 
 Refs #1679, #1680.
 
+## Outcome: the removal walk's `BranchU` drain on the reference host ([#1679](https://github.com/orieg/expanse/issues/1679))
+
+**Verdict: FAIL on the reference host.** The pre-registration above is unchanged. Target T1 is met; one L2 bound is broken, by a cell the record did not name; no bound is moved (AGENTS.md §8.19). T2 (second host) was not run. T3 and the instruction, memory-budget and CI bounds have not been read: the pull request is a draft and its full CI has not run.
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, commit `d2b788a19`, the candidate with main merged in so the harness holds the round-window option; G `d2b788a19` (sha256 `a6a36d75…`), M its merge base `59110748f` (`ccc782a4…`), both aligned builds, S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_remove_drain_reg_ref_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
+
+**The runs.** Two runs of 12 rounds over every cell on 2026-11-24 under the host bench lock, 21:32:25–21:42:16 and 21:43:49–21:53:41 UTC. Each has 720 processes, none discarded, and is valid (max load1 5.08 and 5.19 against a void limit of 12). No process needed the round window: all 720 rows of each run carry their own load reading. The host's login journal shows no login between the launch (21:31:09 UTC) and the end of the second run; the launching session stayed connected and idle through both runs. No run was discarded or repeated.
+
+**T1, met.** (workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, BCa 95%, run 1 | run 2:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 1.082 [1.076, 1.088] \| 1.080 [1.071, 1.089] | 1.001 [0.998, 1.005] \| 0.997 [0.989, 1.003] | 0.925 [0.922, 0.930] \| 0.923 [0.918, 0.929] |
+| 2 | 1.077 [1.069, 1.088] \| 1.084 [1.073, 1.097] | 1.003 [0.998, 1.014] \| 1.004 [0.998, 1.014] | 0.931 [0.926, 0.937] \| 0.926 [0.918, 0.935] |
+| 4 | 1.076 [1.071, 1.081] \| 1.083 [1.077, 1.089] | 0.999 [0.993, 1.005] \| 1.000 [0.994, 1.005] | 0.929 [0.924, 0.933] \| 0.923 [0.918, 0.928] |
+| 8 | 1.080 [1.078, 1.081] \| 1.081 [1.079, 1.082] | 1.040 [1.038, 1.041] \| 1.040 [1.038, 1.041] | 0.963 [0.962, 0.964] \| 0.962 [0.961, 0.964] |
+
+The lowest G/M lower end is 1.069, above the 1.03 floor at every W in both runs.
+
+**L2, broken.** (workload: `sng_judy_1k`) `judy-find-operations-per-sec` at W = 8 reads G/M 0.970 [0.968, 0.973] | 0.973 [0.969, 0.977]: the upper end is below 0.98 in both runs. The same metric reads below 1 at the other three W in both runs, with the upper end below 0.98 in one run each:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 0.978 [0.970, 0.987] \| 0.972 [0.964, 0.979] | 1.062 [1.054, 1.071] \| 1.057 [1.050, 1.065] | 1.086 [1.081, 1.090] \| 1.089 [1.086, 1.091] |
+| 2 | 0.981 [0.975, 0.986] \| 0.969 [0.965, 0.973] | 1.066 [1.062, 1.071] \| 1.059 [1.054, 1.063] | 1.087 [1.083, 1.093] \| 1.093 [1.088, 1.098] |
+| 4 | 0.971 [0.964, 0.977] \| 0.980 [0.974, 0.986] | 1.056 [1.050, 1.064] \| 1.061 [1.056, 1.066] | 1.088 [1.082, 1.094] \| 1.082 [1.077, 1.088] |
+| 8 | 0.970 [0.968, 0.973] \| 0.973 [0.969, 0.977] | 1.056 [1.054, 1.058] \| 1.061 [1.057, 1.065] | 1.088 [1.087, 1.089] \| 1.090 [1.088, 1.092] |
+
+The change edits no lookup code. Why the 1 Ki find rate falls is unmeasured; the cause is unknown. The cell the record named as the likeliest falsifier, the 4 Mi insert rate, holds: its G/M reads 0.993 to 1.005 and no upper end is below 0.98. No other primary cell-metric breaks L2, and L1b holds on every cell.
+
+**The comparison with stock (not gated): INTERMEDIATE.** On the 4 Mi delete rate the G/S lower end is above 1.0 in both runs at W = 8 only. The record predicted it above 1.0 at W = 1, 2 and 8; that prediction is refuted at W = 1 and W = 2, where both runs' intervals contain 1. Main's own lower-than-stock reading (M/S 0.923 to 0.963) is removed at W = 1, 2 and 4 to an interval containing 1, and reversed at W = 8.
+
+**Reported, not predicted.** (workloads differ: `sng_judy_256k` vs `sng_judy_1k`) The delete rate G/M reads 1.063 to 1.084 at 256 Ki keys (lowest lower end 1.039) and 1.009 to 1.020 at 1 Ki keys (lowest lower end 1.005). No `max-rss` G/M interval excludes 1 in both runs.
+
+**What this leaves.** The change is not merged under this record. A follow-up that keeps the delete gain needs a new pre-registration and fresh runs; it would first have to establish whether the 1 Ki find reading belongs to this diff or to the build's code placement, which nothing here measures.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
