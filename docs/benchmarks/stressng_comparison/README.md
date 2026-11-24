@@ -2204,6 +2204,68 @@ Run 31 is an untimed census of the same processes under `strace -f` on `brk`, `m
 
 **Reading rule.** Each prediction is HELD or NOT HELD on both repeats at every W on amd64, exactly as stated, except P1, which is read on arm64; arm64's readings of P2 to P5 are reported beside amd64's and decide nothing. A prediction not held is reported with its numbers, and the mechanism is then stated from the counts, not from the prediction. Fix candidates are proposed from the attributed mechanism, with their projected cost on the Callgrind arms labelled projected; none is built here.
 
+### Trim census result
+
+(measured: Apple M1 laptop, Docker Desktop, `ubuntu:22.04` containers with glibc 2.35-0ubuntu3.18, amd64 under emulation and arm64 native; N main `32f9d74b2`, P PR 1779 head `d28028b0b`, S stock 1.0.5-5 (amd64 `76f121a8…`, the reference host's file); stress-ng `d5f8133a`; artifacts `results/diagnostic_trim_census_m1_amd64.json` and `results/diagnostic_trim_census_m1_arm64.json`, which carry every library and binary hash; workload: `sng_judy_4m`) Counts are exact and summed over a process tree's workers; nothing is timed or sampled, so no row carries an interval.
+
+**Hygiene.**
+- Every (arm, W) cell's two repeats agree exactly, on both platforms, and amd64 and arm64 read the same count in every row of the table below. Each worker finished its 3 bogo ops (`judy-ops 3·W`).
+- **Void and re-run.** In a first pass, N's W = 8 repeats stopped at stress-ng's 300 s `-t` bound before every worker finished: 17 of 24 bogo ops on amd64, and 16 and 18 under `strace` on arm64. They were discarded and W = 8 was re-run at `-t 900`, a value of the same length on the command line. The committed artifacts are a second, complete pass of every cell (W = 1 and 4 at `-t 300`, W = 8 at `-t 900`), taken with load snapshots between worker counts because the suite's artifacts carry them; the counts do not depend on load. Both passes read the same count in every cell.
+- **Load.** The laptop was shared with other work: load1 4.6 to 13.0 at the snapshots, with 3.8 to 4.0 busy core-equivalents inside the Docker VM's 4 CPUs between them. This sets no void rule here, since nothing is timed.
+- **Instrument check (arm64).** Per worker, instrument 1's trims and pages equal instrument 2's shrinking `brk` calls and pages exactly (largest difference 0 and 0). Grows differ by about 33 pages per process, because a forked worker's first `brk` has no earlier break in its `strace` file; grows are read from instrument 1.
+- **Platform.** The laptop is not the reference host, and the stress-ng binary hashes differ from the reference host's `490c0595…`.
+
+**Census, amd64** (arm64 reads the same numbers):
+
+| arm | W | trims | pages given back | pages grown | pages per trim | trims in the delete phase | pages given back at teardown |
+|---|---|---|---|---|---|---|---|
+| N | 1 | 11,024 | 28,761 | 40,315 | 2.61 | 11,003 | 7,240 |
+| N | 4 | 48,209 | 91,618 | 130,644 | 1.90 | 48,208 | 236 |
+| N | 8 | 109,879 | 202,477 | 276,298 | 1.84 | 109,865 | 7,231 |
+| S | 1 | 12 | 2,826 | 20,000 | 235.5 | 11 | 0 |
+| S | 4 | 72 | 12,233 | 72,637 | 169.9 | 68 | 0 |
+| S | 8 | 179 | 23,724 | 144,614 | 132.5 | 169 | 0 |
+| P | 1 | 3 | 20,255 | 35,260 | 6,751.7 | 0 | 20,255 |
+| P | 4 | 15 | 91,639 | 130,665 | 6,109.3 | 0 | 91,639 |
+| P | 8 | 24 | 202,477 | 276,298 | 8,436.5 | 0 | 202,477 |
+
+**Which frees trim N's heap** (delete phase, amd64; arm64 the same):
+
+| W | delete-phase trims | by a freed `BranchU` (4,160 B request, 4,168 B usable) | by a freed block of 4,200 B usable | `BranchU` share of the phase's pages given back |
+|---|---|---|---|---|
+| 1 | 11,003 | 8,495 (77.2%) | 2,365 (21.5%) | 9,288 of 21,521 (43.2%) |
+| 4 | 48,208 | 37,485 (77.8%) | 10,229 (21.2%) | 41,592 of 91,382 (45.5%) |
+| 8 | 109,865 | 90,172 (82.1%) | 18,451 (16.8%) | 100,035 of 195,246 (51.2%) |
+
+The 4,200 B usable size is a request of 4,185 to 4,200 B at 8 B alignment (derived from glibc's 16 B chunk rounding); which node it is was not identified. The remaining 1.0–1.3% of delete-phase trims follow frees of 384 to 512 B blocks and give back many pages each. PR 1779's description places the `BranchU` frees in `downgrade_u_to_b`; this census ranks by block size and took no backtraces.
+
+**Against the predictions:**
+- **P1 HELD** (arm64): no worker in any arm made an `mmap`, `munmap`, `madvise` or `mremap` call. Every page given back went through a shrinking `brk`.
+- **P2 HELD**: N makes 614 to 919 times S's trims and gives back 7.49 to 10.18 times its pages.
+- **P3 HELD**: every one of N's trims, in every cell, left the top chunk between 131,072 and 135,232 B, and pages per trim average 1.84 to 2.61.
+- **P4 NOT HELD.** Teardown carries 0.3% to 25.2% of N's pages given back, not half, and the commonest trimming free is the `BranchU`, not the slab page. The named alternative holds: the trims fall in the delete phase, from the system-served blocks the engine frees as keys go. The slab pages (4,104 B usable) are freed at teardown and are its commonest trimming free.
+- **P5 HELD**: every trim in N and P is made by a free called from the library loaded as `libJudy.so.1`, which the loader resolved to libexpanse for N and P and to stock for S (`lib.txt` per repeat). Both libraries are loaded under that name, so `dladdr` names it rather than `libexpanse.so.1.0.0`.
+- **P6 NOT HELD.** P makes no trim in the delete phase and frees no `BranchU` there, as predicted. But it gives back as many pages as N at W = 4 and 8 (91,639 against 91,618; 202,477 against 202,477) and fewer only at W = 1 (20,255 against 28,761).
+- **Not predicted, reported:** the W-dependence of N's teardown share (25.2%, 0.3%, 3.6%) reproduces exactly between repeats; its cause is not established. This census does not reproduce the reference host's magnitudes either: there, main `87ca5c134` at W = 8 made 35,288 shrinking calls and gave back 67,400 pages; here, main `32f9d74b2` makes 109,879 and gives back 202,477, while stock's figures are close (240 calls and 19,584 pages there, 179 and 23,724 here). The library commit, the stress-ng build and the platform all differ, and none was isolated.
+
+**The mechanism, from the counts.**
+1. **The trigger.** Main's engine returns a 4,160 B `BranchU`, and a block of 4,200 B usable size, to glibc as keys are deleted, because no size class serves them. stress-ng deletes in reverse insertion order, so the freed block borders the top chunk. Each such free grows the top past glibc's trim threshold and glibc trims it back to `M_TOP_PAD`, which gives back one or two pages. That is 11,000 `brk` calls per worker at W = 1.
+2. **What stock does differently.** Stock also frees 20,352 blocks of 1 KiB or more during the delete phase at W = 1, of 2,178,819 frees in all, yet trims 11 times. It never frees a block of the `BranchU`'s size. Why its large frees do not trim, whether by position in the heap or by order, is not measured.
+3. **What the trims are not.** PR 1779 keeps the demoted `BranchU` on a freelist, and the trims during deletes go to zero. The pages do not stay: at W = 4 and 8 the same pages are given back at teardown, in one trim per bogo op, and the next insert phase grows the heap by exactly as many pages as on main. So the trim *calls* come from the `BranchU` frees, and the pages given back and regrown come from the whole tree being returned to glibc contiguously at the top of the heap once per bogo op, whether piece by piece (main) or at once (PR 1779).
+4. **Against stock.** Main's heap grows 1.80 to 2.02 times stock's pages over the same three bogo ops, and gives back 7.5 to 10.2 times as many. Stock gives back 2,826 to 23,724 of the 20,000 to 144,614 pages it grows; main gives back 70% to 73% of what it grows.
+
+This is consistent with PR 1779's own reference-host diagnostic (unregistered; its description, section 5): kernel cycles fall to 0.81× and 0.69× of its base, page faults per process are equal, and the W = 8 delete rate reads 0.993 [0.991, 0.994] to 0.994 [0.991, 0.997] of base. How the remaining delete-rate gap to stock splits between the pages released inside the delete timer (the final `JudyLDel` that drops the tree is inside it) and other per-delete cost is not measured here; it needs wall clock on the reference host.
+
+**Fix candidates, proposed and not built.** Each changes the engine or the drop-in's behaviour, so each is the maintainer's decision. Costs are projected, not measured.
+
+| candidate | removes | leaves | projected Callgrind cost |
+|---|---|---|---|
+| PR 1779, the `BranchU` size class (already a draft; not repeated here) | the trim calls during deletes (11,003 to 0 at W = 1) | the pages given back and regrown at W = 4 and 8 | recorded in PR 1779: 0 of 504 arm64 replica arms above +0.1%; CI's x86-64 job has not run |
+| R, a bounded, process-wide cache of a dropped tree's slab pages and system-served blocks, drawn on by the next tree before glibc | the regrowth on a drop-and-rebuild pattern like this stressor's, if the cache holds a tree's worth | resident memory after `JudyLFreeArray` or the last `JudyLDel` stays with libexpanse instead of glibc, up to the cache bound; a process-wide structure needs synchronisation | no change on arms whose measured region excludes page carving and drop (projected); the carve and drop paths, and arms that inline `alloc_raw`'s carve, unknown in sign: #1675 and #1743 record unrelated arms moving by up to +1.64% when that path is edited |
+| T, the `Judy*` shim sets `M_TRIM_THRESHOLD` or `M_TOP_PAD` with `mallopt` at load | the trims and the regrowth, as the reference-host runs with trimming fixed off showed (M/S 0.992 to 0.993 at W = 8, cross-run) | it changes the allocator policy of the whole host process, which a drop-in library should not do | none on any engine arm (projected: a load-time call outside every measured region) |
+
+Refs #1680.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
