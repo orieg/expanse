@@ -4,6 +4,7 @@ stress-ng's `judy` and `sparsematrix` stressors run one binary against stock lib
 
 - **Pre-registration:** [`METHODOLOGY.md`](METHODOLOGY.md). It was committed before the first timed process of this measurement and is never edited to match outcomes.
 - **Status:** both hosts have been measured (below), the second with the governor change and the paused CI runner that METHODOLOGY.md §3 makes conditional on approval.
+- **Scope of the results:** every cell where libexpanse matches or beats stock is a `judy` or `sparsematrix --sparsematrix-method judy` cell, which holds one array per worker. Those cells say nothing for programs that keep many small JudyL arrays. That shape is the `sng_sm_hashjudy_*` cells, which are this suite's largest loss and remain one on main: puts 0.105–0.157× stock's rate, peak memory 49.4–77.2× ([The hashjudy cells on main](#the-hashjudy-cells-on-main), where each figure carries its interval and artifact). The two fixes measured since are recorded below as failed pre-registrations, not shipped (Refs [#1742](https://github.com/orieg/expanse/issues/1742)).
 - **Review:** no independent, non-LLM review has been done. #1666 item 4 requires one before any statement to stress-ng or to distribution packagers.
 
 ## Results: reference host
