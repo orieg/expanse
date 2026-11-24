@@ -1,0 +1,182 @@
+# #1682 step A2 — pre-registration for attributing the front-end-bound share
+# of libexpanse's Judy1 cost on the OQGraph colour-map tape (AGENTS.md §8.8
+# commit 2). Written and committed before any of the runs below; never
+# reconciled in place with their outcomes (§8.7). Outcomes and the verdict go
+# to docs/ARCHITECTURE.md §3.2 (the "Known cost" paragraph) and to the
+# artifacts this file names. Thresholds, method and sample size below are
+# fixed; changing any of them after data is seen relabels the result
+# INTERMEDIATE and needs fresh runs (§8.19).
+#
+# Scope. No engine change. The outcome decides the next step on #1682:
+#   A5  a code-layout lever (BOLT, PGO block order, hot/cold splitting of the
+#       shipped libexpanse.so) is the indicated next experiment;
+#   A1  accept and document the loss.
+# Neither outcome is an engine change, and neither is taken in this PR.
+
+issue: 1682
+step: A2
+workload_id: capi_colour_map   # crates/expanse-capi/examples/colour_map.rs
+tape: >-
+  One breadth-first search of benches/colour_map_common: 12n + 2 Judy1 calls
+  (8n Judy1Test, 3n Judy1Set, n Judy1Unset, 2 Judy1FreeArray) on two arrays.
+populations: [10000, 100000]
+reference_host: >-
+  12th Gen Intel Core i9-12900F (8P+8E, 24 threads, 30 MiB L3), Linux 6.8,
+  perf 6.8.12, governor as found (powersave in every committed #1682
+  artifact); measured on the cpu_core PMU only, the workload pinned to the
+  P-core list (scripts/bench_pin.sh auto pin and perf_counters.py's own
+  taskset -c <cpu_core cpus>). Every run under the host-wide bench lock
+  (flock /run/expanse-bench/expanse-bench.flock), after `gh run list
+  --workflow bench_baremetal.yml --status in_progress` is empty, outside
+  :17 past the hour and 17:39 UTC.
+stock_library: distro libJudy.so.1, black box (AGENTS.md §3)
+libexpanse: >-
+  target/release/libexpanse.so built from the commit that carries this file
+  with the workspace release profile (thin LTO, codegen-units 1, panic abort),
+  loaded through EXPANSE_CDYLIB, the shipped-library configuration.
+measured_commit: >-
+  The commit carrying this file. Its engine sources equal origin/main
+  32f9d74b2, which postdates #1728's 5e64fcf17 by engine changes on this
+  path (#1783 rewrote the set walks), so the top-down figures of #1728 are
+  not reused: the top-down set T below is re-measured at the same commit as
+  every other set (§8.22.2).
+
+prior_data_seen_before_this_file:
+  - what: results/colour_topdown_5e64fcf17.json (#1728)
+    values: >-
+      delta (libexpanse - stock) per call: fe-bound +12.8 to +13.8 cycles at
+      10k and +19.8 to +19.9 at 100k; fetch-lat 2.5-3.0 (10k), 4.4-4.6 (100k);
+      stock fe-bound under 2 cycles per call, libexpanse 14.7-21.4.
+    use: the predictions are formed from these; none is re-used as data.
+  - what: an openability probe on the reference host of every event set
+      below, counting a shell loop (`taskset -c 4 perf stat -x, -e <set> --
+      sh -c '<loop>'`), never the workload
+    values: every event opened on cpu_core, 100.00% running, in each set as
+      grouped below. No count of the colour-map workload was taken.
+  - what: perf 6.8.12's TMA metric expressions for cpu_core (`perf list -j`
+      on the host), used for the level-3 node formulas below.
+
+instrument:
+  driver: >-
+    scripts/perf_counters.py --workload colour_map --pmu cpu_core --runs 10
+    --pops 10000,100000 --arms stock,expanse_dl --events <set>, one
+    invocation per event set, sets in the order T, B, U, L, R, D, F1, F2, F3,
+    F4. Each cell differences the probe and build processes (10 pairs per
+    cell); arms are paired by run index as in #1728. Unchanged from #1728:
+    the arms of a set run one after the other, not interleaved.
+  independent_runs: 2 (run1, run2), each the full T..F4 sequence, each with
+    its own load snapshots; run2 starts only after run1 completes.
+  event_sets:   # cycles and instructions (fixed counters) are added to every set except T
+    T: slots, topdown-retiring, topdown-bad-spec, topdown-fe-bound, topdown-be-bound,
+       topdown-br-mispredict, topdown-mem-bound, topdown-fetch-lat, topdown-heavy-ops,
+       cycles, instructions, br_misp_retired.all_branches
+    B: idq.dsb_cycles_any, idq.dsb_cycles_ok, idq.mite_cycles_any, idq.mite_cycles_ok
+    U: idq.dsb_uops, idq.mite_uops, idq.ms_uops, uops_issued.any
+    L: icache_data.stalls, icache_tag.stalls, dsb2mite_switches.penalty_cycles, decode.lcp
+    R: int_misc.clear_resteer_cycles, int_misc.unknown_branch_cycles, baclears.any, decode.ms_busy
+    D: lsd.uops, lsd.cycles_active, lsd.cycles_ok, itlb_misses.stlb_hit
+    F1: frontend_retired.dsb_miss, itlb_misses.walk_completed
+    F2: frontend_retired.any_dsb_miss, br_inst_retired.all_branches, br_inst_retired.near_taken
+    F3: frontend_retired.l1i_miss
+    F4: frontend_retired.itlb_miss
+  grouping_rules: >-
+    At most 4 general-purpose events per set (the co-scheduled-zero hazard on
+    these P-cores appears at 5 or more). At most one event using the
+    front-end MSR per set (frontend_retired.*, int_misc.unknown_branch_cycles).
+    perf_counters.py's preflight co-scheduling check runs on every set; an
+    event it withholds is reported NOT COUNTED, never replaced. Any counter
+    below 100% running in any process voids that set's cell (the analyzer
+    refuses it); the only permitted remedy is re-running the set, disclosed.
+  analysis: scripts/colour_frontend_analyze.py (committed with this file, with --self-test)
+
+derived:
+  fe_bound: topdown-fe-bound slots x (cycles / slots) / calls, from set T (as #1728).
+  fetch_lat: topdown-fetch-lat, likewise; fetch_bw = fe_bound - fetch_lat per run index.
+  level3_nodes_cycles_per_call: >-
+    perf 6.8.12 TMA expressions for cpu_core, multiplied by clocks:
+    mite = (idq.mite_cycles_any - idq.mite_cycles_ok) / 2;
+    dsb  = (idq.dsb_cycles_any - idq.dsb_cycles_ok) / 2;
+    lsd  = (lsd.cycles_active - lsd.cycles_ok) / 2;
+    icache_misses = icache_data.stalls; itlb_misses = icache_tag.stalls;
+    dsb_switches = dsb2mite_switches.penalty_cycles; lcp = decode.lcp;
+    clear_resteers = int_misc.clear_resteer_cycles;
+    unknown_branches = int_misc.unknown_branch_cycles; each / calls.
+    TMA divides the bandwidth nodes by core clocks; thread clocks are used
+    here, exact only while the SMT sibling is idle (the host is checked
+    quiet; disclosed as an approximation). tma_ms_switches is not computed
+    (its expression needs an edge-detect modifier the driver does not
+    parse); idq.ms_uops and decode.ms_busy are reported as the microcode
+    indicators instead.
+  counts_per_call: >-
+    idq.{dsb,mite,ms}_uops, uops_issued.any, lsd.uops, DSB coverage
+    (dsb_uops / uops_issued, per arm), frontend_retired.{dsb_miss,
+    any_dsb_miss, l1i_miss, itlb_miss}, baclears.any, itlb_misses.{stlb_hit,
+    walk_completed}, br_inst_retired.{all_branches, near_taken}, decode.ms_busy.
+  delta: libexpanse - stock per paired run index, per set.
+  estimator: BCa 95% over the 10 paired deltas (scripts/bca_bootstrap.py), per run, ci_method recorded.
+  share: mean delta(node) / mean delta(fe_bound) of the same run.
+  consistency: >-
+    delta cycles per call from every set is reported; the level-3 nodes are
+    not additive by construction (TMA normalises each separately), so their
+    sum is reported beside fe_bound and any difference is stated as
+    unexplained, never assigned by subtraction (§8.20.4).
+
+gate:
+  carries: >-
+    A node carries the front-end term at population n iff, in BOTH runs,
+    ci_lower(delta node) >= 0.5 x mean delta(fe_bound) of that run, and
+    delta(fe_bound)'s interval excludes 0 in both runs. A node whose point
+    estimate clears the floor in both runs but whose lower bound misses it
+    in either is INTERMEDIATE, not a carrier. Both runs must move in the same
+    direction (docs/BENCHMARKING.md rule 18).
+  layout_nodes: [mite, dsb, lsd, icache_misses, itlb_misses, dsb_switches, unknown_branches]
+  non_layout_nodes: [clear_resteers (mispredict / machine-clear recovery), lcp (instruction encoding)]
+  decision:
+    A5: a layout node carries the term at both n.
+    A1: no node carries it at either n, or only non-layout nodes do.
+    MIXED: anything else (one n only, or layout at one n and non-layout at the other) — reported to the owner, no decision taken here.
+    VOID: delta(fe_bound) not above 0 in some run.
+
+predictions:
+  - id: P0
+    text: >-
+      Replication: delta(fe_bound) lower bound > 0 at both n in both runs,
+      and fetch_bw is at least half of it (point) at both n. (Formed from
+      #1728's 5e64fcf17 figures; the engine has changed since, so it can fail.)
+  - id: P1
+    text: >-
+      The MITE node (legacy decode delivering, i.e. libexpanse's hot path
+      missing the decoded-uop cache) carries the front-end term at both n,
+      so the decision is A5. Corroboration expected, not gated: libexpanse's
+      DSB coverage below stock's, and delta frontend_retired.any_dsb_miss > 0.
+  - id: P2
+    text: >-
+      icache_misses, itlb_misses and lcp are each under 10% of delta(fe_bound)
+      (point) at both n: the code fits the L1i and the iTLB.
+  - id: P3
+    text: The DSB node does not carry the term at either n.
+  falsifiers: each by its stated band; P1 fails if mite is not a carrier at either n.
+
+static_layout:   # deterministic, not gated; reported beside the counters
+  libexpanse: >-
+    From the same libexpanse.so the counters load: nm -S sizes and entry
+    addresses of Judy1Test, Judy1Set, Judy1Unset and every function they
+    call on the colour-map path (followed through objdump -d call/jmp
+    targets inside the library), the number of 64 B lines and 32 B windows
+    each spans, entry alignment, indirect jumps (tag dispatch) on the path,
+    and total .text size.
+  stock: >-
+    Symbol-table facts only (nm -D -S): sizes and entry addresses of the
+    exported Judy1Test, Judy1Set, Judy1Unset, and total .text size. No
+    disassembly of stock libJudy: AGENTS.md §3 forbids decompiling it.
+  diagnostic: >-
+    perf record -e cpu_core/frontend_retired.any_dsb_miss/pp on the
+    expanse_dl probe at n=100k (libexpanse only): the share of samples per
+    symbol, to say where in libexpanse a layout lever would act. Not gated,
+    and not run on stock.
+
+record_requirements: >-
+  docs/ARCHITECTURE.md §3.2's Known-cost paragraph: the counter table with
+  intervals (tagged measured: host description, commit, artifact), the gate
+  outcome per node and population, the verdict (A5/A1/MIXED/VOID), and P0-P3
+  against outcome. #1682 stays open either way (Refs, never a closing verb).
