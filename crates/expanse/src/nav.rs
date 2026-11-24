@@ -251,6 +251,21 @@ impl Hit for Val {
     }
 }
 
+/// [`Hit`] for the set flavour: a found key carries nothing, so a set
+/// walk returns `Option<(u64, ())>`, which fits in two registers, where
+/// `Option<(u64, u64)>` is returned through memory at every level of the
+/// recursion.
+pub(crate) enum Key {}
+
+impl Hit for Key {
+    type Out = ();
+    const NONE: () = ();
+    #[inline(always)]
+    unsafe fn immed(_ep: *const Edge, _im: crate::types::ImmedType, _slot: usize) {}
+    #[inline(always)]
+    unsafe fn at(_p: *mut u64) {}
+}
+
 /// [`Hit`] returning a writable pointer to the value slot — the pointer
 /// `get::locate_slot` would return for the same key, valid until the next
 /// structural mutation (the classic JudyL slot contract). Every pointer it
@@ -318,8 +333,13 @@ pub(crate) unsafe fn next<const MAP: bool>(
     suffix: u64,
     level: u8,
 ) -> Option<(u64, u64)> {
-    // SAFETY: forwarded contract.
-    unsafe { next_hit::<MAP, Val>(edge, suffix, level) }
+    if MAP {
+        // SAFETY: forwarded contract.
+        unsafe { next_hit::<true, Val>(edge, suffix, level) }
+    } else {
+        // SAFETY: forwarded contract.
+        unsafe { next_hit::<false, Key>(edge, suffix, level) }.map(|(k, ())| (k, 0))
+    }
 }
 
 /// [`next`] returning the found entry's value slot (map flavor).
@@ -584,8 +604,13 @@ pub(crate) unsafe fn prev<const MAP: bool>(
     suffix: u64,
     level: u8,
 ) -> Option<(u64, u64)> {
-    // SAFETY: forwarded contract.
-    unsafe { prev_hit::<MAP, Val>(edge, suffix, level) }
+    if MAP {
+        // SAFETY: forwarded contract.
+        unsafe { prev_hit::<true, Val>(edge, suffix, level) }
+    } else {
+        // SAFETY: forwarded contract.
+        unsafe { prev_hit::<false, Key>(edge, suffix, level) }.map(|(k, ())| (k, 0))
+    }
 }
 
 /// [`prev`] returning the found entry's value slot (map flavor).
