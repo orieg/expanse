@@ -526,7 +526,9 @@ A traversal by `JudySLNext` / `JudySLPrev` over keys held in suffix leaves meets
 case on every call, since the key it is handed is the one stored there.
 
 `get_near` shares `get`'s walk (`get::walk_map_impl`, generic over what it does with the
-found value), and `get` instantiates it with a closure that ignores the position.
+found value through `get::OnFound`, whose implementations inline `found`), and `get`
+instantiates it with `ValueOnly`, which ignores the position. `get` compiles to the code it
+compiled to before `get_near` existed.
 
 **Pre-registration (frozen before the first measurement; Refs #1749).** Instrument:
 Callgrind instruction counts, the `vs_stock` harness (workload: capi_vs_stock) and the
@@ -543,3 +545,37 @@ the same way. The `judysl_next_*` and `judysl_prev_*` arms run 30,000 searches e
 - The projected saving of 430–460 Ir per search is unmeasured.
 - Thresholds, arms and instrument are fixed here. If G1 or G2 fails, the result is
   reported as failed; no threshold is moved after a measurement.
+
+**Result against the pre-registration.** Counts from an x86-64 Callgrind replica of the CI
+job (the bench cross-built with CI's rustc and run under Ubuntu 24.04's valgrind with
+iai-callgrind's arguments); base 32f9d74b; workload: capi_vs_stock for the `vs_stock` rows.
+These are replica counts, not a committed artifact; the pull request carries CI's. The
+increments were measured before a rebase onto a `main` that changed no `crates/` or
+`include/` file; the commits named below are the rebased ones, with the same source.
+
+| Increment (head) | `judysl_next_expanse_dl` | `judysl_prev_expanse_dl` | `map_get_batch/random` | `sync_strmap_next_after_scan_locked/paths_dense` | Verdict |
+|---|---:|---:|---:|---:|---|
+| base (32f9d74b) | 39,678,337 | 41,505,187 | 8,534,782 | 107,336,829 | — |
+| 1: `get_near` + `LeafPos` (8df6dffd) | 26,377,802 | 26,867,926 | 8,584,594 (+0.584%) | 111,686,964 (+4.05%) | G1 met, G2 **failed** |
+| 2a: `get` left as on base (876273c4) | 26,377,802 | 26,867,926 | 8,534,782 | 111,686,964 (+4.05%) | G2 **failed** |
+| 2b: two-register result (e578267a) | 26,086,544 | 26,465,732 | 8,534,782 | 109,114,764 (+1.66%) | G2 **failed** |
+| 3: `OnFound` trait, inlined (f1e45abd) | 25,240,241 | 25,759,510 | 8,534,782 | 101,214,397 (−5.70%) | G1 and G2 met |
+
+- Increment 1's `map_get_batch` loss: moving `get`'s root-leaf search into a shared helper
+  changed the code LLVM generated for that arm's caller (re-ordered cap-class arithmetic in
+  its disassembly), though `get_map` itself compiled the same. 2a restored `get`'s text.
+- Increment 1's `paths_dense` loss: the `get_near` result came back as a nested `Option`
+  through memory and the closure handed to the walk ran out of line (6.15M Ir exclusive
+  over that arm's 50,000 lookups at increment 1, 4.18M at 2b), costing more than the second
+  descents it removed. 2b returned two words in registers; 3 replaced the closure with a
+  trait method marked `#[inline(always)]`.
+- At increment 3, G1: 481 Ir per search on `judysl_next_expanse_dl` and 525 on
+  `judysl_prev_expanse_dl` (468 and 494 on the rlib twins), against a bound of 202. G2:
+  every other arm of both harnesses, the `range_cost` group included, within +0.1%;
+  `get_map_popcnt`, `get_map_swar` and the `map_get`, `map_get_slot_ptr`, `map_get_batch`
+  and `sync_map_get` arm bodies disassemble identically to base.
+- The 430–460 Ir projection was low: the measured saving is 468–525 Ir per search.
+- `judysl_first_*` and `judysl_last_*` fall by 35–37% as well. Their probes are a stored key
+  with its last byte moved one step outward (`sl_seek` in `vs_stock.rs`), so the suffix leaf
+  at chunk 0 sorts on the wrong side and the answer is the chunk's neighbour: the case this
+  section describes.
