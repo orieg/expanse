@@ -165,6 +165,27 @@ impl LeafPos {
     }
 }
 
+/// What a map lookup does with the value it found and the found key's
+/// [`LeafPos`]. A trait rather than a closure so that every implementation
+/// marks `found` `#[inline(always)]`: the walk calls it from several leaf
+/// arms, and a closure there was left out of line, costing every lookup a
+/// call.
+pub(crate) trait OnFound<R> {
+    /// The lookup's result for a found key.
+    fn found(self, value: u64, pos: LeafPos) -> R;
+}
+
+/// [`OnFound`] for [`get_map`]: the value alone.
+#[derive(Clone, Copy)]
+struct ValueOnly;
+
+impl OnFound<Option<u64>> for ValueOnly {
+    #[inline(always)]
+    fn found(self, value: u64, _: LeafPos) -> Option<u64> {
+        Some(value)
+    }
+}
+
 /// The shared descent; `MAP` selects map flavor (values) over set flavor.
 ///
 /// # Safety
@@ -325,7 +346,7 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
 }
 
 #[inline(always)]
-unsafe fn walk_map_impl<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
+unsafe fn walk_map_impl<R: Copy, F: OnFound<R>>(
     edge: &Edge,
     key: Key,
     level: u8,
@@ -428,7 +449,7 @@ unsafe fn walk_map_impl<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
                 // SAFETY: `sub < 8` accesses a valid values subarray pointer.
                 let vals = unsafe { *l.values.as_ptr().add(sub) };
                 // SAFETY: the bit is set, so the value subarray is non-null and holds at least `slot + 1` values.
-                return found(unsafe { *vals.add(slot) }, LeafPos::NONE);
+                return found.found(unsafe { *vals.add(slot) }, LeafPos::NONE);
             }
 
             0x05..=0x0B => {
@@ -447,7 +468,7 @@ unsafe fn walk_map_impl<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
                 let vals = base.cast::<u64>();
                 // SAFETY: slot < pop values live at the base.
                 let v = unsafe { *vals.add(slot) };
-                return found(
+                return found.found(
                     v,
                     LeafPos {
                         keys: keys.cast_const(),
@@ -466,7 +487,7 @@ unsafe fn walk_map_impl<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
             0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
                 let kb = (tag >> 4) as usize;
                 return if ((key ^ edge.aux_word()) & IMM_MASKS[kb]) == 0 {
-                    found(edge.word0(), LeafPos::NONE)
+                    found.found(edge.word0(), LeafPos::NONE)
                 } else {
                     miss
                 };
@@ -491,7 +512,7 @@ unsafe fn walk_map_impl<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
                 let vals = edge.node_ptr().cast::<u64>().cast_const();
                 // SAFETY: multi-key map immediates store a pointer to a live array of `key_count` values in word 0.
                 let v = unsafe { *vals.add(slot) };
-                return found(
+                return found.found(
                     v,
                     LeafPos {
                         keys: edge.aux_bytes().as_ptr(),
@@ -628,7 +649,7 @@ pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     #[cfg(not(all(target_arch = "x86_64", not(target_feature = "popcnt"))))]
     {
         // SAFETY: forwarded caller contract.
-        unsafe { walk_map_impl(edge, key, level, None, |v, _| Some(v)) }
+        unsafe { walk_map_impl(edge, key, level, None, ValueOnly) }
     }
 }
 
@@ -642,7 +663,7 @@ pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 #[inline(never)]
 unsafe fn get_map_swar(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     // SAFETY: forwarded caller contract.
-    unsafe { walk_map_impl(edge, key, level, None, |v, _| Some(v)) }
+    unsafe { walk_map_impl(edge, key, level, None, ValueOnly) }
 }
 
 /// [`get_map`] compiled with `popcnt` — see [`test_set_popcnt`].
@@ -654,7 +675,7 @@ unsafe fn get_map_swar(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 #[target_feature(enable = "popcnt")]
 unsafe fn get_map_popcnt(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     // SAFETY: contract forwarded.
-    unsafe { walk_map_impl(edge, key, level, None, |v, _| Some(v)) }
+    unsafe { walk_map_impl(edge, key, level, None, ValueOnly) }
 }
 
 /// [`get_map`] that also hands the found key's [`LeafPos`] to `found`,
@@ -667,7 +688,7 @@ unsafe fn get_map_popcnt(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 ///
 /// Same contract as [`get_map`].
 #[inline(always)]
-pub(crate) unsafe fn get_map_near<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
+pub(crate) unsafe fn get_map_near<R: Copy, F: OnFound<R>>(
     edge: &Edge,
     key: Key,
     level: u8,
@@ -697,7 +718,7 @@ pub(crate) unsafe fn get_map_near<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
 /// Same contract as [`get_map`].
 #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
 #[inline(never)]
-unsafe fn get_map_near_swar<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
+unsafe fn get_map_near_swar<R: Copy, F: OnFound<R>>(
     edge: &Edge,
     key: Key,
     level: u8,
@@ -715,7 +736,7 @@ unsafe fn get_map_near_swar<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
 /// Same contract as [`get_map`]; the CPU must support `popcnt`.
 #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
 #[target_feature(enable = "popcnt")]
-unsafe fn get_map_near_popcnt<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
+unsafe fn get_map_near_popcnt<R: Copy, F: OnFound<R>>(
     edge: &Edge,
     key: Key,
     level: u8,

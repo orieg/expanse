@@ -958,12 +958,7 @@ impl MapCore {
     /// ([`get::LeafPos::neighbour`]); `miss` when `key` is absent. Nothing
     /// is read for the position unless `found` uses it.
     #[inline(always)]
-    pub(crate) fn get_near<R: Copy, F: FnOnce(u64, get::LeafPos) -> R>(
-        &self,
-        key: Key,
-        miss: R,
-        found: F,
-    ) -> R {
+    pub(crate) fn get_near<R: Copy, F: get::OnFound<R>>(&self, key: Key, miss: R, found: F) -> R {
         match &self.root {
             Root::Empty => miss,
             Root::Leaf { ptr, pop } => {
@@ -977,7 +972,7 @@ impl MapCore {
                 let vptr = unsafe { ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>() };
                 // SAFETY: `at < pop` values live behind the keys.
                 let v = unsafe { *vptr.add(at) };
-                found(
+                found.found(
                     v,
                     get::LeafPos {
                         keys: kptr.cast_const().cast::<u8>(),
@@ -5450,6 +5445,23 @@ mod tests {
     /// neighbours in both directions.
     #[test]
     fn get_near_neighbours_match_next_after_and_prev_before() {
+        /// Both neighbours of the found key `self.0`.
+        #[derive(Clone, Copy)]
+        struct Both(u64);
+        type Near = Option<(u64, u64)>;
+        impl get::OnFound<Option<(u64, Near, Near)>> for Both {
+            fn found(self, v: u64, pos: get::LeafPos) -> Option<(u64, Near, Near)> {
+                // SAFETY: `pos` comes from this lookup; the map is not
+                // mutated while it is used.
+                unsafe {
+                    Some((
+                        v,
+                        pos.neighbour::<true>(self.0),
+                        pos.neighbour::<false>(self.0),
+                    ))
+                }
+            }
+        }
         let mut rng = 0x2545_F491_4F6C_DD1Du64;
         let mut next = move || {
             rng ^= rng << 13;
@@ -5512,11 +5524,7 @@ mod tests {
             }
             let (mut fwd, mut back) = (0usize, 0usize);
             for &k in &keys {
-                let got = m.core.get_near(k, None, |v, pos| {
-                    // SAFETY: `pos` comes from this lookup; `m` is not
-                    // mutated while it is used.
-                    unsafe { Some((v, pos.neighbour::<true>(k), pos.neighbour::<false>(k))) }
-                });
+                let got = m.core.get_near(k, None, Both(k));
                 let (v, after, before) = got.expect("present key");
                 assert_eq!(Some(v), m.core.get(k), "{name}: value of {k:#x}");
                 if let Some(e) = after {
@@ -5530,7 +5538,7 @@ mod tests {
                 let absent = k ^ 0x8000_0000_0000_0000;
                 if m.core.get(absent).is_none() {
                     assert!(
-                        m.core.get_near(absent, None, |_, _| Some(())).is_none(),
+                        m.core.get_near(absent, None, Both(absent)).is_none(),
                         "{name}: absent"
                     );
                 }
