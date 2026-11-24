@@ -325,26 +325,27 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
 }
 
 #[inline(always)]
-unsafe fn walk_map_impl<R, F: FnOnce(u64, LeafPos) -> R>(
+unsafe fn walk_map_impl<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
     edge: &Edge,
     key: Key,
     level: u8,
+    miss: R,
     found: F,
-) -> Option<R> {
+) -> R {
     let (mut edge, mut level) = (edge, level);
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
 
         match tag {
-            0x00 => return None,
+            0x00 => return miss,
 
             0x01 => {
                 // SAFETY: pointer-tagged edge → live BranchL3.
                 let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
                 let bl = b.hdr.level;
                 if bl < level && !decode_matches(edge, key, bl, level) {
-                    return None;
+                    return miss;
                 }
                 let d = digit(key, bl);
                 let num = b.hdr.num as usize;
@@ -355,7 +356,7 @@ unsafe fn walk_map_impl<R, F: FnOnce(u64, LeafPos) -> R>(
                 } else if num > 2 && b.hdr.digits[2] == d {
                     2
                 } else {
-                    return None;
+                    return miss;
                 };
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
@@ -367,10 +368,12 @@ unsafe fn walk_map_impl<R, F: FnOnce(u64, LeafPos) -> R>(
                 let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
                 let bl = b.hdr.level;
                 if bl < level && !decode_matches(edge, key, bl, level) {
-                    return None;
+                    return miss;
                 }
                 let d = digit(key, bl);
-                let slot = b.hdr.find(d)?;
+                let Some(slot) = b.hdr.find(d) else {
+                    return miss;
+                };
                 debug_assert!(slot < b.edges.len());
                 // SAFETY: `slot < 7` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
@@ -382,10 +385,12 @@ unsafe fn walk_map_impl<R, F: FnOnce(u64, LeafPos) -> R>(
                 let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
                 let bl = b.level;
                 if bl < level && !decode_matches(edge, key, bl, level) {
-                    return None;
+                    return miss;
                 }
                 let d = digit(key, bl);
-                let (sub, slot) = b.bitmap.test_and_subexpanse_rank_with_sub(d)?;
+                let Some((sub, slot)) = b.bitmap.test_and_subexpanse_rank_with_sub(d) else {
+                    return miss;
+                };
                 // SAFETY: `sub < 8` accesses a valid subarray pointer.
                 let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
                 // SAFETY: slot is the verified rank inside the live subexpanse subarray.
@@ -412,33 +417,37 @@ unsafe fn walk_map_impl<R, F: FnOnce(u64, LeafPos) -> R>(
 
             0x0C => {
                 if level > 1 && !decode_matches(edge, key, 1, level) {
-                    return None;
+                    return miss;
                 }
                 let d = (key & 0xFF) as u8;
                 // SAFETY: pointer-tagged edge → live LeafBitmapL.
                 let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
-                let (sub, slot) = l.bitmap.test_and_subexpanse_rank_with_sub(d)?;
+                let Some((sub, slot)) = l.bitmap.test_and_subexpanse_rank_with_sub(d) else {
+                    return miss;
+                };
                 // SAFETY: `sub < 8` accesses a valid values subarray pointer.
                 let vals = unsafe { *l.values.as_ptr().add(sub) };
                 // SAFETY: the bit is set, so the value subarray is non-null and holds at least `slot + 1` values.
-                return Some(found(unsafe { *vals.add(slot) }, LeafPos::NONE));
+                return found(unsafe { *vals.add(slot) }, LeafPos::NONE);
             }
 
             0x05..=0x0B => {
                 let lf = tag - 0x04;
                 if level > lf && !decode_matches(edge, key, lf, level) {
-                    return None;
+                    return miss;
                 }
                 let pop = edge.pop0(lf) as usize + 1;
                 let base = edge.node_ptr();
                 // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
                 let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
                 // SAFETY: keys spans pop * lf readable bytes.
-                let slot = (unsafe { leaf::search(keys, pop, lf, key) })?;
+                let Some(slot) = (unsafe { leaf::search(keys, pop, lf, key) }) else {
+                    return miss;
+                };
                 let vals = base.cast::<u64>();
                 // SAFETY: slot < pop values live at the base.
                 let v = unsafe { *vals.add(slot) };
-                return Some(found(
+                return found(
                     v,
                     LeafPos {
                         keys: keys.cast_const(),
@@ -447,7 +456,7 @@ unsafe fn walk_map_impl<R, F: FnOnce(u64, LeafPos) -> R>(
                         pop,
                         kb: lf,
                     },
-                ));
+                );
             }
 
             0x7F => {
@@ -457,16 +466,16 @@ unsafe fn walk_map_impl<R, F: FnOnce(u64, LeafPos) -> R>(
             0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
                 let kb = (tag >> 4) as usize;
                 return if ((key ^ edge.aux_word()) & IMM_MASKS[kb]) == 0 {
-                    Some(found(edge.word0(), LeafPos::NONE))
+                    found(edge.word0(), LeafPos::NONE)
                 } else {
-                    None
+                    miss
                 };
             }
 
             _ => {
                 let Some(im) = ImmedType::from_u8(tag) else {
                     debug_assert!(false, "invalid edge tag {:#04x}", tag);
-                    return None;
+                    return miss;
                 };
                 debug_assert_eq!(
                     im.key_bytes(),
@@ -476,11 +485,13 @@ unsafe fn walk_map_impl<R, F: FnOnce(u64, LeafPos) -> R>(
                 let kb_usize = im.key_bytes() as usize;
                 let n = im.key_count() as usize;
                 debug_assert!(kb_usize * n <= 7, "map immediates keep keys in aux");
-                let slot = immed_find(im, edge.aux_bytes(), key)?;
+                let Some(slot) = immed_find(im, edge.aux_bytes(), key) else {
+                    return miss;
+                };
                 let vals = edge.node_ptr().cast::<u64>().cast_const();
                 // SAFETY: multi-key map immediates store a pointer to a live array of `key_count` values in word 0.
                 let v = unsafe { *vals.add(slot) };
-                return Some(found(
+                return found(
                     v,
                     LeafPos {
                         keys: edge.aux_bytes().as_ptr(),
@@ -489,7 +500,7 @@ unsafe fn walk_map_impl<R, F: FnOnce(u64, LeafPos) -> R>(
                         pop: n,
                         kb: im.key_bytes(),
                     },
-                ));
+                );
             }
         }
     }
@@ -617,7 +628,7 @@ pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     #[cfg(not(all(target_arch = "x86_64", not(target_feature = "popcnt"))))]
     {
         // SAFETY: forwarded caller contract.
-        unsafe { walk_map_impl(edge, key, level, |v, _| v) }
+        unsafe { walk_map_impl(edge, key, level, None, |v, _| Some(v)) }
     }
 }
 
@@ -631,7 +642,7 @@ pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 #[inline(never)]
 unsafe fn get_map_swar(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     // SAFETY: forwarded caller contract.
-    unsafe { walk_map_impl(edge, key, level, |v, _| v) }
+    unsafe { walk_map_impl(edge, key, level, None, |v, _| Some(v)) }
 }
 
 /// [`get_map`] compiled with `popcnt` — see [`test_set_popcnt`].
@@ -643,37 +654,39 @@ unsafe fn get_map_swar(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 #[target_feature(enable = "popcnt")]
 unsafe fn get_map_popcnt(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     // SAFETY: contract forwarded.
-    unsafe { walk_map_impl(edge, key, level, |v, _| v) }
+    unsafe { walk_map_impl(edge, key, level, None, |v, _| Some(v)) }
 }
 
 /// [`get_map`] that also hands the found key's [`LeafPos`] to `found`,
-/// whose result it returns. Nothing is read for the position unless `found`
-/// uses it, so a caller that only needs the neighbour on some hits pays for
-/// it on those alone.
+/// whose result it returns; `miss` when `key` is absent. Nothing is read for
+/// the position unless `found` uses it, so a caller that only needs the
+/// neighbour on some hits pays for it on those alone. The result is a plain
+/// `R` rather than an `Option`, so a two-word `R` comes back in registers.
 ///
 /// # Safety
 ///
 /// Same contract as [`get_map`].
 #[inline(always)]
-pub(crate) unsafe fn get_map_near<R, F: FnOnce(u64, LeafPos) -> R>(
+pub(crate) unsafe fn get_map_near<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
     edge: &Edge,
     key: Key,
     level: u8,
+    miss: R,
     found: F,
-) -> Option<R> {
+) -> R {
     #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
     // SAFETY: contracts forwarded — see `test_set` for the shape.
     unsafe {
         if crate::bits::popcnt_rt::available() {
-            get_map_near_popcnt(edge, key, level, found)
+            get_map_near_popcnt(edge, key, level, miss, found)
         } else {
-            get_map_near_swar(edge, key, level, found)
+            get_map_near_swar(edge, key, level, miss, found)
         }
     }
     #[cfg(not(all(target_arch = "x86_64", not(target_feature = "popcnt"))))]
     {
         // SAFETY: forwarded caller contract.
-        unsafe { walk_map_impl(edge, key, level, found) }
+        unsafe { walk_map_impl(edge, key, level, miss, found) }
     }
 }
 
@@ -684,14 +697,15 @@ pub(crate) unsafe fn get_map_near<R, F: FnOnce(u64, LeafPos) -> R>(
 /// Same contract as [`get_map`].
 #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
 #[inline(never)]
-unsafe fn get_map_near_swar<R, F: FnOnce(u64, LeafPos) -> R>(
+unsafe fn get_map_near_swar<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
     edge: &Edge,
     key: Key,
     level: u8,
+    miss: R,
     found: F,
-) -> Option<R> {
+) -> R {
     // SAFETY: forwarded caller contract.
-    unsafe { walk_map_impl(edge, key, level, found) }
+    unsafe { walk_map_impl(edge, key, level, miss, found) }
 }
 
 /// [`get_map_near`] compiled with `popcnt`.
@@ -701,14 +715,15 @@ unsafe fn get_map_near_swar<R, F: FnOnce(u64, LeafPos) -> R>(
 /// Same contract as [`get_map`]; the CPU must support `popcnt`.
 #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
 #[target_feature(enable = "popcnt")]
-unsafe fn get_map_near_popcnt<R, F: FnOnce(u64, LeafPos) -> R>(
+unsafe fn get_map_near_popcnt<R: Copy, F: FnOnce(u64, LeafPos) -> R>(
     edge: &Edge,
     key: Key,
     level: u8,
+    miss: R,
     found: F,
-) -> Option<R> {
+) -> R {
     // SAFETY: contract forwarded.
-    unsafe { walk_map_impl(edge, key, level, found) }
+    unsafe { walk_map_impl(edge, key, level, miss, found) }
 }
 
 // ---------------------------------------------------------------------------

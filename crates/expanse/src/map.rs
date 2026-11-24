@@ -955,26 +955,29 @@ impl MapCore {
     /// [`Self::get`] that also hands the found key's leaf position to
     /// `found`, whose result it returns: the ordered string searches use it
     /// to take the found key's neighbour without a second descent
-    /// ([`get::LeafPos::neighbour`]). Nothing is read for the position
-    /// unless `found` uses it.
+    /// ([`get::LeafPos::neighbour`]); `miss` when `key` is absent. Nothing
+    /// is read for the position unless `found` uses it.
     #[inline(always)]
-    pub(crate) fn get_near<R, F: FnOnce(u64, get::LeafPos) -> R>(
+    pub(crate) fn get_near<R: Copy, F: FnOnce(u64, get::LeafPos) -> R>(
         &self,
         key: Key,
+        miss: R,
         found: F,
-    ) -> Option<R> {
+    ) -> R {
         match &self.root {
-            Root::Empty => None,
+            Root::Empty => miss,
             Root::Leaf { ptr, pop } => {
                 let pop = *pop;
                 let kptr = ptr.as_ptr().cast::<u64>();
                 // SAFETY: root leaf holds `pop` keys.
-                let at = unsafe { Self::root_leaf_slot(kptr, pop, key) }?;
+                let Some(at) = (unsafe { Self::root_leaf_slot(kptr, pop, key) }) else {
+                    return miss;
+                };
                 // SAFETY: root leaf values live at values offset.
                 let vptr = unsafe { ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>() };
                 // SAFETY: `at < pop` values live behind the keys.
                 let v = unsafe { *vptr.add(at) };
-                Some(found(
+                found(
                     v,
                     get::LeafPos {
                         keys: kptr.cast_const().cast::<u8>(),
@@ -983,11 +986,11 @@ impl MapCore {
                         pop,
                         kb: 8,
                     },
-                ))
+                )
             }
             // SAFETY: the trie is maintained by the map mutation engine
             // and satisfies the lookup contract.
-            Root::Tree { top, .. } => unsafe { get::get_map_near(top, key, 8, found) },
+            Root::Tree { top, .. } => unsafe { get::get_map_near(top, key, 8, miss, found) },
         }
     }
 
@@ -5509,10 +5512,10 @@ mod tests {
             }
             let (mut fwd, mut back) = (0usize, 0usize);
             for &k in &keys {
-                let got = m.core.get_near(k, |v, pos| {
+                let got = m.core.get_near(k, None, |v, pos| {
                     // SAFETY: `pos` comes from this lookup; `m` is not
                     // mutated while it is used.
-                    unsafe { (v, pos.neighbour::<true>(k), pos.neighbour::<false>(k)) }
+                    unsafe { Some((v, pos.neighbour::<true>(k), pos.neighbour::<false>(k))) }
                 });
                 let (v, after, before) = got.expect("present key");
                 assert_eq!(Some(v), m.core.get(k), "{name}: value of {k:#x}");
@@ -5527,7 +5530,7 @@ mod tests {
                 let absent = k ^ 0x8000_0000_0000_0000;
                 if m.core.get(absent).is_none() {
                     assert!(
-                        m.core.get_near(absent, |_, _| ()).is_none(),
+                        m.core.get_near(absent, None, |_, _| Some(())).is_none(),
                         "{name}: absent"
                     );
                 }
