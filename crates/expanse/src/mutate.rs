@@ -3815,13 +3815,11 @@ pub(crate) fn branch_u_digits_to_floor(edges: &[Edge; crate::types::BRANCH_FANOU
 ///
 /// The branch's header bound ([`BranchU::digits_lower`]) held at most its
 /// non-null slots before the null, so one less holds after it. While that
-/// stays above the floor, no slot is read. Otherwise the slots are counted
-/// as [`branch_u_digits_to_floor`] counts them, which is exact at or below
-/// the floor and short of the true count above it, and the count becomes
-/// the bound. That count passes the floor by at most one block of 16, so a
-/// dense branch drained one slot at a time is recounted at most every 16
-/// removals on the way to its floor instead of on every removal, and a
-/// recount reads what the walk read before the bound.
+/// stays above the floor, no slot is read. Otherwise every slot is counted
+/// and the exact count becomes the bound, so a dense branch drained one
+/// slot at a time is counted once on its first removal and once more when
+/// it reaches its floor, where a count that stopped one block past the
+/// floor would be repeated every 16 removals.
 ///
 /// # Safety
 ///
@@ -3833,7 +3831,7 @@ pub(crate) unsafe fn branch_u_digits_after_null<const OCC: bool>(b: *mut BranchU
     let lower = (unsafe { BranchU::digits_lower::<OCC>(b) } as usize).saturating_sub(1);
     let digits = if branch_u_below_floor(lower) {
         // SAFETY: caller contract; the slots are inside the live branch.
-        unsafe { branch_u_digits_to_floor(&(*b).edges) }
+        unsafe { (*b).edges.iter().filter(|e| !e.is_null()).count() }
     } else {
         lower
     };
