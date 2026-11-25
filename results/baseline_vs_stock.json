@@ -4,8 +4,8 @@
   "suite": "vs_stock",
   "provenance": {
     "host_description": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-138-generic)",
-    "commit": "cbbc762a91427fcedde52401ce33bdd1106605d1",
-    "run_id": "https://github.com/orieg/expanse/actions/runs/43689888414",
+    "commit": "864f8e000267fe5f3f887c62d7cf720e28d03013",
+    "run_id": "https://github.com/orieg/expanse/actions/runs/45709424282",
     "generated_by": "scripts/perf_report.py --emit-json",
     "source": "iai-callgrind stdout, parsed by perf_report.parse_full"
   },
@@ -17,17 +17,59 @@
   },
   "arms": [
     {
+      "id": "judy1_by_count_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 172398592,
+        "Instructions": 138298236,
+        "L1 Hits": 168909892,
+        "LL Hits": 697334,
+        "RAM Hits": 58,
+        "Total read+write": 169607284
+      }
+    },
+    {
+      "id": "judy1_by_count_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 171623876,
+        "Instructions": 138362980,
+        "L1 Hits": 169222081,
+        "LL Hits": 479939,
+        "RAM Hits": 60,
+        "Total read+write": 169702080
+      }
+    },
+    {
+      "id": "judy1_by_count_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 331313096,
+        "Instructions": 267093449,
+        "L1 Hits": 328808266,
+        "LL Hits": 500686,
+        "RAM Hits": 40,
+        "Total read+write": 329308992
+      }
+    },
+    {
       "id": "judy1_colour_expanse/n100k",
       "bench_target": "vs_stock",
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 342582881,
-        "Instructions": 255228896,
-        "L1 Hits": 334072176,
-        "LL Hits": 633899,
-        "RAM Hits": 152606,
-        "Total read+write": 334858681
+        "Estimated Cycles": 342537789,
+        "Instructions": 255207110,
+        "L1 Hits": 334040599,
+        "LL Hits": 631231,
+        "RAM Hits": 152601,
+        "Total read+write": 334824431
       }
     },
     {
@@ -36,12 +78,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 29637435,
-        "Instructions": 22303335,
-        "L1 Hits": 29516365,
-        "LL Hits": 16843,
-        "RAM Hits": 1053,
-        "Total read+write": 29534261
+        "Estimated Cycles": 29633619,
+        "Instructions": 22301187,
+        "L1 Hits": 29513029,
+        "LL Hits": 16803,
+        "RAM Hits": 1045,
+        "Total read+write": 29530877
       }
     },
     {
@@ -50,12 +92,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 341113531,
-        "Instructions": 254774039,
-        "L1 Hits": 332598951,
-        "LL Hits": 634268,
-        "RAM Hits": 152664,
-        "Total read+write": 333385883
+        "Estimated Cycles": 341083898,
+        "Instructions": 254751486,
+        "L1 Hits": 332562268,
+        "LL Hits": 635671,
+        "RAM Hits": 152665,
+        "Total read+write": 333350604
       }
     },
     {
@@ -64,12 +106,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 29409021,
-        "Instructions": 22192993,
-        "L1 Hits": 29285141,
-        "LL Hits": 16950,
-        "RAM Hits": 1118,
-        "Total read+write": 29303209
+        "Estimated Cycles": 29406777,
+        "Instructions": 22191913,
+        "L1 Hits": 29283262,
+        "LL Hits": 16898,
+        "RAM Hits": 1115,
+        "Total read+write": 29301275
       }
     },
     {
@@ -78,11 +120,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 464932044,
+        "Estimated Cycles": 464931182,
         "Instructions": 336280737,
-        "L1 Hits": 457121354,
-        "LL Hits": 508750,
-        "RAM Hits": 150484,
+        "L1 Hits": 457121562,
+        "LL Hits": 508543,
+        "RAM Hits": 150483,
         "Total read+write": 457780588
       }
     },
@@ -92,12 +134,432 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 38150816,
+        "Estimated Cycles": 38150812,
         "Instructions": 28187447,
-        "L1 Hits": 38059681,
-        "LL Hits": 15791,
+        "L1 Hits": 38059682,
+        "LL Hits": 15790,
         "RAM Hits": 348,
         "Total read+write": 38075820
+      }
+    },
+    {
+      "id": "judy1_count_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 142870190,
+        "Instructions": 117707462,
+        "L1 Hits": 137953065,
+        "LL Hits": 982396,
+        "RAM Hits": 147,
+        "Total read+write": 138935608
+      }
+    },
+    {
+      "id": "judy1_count_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 141803172,
+        "Instructions": 117672300,
+        "L1 Hits": 138108567,
+        "LL Hits": 737857,
+        "RAM Hits": 152,
+        "Total read+write": 138846576
+      }
+    },
+    {
+      "id": "judy1_count_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 357512773,
+        "Instructions": 283729500,
+        "L1 Hits": 355937318,
+        "LL Hits": 313908,
+        "RAM Hits": 169,
+        "Total read+write": 356251395
+      }
+    },
+    {
+      "id": "judy1_first_empty_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 160087,
+        "Instructions": 121825,
+        "L1 Hits": 155552,
+        "LL Hits": 641,
+        "RAM Hits": 38,
+        "Total read+write": 156231
+      }
+    },
+    {
+      "id": "judy1_first_empty_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 175975,
+        "Instructions": 131205,
+        "L1 Hits": 171490,
+        "LL Hits": 652,
+        "RAM Hits": 35,
+        "Total read+write": 172177
+      }
+    },
+    {
+      "id": "judy1_first_empty_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 257106,
+        "Instructions": 194008,
+        "L1 Hits": 252786,
+        "LL Hits": 563,
+        "RAM Hits": 43,
+        "Total read+write": 253392
+      }
+    },
+    {
+      "id": "judy1_first_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 14783517,
+        "Instructions": 11728722,
+        "L1 Hits": 14385957,
+        "LL Hits": 79197,
+        "RAM Hits": 45,
+        "Total read+write": 14465199
+      }
+    },
+    {
+      "id": "judy1_first_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 15207376,
+        "Instructions": 12025744,
+        "L1 Hits": 14808971,
+        "LL Hits": 79373,
+        "RAM Hits": 44,
+        "Total read+write": 14888388
+      }
+    },
+    {
+      "id": "judy1_first_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 24075505,
+        "Instructions": 19366264,
+        "L1 Hits": 23732135,
+        "LL Hits": 67932,
+        "RAM Hits": 106,
+        "Total read+write": 23800173
+      }
+    },
+    {
+      "id": "judy1_free_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 645617,
+        "Instructions": 462662,
+        "L1 Hits": 588372,
+        "LL Hits": 11092,
+        "RAM Hits": 51,
+        "Total read+write": 599515
+      }
+    },
+    {
+      "id": "judy1_free_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 650588,
+        "Instructions": 466204,
+        "L1 Hits": 593148,
+        "LL Hits": 11096,
+        "RAM Hits": 56,
+        "Total read+write": 604300
+      }
+    },
+    {
+      "id": "judy1_free_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 1498551,
+        "Instructions": 1040589,
+        "L1 Hits": 1399171,
+        "LL Hits": 19722,
+        "RAM Hits": 22,
+        "Total read+write": 1418915
+      }
+    },
+    {
+      "id": "judy1_last_empty_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 155573,
+        "Instructions": 117793,
+        "L1 Hits": 151178,
+        "LL Hits": 641,
+        "RAM Hits": 34,
+        "Total read+write": 151853
+      }
+    },
+    {
+      "id": "judy1_last_empty_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 170974,
+        "Instructions": 127047,
+        "L1 Hits": 166389,
+        "LL Hits": 651,
+        "RAM Hits": 38,
+        "Total read+write": 167078
+      }
+    },
+    {
+      "id": "judy1_last_empty_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 254332,
+        "Instructions": 190315,
+        "L1 Hits": 250012,
+        "LL Hits": 563,
+        "RAM Hits": 43,
+        "Total read+write": 250618
+      }
+    },
+    {
+      "id": "judy1_last_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 12502432,
+        "Instructions": 9931338,
+        "L1 Hits": 12104462,
+        "LL Hits": 79230,
+        "RAM Hits": 52,
+        "Total read+write": 12183744
+      }
+    },
+    {
+      "id": "judy1_last_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 13401693,
+        "Instructions": 10587844,
+        "L1 Hits": 13003658,
+        "LL Hits": 79236,
+        "RAM Hits": 53,
+        "Total read+write": 13082947
+      }
+    },
+    {
+      "id": "judy1_last_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 23160887,
+        "Instructions": 18634419,
+        "L1 Hits": 22817927,
+        "LL Hits": 67850,
+        "RAM Hits": 106,
+        "Total read+write": 22885883
+      }
+    },
+    {
+      "id": "judy1_next_empty_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 161422,
+        "Instructions": 123170,
+        "L1 Hits": 156887,
+        "LL Hits": 641,
+        "RAM Hits": 38,
+        "Total read+write": 157566
+      }
+    },
+    {
+      "id": "judy1_next_empty_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 177306,
+        "Instructions": 132550,
+        "L1 Hits": 172826,
+        "LL Hits": 651,
+        "RAM Hits": 35,
+        "Total read+write": 173512
+      }
+    },
+    {
+      "id": "judy1_next_empty_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 158675,
+        "Instructions": 121355,
+        "L1 Hits": 154990,
+        "LL Hits": 562,
+        "RAM Hits": 25,
+        "Total read+write": 155577
+      }
+    },
+    {
+      "id": "judy1_next_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 14230304,
+        "Instructions": 11519014,
+        "L1 Hits": 14187244,
+        "LL Hits": 8262,
+        "RAM Hits": 50,
+        "Total read+write": 14195556
+      }
+    },
+    {
+      "id": "judy1_next_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 14623461,
+        "Instructions": 11816043,
+        "L1 Hits": 14580456,
+        "LL Hits": 8251,
+        "RAM Hits": 50,
+        "Total read+write": 14588757
+      }
+    },
+    {
+      "id": "judy1_next_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 15402184,
+        "Instructions": 12844651,
+        "L1 Hits": 15352679,
+        "LL Hits": 9250,
+        "RAM Hits": 93,
+        "Total read+write": 15362022
+      }
+    },
+    {
+      "id": "judy1_prev_empty_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 157374,
+        "Instructions": 119601,
+        "L1 Hits": 152979,
+        "LL Hits": 641,
+        "RAM Hits": 34,
+        "Total read+write": 153654
+      }
+    },
+    {
+      "id": "judy1_prev_empty_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 172741,
+        "Instructions": 128855,
+        "L1 Hits": 168191,
+        "LL Hits": 651,
+        "RAM Hits": 37,
+        "Total read+write": 168879
+      }
+    },
+    {
+      "id": "judy1_prev_empty_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 155867,
+        "Instructions": 117662,
+        "L1 Hits": 152217,
+        "LL Hits": 562,
+        "RAM Hits": 24,
+        "Total read+write": 152803
+      }
+    },
+    {
+      "id": "judy1_prev_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 12008982,
+        "Instructions": 9781559,
+        "L1 Hits": 11965692,
+        "LL Hits": 8266,
+        "RAM Hits": 56,
+        "Total read+write": 11974014
+      }
+    },
+    {
+      "id": "judy1_prev_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 12818190,
+        "Instructions": 10378089,
+        "L1 Hits": 12774940,
+        "LL Hits": 8258,
+        "RAM Hits": 56,
+        "Total read+write": 12783254
+      }
+    },
+    {
+      "id": "judy1_prev_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 14508910,
+        "Instructions": 12128982,
+        "L1 Hits": 14459375,
+        "LL Hits": 9263,
+        "RAM Hits": 92,
+        "Total read+write": 14468730
       }
     },
     {
@@ -106,12 +568,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 9418488,
-        "Instructions": 6871457,
-        "L1 Hits": 9339353,
-        "LL Hits": 4130,
-        "RAM Hits": 1671,
-        "Total read+write": 9345154
+        "Estimated Cycles": 9418641,
+        "Instructions": 6871450,
+        "L1 Hits": 9339286,
+        "LL Hits": 4188,
+        "RAM Hits": 1669,
+        "Total read+write": 9345143
       }
     },
     {
@@ -120,12 +582,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 20372191,
-        "Instructions": 14268981,
-        "L1 Hits": 19447111,
-        "LL Hits": 87947,
-        "RAM Hits": 13867,
-        "Total read+write": 19548925
+        "Estimated Cycles": 20372384,
+        "Instructions": 14268974,
+        "L1 Hits": 19446989,
+        "LL Hits": 88066,
+        "RAM Hits": 13859,
+        "Total read+write": 19548914
       }
     },
     {
@@ -134,12 +596,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 9289718,
-        "Instructions": 6794914,
-        "L1 Hits": 9210463,
-        "LL Hits": 4126,
-        "RAM Hits": 1675,
-        "Total read+write": 9216264
+        "Estimated Cycles": 9286279,
+        "Instructions": 6792525,
+        "L1 Hits": 9207279,
+        "LL Hits": 4124,
+        "RAM Hits": 1668,
+        "Total read+write": 9213071
       }
     },
     {
@@ -148,12 +610,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 20185611,
-        "Instructions": 14182756,
-        "L1 Hits": 19262016,
-        "LL Hits": 88329,
-        "RAM Hits": 13770,
-        "Total read+write": 19364115
+        "Estimated Cycles": 20170283,
+        "Instructions": 14168063,
+        "L1 Hits": 19241733,
+        "LL Hits": 88648,
+        "RAM Hits": 13866,
+        "Total read+write": 19344247
       }
     },
     {
@@ -162,10 +624,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 16430596,
+        "Estimated Cycles": 16430604,
         "Instructions": 11899560,
-        "L1 Hits": 16397436,
-        "LL Hits": 3986,
+        "L1 Hits": 16397434,
+        "LL Hits": 3988,
         "RAM Hits": 378,
         "Total read+write": 16401800
       }
@@ -176,10 +638,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 25131872,
+        "Estimated Cycles": 25131928,
         "Instructions": 17259597,
-        "L1 Hits": 24313317,
-        "LL Hits": 90043,
+        "L1 Hits": 24313303,
+        "LL Hits": 90057,
         "RAM Hits": 10524,
         "Total read+write": 24413884
       }
@@ -190,11 +652,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5336931,
+        "Estimated Cycles": 5336387,
         "Instructions": 3881552,
-        "L1 Hits": 4989716,
-        "LL Hits": 69121,
-        "RAM Hits": 46,
+        "L1 Hits": 4989807,
+        "LL Hits": 69036,
+        "RAM Hits": 40,
         "Total read+write": 5058883
       }
     },
@@ -204,11 +666,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5336811,
+        "Estimated Cycles": 5336347,
         "Instructions": 3881555,
-        "L1 Hits": 4989721,
-        "LL Hits": 69124,
-        "RAM Hits": 42,
+        "L1 Hits": 4989822,
+        "LL Hits": 69025,
+        "RAM Hits": 40,
         "Total read+write": 5058887
       }
     },
@@ -218,12 +680,96 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 7621616,
+        "Estimated Cycles": 7621544,
         "Instructions": 5770227,
-        "L1 Hits": 7333151,
-        "LL Hits": 57490,
+        "L1 Hits": 7333169,
+        "LL Hits": 57472,
         "RAM Hits": 29,
         "Total read+write": 7390670
+      }
+    },
+    {
+      "id": "judy1_unset_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 11828899,
+        "Instructions": 8997596,
+        "L1 Hits": 11795704,
+        "LL Hits": 4168,
+        "RAM Hits": 353,
+        "Total read+write": 11800225
+      }
+    },
+    {
+      "id": "judy1_unset_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 19780943,
+        "Instructions": 14929442,
+        "L1 Hits": 19236373,
+        "LL Hits": 106296,
+        "RAM Hits": 374,
+        "Total read+write": 19343043
+      }
+    },
+    {
+      "id": "judy1_unset_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 11822903,
+        "Instructions": 8952365,
+        "L1 Hits": 11789608,
+        "LL Hits": 4174,
+        "RAM Hits": 355,
+        "Total read+write": 11794137
+      }
+    },
+    {
+      "id": "judy1_unset_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 19700781,
+        "Instructions": 14806452,
+        "L1 Hits": 19151851,
+        "LL Hits": 106713,
+        "RAM Hits": 439,
+        "Total read+write": 19259003
+      }
+    },
+    {
+      "id": "judy1_unset_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 22065614,
+        "Instructions": 16397144,
+        "L1 Hits": 21947789,
+        "LL Hits": 17622,
+        "RAM Hits": 849,
+        "Total read+write": 21966260
+      }
+    },
+    {
+      "id": "judy1_unset_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 27946240,
+        "Instructions": 20575779,
+        "L1 Hits": 27376205,
+        "LL Hits": 112859,
+        "RAM Hits": 164,
+        "Total read+write": 27489228
       }
     },
     {
@@ -232,12 +778,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 26558011,
-        "Instructions": 19729867,
-        "L1 Hits": 25918431,
-        "LL Hits": 111788,
-        "RAM Hits": 2304,
-        "Total read+write": 26032523
+        "Estimated Cycles": 26552265,
+        "Instructions": 19726955,
+        "L1 Hits": 25913940,
+        "LL Hits": 111509,
+        "RAM Hits": 2308,
+        "Total read+write": 26027757
       }
     },
     {
@@ -246,12 +792,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 28086669,
-        "Instructions": 20771383,
-        "L1 Hits": 27447329,
-        "LL Hits": 111621,
-        "RAM Hits": 2321,
-        "Total read+write": 27561271
+        "Estimated Cycles": 28080204,
+        "Instructions": 20767078,
+        "L1 Hits": 27440269,
+        "LL Hits": 111712,
+        "RAM Hits": 2325,
+        "Total read+write": 27554306
       }
     },
     {
@@ -260,11 +806,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 60436808,
+        "Estimated Cycles": 60437150,
         "Instructions": 44863600,
-        "L1 Hits": 59811478,
-        "LL Hits": 123582,
-        "RAM Hits": 212,
+        "L1 Hits": 59811400,
+        "LL Hits": 123659,
+        "RAM Hits": 213,
         "Total read+write": 59935272
       }
     },
@@ -274,11 +820,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 17872621,
+        "Estimated Cycles": 17873435,
         "Instructions": 13164599,
-        "L1 Hits": 17115796,
-        "LL Hits": 151281,
-        "RAM Hits": 12,
+        "L1 Hits": 17115600,
+        "LL Hits": 151476,
+        "RAM Hits": 13,
         "Total read+write": 17267089
       }
     },
@@ -288,10 +834,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 17633070,
+        "Estimated Cycles": 17633606,
         "Instructions": 12984603,
-        "L1 Hits": 16875690,
-        "LL Hits": 151392,
+        "L1 Hits": 16875556,
+        "LL Hits": 151526,
         "RAM Hits": 12,
         "Total read+write": 17027094
       }
@@ -302,10 +848,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 32962722,
+        "Estimated Cycles": 32962482,
         "Instructions": 25402212,
-        "L1 Hits": 32240117,
-        "LL Hits": 144332,
+        "L1 Hits": 32240177,
+        "LL Hits": 144272,
         "RAM Hits": 27,
         "Total read+write": 32384476
       }
@@ -316,12 +862,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 34779382,
-        "Instructions": 24724977,
-        "L1 Hits": 33507722,
-        "LL Hits": 135696,
-        "RAM Hits": 16948,
-        "Total read+write": 33660366
+        "Estimated Cycles": 34757436,
+        "Instructions": 24724991,
+        "L1 Hits": 33513251,
+        "LL Hits": 130187,
+        "RAM Hits": 16950,
+        "Total read+write": 33660388
       }
     },
     {
@@ -330,12 +876,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 35498626,
-        "Instructions": 25202293,
-        "L1 Hits": 34258776,
-        "LL Hits": 129117,
-        "RAM Hits": 16979,
-        "Total read+write": 34404872
+        "Estimated Cycles": 35492494,
+        "Instructions": 25201009,
+        "L1 Hits": 34258639,
+        "LL Hits": 127834,
+        "RAM Hits": 16991,
+        "Total read+write": 34403464
       }
     },
     {
@@ -344,10 +890,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 41067152,
+        "Estimated Cycles": 41066808,
         "Instructions": 28921167,
-        "L1 Hits": 40174082,
-        "LL Hits": 120647,
+        "L1 Hits": 40174168,
+        "LL Hits": 120561,
         "RAM Hits": 8281,
         "Total read+write": 40303010
       }
@@ -358,12 +904,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 70970602,
-        "Instructions": 50183606,
-        "L1 Hits": 67418102,
-        "LL Hits": 699601,
-        "RAM Hits": 1557,
-        "Total read+write": 68119260
+        "Estimated Cycles": 52671331,
+        "Instructions": 37780472,
+        "L1 Hits": 49891156,
+        "LL Hits": 545339,
+        "RAM Hits": 1528,
+        "Total read+write": 50438023
       }
     },
     {
@@ -372,12 +918,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 71819966,
-        "Instructions": 50966356,
-        "L1 Hits": 68270216,
-        "LL Hits": 698505,
-        "RAM Hits": 1635,
-        "Total read+write": 68970356
+        "Estimated Cycles": 53186947,
+        "Instructions": 38175985,
+        "L1 Hits": 50236122,
+        "LL Hits": 579693,
+        "RAM Hits": 1496,
+        "Total read+write": 50817311
       }
     },
     {
@@ -386,11 +932,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 98652652,
+        "Estimated Cycles": 98653306,
         "Instructions": 75983841,
-        "L1 Hits": 97046977,
-        "LL Hits": 313190,
-        "RAM Hits": 1135,
+        "L1 Hits": 97046806,
+        "LL Hits": 313362,
+        "RAM Hits": 1134,
         "Total read+write": 97361302
       }
     },
@@ -400,12 +946,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 42676844,
-        "Instructions": 29374023,
-        "L1 Hits": 37472279,
-        "LL Hits": 358378,
-        "RAM Hits": 97505,
-        "Total read+write": 37928162
+        "Estimated Cycles": 41872975,
+        "Instructions": 29372903,
+        "L1 Hits": 37488445,
+        "LL Hits": 365437,
+        "RAM Hits": 73067,
+        "Total read+write": 37926949
       }
     },
     {
@@ -414,12 +960,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 42550926,
-        "Instructions": 29380237,
-        "L1 Hits": 37444976,
-        "LL Hits": 402257,
-        "RAM Hits": 88419,
-        "Total read+write": 37935652
+        "Estimated Cycles": 42019149,
+        "Instructions": 29380991,
+        "L1 Hits": 37429979,
+        "LL Hits": 438103,
+        "RAM Hits": 68533,
+        "Total read+write": 37936615
       }
     },
     {
@@ -428,11 +974,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 58648430,
+        "Estimated Cycles": 58648918,
         "Instructions": 45428906,
-        "L1 Hits": 56111955,
-        "LL Hits": 367085,
-        "RAM Hits": 20030,
+        "L1 Hits": 56111923,
+        "LL Hits": 367105,
+        "RAM Hits": 20042,
         "Total read+write": 56499070
       }
     },
@@ -442,12 +988,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 67212106,
-        "Instructions": 47167535,
-        "L1 Hits": 63734891,
-        "LL Hits": 213598,
-        "RAM Hits": 68835,
-        "Total read+write": 64017324
+        "Estimated Cycles": 50751825,
+        "Instructions": 35311204,
+        "L1 Hits": 47556845,
+        "LL Hits": 205570,
+        "RAM Hits": 61918,
+        "Total read+write": 47824333
       }
     },
     {
@@ -456,12 +1002,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 68620344,
-        "Instructions": 48451872,
-        "L1 Hits": 65171509,
-        "LL Hits": 208538,
-        "RAM Hits": 68747,
-        "Total read+write": 65448794
+        "Estimated Cycles": 54162766,
+        "Instructions": 37789506,
+        "L1 Hits": 50972901,
+        "LL Hits": 204981,
+        "RAM Hits": 61856,
+        "Total read+write": 51239738
       }
     },
     {
@@ -470,12 +1016,54 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 61430279,
+        "Estimated Cycles": 61430215,
         "Instructions": 45037631,
-        "L1 Hits": 59609014,
-        "LL Hits": 92562,
+        "L1 Hits": 59609030,
+        "LL Hits": 92546,
         "RAM Hits": 38813,
         "Total read+write": 59740389
+      }
+    },
+    {
+      "id": "judyl_by_count_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 170984041,
+        "Instructions": 136821167,
+        "L1 Hits": 167204706,
+        "LL Hits": 755461,
+        "RAM Hits": 58,
+        "Total read+write": 167960225
+      }
+    },
+    {
+      "id": "judyl_by_count_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 169336053,
+        "Instructions": 136867765,
+        "L1 Hits": 167750008,
+        "LL Hits": 316810,
+        "RAM Hits": 57,
+        "Total read+write": 168066875
+      }
+    },
+    {
+      "id": "judyl_by_count_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 312702435,
+        "Instructions": 247831593,
+        "L1 Hits": 310127305,
+        "LL Hits": 514767,
+        "RAM Hits": 37,
+        "Total read+write": 310642109
       }
     },
     {
@@ -484,11 +1072,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 50546709,
+        "Estimated Cycles": 50546523,
         "Instructions": 36719564,
-        "L1 Hits": 49911069,
-        "LL Hits": 92121,
-        "RAM Hits": 5001,
+        "L1 Hits": 49911153,
+        "LL Hits": 92032,
+        "RAM Hits": 5006,
         "Total read+write": 50008191
       }
     },
@@ -498,12 +1086,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 52914253,
-        "Instructions": 38360582,
-        "L1 Hits": 52277578,
-        "LL Hits": 92286,
-        "RAM Hits": 5007,
-        "Total read+write": 52374871
+        "Estimated Cycles": 52905296,
+        "Instructions": 38351318,
+        "L1 Hits": 52264826,
+        "LL Hits": 92534,
+        "RAM Hits": 5080,
+        "Total read+write": 52362440
       }
     },
     {
@@ -512,12 +1100,264 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 77716688,
+        "Estimated Cycles": 77716632,
         "Instructions": 56299746,
-        "L1 Hits": 77316358,
-        "LL Hits": 79534,
+        "L1 Hits": 77316372,
+        "LL Hits": 79520,
         "RAM Hits": 76,
         "Total read+write": 77395968
+      }
+    },
+    {
+      "id": "judyl_count_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 133525931,
+        "Instructions": 108292207,
+        "L1 Hits": 128505931,
+        "LL Hits": 1002936,
+        "RAM Hits": 152,
+        "Total read+write": 129509019
+      }
+    },
+    {
+      "id": "judyl_count_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 130873776,
+        "Instructions": 108257172,
+        "L1 Hits": 129057816,
+        "LL Hits": 362149,
+        "RAM Hits": 149,
+        "Total read+write": 129420114
+      }
+    },
+    {
+      "id": "judyl_count_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 340761783,
+        "Instructions": 265859169,
+        "L1 Hits": 339128408,
+        "LL Hits": 325653,
+        "RAM Hits": 146,
+        "Total read+write": 339454207
+      }
+    },
+    {
+      "id": "judyl_del_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16161889,
+        "Instructions": 11871211,
+        "L1 Hits": 15605864,
+        "LL Hits": 91206,
+        "RAM Hits": 2857,
+        "Total read+write": 15699927
+      }
+    },
+    {
+      "id": "judyl_del_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 19128171,
+        "Instructions": 13992362,
+        "L1 Hits": 18502221,
+        "LL Hits": 119681,
+        "RAM Hits": 787,
+        "Total read+write": 18622689
+      }
+    },
+    {
+      "id": "judyl_del_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16538059,
+        "Instructions": 12190431,
+        "L1 Hits": 15981334,
+        "LL Hits": 91668,
+        "RAM Hits": 2811,
+        "Total read+write": 16075813
+      }
+    },
+    {
+      "id": "judyl_del_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 19496959,
+        "Instructions": 14320499,
+        "L1 Hits": 18868209,
+        "LL Hits": 120136,
+        "RAM Hits": 802,
+        "Total read+write": 18989147
+      }
+    },
+    {
+      "id": "judyl_del_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 27010499,
+        "Instructions": 19920272,
+        "L1 Hits": 26362769,
+        "LL Hits": 127292,
+        "RAM Hits": 322,
+        "Total read+write": 26490383
+      }
+    },
+    {
+      "id": "judyl_del_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 32911292,
+        "Instructions": 23968855,
+        "L1 Hits": 32009382,
+        "LL Hits": 179031,
+        "RAM Hits": 193,
+        "Total read+write": 32188606
+      }
+    },
+    {
+      "id": "judyl_first_empty_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 498842,
+        "Instructions": 352089,
+        "L1 Hits": 490982,
+        "LL Hits": 900,
+        "RAM Hits": 96,
+        "Total read+write": 491978
+      }
+    },
+    {
+      "id": "judyl_first_empty_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 531196,
+        "Instructions": 377175,
+        "L1 Hits": 523601,
+        "LL Hits": 875,
+        "RAM Hits": 92,
+        "Total read+write": 524568
+      }
+    },
+    {
+      "id": "judyl_first_empty_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 952197,
+        "Instructions": 825109,
+        "L1 Hits": 946717,
+        "LL Hits": 767,
+        "RAM Hits": 47,
+        "Total read+write": 947531
+      }
+    },
+    {
+      "id": "judyl_first_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16353112,
+        "Instructions": 12436887,
+        "L1 Hits": 15868927,
+        "LL Hits": 96487,
+        "RAM Hits": 50,
+        "Total read+write": 15965464
+      }
+    },
+    {
+      "id": "judyl_first_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16768966,
+        "Instructions": 12702392,
+        "L1 Hits": 16284981,
+        "LL Hits": 96447,
+        "RAM Hits": 50,
+        "Total read+write": 16381478
+      }
+    },
+    {
+      "id": "judyl_first_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 25650484,
+        "Instructions": 20518505,
+        "L1 Hits": 25210039,
+        "LL Hits": 87417,
+        "RAM Hits": 96,
+        "Total read+write": 25297552
+      }
+    },
+    {
+      "id": "judyl_free_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 1169973,
+        "Instructions": 853655,
+        "L1 Hits": 1089438,
+        "LL Hits": 15708,
+        "RAM Hits": 57,
+        "Total read+write": 1105203
+      }
+    },
+    {
+      "id": "judyl_free_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 1174823,
+        "Instructions": 857174,
+        "L1 Hits": 1094188,
+        "LL Hits": 15707,
+        "RAM Hits": 60,
+        "Total read+write": 1109955
+      }
+    },
+    {
+      "id": "judyl_free_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 3744857,
+        "Instructions": 2481224,
+        "L1 Hits": 3505247,
+        "LL Hits": 47775,
+        "RAM Hits": 21,
+        "Total read+write": 3553043
       }
     },
     {
@@ -526,10 +1366,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5050094,
+        "Estimated Cycles": 5050182,
         "Instructions": 3631156,
-        "L1 Hits": 4840809,
-        "LL Hits": 41794,
+        "L1 Hits": 4840787,
+        "LL Hits": 41816,
         "RAM Hits": 9,
         "Total read+write": 4882612
       }
@@ -540,11 +1380,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5367654,
+        "Estimated Cycles": 5367670,
         "Instructions": 3824534,
-        "L1 Hits": 4963634,
-        "LL Hits": 80713,
-        "RAM Hits": 13,
+        "L1 Hits": 4963615,
+        "LL Hits": 80734,
+        "RAM Hits": 11,
         "Total read+write": 5044360
       }
     },
@@ -554,11 +1394,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 493923500,
+        "Estimated Cycles": 493932882,
         "Instructions": 303770302,
-        "L1 Hits": 368918875,
-        "LL Hits": 3078066,
-        "RAM Hits": 3131837,
+        "L1 Hits": 368916672,
+        "LL Hits": 3080250,
+        "RAM Hits": 3131856,
         "Total read+write": 375128778
       }
     },
@@ -568,10 +1408,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5954410,
+        "Estimated Cycles": 5954738,
         "Instructions": 4350100,
-        "L1 Hits": 5749150,
-        "LL Hits": 40989,
+        "L1 Hits": 5749068,
+        "LL Hits": 41071,
         "RAM Hits": 9,
         "Total read+write": 5790148
       }
@@ -582,11 +1422,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 4719816,
+        "Estimated Cycles": 4720588,
         "Instructions": 3481159,
-        "L1 Hits": 4510876,
-        "LL Hits": 41732,
-        "RAM Hits": 8,
+        "L1 Hits": 4510698,
+        "LL Hits": 41908,
+        "RAM Hits": 10,
         "Total read+write": 4552616
       }
     },
@@ -596,11 +1436,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5037090,
+        "Estimated Cycles": 5038178,
         "Instructions": 3674537,
-        "L1 Hits": 4633765,
-        "LL Hits": 80588,
-        "RAM Hits": 11,
+        "L1 Hits": 4633508,
+        "LL Hits": 80843,
+        "RAM Hits": 13,
         "Total read+write": 4714364
       }
     },
@@ -610,11 +1450,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 477252260,
+        "Estimated Cycles": 477363228,
         "Instructions": 296270305,
-        "L1 Hits": 352421925,
-        "LL Hits": 3080322,
-        "RAM Hits": 3126535,
+        "L1 Hits": 352418228,
+        "LL Hits": 3080813,
+        "RAM Hits": 3129741,
         "Total read+write": 358628782
       }
     },
@@ -624,11 +1464,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5625160,
+        "Estimated Cycles": 5625030,
         "Instructions": 4200103,
-        "L1 Hits": 5418960,
-        "LL Hits": 41184,
-        "RAM Hits": 8,
+        "L1 Hits": 5419000,
+        "LL Hits": 41143,
+        "RAM Hits": 9,
         "Total read+write": 5460152
       }
     },
@@ -638,11 +1478,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 7589648,
+        "Estimated Cycles": 7589558,
         "Instructions": 5861565,
-        "L1 Hits": 7382003,
-        "LL Hits": 41347,
-        "RAM Hits": 26,
+        "L1 Hits": 7382018,
+        "LL Hits": 41333,
+        "RAM Hits": 25,
         "Total read+write": 7423376
       }
     },
@@ -652,11 +1492,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 8909952,
+        "Estimated Cycles": 8909930,
         "Instructions": 6769783,
-        "L1 Hits": 8548252,
-        "LL Hits": 72158,
-        "RAM Hits": 26,
+        "L1 Hits": 8548250,
+        "LL Hits": 72161,
+        "RAM Hits": 25,
         "Total read+write": 8620436
       }
     },
@@ -666,11 +1506,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 728444911,
+        "Estimated Cycles": 728445005,
         "Instructions": 478172566,
-        "L1 Hits": 604013936,
-        "LL Hits": 3050423,
-        "RAM Hits": 3119396,
+        "L1 Hits": 604013860,
+        "LL Hits": 3050506,
+        "RAM Hits": 3119389,
         "Total read+write": 610183755
       }
     },
@@ -680,11 +1520,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 8673336,
+        "Estimated Cycles": 8673346,
         "Instructions": 6690103,
-        "L1 Hits": 8482006,
-        "LL Hits": 38126,
-        "RAM Hits": 20,
+        "L1 Hits": 8481996,
+        "LL Hits": 38137,
+        "RAM Hits": 19,
         "Total read+write": 8520152
       }
     },
@@ -694,12 +1534,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 14577765,
-        "Instructions": 10744461,
-        "L1 Hits": 14326770,
-        "LL Hits": 7163,
-        "RAM Hits": 6148,
-        "Total read+write": 14340081
+        "Estimated Cycles": 14570574,
+        "Instructions": 10744468,
+        "L1 Hits": 14328574,
+        "LL Hits": 5371,
+        "RAM Hits": 6147,
+        "Total read+write": 14340092
       }
     },
     {
@@ -708,12 +1548,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 24106287,
-        "Instructions": 16668230,
-        "L1 Hits": 22935247,
-        "LL Hits": 118428,
-        "RAM Hits": 16540,
-        "Total read+write": 23070215
+        "Estimated Cycles": 24088932,
+        "Instructions": 16668237,
+        "L1 Hits": 22939532,
+        "LL Hits": 114163,
+        "RAM Hits": 16531,
+        "Total read+write": 23070226
       }
     },
     {
@@ -722,12 +1562,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 8112777,
-        "Instructions": 5997870,
-        "L1 Hits": 7868612,
-        "LL Hits": 6623,
-        "RAM Hits": 6030,
-        "Total read+write": 7881265
+        "Estimated Cycles": 8103278,
+        "Instructions": 5997877,
+        "L1 Hits": 7871008,
+        "LL Hits": 4237,
+        "RAM Hits": 6031,
+        "Total read+write": 7881276
       }
     },
     {
@@ -736,12 +1576,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 15047676,
-        "Instructions": 11054921,
-        "L1 Hits": 14804486,
-        "LL Hits": 5735,
-        "RAM Hits": 6129,
-        "Total read+write": 14816350
+        "Estimated Cycles": 15040936,
+        "Instructions": 11053657,
+        "L1 Hits": 14803986,
+        "LL Hits": 4494,
+        "RAM Hits": 6128,
+        "Total read+write": 14814608
       }
     },
     {
@@ -750,12 +1590,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 24710909,
-        "Instructions": 17108141,
-        "L1 Hits": 23563429,
-        "LL Hits": 113730,
-        "RAM Hits": 16538,
-        "Total read+write": 23693697
+        "Estimated Cycles": 24700936,
+        "Instructions": 17105139,
+        "L1 Hits": 23560616,
+        "LL Hits": 112277,
+        "RAM Hits": 16541,
+        "Total read+write": 23689434
       }
     },
     {
@@ -764,12 +1604,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 8322000,
-        "Instructions": 6139494,
-        "L1 Hits": 8085090,
-        "LL Hits": 5249,
-        "RAM Hits": 6019,
-        "Total read+write": 8096358
+        "Estimated Cycles": 8318277,
+        "Instructions": 6138550,
+        "L1 Hits": 8084392,
+        "LL Hits": 4693,
+        "RAM Hits": 6012,
+        "Total read+write": 8095097
       }
     },
     {
@@ -792,10 +1632,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 27768396,
+        "Estimated Cycles": 27768272,
         "Instructions": 18979639,
-        "L1 Hits": 26743831,
-        "LL Hits": 110854,
+        "L1 Hits": 26743862,
+        "LL Hits": 110823,
         "RAM Hits": 13437,
         "Total read+write": 26868122
       }
@@ -806,12 +1646,642 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 20355319,
+        "Estimated Cycles": 20355331,
         "Instructions": 14707090,
-        "L1 Hits": 20178494,
-        "LL Hits": 3907,
+        "L1 Hits": 20178491,
+        "LL Hits": 3910,
         "RAM Hits": 4494,
         "Total read+write": 20186895
+      }
+    },
+    {
+      "id": "judyl_last_empty_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 515441,
+        "Instructions": 366246,
+        "L1 Hits": 507566,
+        "LL Hits": 875,
+        "RAM Hits": 100,
+        "Total read+write": 508541
+      }
+    },
+    {
+      "id": "judyl_last_empty_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 543912,
+        "Instructions": 390792,
+        "L1 Hits": 535837,
+        "LL Hits": 887,
+        "RAM Hits": 104,
+        "Total read+write": 536828
+      }
+    },
+    {
+      "id": "judyl_last_empty_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 1061918,
+        "Instructions": 935693,
+        "L1 Hits": 1056393,
+        "LL Hits": 762,
+        "RAM Hits": 49,
+        "Total read+write": 1057204
+      }
+    },
+    {
+      "id": "judyl_last_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16810441,
+        "Instructions": 12779776,
+        "L1 Hits": 16327006,
+        "LL Hits": 96330,
+        "RAM Hits": 51,
+        "Total read+write": 16423387
+      }
+    },
+    {
+      "id": "judyl_last_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 17671331,
+        "Instructions": 13432555,
+        "L1 Hits": 17187331,
+        "LL Hits": 96464,
+        "RAM Hits": 48,
+        "Total read+write": 17283843
+      }
+    },
+    {
+      "id": "judyl_last_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 24480097,
+        "Instructions": 19637668,
+        "L1 Hits": 24040802,
+        "LL Hits": 87187,
+        "RAM Hits": 96,
+        "Total read+write": 24128085
+      }
+    },
+    {
+      "id": "judyl_next_empty_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 500599,
+        "Instructions": 353353,
+        "L1 Hits": 492174,
+        "LL Hits": 901,
+        "RAM Hits": 112,
+        "Total read+write": 493187
+      }
+    },
+    {
+      "id": "judyl_next_empty_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 532972,
+        "Instructions": 378424,
+        "L1 Hits": 524777,
+        "LL Hits": 876,
+        "RAM Hits": 109,
+        "Total read+write": 525762
+      }
+    },
+    {
+      "id": "judyl_next_empty_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 827849,
+        "Instructions": 728068,
+        "L1 Hits": 822999,
+        "LL Hits": 767,
+        "RAM Hits": 29,
+        "Total read+write": 823795
+      }
+    },
+    {
+      "id": "judyl_next_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 15747588,
+        "Instructions": 12257204,
+        "L1 Hits": 15683358,
+        "LL Hits": 12468,
+        "RAM Hits": 54,
+        "Total read+write": 15695880
+      }
+    },
+    {
+      "id": "judyl_next_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16163585,
+        "Instructions": 12522715,
+        "L1 Hits": 16099390,
+        "LL Hits": 12461,
+        "RAM Hits": 54,
+        "Total read+write": 16111905
+      }
+    },
+    {
+      "id": "judyl_next_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 15961970,
+        "Instructions": 13185307,
+        "L1 Hits": 15880045,
+        "LL Hits": 15755,
+        "RAM Hits": 90,
+        "Total read+write": 15895890
+      }
+    },
+    {
+      "id": "judyl_prev_empty_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 517593,
+        "Instructions": 367880,
+        "L1 Hits": 509068,
+        "LL Hits": 879,
+        "RAM Hits": 118,
+        "Total read+write": 510065
+      }
+    },
+    {
+      "id": "judyl_prev_empty_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 545976,
+        "Instructions": 392407,
+        "L1 Hits": 537331,
+        "LL Hits": 889,
+        "RAM Hits": 120,
+        "Total read+write": 538340
+      }
+    },
+    {
+      "id": "judyl_prev_empty_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 937532,
+        "Instructions": 838652,
+        "L1 Hits": 932677,
+        "LL Hits": 761,
+        "RAM Hits": 30,
+        "Total read+write": 933468
+      }
+    },
+    {
+      "id": "judyl_prev_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16205582,
+        "Instructions": 12600083,
+        "L1 Hits": 16141262,
+        "LL Hits": 12472,
+        "RAM Hits": 56,
+        "Total read+write": 16153790
+      }
+    },
+    {
+      "id": "judyl_prev_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 17065899,
+        "Instructions": 13252880,
+        "L1 Hits": 17001754,
+        "LL Hits": 12465,
+        "RAM Hits": 52,
+        "Total read+write": 17014271
+      }
+    },
+    {
+      "id": "judyl_prev_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 15066516,
+        "Instructions": 12521167,
+        "L1 Hits": 14984586,
+        "LL Hits": 15763,
+        "RAM Hits": 89,
+        "Total read+write": 15000438
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse/k1",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 13342667,
+        "Instructions": 7618151,
+        "L1 Hits": 13317252,
+        "LL Hits": 337,
+        "RAM Hits": 678,
+        "Total read+write": 13318267
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse/k10",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 61249673,
+        "Instructions": 35148855,
+        "L1 Hits": 61088383,
+        "LL Hits": 19693,
+        "RAM Hits": 1795,
+        "Total read+write": 61109871
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse/k20",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 71958116,
+        "Instructions": 43325499,
+        "L1 Hits": 71630651,
+        "LL Hits": 55042,
+        "RAM Hits": 1493,
+        "Total read+write": 71687186
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse/k31",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 83168484,
+        "Instructions": 51917887,
+        "L1 Hits": 82743894,
+        "LL Hits": 74355,
+        "RAM Hits": 1509,
+        "Total read+write": 82819758
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse/k32",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 159760819,
+        "Instructions": 100807565,
+        "L1 Hits": 155488009,
+        "LL Hits": 835788,
+        "RAM Hits": 2682,
+        "Total read+write": 156326479
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse/k64",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 220961715,
+        "Instructions": 143314664,
+        "L1 Hits": 215339650,
+        "LL Hits": 1104365,
+        "RAM Hits": 2864,
+        "Total read+write": 216446879
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse_dl/k1",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 13568759,
+        "Instructions": 7778961,
+        "L1 Hits": 13542954,
+        "LL Hits": 345,
+        "RAM Hits": 688,
+        "Total read+write": 13543987
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse_dl/k10",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 61342854,
+        "Instructions": 35336832,
+        "L1 Hits": 61261649,
+        "LL Hits": 6385,
+        "RAM Hits": 1408,
+        "Total read+write": 61269442
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse_dl/k20",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 72208606,
+        "Instructions": 43609827,
+        "L1 Hits": 71789151,
+        "LL Hits": 71032,
+        "RAM Hits": 1837,
+        "Total read+write": 71862020
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse_dl/k31",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 83075513,
+        "Instructions": 52097562,
+        "L1 Hits": 82654213,
+        "LL Hits": 74537,
+        "RAM Hits": 1389,
+        "Total read+write": 82730139
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse_dl/k32",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 161323962,
+        "Instructions": 102151894,
+        "L1 Hits": 156851477,
+        "LL Hits": 876605,
+        "RAM Hits": 2556,
+        "Total read+write": 157730638
+      }
+    },
+    {
+      "id": "judyl_small_array_expanse_dl/k64",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 222085442,
+        "Instructions": 144621903,
+        "L1 Hits": 216319012,
+        "LL Hits": 1134141,
+        "RAM Hits": 2735,
+        "Total read+write": 217455888
+      }
+    },
+    {
+      "id": "judyl_small_array_stock/k1",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 1091880,
+        "Instructions": 779863,
+        "L1 Hits": 1088890,
+        "LL Hits": 73,
+        "RAM Hits": 75,
+        "Total read+write": 1089038
+      }
+    },
+    {
+      "id": "judyl_small_array_stock/k10",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 9927657,
+        "Instructions": 7499501,
+        "L1 Hits": 9911222,
+        "LL Hits": 2552,
+        "RAM Hits": 105,
+        "Total read+write": 9913879
+      }
+    },
+    {
+      "id": "judyl_small_array_stock/k20",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 19361636,
+        "Instructions": 14863989,
+        "L1 Hits": 19332771,
+        "LL Hits": 5059,
+        "RAM Hits": 102,
+        "Total read+write": 19337932
+      }
+    },
+    {
+      "id": "judyl_small_array_stock/k31",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 29647591,
+        "Instructions": 22924842,
+        "L1 Hits": 29604681,
+        "LL Hits": 7812,
+        "RAM Hits": 110,
+        "Total read+write": 29612603
+      }
+    },
+    {
+      "id": "judyl_small_array_stock/k32",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 59497933,
+        "Instructions": 46193392,
+        "L1 Hits": 59442878,
+        "LL Hits": 8260,
+        "RAM Hits": 393,
+        "Total read+write": 59451531
+      }
+    },
+    {
+      "id": "judyl_small_array_stock/k64",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 125043387,
+        "Instructions": 96403574,
+        "L1 Hits": 124938227,
+        "LL Hits": 17959,
+        "RAM Hits": 439,
+        "Total read+write": 124956625
+      }
+    },
+    {
+      "id": "judysl_del_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 52568615,
+        "Instructions": 38448607,
+        "L1 Hits": 50934495,
+        "LL Hits": 324619,
+        "RAM Hits": 315,
+        "Total read+write": 51259429
+      }
+    },
+    {
+      "id": "judysl_del_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 53848951,
+        "Instructions": 39515751,
+        "L1 Hits": 52267386,
+        "LL Hits": 314038,
+        "RAM Hits": 325,
+        "Total read+write": 52581749
+      }
+    },
+    {
+      "id": "judysl_del_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 79563398,
+        "Instructions": 57758843,
+        "L1 Hits": 77476803,
+        "LL Hits": 409913,
+        "RAM Hits": 1058,
+        "Total read+write": 77887774
+      }
+    },
+    {
+      "id": "judysl_first_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 36929119,
+        "Instructions": 26171376,
+        "L1 Hits": 35239194,
+        "LL Hits": 336914,
+        "RAM Hits": 153,
+        "Total read+write": 35576261
+      }
+    },
+    {
+      "id": "judysl_first_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 37323034,
+        "Instructions": 26432701,
+        "L1 Hits": 35539589,
+        "LL Hits": 355632,
+        "RAM Hits": 151,
+        "Total read+write": 35895372
+      }
+    },
+    {
+      "id": "judysl_first_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 66440779,
+        "Instructions": 50712256,
+        "L1 Hits": 64907944,
+        "LL Hits": 305454,
+        "RAM Hits": 159,
+        "Total read+write": 65213557
+      }
+    },
+    {
+      "id": "judysl_free_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 12697444,
+        "Instructions": 8842712,
+        "L1 Hits": 12062319,
+        "LL Hits": 125702,
+        "RAM Hits": 189,
+        "Total read+write": 12188210
+      }
+    },
+    {
+      "id": "judysl_free_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 12710933,
+        "Instructions": 8852082,
+        "L1 Hits": 12074213,
+        "LL Hits": 125797,
+        "RAM Hits": 221,
+        "Total read+write": 12200231
+      }
+    },
+    {
+      "id": "judysl_free_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 31342509,
+        "Instructions": 23551843,
+        "L1 Hits": 30774009,
+        "LL Hits": 112783,
+        "RAM Hits": 131,
+        "Total read+write": 30886923
       }
     },
     {
@@ -820,11 +2290,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 27099711,
+        "Estimated Cycles": 27101799,
         "Instructions": 20102408,
-        "L1 Hits": 25572926,
-        "LL Hits": 305224,
-        "RAM Hits": 19,
+        "L1 Hits": 25572374,
+        "LL Hits": 305780,
+        "RAM Hits": 15,
         "Total read+write": 25878169
       }
     },
@@ -834,11 +2304,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 19691257,
+        "Estimated Cycles": 19693411,
         "Instructions": 14138478,
-        "L1 Hits": 18190987,
-        "LL Hits": 299914,
-        "RAM Hits": 20,
+        "L1 Hits": 18190441,
+        "LL Hits": 300461,
+        "RAM Hits": 19,
         "Total read+write": 18490921
       }
     },
@@ -848,11 +2318,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 21320139,
+        "Estimated Cycles": 21320333,
         "Instructions": 15588378,
-        "L1 Hits": 20126629,
-        "LL Hits": 238506,
-        "RAM Hits": 28,
+        "L1 Hits": 20126558,
+        "LL Hits": 238580,
+        "RAM Hits": 25,
         "Total read+write": 20365163
       }
     },
@@ -862,12 +2332,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 27928636,
-        "Instructions": 20674454,
-        "L1 Hits": 26381031,
-        "LL Hits": 309395,
-        "RAM Hits": 18,
-        "Total read+write": 26690444
+        "Estimated Cycles": 27928178,
+        "Instructions": 20674433,
+        "L1 Hits": 26381123,
+        "LL Hits": 309278,
+        "RAM Hits": 19,
+        "Total read+write": 26690420
       }
     },
     {
@@ -876,12 +2346,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 20215365,
-        "Instructions": 14558230,
-        "L1 Hits": 18771850,
-        "LL Hits": 288570,
+        "Estimated Cycles": 20226700,
+        "Instructions": 14566919,
+        "L1 Hits": 18782050,
+        "LL Hits": 288797,
         "RAM Hits": 19,
-        "Total read+write": 19060439
+        "Total read+write": 19070866
       }
     },
     {
@@ -890,11 +2360,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 22141596,
+        "Estimated Cycles": 22141726,
         "Instructions": 16160487,
-        "L1 Hits": 20936691,
-        "LL Hits": 240792,
-        "RAM Hits": 27,
+        "L1 Hits": 20936666,
+        "LL Hits": 240816,
+        "RAM Hits": 28,
         "Total read+write": 21177510
       }
     },
@@ -904,10 +2374,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 35525902,
+        "Estimated Cycles": 35526298,
         "Instructions": 27207434,
-        "L1 Hits": 34058227,
-        "LL Hits": 293276,
+        "L1 Hits": 34058128,
+        "LL Hits": 293375,
         "RAM Hits": 37,
         "Total read+write": 34351540
       }
@@ -918,10 +2388,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 22628452,
+        "Estimated Cycles": 22628440,
         "Instructions": 16633398,
-        "L1 Hits": 21321187,
-        "LL Hits": 261117,
+        "L1 Hits": 21321190,
+        "LL Hits": 261114,
         "RAM Hits": 48,
         "Total read+write": 21582352
       }
@@ -932,10 +2402,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 26718240,
+        "Estimated Cycles": 26718116,
         "Instructions": 20364757,
-        "L1 Hits": 25681005,
-        "LL Hits": 207216,
+        "L1 Hits": 25681036,
+        "LL Hits": 207185,
         "RAM Hits": 33,
         "Total read+write": 25888254
       }
@@ -946,12 +2416,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 38919950,
-        "Instructions": 28343849,
-        "L1 Hits": 38025775,
-        "LL Hits": 107995,
-        "RAM Hits": 10120,
-        "Total read+write": 38143890
+        "Estimated Cycles": 38907247,
+        "Instructions": 28343842,
+        "L1 Hits": 38028907,
+        "LL Hits": 104856,
+        "RAM Hits": 10116,
+        "Total read+write": 38143879
       }
     },
     {
@@ -960,12 +2430,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 55516108,
-        "Instructions": 39476590,
-        "L1 Hits": 53327228,
-        "LL Hits": 237380,
-        "RAM Hits": 28628,
-        "Total read+write": 53593236
+        "Estimated Cycles": 55499483,
+        "Instructions": 39476583,
+        "L1 Hits": 53331363,
+        "LL Hits": 233235,
+        "RAM Hits": 28627,
+        "Total read+write": 53593225
       }
     },
     {
@@ -974,12 +2444,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 34689895,
-        "Instructions": 25108639,
-        "L1 Hits": 34038945,
-        "LL Hits": 62479,
-        "RAM Hits": 9673,
-        "Total read+write": 34111097
+        "Estimated Cycles": 34680744,
+        "Instructions": 25108630,
+        "L1 Hits": 34041194,
+        "LL Hits": 60220,
+        "RAM Hits": 9670,
+        "Total read+write": 34111084
       }
     },
     {
@@ -988,12 +2458,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 41322363,
-        "Instructions": 30069499,
-        "L1 Hits": 40452613,
-        "LL Hits": 103152,
-        "RAM Hits": 10114,
-        "Total read+write": 40565879
+        "Estimated Cycles": 41309283,
+        "Instructions": 30041847,
+        "L1 Hits": 40411273,
+        "LL Hits": 108699,
+        "RAM Hits": 10129,
+        "Total read+write": 40530101
       }
     },
     {
@@ -1002,12 +2472,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 57389866,
-        "Instructions": 40803566,
-        "L1 Hits": 55215131,
-        "LL Hits": 234502,
-        "RAM Hits": 28635,
-        "Total read+write": 55478268
+        "Estimated Cycles": 57430725,
+        "Instructions": 40802730,
+        "L1 Hits": 55203960,
+        "LL Hits": 244817,
+        "RAM Hits": 28648,
+        "Total read+write": 55477425
       }
     },
     {
@@ -1016,12 +2486,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 36755369,
-        "Instructions": 26567133,
-        "L1 Hits": 36124979,
-        "LL Hits": 58731,
-        "RAM Hits": 9621,
-        "Total read+write": 36193331
+        "Estimated Cycles": 36773469,
+        "Instructions": 26579400,
+        "L1 Hits": 36141479,
+        "LL Hits": 58876,
+        "RAM Hits": 9646,
+        "Total read+write": 36210001
       }
     },
     {
@@ -1030,10 +2500,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 56594511,
+        "Estimated Cycles": 56594099,
         "Instructions": 41249450,
-        "L1 Hits": 55906001,
-        "LL Hits": 70299,
+        "L1 Hits": 55906104,
+        "LL Hits": 70196,
         "RAM Hits": 9629,
         "Total read+write": 55985929
       }
@@ -1044,10 +2514,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 61976439,
+        "Estimated Cycles": 61975763,
         "Instructions": 43779850,
-        "L1 Hits": 60110339,
-        "LL Hits": 195308,
+        "L1 Hits": 60110508,
+        "LL Hits": 195139,
         "RAM Hits": 25416,
         "Total read+write": 60331063
       }
@@ -1058,12 +2528,138 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 47025016,
+        "Estimated Cycles": 47024592,
         "Instructions": 33835057,
-        "L1 Hits": 46271961,
-        "LL Hits": 55019,
+        "L1 Hits": 46272067,
+        "LL Hits": 54913,
         "RAM Hits": 13656,
         "Total read+write": 46340636
+      }
+    },
+    {
+      "id": "judysl_last_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 37009294,
+        "Instructions": 26181325,
+        "L1 Hits": 35316864,
+        "LL Hits": 337429,
+        "RAM Hits": 151,
+        "Total read+write": 35654444
+      }
+    },
+    {
+      "id": "judysl_last_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 38102551,
+        "Instructions": 26991841,
+        "L1 Hits": 36325356,
+        "LL Hits": 354445,
+        "RAM Hits": 142,
+        "Total read+write": 36679943
+      }
+    },
+    {
+      "id": "judysl_last_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 65812292,
+        "Instructions": 50301667,
+        "L1 Hits": 64280612,
+        "LL Hits": 305251,
+        "RAM Hits": 155,
+        "Total read+write": 64586018
+      }
+    },
+    {
+      "id": "judysl_next_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 34456681,
+        "Instructions": 25151705,
+        "L1 Hits": 33917416,
+        "LL Hits": 106684,
+        "RAM Hits": 167,
+        "Total read+write": 34024267
+      }
+    },
+    {
+      "id": "judysl_next_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 34759771,
+        "Instructions": 25399497,
+        "L1 Hits": 34219461,
+        "LL Hits": 106914,
+        "RAM Hits": 164,
+        "Total read+write": 34326539
+      }
+    },
+    {
+      "id": "judysl_next_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 47367591,
+        "Instructions": 36453621,
+        "L1 Hits": 46820396,
+        "LL Hits": 108326,
+        "RAM Hits": 159,
+        "Total read+write": 46928881
+      }
+    },
+    {
+      "id": "judysl_prev_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 34534503,
+        "Instructions": 25161430,
+        "L1 Hits": 33995423,
+        "LL Hits": 106731,
+        "RAM Hits": 155,
+        "Total read+write": 34102309
+      }
+    },
+    {
+      "id": "judysl_prev_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 35543765,
+        "Instructions": 25958834,
+        "L1 Hits": 35004405,
+        "LL Hits": 106836,
+        "RAM Hits": 148,
+        "Total read+write": 35111389
+      }
+    },
+    {
+      "id": "judysl_prev_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 46745113,
+        "Instructions": 36046846,
+        "L1 Hits": 46196973,
+        "LL Hits": 108536,
+        "RAM Hits": 156,
+        "Total read+write": 46305665
       }
     }
   ]

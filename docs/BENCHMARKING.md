@@ -100,28 +100,68 @@ Callgrind counts through the same C ABI, in millions of instructions, from `crat
 | `JudyLGet`, random | 30,000 | **3.67** | 3.82 | 6.77 | **0.543×** | 0.565× |
 | `JudyLGet`, clustered | 30,000 | **3.48** | 3.63 | 5.86 | **0.594×** | 0.619× |
 | `JudyLGet`, random | 1,500,000 | **296.27** | 303.77 | 478.17 | **0.620×** | 0.635× |
-| `JudyL` churn (upsert, insert neighbour, delete it), random | 30,000 | **38.36** | 36.72 | 56.30 | **0.681×** | 0.652× |
-| `Judy1Set`, random | 30,000 | **14.18** | 14.27 | 17.26 | **0.822×** | 0.827× |
+| `JudyLDel`, random | 30,000 | **14.32** | 13.99 | 23.97 | **0.597×** | 0.584× |
+| `JudyLDel`, clustered | 30,000 | **12.19** | 11.87 | 19.92 | **0.612×** | 0.596× |
+| `JudyL` churn (upsert, insert neighbour, delete it), random | 30,000 | **38.35** | 36.72 | 56.30 | **0.681×** | 0.652× |
+| `JudyLFirst`, random | 30,000 | **12.70** | 12.44 | 20.52 | **0.619×** | 0.606× |
+| `JudyLNext`, random | 30,000 | **12.52** | 12.26 | 13.19 | **0.950×** | 0.930× |
+| `JudyLLast`, random | 30,000 | **13.43** | 12.78 | 19.64 | **0.684×** | 0.651× |
+| `JudyLPrev`, random | 30,000 | 13.25 | 12.60 | **12.52** | 1.058×, **loss** | 1.006×, **loss** |
+| `JudyLFirstEmpty`, clustered | 30,000 | **0.377** | 0.352 | 0.825 | **0.457×** | 0.427× |
+| `JudyLNextEmpty`, clustered | 30,000 | **0.378** | 0.353 | 0.728 | **0.520×** | 0.485× |
+| `JudyLLastEmpty`, clustered | 30,000 | **0.391** | 0.366 | 0.936 | **0.418×** | 0.391× |
+| `JudyLPrevEmpty`, clustered | 30,000 | **0.392** | 0.368 | 0.839 | **0.468×** | 0.439× |
+| `JudyLCount`, random | 30,000 | **108.26** | 108.29 | 265.86 | **0.407×** | 0.407× |
+| `JudyLByCount`, random | 30,000 | **136.87** | 136.82 | 247.83 | **0.552×** | 0.552× |
+| `JudyLFreeArray`, random | 30,000 | **0.857** | 0.854 | 2.48 | **0.345×** | 0.344× |
+| `JudyL` small-array lifetimes | 1,000 arrays × 1 | 7.78 | 7.62 | **0.780** | 9.975×, **loss** | 9.769×, **loss** |
+| `JudyL` small-array lifetimes | 1,000 arrays × 10 | 35.34 | 35.15 | **7.50** | 4.712×, **loss** | 4.687×, **loss** |
+| `JudyL` small-array lifetimes | 1,000 arrays × 20 | 43.61 | 43.33 | **14.86** | 2.934×, **loss** | 2.915×, **loss** |
+| `JudyL` small-array lifetimes | 1,000 arrays × 31 | 52.10 | 51.92 | **22.92** | 2.273×, **loss** | 2.265×, **loss** |
+| `JudyL` small-array lifetimes | 1,000 arrays × 32 | 102.15 | 100.81 | **46.19** | 2.211×, **loss** | 2.182×, **loss** |
+| `JudyL` small-array lifetimes | 1,000 arrays × 64 | 144.62 | 143.31 | **96.40** | 1.500×, **loss** | 1.487×, **loss** |
+| `Judy1Set`, random | 30,000 | **14.17** | 14.27 | 17.26 | **0.821×** | 0.827× |
 | `Judy1Set`, clustered | 30,000 | **6.79** | 6.87 | 11.90 | **0.571×** | 0.577× |
+| `Judy1Unset`, random | 30,000 | **14.81** | 14.93 | 20.58 | **0.720×** | 0.726× |
+| `Judy1Unset`, clustered | 30,000 | **8.95** | 9.00 | 16.40 | **0.546×** | 0.549× |
 | `Judy1Test`, random | 30,000 | **3.88** | 3.88 | 5.77 | **0.673×** | 0.673× |
+| `Judy1First`, random | 30,000 | **12.03** | 11.73 | 19.37 | **0.621×** | 0.606× |
+| `Judy1Next`, random | 30,000 | **11.82** | 11.52 | 12.84 | **0.920×** | 0.897× |
+| `Judy1Last`, random | 30,000 | **10.59** | 9.93 | 18.63 | **0.568×** | 0.533× |
+| `Judy1Prev`, random | 30,000 | **10.38** | 9.78 | 12.13 | **0.856×** | 0.806× |
+| `Judy1FirstEmpty`, clustered | 30,000 | **0.131** | 0.122 | 0.194 | **0.676×** | 0.628× |
+| `Judy1NextEmpty`, clustered | 30,000 | 0.133 | 0.123 | **0.121** | 1.092×, **loss** | 1.015×, **loss** |
+| `Judy1LastEmpty`, clustered | 30,000 | **0.127** | 0.118 | 0.190 | **0.668×** | 0.619× |
+| `Judy1PrevEmpty`, clustered | 30,000 | 0.129 | 0.120 | **0.118** | 1.095×, **loss** | 1.016×, **loss** |
+| `Judy1Count`, random | 30,000 | **117.67** | 117.71 | 283.73 | **0.415×** | 0.415× |
+| `Judy1ByCount`, random | 30,000 | **138.36** | 138.30 | 267.09 | **0.518×** | 0.518× |
+| `Judy1FreeArray`, random | 30,000 | **0.466** | 0.463 | 1.04 | **0.448×** | 0.445× |
 | `Judy1` breadth-first colouring | 10,000 vertices | **22.19** | 22.30 | 28.19 | **0.787×** | 0.791× |
-| `Judy1` breadth-first colouring | 100,000 vertices | **254.77** | 255.23 | 336.28 | **0.758×** | 0.759× |
-| `JudySLIns`, sequential | 30,000 | **26.57** | 25.11 | 33.84 | **0.785×** | 0.742× |
+| `Judy1` breadth-first colouring | 100,000 vertices | **254.75** | 255.21 | 336.28 | **0.758×** | 0.759× |
+| `JudySLIns`, sequential | 30,000 | **26.58** | 25.11 | 33.84 | **0.786×** | 0.742× |
 | `JudySLIns`, random | 30,000 | **40.80** | 39.48 | 43.78 | **0.932×** | 0.902× |
-| `JudySLIns`, clustered | 30,000 | **30.07** | 28.34 | 41.25 | **0.729×** | 0.687× |
+| `JudySLIns`, clustered | 30,000 | **30.04** | 28.34 | 41.25 | **0.728×** | 0.687× |
 | `JudySLGet`, sequential | 30,000 | **16.16** | 15.59 | 20.36 | **0.794×** | 0.765× |
-| `JudySLGet`, random | 30,000 | **14.56** | 14.14 | 16.63 | **0.875×** | 0.850× |
+| `JudySLGet`, random | 30,000 | **14.57** | 14.14 | 16.63 | **0.876×** | 0.850× |
 | `JudySLGet`, clustered | 30,000 | **20.67** | 20.10 | 27.21 | **0.760×** | 0.739× |
+| `JudySLDel`, random | 30,000 | **39.52** | 38.45 | 57.76 | **0.684×** | 0.666× |
+| `JudySLFirst`, random | 30,000 | **26.43** | 26.17 | 50.71 | **0.521×** | 0.516× |
+| `JudySLNext`, random | 30,000 | **25.40** | 25.15 | 36.45 | **0.697×** | 0.690× |
+| `JudySLLast`, random | 30,000 | **26.99** | 26.18 | 50.30 | **0.537×** | 0.520× |
+| `JudySLPrev`, random | 30,000 | **25.96** | 25.16 | 36.05 | **0.720×** | 0.698× |
+| `JudySLFreeArray`, random | 30,000 | **8.85** | 8.84 | 23.55 | **0.376×** | 0.375× |
 | `JudyHSIns`, fixed 8-byte keys | 30,000 | **25.20** | 24.72 | 28.92 | **0.871×** | 0.855× |
 | `JudyHSGet`, fixed 8-byte keys | 30,000 | **12.98** | 13.16 | 25.40 | **0.511×** | 0.518× |
 | `JudyHSDel`, fixed 8-byte keys | 30,000 | **20.77** | 19.73 | 44.86 | **0.463×** | 0.440× |
-| `JudyHSIns`, route keys | 30,000 | 48.45 | 47.17 | **45.04** | 1.076×, **loss** | 1.047×, **loss** |
+| `JudyHSIns`, route keys | 30,000 | **37.79** | 35.31 | 45.04 | **0.839×** | 0.784× |
 | `JudyHSGet`, route keys | 30,000 | **29.38** | 29.37 | 45.43 | **0.647×** | 0.647× |
-| `JudyHSDel`, route keys | 30,000 | **50.97** | 50.18 | 75.98 | **0.671×** | 0.660× |
+| `JudyHSDel`, route keys | 30,000 | **38.18** | 37.78 | 75.98 | **0.502×** | 0.497× |
 
-*(measured: Intel Core i9-12900F reference host, `cbbc762a`, [run 43689888414](https://github.com/orieg/expanse/actions/runs/43689888414); [`results/baseline_vs_stock.json`](../results/baseline_vs_stock.json), 75 arms.)*
+*(measured: Intel Core i9-12900F reference host, `864f8e00`, [run 45709424282](https://github.com/orieg/expanse/actions/runs/45709424282); [`results/baseline_vs_stock.json`](../results/baseline_vs_stock.json), 189 arms, 63 operations.)*
 
-One arm retires more instructions than stock: `JudyHSIns` on route keys, 1.076× through the `.so` and 1.047× through the rlib. Every other arm retires fewer.
+Nine operations retire more instructions than stock through the `.so`, and every other operation retires fewer: the six `JudyL` small-array lifetimes, 1.500× to 9.975× (the many-small-arrays shape of [#1742](https://github.com/orieg/expanse/issues/1742)); `JudyLPrev` random, 1.058× (1.006× through the rlib); and `Judy1NextEmpty` and `Judy1PrevEmpty` clustered, 1.092× and 1.095× (1.015× and 1.016× through the rlib).
+
+**Correction.** This table previously held 75 arms (25 operations) at commit `cbbc762a` ([run 43689888414](https://github.com/orieg/expanse/actions/runs/43689888414)) and recorded one loss: `JudyHSIns` on route keys at 1.076× through the `.so` and 1.047× through the rlib. At `864f8e00` that operation reads 0.839× and 0.784×. The stock counts of the 75 shared arms are identical in both runs. The libexpanse counts that moved by more than 0.1% are `JudyHSIns` on route keys (`.so` −22.0%), `JudyHSDel` on route keys (`.so` −25.1%) and `Judy1Set` random (`.so` −0.104%); route-key `JudyHSGet` is within 0.01%. Between the two commits the harness changed how the route-key arms seed the shipped hasher (#1762, #1764) and the engine changed how a collision bucket is allocated (#1770); no run isolates which of the two moved the route-key counts. The 25-operation table is superseded, not adjusted; it is replaced by the full harness surface, which it did not cover and which carries the nine losses above.
 
 **Correction.** `results/baseline_vs_stock.json` previously held 33 arms at commit `d1fde746` ([run 33422776469](https://github.com/orieg/expanse/actions/runs/33422776469)); it is replaced by the 75-arm run above, which adds the `JudySL*`, `JudyHS*` and `Judy1` colouring arms. On the 33 arms the two runs share, the stock counts agree to within 0.01%, every libexpanse `JudyLIns`, `JudyLGet`, churn and `Judy1Set` count is lower, and `Judy1Test` is within 0.005% (179 instructions): `.so` `JudyLGet` random 30k went from 4.10 M to 3.67 M, `JudyLIns` sequential from 6.43 M to 6.14 M, and `JudyLGet` random 1.5M from 306.52 M to 296.27 M. The `d1fde746` counts are superseded, not adjusted.
 
