@@ -2394,6 +2394,61 @@ No node layout, `Edge` or `ValueSlot` encoding, threshold or node-form transitio
 
 Refs #1679, #1680, #1684.
 
+### Outcome on the reference host: the layout with the removal walk's `BranchU` drain
+
+**No target or bound read so far is broken; the verdict is not yet PASS.** The pre-registration above is unchanged. T1 and the stress-ng bounds L2 and L1b hold on the reference host. T2 (second host) has not run. T3 and the Callgrind, fuel, `memory-budget` and CI bounds have not been read: the pull request was a draft through these runs and its full CI had not run.
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, commit `9792d4580`; G `9792d4580` built with `EXPANSE_LINK_HOT_LAYOUT=1` (sha256 `22a7932f…`, the same bytes as H3D above), M its merge base `547e0f6cc` (`ccc782a4…`, the same bytes as the `59110748f` file), both with `-C llvm-args=-align-all-functions=6`, S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_hot_layout_reg_ref_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
+
+**The runs.** Two runs of 12 rounds over every cell on 2026-11-25 under the host bench lock, 19:38:37–19:48:41 and 19:50:21–20:00:26 UTC. Each has 720 processes, none discarded, and is valid (max load1 4.87 and 5.14 against a void limit of 12). No process needed the round window. The host's login journal shows no login between the launch (19:37:04 UTC) and the end of the second run; the launching session stayed connected and idle. No run was discarded or repeated.
+
+**The two structural bounds hold.** The pull request's `crates/` diff is the nine files of the layout commit, `mutate.rs` among them; `include/` is unchanged. `nm -S` lists 1,551 symbols with equal sizes in M and in the layout commit `0ffda8452` built without the variable (`28ff3afe…`); G differs from M in the sizes of seven symbols, all of them instantiations of the removal walks and of `downgrade_u_to_b`.
+
+**T1, met.** (workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, BCa 95%, run 1 | run 2:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 1.083 [1.077, 1.090] \| 1.079 [1.070, 1.086] | 1.001 [0.997, 1.006] \| 0.996 [0.989, 1.001] | 0.924 [0.920, 0.928] \| 0.923 [0.919, 0.927] |
+| 2 | 1.076 [1.064, 1.088] \| 1.082 [1.073, 1.089] | 1.001 [0.995, 1.012] \| 1.005 [0.999, 1.010] | 0.930 [0.924, 0.941] \| 0.929 [0.923, 0.936] |
+| 4 | 1.078 [1.072, 1.085] \| 1.080 [1.075, 1.086] | 1.004 [0.997, 1.011] \| 0.996 [0.991, 1.001] | 0.931 [0.925, 0.936] \| 0.922 [0.918, 0.926] |
+| 8 | 1.080 [1.079, 1.082] \| 1.081 [1.080, 1.083] | 1.043 [1.041, 1.045] \| 1.041 [1.040, 1.043] | 0.965 [0.963, 0.967] \| 0.963 [0.961, 0.965] |
+
+The lowest G/M lower end is 1.064, above the 1.03 floor at every W in both runs.
+
+**L2 and L1b, held.** (workload: `sng_judy_1k`) The named falsifier, `judy-find-operations-per-sec`, G/M:
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 1 | 0.997 [0.993, 1.003] | 0.991 [0.981, 0.997] |
+| 2 | 0.994 [0.987, 1.002] | 0.998 [0.990, 1.006] |
+| 4 | 0.999 [0.995, 1.005] | 1.002 [0.997, 1.010] |
+| 8 | 0.999 [0.997, 1.000] | 0.999 [0.996, 1.001] |
+
+- Over the 52 primary cell-metrics the lowest G/M upper end is 0.997, so none is below 0.98. L1b holds on every cell.
+- Upper end below 1 in one run and not the other: the 1 Ki find rate at W = 1 ([0.981, 0.997] in run 2), the 4 Mi insert rate at W = 2 ([0.988, 0.999] in run 1) and the sparsematrix judy default put rate at W = 1 ([0.997, 0.999] in run 1).
+
+**The comparison with stock (not gated): INTERMEDIATE.** On the 4 Mi delete rate the G/S lower end is above 1.0 in both runs at W = 8 only. The record predicted it above 1.0 at W = 1, 2 and 8; that prediction is refuted at W = 1 and W = 2, where the intervals contain 1. The all-cells diagnostic above read G/S above 1 at W = 1 and 2 with the same two library files; between the two sessions M/S moved from 0.937–0.945 to 0.923–0.930 at those W while G/M stayed at 1.076–1.086, so the stock arm's reading differs between sessions and the cause is unknown.
+
+**Reported, not predicted.**
+- (workloads differ: `sng_judy_256k` vs `sng_judy_1k`) The delete rate G/M reads 1.060 to 1.094 at 256 Ki keys (lowest lower end 1.036) and 1.015 to 1.018 at 1 Ki keys (lowest lower end 1.009).
+- **A resident-memory cost.** stress-ng's `max-rss` G/M is above 1 with both runs' intervals excluding 1 on these cells:
+
+| cell | W | G/M, run 1 \| run 2 |
+|---|---|---|
+| `sng_judy_1k` | 2 | 1.0284 [1.0027, 1.0570] \| 1.0560 [1.0283, 1.0810] |
+| `sng_judy_1k` | 4 | 1.0306 [1.0126, 1.0545] \| 1.0076 [1.0001, 1.0255] |
+| `sng_judy_1k` | 8 | 1.0397 [1.0172, 1.0548] \| 1.0276 [1.0012, 1.0469] |
+| `sng_judy_256k` | 8 | 1.0066 [1.0019, 1.0131] \| 1.0076 [1.0036, 1.0136] |
+| `sng_judy_4m` | 4 | 1.0014 [1.0004, 1.0025] \| 1.0015 [1.0006, 1.0023] |
+| `sng_judy_4m` | 8 | 1.0009 [1.0004, 1.0016] \| 1.0008 [1.0004, 1.0018] |
+| `sng_sm_judy_big` | 1 | 1.0138 [1.0102, 1.0171] \| 1.0087 [1.0042, 1.0132] |
+| `sng_sm_judy_big` | 8 | 1.0077 [1.0048, 1.0105] \| 1.0061 [1.0033, 1.0093] |
+| `sng_sm_judy_default` | 8 | 1.0356 [1.0090, 1.0564] \| 1.0260 [1.0085, 1.0420] |
+
+  The placed section spans 196,608 bytes and G's file is 33,488 bytes larger than M's (3,189,168 against 3,155,680). Which of the two builds' differences carries the resident pages (the layout or the removal-walk change) is unmeasured; the record made no `max-rss` prediction and gates none.
+
+**What remains before a verdict.** T3 and the Callgrind, fuel, `memory-budget` and CI bounds, read from the pull request's full CI; and T2, which needs the owner's approval for the second host.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
