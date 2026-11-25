@@ -2266,6 +2266,79 @@ This is consistent with PR 1779's own reference-host diagnostic (unregistered; i
 
 Refs #1680.
 
+## Candidate: a linker layout for the hot `JudyL` paths, with the removal walk's `BranchU` drain ([#1679](https://github.com/orieg/expanse/issues/1679), [#1684](https://github.com/orieg/expanse/issues/1684))
+
+**Why.** On the reference host the `sng_judy_1k` rates follow the addresses of the functions they run. The layout-only builds above showed it for 64-byte alignment. The removal-walk change measured in draft pull request [1789](https://github.com/orieg/expanse/pull/1789) showed it again with every function already on a 64-byte boundary: the change edits no lookup code, moves the lookup helper by 1,792 bytes, and its registered runs read the 1 Ki find rate at 0.969 to 0.981 of main's. That record is a FAIL and stays one.
+
+**The mechanism.** No function's code changes.
+- Thirteen functions on the `JudyL` get, insert and delete paths carry a Linux-only `link_section` attribute naming an input section `.text.expanse_hot.<group>.<name>`. Without a linker script these sections fall into `.text` as before.
+- With `EXPANSE_LINK_HOT_LAYOUT=1`, `crates/expanse-capi/build.rs` links the shared library with `crates/expanse-capi/hot_layout.ld`. The script places the sections in one output section ahead of `.text`, each main function at a stated offset within a 4 KiB page. A function placed that way keeps its offset whatever the size of the code before it.
+- `crates/expanse-capi/tests/test_hot_layout_sync.rs` fails when the script and the attributes name different functions. It was shown to fail on a commented-out attribute and on a name removed from the script.
+- Opt-in, because the script needs a linker that accepts `SECTIONS ... INSERT` (GNU ld and LLD do).
+
+### Layout trials (reference host)
+
+**Unregistered tuning trials.** They chose the layout and are not evidence for the registered claim below.
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, rustc 1.98.1 with LLD 22.1.8, builds with `-C llvm-args=-align-all-functions=6`; M main `59110748f` (sha256 `ccc782a4…`); H1 `ffbef78d…`, H2 `e3716093…`, H3 `36e7c9a4…`, each M's source plus the attributes and one script; H3D `22a7932f…`, H3's source plus the two removal-walk commits; S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_hot_layout_{1,2,3,3_delete}_ref_run{1,2}.json`) (workload: `sng_judy_1k`)
+
+**Same code in every file.** `nm -S` lists 1,551 symbols with equal sizes in M, in the attribute-only build of each trial, and in H1, H2 and H3. The attributes and the script move functions and change none.
+
+**Design, fixed before each trial's runs.** One pairing of the increment driver on `sng_judy_1k` at W = 1, 2, 4, 8, restricted to that cell by a host-side wrapper that is not in the repository. Two runs of 12 rounds, 144 processes per run. Reading rule over both runs: NO LOSS if no phase rate at any W has its upper end below 1 in both runs, LOSS otherwise.
+- H1: three groups (get, insert, delete), each starting on a page boundary with its functions packed in a fixed order.
+- H2: the six main functions (`JudyLGet`, `get::locate_slot_popcnt`, `leaf::search`, `JudyLIns`, the insert walk, `JudyLDel` with the removal walk) at the within-page offsets they have in M.
+- H3: H2, and the seven helpers (`leaf::locate`, `bits::find_byte_8`, `write_map_immed`, `upgrade_b_to_u`, `leaf::map_realloc_remove`, `downgrade_u_to_b`, `linear_remove_slot`) at theirs. This is the committed script.
+
+**Hygiene.** Eight runs on 2026-11-25 under the host bench lock, between 18:05 and 18:33 UTC, none spanning the host's hourly sync. No process discarded; max load1 between 1.46 and 3.07 against a void limit of 12. No login was made during a run; each trial's launching session stayed connected and idle until its second run ended.
+
+**Readings.** BCa 95%, run 1 | run 2.
+
+| W | phase | H1/M | H2/M | H3/M | H3D/H3 |
+|---|---|---|---|---|---|
+| 1 | find | 0.991 [0.982, 0.997] \| 0.995 [0.987, 1.003] | 1.002 [0.994, 1.009] \| 1.002 [0.996, 1.010] | 0.999 [0.991, 1.006] \| 1.000 [0.996, 1.004] | 1.004 [0.999, 1.012] \| 1.001 [0.996, 1.007] |
+| 1 | insert | 0.998 [0.995, 1.001] \| 0.998 [0.994, 1.003] | 1.003 [1.000, 1.008] \| 0.970 [0.882, 1.000] | 1.001 [0.998, 1.005] \| 1.004 [1.000, 1.007] | 1.003 [0.998, 1.006] \| 1.001 [0.997, 1.004] |
+| 1 | delete | 0.976 [0.972, 0.980] \| 0.982 [0.978, 0.986] | 0.993 [0.990, 0.996] \| 0.993 [0.987, 0.996] | 1.000 [0.996, 1.003] \| 1.001 [0.997, 1.005] | 1.017 [1.010, 1.021] \| 1.012 [1.009, 1.015] |
+| 2 | find | 0.994 [0.989, 0.997] \| 0.994 [0.986, 1.000] | 1.000 [0.995, 1.005] \| 1.004 [0.999, 1.010] | 1.002 [0.996, 1.008] \| 0.998 [0.992, 1.005] | 1.001 [0.995, 1.008] \| 1.000 [0.996, 1.004] |
+| 2 | insert | 0.998 [0.992, 1.003] \| 1.001 [0.995, 1.006] | 0.998 [0.993, 1.003] \| 1.003 [0.997, 1.007] | 1.001 [0.992, 1.007] \| 1.003 [0.997, 1.008] | 0.998 [0.987, 1.004] \| 1.003 [0.999, 1.007] |
+| 2 | delete | 0.978 [0.973, 0.983] \| 0.981 [0.973, 0.986] | 0.990 [0.985, 0.995] \| 0.992 [0.988, 0.996] | 1.000 [0.994, 1.005] \| 1.000 [0.996, 1.005] | 1.015 [1.011, 1.019] \| 1.018 [1.015, 1.022] |
+| 4 | find | 0.996 [0.988, 1.003] \| 1.000 [0.993, 1.007] | 1.004 [0.997, 1.012] \| 1.001 [0.995, 1.008] | 1.000 [0.993, 1.008] \| 1.001 [0.994, 1.008] | 1.002 [0.996, 1.007] \| 1.000 [0.993, 1.008] |
+| 4 | insert | 1.004 [0.997, 1.012] \| 1.005 [0.997, 1.012] | 1.003 [0.997, 1.009] \| 1.000 [0.994, 1.006] | 1.002 [0.995, 1.009] \| 1.000 [0.993, 1.007] | 1.003 [0.999, 1.008] \| 1.001 [0.993, 1.008] |
+| 4 | delete | 0.982 [0.976, 0.988] \| 0.984 [0.978, 0.990] | 0.994 [0.987, 0.999] \| 0.993 [0.986, 0.999] | 0.998 [0.992, 1.005] \| 0.997 [0.990, 1.004] | 1.016 [1.011, 1.021] \| 1.015 [1.008, 1.023] |
+| 8 | find | 0.993 [0.990, 0.996] \| 0.990 [0.987, 0.993] | 0.998 [0.995, 1.002] \| 0.999 [0.996, 1.001] | 1.000 [0.997, 1.003] \| 1.000 [0.996, 1.003] | 0.999 [0.997, 1.002] \| 1.001 [0.999, 1.005] |
+| 8 | insert | 0.999 [0.997, 1.002] \| 0.997 [0.993, 0.999] | 1.002 [0.999, 1.004] \| 1.001 [0.999, 1.003] | 1.003 [1.001, 1.006] \| 1.002 [0.998, 1.004] | 1.001 [0.999, 1.004] \| 1.004 [1.001, 1.009] |
+| 8 | delete | 0.982 [0.980, 0.984] \| 0.981 [0.977, 0.988] | 0.995 [0.993, 0.998] \| 0.995 [0.993, 0.997] | 1.001 [0.999, 1.004] \| 1.000 [0.996, 1.001] | 1.014 [1.012, 1.017] \| 1.017 [1.014, 1.020] |
+
+- **H1: LOSS.** Delete reads 0.976 to 0.984 with the upper end below 1 at every W in both runs.
+- **H2: LOSS, smaller.** Find and insert read 0.998 to 1.004 and 0.970 to 1.003. Delete reads 0.990 to 0.995, the upper end still below 1 at every W.
+- **H3: NO LOSS.** Find 0.998 to 1.002, insert 1.000 to 1.004, delete 0.997 to 1.001.
+- **The removal-walk change under H3.** With the lookup and insert functions held at their offsets, the change leaves find at 0.999 to 1.004 and insert at 0.998 to 1.004 and raises delete to 1.012 to 1.018.
+- **What this establishes.** On this host the 1 Ki rates follow the hot functions' offsets within a 4 KiB page: packing them at new offsets loses up to 2.4%, and restoring M's offsets restores M's rates. Which front-end or predictor resource the offset selects is unmeasured.
+- **What it does not establish.** The offsets are M's, kept because they measured well here; nothing shows they are the best available. The second host has not run any of these files. `Judy1`, `JudySL` and `JudyHS` functions are not placed.
+- **Size.** H3's two code sections total 31,616 bytes more than M's `.text` (derived from the section headers: 0x30000 + 0x2596e3 against 0x281b63).
+
+### All cells, layout and removal-walk change against main (reference host)
+
+**An unregistered diagnostic, observed before the pre-registration below.**
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `d2b788a19`'s `scripts/diag_increment.py`; G H3D (`22a7932f…`), M main `59110748f` (`ccc782a4…`), S `76f121a8…`; artifacts `results/diagnostic_increment_hot_layout_all_ref_run(1, 2).json`, analysed with `--l1-separated --short-window=round`)
+
+Two runs of 12 rounds over every cell on 2026-11-25 under the host bench lock, 18:33:48–18:43:53 and 18:45:18–18:55:22 UTC. Each has 720 processes, none discarded; max load1 5.48 and 5.02 against a void limit of 12. No login was made between the launch and the end of the second run; the launching session stayed connected and idle.
+
+(workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, BCa 95%, run 1 | run 2:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 1.086 [1.082, 1.090] \| 1.085 [1.082, 1.089] | 1.018 [1.016, 1.020] \| 1.017 [1.014, 1.019] | 0.938 [0.935, 0.941] \| 0.937 [0.934, 0.939] |
+| 2 | 1.083 [1.078, 1.088] \| 1.085 [1.078, 1.091] | 1.023 [1.018, 1.027] \| 1.025 [1.020, 1.031] | 0.945 [0.942, 0.948] \| 0.945 [0.942, 0.950] |
+| 4 | 1.081 [1.075, 1.087] \| 1.078 [1.072, 1.084] | 1.002 [0.995, 1.008] \| 1.001 [0.994, 1.008] | 0.927 [0.921, 0.932] \| 0.929 [0.923, 0.934] |
+| 8 | 1.079 [1.076, 1.082] \| 1.086 [1.080, 1.101] | 1.039 [1.036, 1.041] \| 1.040 [1.039, 1.041] | 0.962 [0.961, 0.965] \| 0.958 [0.944, 0.963] |
+
+- (workload: `sng_judy_1k`) The cell that broke the earlier record holds: the find rate G/M reads 0.992 to 1.001, and no upper end is below 0.98.
+- Over all 52 primary cell-metrics, the lowest G/M upper end is 0.997. No cell-metric has its upper end below 1 in both runs.
+- (workloads differ: `sng_judy_256k` vs `sng_judy_1k`) The delete rate G/M reads 1.059 to 1.081 at 256 Ki keys and 1.011 to 1.020 at 1 Ki keys.
+- Upper end below 1 in one run and not the other: the 4 Mi insert rate at W = 1 ([0.987, 0.999] in run 1) and at W = 4 ([0.985, 0.997] in run 2); in run 2 the hashjudy default put rate at W = 4 ([0.990, 0.999]), the sparsematrix judy default put rate at W = 8 ([0.998, 0.999]) and the 1 Ki find rate at W = 8 (upper end 0.9997).
+
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

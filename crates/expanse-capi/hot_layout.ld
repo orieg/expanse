@@ -8,7 +8,7 @@
  * `. = ALIGN(. - X, 4096) + X;` moves to the next address whose offset within
  * a 4 KiB page is X. A function placed after such a line therefore keeps its
  * within-page offset whatever the size of the code before it, in this section
- * or outside it, for as long as the gap before it is not overrun. A function
+ * or outside it. A function
  * listed without such a line follows its predecessor and moves when the
  * predecessor changes size. An input section holds every instantiation and
  * copy of its function, in the compiler's order; the offset is that of the

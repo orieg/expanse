@@ -100,7 +100,7 @@ fn script_and_attributes_name_the_same_functions() {
     }
     for name in attrs.keys() {
         assert!(
-            explicit.iter().any(|n| *n == name),
+            explicit.contains(&name),
             "{name} carries an attribute and hot_layout.ld does not place it"
         );
         let group = name.split('.').next().expect("group");
