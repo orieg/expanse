@@ -2473,6 +2473,53 @@ The lowest G/M lower end is 1.064, above the 1.03 floor at every W in both runs.
 - The record's `nm -S` bound compared the shared library, built with thin LTO at one codegen unit, where every symbol size is equal. The benchmark binaries are built differently, and there the `link_section` attributes change the code of the Rust lookup arms. Why they do is unmeasured.
 - The change is not merged under this record. The attributes are the cause named by the run; the second record below removes them.
 
+## Second pre-registration: the layout with no source attribute ([#1679](https://github.com/orieg/expanse/issues/1679), [#1684](https://github.com/orieg/expanse/issues/1684))
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. It differs from the record above in one thing: no source file names a section.
+
+- **The layout.** `crates/expanse-capi/hot_layout.ld` selects each function by the input section the compiler gives it (`.text.<symbol>`): an exported C function by its name, a Rust function by the tail of its mangled name behind a wildcard for the crate hash. The offsets are unchanged. `crates/expanse-capi/build.rs` applies the script when `EXPANSE_LINK_HOT_LAYOUT=1`. `crates/expanse-capi/tests/test_hot_layout_sync.rs` requires every pattern to name a function the source defines, generic exactly when the pattern says so; it was shown to fail on a misspelt pattern and on a pattern with the wrong generic marker.
+- **A and B**, the two removal-walk commits, unchanged.
+- Every other file under `crates/` equals main's. A build without the variable is therefore the removal-walk change alone.
+
+**Builds.** As in the record above: G is the pull request's head built by `scripts/build_layout_lib.sh` with `-C llvm-args=-align-all-functions=6` and `EXPANSE_LINK_HOT_LAYOUT=1`; M is its merge base built with the same flag and without the variable. Both are hash-recorded.
+
+**Owner exemption (2026-11-15): not invoked.** No Callgrind arm is named above +0.1%.
+
+**Observed before this commit, and therefore not evidence for it.**
+
+- Everything above: the layout trials, the all-cells diagnostic, and the first record's registered runs and FAIL.
+- (measured: reference host Intel Core i9-12900F, rustc 1.98.1 with LLD 22.1.8, main `547e0f6cc` plus this record's `crates/` diff, uncommitted at the time, aligned builds; build-only, nothing timed) Built without the variable, the file is `a6a36d75…`, byte for byte the plain aligned build of the removal-walk change measured in draft pull request 1789. Built with the variable (`492f20f8…`), `nm -S` lists the same 31 symbols at the same addresses and sizes in the placed section as the first record's G (`22a7932f…`), and `.text`, `.rodata` and `.eh_frame` are byte-identical; the two files differ in 233 bytes of the placed section and 282 bytes of `.data.rel.ro`.
+- No timed process has run this record's G file.
+
+**Derived before the runs.** As in the record above: 1 / (1 − 0.0426) = 1.044 against a floor of 1.03.
+
+**Definitions and hygiene.** Those of the record above.
+
+**Target, all of which must hold.** T1, T2 and T3 of the record above, unchanged.
+
+**Bounds, every one of which must hold.**
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| `git diff` against the merge base | `crates/`, `include/` | `crates/expanse/src/mutate.rs`, `crates/expanse-capi/build.rs`, `crates/expanse-capi/hot_layout.ld` and `crates/expanse-capi/tests/test_hot_layout_sync.rs` only |
+| x86-64 deterministic, x86-64 smoke and AArch64 Callgrind; wasm32 and wasm64 fuel | every arm | ≤ +0.1% against main |
+| `Core / Public Rust API Surface` | the committed snapshot | unchanged |
+| stress-ng, both hosts | `sng_judy_1k` `judy-find-operations-per-sec`, every W (L2, named as the likeliest falsifier) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every other primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every primary cell-metric (L1b) | not SLOWER against stock where the merge base is FASTER or EQUIVALENT and G/M is SLOWER |
+| `memory-budget` | every row | unchanged |
+| CI | workspace tests (`PROPTEST_CASES=500`), Tier-1 Miri, ASan, loom, `differential-oracle`, `php-judy-*` | pass |
+
+**The comparison with stock, reported under its own label and not gated.** Labelled as in the record above. Predicted on the reference host from the first record's registered runs: the G/S lower end on the 4 Mi delete rate is above 1.0 in both runs at W = 8, and the interval contains 1 at W = 1, 2 and 4.
+
+**Predicted and not gated.** stress-ng's `max-rss` G/M is above 1 on the 1 Ki cell, as in the first record's runs.
+
+**Not predicted.** Every magnitude on the second host; G/M on both sparsematrix families.
+
+**Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved (§8.19). A PASS with T2 pending is recorded as PASS on the reference host only. The pull request carries no `allow-regression:` line.
+
+Refs #1679, #1680, #1684.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
