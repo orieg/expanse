@@ -2372,6 +2372,38 @@ The change edits no lookup code. Why the 1 Ki find rate falls is unmeasured; the
 
 **What this leaves.** The change is not merged under this record. A follow-up that keeps the delete gain needs a new pre-registration and fresh runs; it would first have to establish whether the 1 Ki find reading belongs to this diff or to the build's code placement, which nothing here measures.
 
+### Diagnostic: the 1 Ki find reading is the lookup helper's address (reference host)
+
+**A diagnostic run after the FAIL, outside the registered record.** The verdict above stays FAIL and no bound is moved.
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, rustc 1.98.1, aligned builds; G `d2b788a19` (sha256 `a6a36d75…`), M main `59110748f` (`ccc782a4…`), P (`74f3df92…`), S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_find_place_pm_ref_run{1,2}.json` and `results/diagnostic_increment_find_place_gp_ref_run{1,2}.json`) (workload: `sng_judy_1k`)
+
+**The two library files.** From `llvm-nm` and `llvm-objdump` of G and M:
+- Five functions differ in size: the two plain and two OCC removal walks, and `downgrade_u_to_b` in its plain and OCC forms.
+- `JudyLGet`, `get::locate_slot_popcnt`, both copies of `leaf::search` and `JudyLIns` hold the same instructions in both files once addresses are normalised.
+- `JudyLGet` is at `0x4f9c0` in both. `locate_slot_popcnt` is at `0x2786c0` in M and `0x278dc0` in G, 1,792 bytes later, at offset 0 within a 64-byte line in both.
+
+**Design, fixed before the runs.**
+- Arm P is M's source with one addition: in `downgrade_u_to_b`, a jump over a run of bytes that never executes (624 bytes in the plain form, 512 in the OCC form). The build is otherwise M's. P places `locate_slot_popcnt`, both `leaf::search` copies and 1,371 of its 1,501 named functions at G's addresses; against M only the padded function's sizes differ.
+- Two pairings of the increment driver on `sng_judy_1k` at W = 1, 2, 4, 8, restricted to that cell by a host-side wrapper that is not in the repository, with `perf stat` on every process: P against M, and G against P. Two runs of 12 rounds each (scratch runs 41 and 42), 144 processes per run.
+- Reading rule on `judy-find-operations-per-sec`, per W over both runs. SAME: both intervals inside [0.98, 1.02]. SLOWER: both upper ends below 1. PLACEMENT: P/M SLOWER and G/P SAME. NOT PLACEMENT: P/M SAME and G/P SLOWER. UNRESOLVED otherwise.
+
+**Hygiene.** Four runs on 2026-11-24 under the host bench lock, 23:47:54–23:54:38 UTC. No process discarded; max load1 1.59, 1.75, 2.27 and 3.18 against a void limit of 12. The launching session closed at 23:47:55, one second after the first run's start line and before its first process; the login journal shows no other login until after the last run.
+
+**Reading: PLACEMENT at every W.** BCa 95%, run 1 | run 2:
+
+| W | find, P/M | find, G/P | delete, G/P |
+|---|---|---|---|
+| 1 | 0.974 [0.967, 0.981] \| 0.983 [0.973, 0.992] | 0.998 [0.987, 1.009] \| 0.997 [0.991, 1.004] | 1.015 [1.012, 1.019] \| 1.010 [1.002, 1.015] |
+| 2 | 0.985 [0.979, 0.991] \| 0.978 [0.972, 0.985] | 0.996 [0.990, 1.004] \| 0.997 [0.990, 1.005] | 1.014 [1.011, 1.016] \| 1.014 [1.010, 1.018] |
+| 4 | 0.978 [0.969, 0.987] \| 0.975 [0.969, 0.982] | 1.000 [0.992, 1.008] \| 1.005 [0.996, 1.014] | 1.016 [1.010, 1.023] \| 1.016 [1.008, 1.023] |
+| 8 | 0.976 [0.972, 0.980] \| 0.981 [0.977, 0.984] | 1.000 [0.995, 1.004] \| 0.999 [0.995, 1.003] | 1.014 [1.011, 1.016] \| 1.014 [1.012, 1.017] |
+
+- **Same work.** P retires 1.0000× M's user instructions per process at W = 1 and W = 8 in both runs (ratio of the arms' means, no interval).
+- **The other phases under padding.** P/M reads 0.994 to 1.002 on delete and on insert, every interval inside [0.98, 1.02].
+- **What this establishes.** On this host, moving the lookup helpers by 1,792 bytes with no change to any instruction that runs lowers the 1 Ki find rate by 1.5% to 2.6%, the size of the registered G/M reading (0.969 to 0.981). With the helpers at equal addresses the candidate's find rate equals main's. The registered L2 break is therefore the address of code the diff did not edit, not the diff's own instructions.
+- **What it does not establish.** Which front-end or predictor resource the address change costs is unmeasured. Only the reference host and the 1 Ki cell were run. Starting every function on a 64-byte boundary does not remove this sensitivity: both addresses are at offset 0 within a line.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
