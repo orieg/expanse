@@ -1,51 +1,16 @@
-//! `hot_layout.ld` and the `link_section` attributes it places name the same
-//! set of functions.
+//! Every pattern of `hot_layout.ld` names a function the source defines.
 //!
-//! The linker script places a function only if an attribute puts it in a
-//! `.text.expanse_hot.<group>.<name>` input section, and an attribute whose
-//! name the script does not list falls into its group's trailing wildcard at
-//! an address nothing chose. Either drift is silent at link time, so this
-//! test compares the two lists.
+//! The linker script selects functions by the input section the compiler
+//! gives them, `.text.<symbol>`. A pattern that matches nothing places
+//! nothing and the link still succeeds, so a renamed or moved function would
+//! silently leave the layout. This test decodes each pattern into a module
+//! and a function name and requires the definition to exist, generic exactly
+//! when the pattern says so.
 
-use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-const PREFIX: &str = ".text.expanse_hot.";
-
-fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).expect("source directory is readable") {
-        let path = entry.expect("directory entry").path();
-        if path.is_dir() {
-            rust_sources(&path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
-            out.push(path);
-        }
-    }
-}
-
-/// Section names carried by `link_section` attributes, with their site count.
-/// A line whose code part (before any `//`) holds no attribute is not counted,
-/// so a commented-out attribute is seen as absent.
-fn attribute_names(root: &Path) -> BTreeMap<String, usize> {
-    let mut files = Vec::new();
-    rust_sources(&root.join("crates/expanse/src"), &mut files);
-    rust_sources(&root.join("crates/expanse-capi/src"), &mut files);
-    let needle = format!("link_section = \"{PREFIX}");
-    let mut names = BTreeMap::new();
-    for file in files {
-        let text = fs::read_to_string(&file).expect("source file is readable");
-        for line in text.lines() {
-            let code = line.split("//").next().unwrap_or("");
-            if let Some(at) = code.find(&needle) {
-                let rest = &code[at + needle.len()..];
-                let name = rest.split('"').next().expect("closing quote");
-                *names.entry(name.to_owned()).or_insert(0) += 1;
-            }
-        }
-    }
-    names
-}
+const CRATE: &str = "12expanse_trie";
 
 /// The script with its `/* ... */` comments removed.
 fn script_code(root: &Path) -> String {
@@ -62,10 +27,10 @@ fn script_code(root: &Path) -> String {
     code
 }
 
-/// Names the script lists, in order, wildcards included.
-fn script_names(code: &str) -> Vec<String> {
-    let needle = format!("*({PREFIX}");
-    code.match_indices(&needle)
+/// The input-section patterns the script lists, without the `.text.` prefix.
+fn patterns(code: &str) -> Vec<String> {
+    let needle = "*(.text.";
+    code.match_indices(needle)
         .map(|(at, _)| {
             let rest = &code[at + needle.len()..];
             rest.split(')')
@@ -76,37 +41,73 @@ fn script_names(code: &str) -> Vec<String> {
         .collect()
 }
 
-#[test]
-fn script_and_attributes_name_the_same_functions() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let attrs = attribute_names(&root);
-    assert!(!attrs.is_empty(), "no link_section attribute was found");
-    for (name, sites) in &attrs {
-        assert_eq!(*sites, 1, "{name} is carried by {sites} attributes");
-    }
+/// Splits one length-prefixed identifier off the front of a mangled path.
+fn ident(path: &str) -> (&str, &str) {
+    let digits = path.chars().take_while(char::is_ascii_digit).count();
+    assert!(digits > 0, "no length prefix in {path:?}");
+    let len: usize = path[..digits].parse().expect("length prefix");
+    let rest = &path[digits..];
+    assert!(rest.len() >= len, "length prefix overruns {path:?}");
+    rest.split_at(len)
+}
 
-    let listed = script_names(&script_code(&root));
-    let explicit: Vec<&String> = listed.iter().filter(|n| !n.ends_with(".*")).collect();
-    for name in &explicit {
-        assert!(
-            attrs.contains_key(*name),
-            "hot_layout.ld places {name}, which no attribute carries"
-        );
-        assert_eq!(
-            explicit.iter().filter(|n| n == &name).count(),
-            1,
-            "hot_layout.ld lists {name} more than once"
-        );
+/// Whether `source` defines `fn name` outside comments, and whether that
+/// definition takes generic parameters.
+fn definition(source: &str, name: &str) -> Option<bool> {
+    let plain = format!("fn {name}(");
+    let generic = format!("fn {name}<");
+    let mut found = None;
+    for line in source.lines() {
+        let code = line.split("//").next().unwrap_or("");
+        if code.contains(&generic) {
+            found = Some(true);
+        } else if code.contains(&plain) && found.is_none() {
+            found = Some(false);
+        }
     }
-    for name in attrs.keys() {
+    found
+}
+
+#[test]
+fn every_pattern_names_a_defined_function() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let listed = patterns(&script_code(&root));
+    assert_eq!(listed.len(), 15, "hot_layout.ld lists {listed:?}");
+    for (i, pattern) in listed.iter().enumerate() {
         assert!(
-            explicit.contains(&name),
-            "{name} carries an attribute and hot_layout.ld does not place it"
+            !listed[..i].contains(pattern),
+            "hot_layout.ld lists {pattern} more than once"
         );
-        let group = name.split('.').next().expect("group");
-        assert!(
-            listed.iter().any(|n| n == &format!("{group}.*")),
-            "hot_layout.ld has no trailing wildcard for group {group}"
-        );
+        if let Some(mangled) = pattern.strip_prefix("_R*") {
+            let path = mangled
+                .strip_prefix(CRATE)
+                .unwrap_or_else(|| panic!("{pattern} does not name the {CRATE} crate"));
+            let (module, rest) = ident(path);
+            let (name, tail) = ident(rest);
+            let wants_generic = match tail {
+                "" => false,
+                "K*" => true,
+                other => panic!("{pattern} ends in {other:?}, neither nothing nor K*"),
+            };
+            let file = root.join(format!("crates/expanse/src/{module}.rs"));
+            let source = fs::read_to_string(&file)
+                .unwrap_or_else(|_| panic!("{pattern} names module {module}, which has no file"));
+            let is_generic = definition(&source, name)
+                .unwrap_or_else(|| panic!("{pattern}: {module}.rs defines no fn {name}"));
+            assert_eq!(
+                is_generic, wants_generic,
+                "{pattern}: fn {name} is generic = {is_generic}, the pattern says {wants_generic}"
+            );
+        } else {
+            let source = fs::read_to_string(root.join("crates/expanse-capi/src/compat.rs"))
+                .expect("compat.rs is readable");
+            let exported = format!("pub unsafe extern \"C\" fn {pattern}(");
+            assert!(
+                source
+                    .lines()
+                    .any(|l| l.split("//").next().unwrap_or("").contains(&exported)),
+                "{pattern}: compat.rs exports no such function"
+            );
+        }
     }
 }

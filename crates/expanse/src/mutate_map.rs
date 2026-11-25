@@ -80,10 +80,6 @@ pub(crate) unsafe fn leaf_locate_fixed(
 }
 
 /// Builds a fresh map immediate from sorted entries.
-#[cfg_attr(
-    target_os = "linux",
-    unsafe(link_section = ".text.expanse_hot.ins.write_map_immed")
-)]
 pub(crate) fn write_map_immed<const OCC: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
@@ -376,10 +372,6 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool, con
 
 /// Iterative flat descent without function recursion or version checks for single-threaded maps.
 #[inline(always)]
-#[cfg_attr(
-    target_os = "linux",
-    unsafe(link_section = ".text.expanse_hot.ins.map_insert_with_path_flat")
-)]
 unsafe fn map_insert_with_path_flat<const KEEP: bool>(
     a: &NodeAlloc,
     mut edge: *mut Edge,
@@ -2087,10 +2079,6 @@ pub(crate) unsafe fn map_insert_with_path_occ<
 /// # Safety
 ///
 /// Same contract as [`map_insert`].
-#[cfg_attr(
-    target_os = "linux",
-    unsafe(link_section = ".text.expanse_hot.del.map_remove")
-)]
 pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,

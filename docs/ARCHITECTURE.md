@@ -1066,7 +1066,7 @@ byte 15         tag      1 B type tag
 | `FullExpanse` | unused — the tag alone states that the whole subexpanse is present |
 | Set immediate | the first 8 of up to 15 packed key-remainder bytes (`Edge::imm_payload`, `crates/expanse/src/node.rs:214`) |
 | Map immediate, 1 key | the value word (`Edge::new_immed_single_map`, `crates/expanse/src/node.rs:135`) |
-| Map immediate, ≥ 2 keys | a pointer to a heap value array of `8 × cap_class(n)` bytes, allocated in `write_map_immed` (`map_immed_val_size`, `crates/expanse/src/mutate_map.rs:104`) and sized by `map_immed_val_size` (`crates/expanse/src/mutate_map.rs:37`) |
+| Map immediate, ≥ 2 keys | a pointer to a heap value array of `8 × cap_class(n)` bytes, allocated in `write_map_immed` (`map_immed_val_size`, `crates/expanse/src/mutate_map.rs:100`) and sized by `map_immed_val_size` (`crates/expanse/src/mutate_map.rs:37`) |
 
 **Word 1 is the aux/tag word.** `Edge::aux_word` (`crates/expanse/src/node.rs:267`) reads `aux[0..7]` plus the tag byte as one little-endian `u64`: `aux[0]` is the low byte, the tag is the high byte. The little-endian requirement is const-asserted (`target_endian`, `crates/expanse/src/node.rs:1016`).
 
@@ -1207,7 +1207,7 @@ The tags the shipped 32-bit engine actually writes are module-private constants 
 The budget rule is a byte count, not a key count. This is the fact most often restated wrongly: an immediate holds **15 bytes** of set-flavor key payload, which is 15 keys only when the remainder is 1 byte wide, and 2 keys when it is 7 bytes wide.
 
 - **Set flavor, 64-bit.** Keys pack across word 0 and the aux bytes — bytes 0..14 of the edge, 15 usable bytes, byte 15 being the tag (`Edge::imm_payload`, `crates/expanse/src/node.rs:214`; writer `write_immed`, `crates/expanse/src/mutate.rs:278`). Capacity is `IMMED_PAYLOAD_BYTES / key_bytes`, i.e. `ImmedType::max_count` (`crates/expanse/src/types.rs:280`).
-- **Map flavor, 64-bit.** Keys live in the 7 aux bytes only, because word 0 is spent on the value (one key) or on the value-array pointer (two or more) — `write_map_immed`, `crates/expanse/src/mutate_map.rs:87`. Capacity is `7 / key_bytes`, `mutate::map_immed_max` (`crates/expanse/src/mutate.rs:302`). The gate derives the 7 from the compiled length of `Edge::aux_bytes()` rather than from this sentence.
+- **Map flavor, 64-bit.** Keys live in the 7 aux bytes only, because word 0 is spent on the value (one key) or on the value-array pointer (two or more) — `write_map_immed`, `crates/expanse/src/mutate_map.rs:83`. Capacity is `7 / key_bytes`, `mutate::map_immed_max` (`crates/expanse/src/mutate.rs:302`). The gate derives the 7 from the compiled length of `Edge::aux_bytes()` rather than from this sentence.
 - **Set flavor, 32-bit.** Keys pack across word 0 and the 3 aux bytes — 7 usable bytes of an 8-byte edge. Capacity is `7 / key_bytes`, `trie32::set_immed_cap` (`crates/expanse/src/trie32.rs:86`), for `key_bytes` in 1..=4.
 - **Map flavor, 32-bit.** A map immediate is single-entry by construction: the tag encodes only `key_bytes` (1..=3) and word 0 is the value (`T_MAP_IMMED_BASE`, `crates/expanse/src/trie32.rs:139`; `Edge32::new_immed_map_u8`, `crates/expanse/src/types32.rs:282`).
 
@@ -1309,14 +1309,14 @@ Both arena fields are **12 bits wide**: `ARENA_OFFSET_MASK = 0x000F_FF00` at shi
 
 ### 10.6 Bitmap structures
 
-`Bitmap256` (`crates/expanse/src/bits.rs:493`) is four `u64` words, 32 bytes, covering one decode byte's 256 values. Bit `idx` is word `idx >> 6`, bit `idx & 63` (`Bitmap256::test`, `crates/expanse/src/bits.rs:688`).
+`Bitmap256` (`crates/expanse/src/bits.rs:489`) is four `u64` words, 32 bytes, covering one decode byte's 256 values. Bit `idx` is word `idx >> 6`, bit `idx & 63` (`Bitmap256::test`, `crates/expanse/src/bits.rs:684`).
 
 Both bitmap branches and bitmap map-leaves partition those 256 values into **eight 32-digit subexpanses**, each with its own packed array, so the rank that finds a slot is a rank *within a subexpanse*, not a global rank:
 
-- `subexpanse_rank` (`crates/expanse/src/bits.rs:845`) reinterprets the four `u64` words as eight `u32` subwords, loads subword `idx >> 5`, and popcounts the bits below `idx & 31`. That is one 32-bit load and one popcount — no loop over preceding words.
-- `test_and_subexpanse_rank` (`crates/expanse/src/bits.rs:859`) fuses the membership test with that rank, and `test_and_subexpanse_rank_with_sub` (`crates/expanse/src/bits.rs:878`) also returns the subexpanse index.
-- `subexpanse_count` (`crates/expanse/src/bits.rs:897`) is the length of one subexpanse's packed array.
-- `rank` (`crates/expanse/src/bits.rs:827`) is the *global* count of members below `idx`, used for ordered navigation rather than slot addressing; `select` (`crates/expanse/src/bits.rs:912`) inverts it and is the `ByCount` primitive.
+- `subexpanse_rank` (`crates/expanse/src/bits.rs:841`) reinterprets the four `u64` words as eight `u32` subwords, loads subword `idx >> 5`, and popcounts the bits below `idx & 31`. That is one 32-bit load and one popcount — no loop over preceding words.
+- `test_and_subexpanse_rank` (`crates/expanse/src/bits.rs:855`) fuses the membership test with that rank, and `test_and_subexpanse_rank_with_sub` (`crates/expanse/src/bits.rs:874`) also returns the subexpanse index.
+- `subexpanse_count` (`crates/expanse/src/bits.rs:893`) is the length of one subexpanse's packed array.
+- `rank` (`crates/expanse/src/bits.rs:823`) is the *global* count of members below `idx`, used for ordered navigation rather than slot addressing; `select` (`crates/expanse/src/bits.rs:908`) inverts it and is the `ByCount` primitive.
 
 **`BranchB`** (`crates/expanse/src/node.rs:784`) is 128 bytes: the bitmap at offset 0, `subarrays: [*mut Edge; 8]` at offset 32, `pop_counts: [u16; 8]` at offset 96, `version` at 112. Line 0 therefore holds the bitmap plus the first four subarray pointers, so a lookup landing in digits `0x00..0x7F` touches one line before the child edge. Reaching a child is: `test_and_subexpanse_rank(digit)` → `subarrays[digit >> 5]` → `.add(rank)`.
 

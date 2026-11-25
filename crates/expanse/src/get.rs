@@ -1387,10 +1387,6 @@ pub(crate) unsafe fn descent_steps_map(edge: &Edge, key: Key, level: u8) -> u32 
 ///
 /// Same tree contract as [`get_map`]; `edge` must point at the live root
 /// edge of a map-flavor subtree owned by the caller.
-#[cfg_attr(
-    target_os = "linux",
-    unsafe(link_section = ".text.expanse_hot.get.locate_slot")
-)]
 pub(crate) unsafe fn locate_slot(
     edge: *mut Edge,
     key: Key,
@@ -1437,10 +1433,6 @@ unsafe fn locate_slot_swar(
 /// Same contract as [`locate_slot`]; the CPU must support `popcnt`.
 #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
 #[target_feature(enable = "popcnt")]
-#[cfg_attr(
-    target_os = "linux",
-    unsafe(link_section = ".text.expanse_hot.get.locate_slot_popcnt")
-)]
 unsafe fn locate_slot_popcnt(
     edge: *mut Edge,
     key: Key,
