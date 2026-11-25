@@ -116,6 +116,10 @@ pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, nee
 ///
 /// `keys` must be valid for reads of `key_bytes * pop` bytes.
 #[inline]
+#[cfg_attr(
+    target_os = "linux",
+    unsafe(link_section = ".text.expanse_hot.get.leaf_locate")
+)]
 pub(crate) unsafe fn locate(
     keys: *const u8,
     pop: usize,
@@ -651,6 +655,10 @@ pub(crate) unsafe fn map_realloc_insert_fixed<const KB: usize>(
 /// `old` must be a live map leaf of `pop >= 2` entries with
 /// `key_bytes`-byte keys; `new` must be a fresh allocation of
 /// `size_map(key_bytes, pop-1)` bytes; `pos < pop`.
+#[cfg_attr(
+    target_os = "linux",
+    unsafe(link_section = ".text.expanse_hot.del.map_realloc_remove")
+)]
 pub(crate) unsafe fn map_realloc_remove(
     old: *const u8,
     new: *mut u8,
@@ -827,6 +835,10 @@ pub(crate) unsafe fn search_fixed_with<const KB: usize, const LOOKUP: bool>(
 /// `keys` must be valid for reads of `key_bytes * pop` bytes.
 #[inline]
 #[must_use]
+#[cfg_attr(
+    target_os = "linux",
+    unsafe(link_section = ".text.expanse_hot.get.leaf_search")
+)]
 pub unsafe fn search(keys: *const u8, pop: usize, key_bytes: u8, key: Key) -> Option<usize> {
     debug_assert!((1..=7).contains(&key_bytes));
     // SAFETY: forwarded caller contract; each arm's `KB` equals

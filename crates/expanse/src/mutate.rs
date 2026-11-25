@@ -2448,6 +2448,10 @@ pub(crate) unsafe fn upgrade_l7_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut 
 ///
 /// `edge` must reference a live **non-skipping** `BranchB` owned by `a`
 /// (`BranchU` has no header level; callers wrap a skipping node first).
+#[cfg_attr(
+    target_os = "linux",
+    unsafe(link_section = ".text.expanse_hot.ins.upgrade_b_to_u")
+)]
 pub(crate) unsafe fn upgrade_b_to_u<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge) {
     crate::occ_stats::note_branch_replacement();
     let new = a.alloc_node_zeroed_dispatch::<OCC, BranchU>();
@@ -3628,6 +3632,10 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
     }
 }
 
+#[cfg_attr(
+    target_os = "linux",
+    unsafe(link_section = ".text.expanse_hot.del.linear_remove_slot")
+)]
 pub(crate) fn linear_remove_slot(
     digits: &mut [u8; 8],
     edges: &mut [Edge],
@@ -3963,6 +3971,10 @@ pub(crate) unsafe fn branch_u_check_count<const OCC: bool>(b: *mut BranchU) {
 ///
 /// `edge` must reference a live `BranchU` with ≤ `BRANCHB_UP - 1` non-null
 /// children, owned by `a`.
+#[cfg_attr(
+    target_os = "linux",
+    unsafe(link_section = ".text.expanse_hot.del.downgrade_u_to_b")
+)]
 pub(crate) unsafe fn downgrade_u_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge, level: u8) {
     crate::occ_stats::note_branch_replacement();
     let new = a.alloc_node_zeroed_dispatch::<OCC, BranchB>();

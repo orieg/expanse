@@ -508,6 +508,10 @@ fn slot_ptr(slot: Option<NonNull<u64>>) -> *mut c_void {
 /// writable pointer to its value slot; `PJERR` on error. The slot stays
 /// valid until the next structural mutation.
 #[unsafe(no_mangle)]
+#[cfg_attr(
+    target_os = "linux",
+    unsafe(link_section = ".text.expanse_hot.ins.JudyLIns")
+)]
 pub unsafe extern "C" fn JudyLIns(
     pparray: *mut *mut c_void,
     index: Word,
@@ -530,6 +534,10 @@ pub unsafe extern "C" fn JudyLIns(
 /// Deletes `index`; returns 1 if it was present. An emptied array word
 /// returns to null.
 #[unsafe(no_mangle)]
+#[cfg_attr(
+    target_os = "linux",
+    unsafe(link_section = ".text.expanse_hot.del.JudyLDel")
+)]
 pub unsafe extern "C" fn JudyLDel(
     pparray: *mut *mut c_void,
     index: Word,
@@ -556,6 +564,10 @@ pub unsafe extern "C" fn JudyLDel(
 
 /// Returns a writable pointer to `index`'s value slot, or null if absent.
 #[unsafe(no_mangle)]
+#[cfg_attr(
+    target_os = "linux",
+    unsafe(link_section = ".text.expanse_hot.get.JudyLGet")
+)]
 pub unsafe extern "C" fn JudyLGet(
     parray: *const c_void,
     index: Word,

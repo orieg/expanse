@@ -143,6 +143,10 @@ fn find_byte_16_neon(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
 /// buffer (compact branch headers; `len` is clamped to 8).
 #[inline]
 #[must_use]
+#[cfg_attr(
+    target_os = "linux",
+    unsafe(link_section = ".text.expanse_hot.get.find_byte_8")
+)]
 pub fn find_byte_8(hay: &[u8; 8], len: usize, needle: u8) -> Option<usize> {
     let len = len.min(8);
     if len <= 3 {
