@@ -1,0 +1,25 @@
+# AArch64 Callgrind, smoke_instructions (first bench group, 20 arms): which removal-walk commit moves an arm
+# container linux/arm64 on an Apple M1 host, valgrind 3.24.0, rustc 1.100.0 (0ef1bc386 2026-11-09), bench profile
+# main = 547e0f6cc; A = main with mutate.rs of 2482b6372; A+B = main with mutate.rs of 71df9ed9a
+# exact instruction counts; absolute counts differ from the CI runner's, the differences against main do not
+arm	main	A	A+B
+map_insert/sequential	1553907	1553907	1553907
+map_insert/random	6774265	6774265	6774265
+map_insert/clustered	2924568	2924568	2924568
+map_get/sequential	990937	990937	990937
+map_get/random	844583	844583	844583
+map_get/clustered	767649	767649	767649
+set_insert/sequential	685153	685153	685153
+set_insert/random	5651886	5651886	5651886
+set_insert/clustered	1900754	1900754	1900754
+set_contains/sequential	872633	872633	872633
+set_contains/random	867799	867799	867799
+set_contains/clustered	698737	698737	698737
+map_ins_slot/random	6780577	6780577	6780577
+map_churn/random	10733668	10733668	10792272
+strmap_insert/routes	8120162	8120162	8120162
+strmap_get/routes	6650946	6650946	6650946
+strmap_churn/routes	21815766	21815766	21815766
+bytesmap_insert/routes	12556352	12556352	12556352
+bytesmap_get/routes	4453404	4453404	4453404
+bytesmap_churn/routes	20278728	20278728	20336320

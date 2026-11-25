@@ -2586,10 +2586,20 @@ The lowest G/M lower end is 1.062, above the 1.03 floor at every W in both runs.
   | `map_churn` `random` | 10,721,930 | 10,780,534 | +0.55% |
   | `bytesmap_churn` `routes` | 20,419,769 | 20,477,361 | +0.28% |
 
-- Against main this head's engine code differs only in `crates/expanse/src/mutate.rs`, the two removal-walk commits, so the two arms' rise belongs to that change and not to the layout. Which of the two commits carries it, and why the same arms read no change on x86-64, is unmeasured. Draft pull request 1789 carried the same two commits and never ran this job.
+- Against main this head's engine code differs only in `crates/expanse/src/mutate.rs`, the two removal-walk commits, so the two arms' rise belongs to that change and not to the layout. The attribution below puts it on commit B; why the same arms read no change on x86-64 is unmeasured. Draft pull request 1789 carried the same two commits and never ran this job.
 - `Core / Public Rust API Surface`, `Perf / Memory Budget Invariants`, the workspace tests on three systems, the four Tier-1 Miri shards, ASan, loom, `Compat / Stock libjudy Oracle (Linux)` and both `Compat / PHP-Judy Extension` jobs concluded `success`; of the run's 73 jobs, 71 concluded `success` and 2 were skipped.
 
-**What this leaves.** The layout mechanism passed every bound it could affect. The removal-walk change is not merged under this record. A follow-up must first attribute the two AArch64 arms to commit A or B; it then either removes that cost or names it in a new record under the owner's 2026-11-15 exemption, which is the owner's to invoke.
+**Attribution of the two AArch64 arms: commit B.** (measured: container `linux/arm64` on an Apple M1 host, valgrind 3.24.0, rustc 1.100.0 as in the CI job, bench profile; main `547e0f6cc`, main with commit A's `mutate.rs`, main with A and B's; artifact `results/diagnostic_hot_layout_aarch64_smoke_attribution.txt`; exact counts) (workload: `smoke_instructions`, the arms named)
+
+| arm | main | A | A and B |
+|---|---|---|---|
+| `map_churn` `random` | 10,733,668 | 10,733,668 | 10,792,272 (+58,604) |
+| `bytesmap_churn` `routes` | 20,278,728 | 20,278,728 | 20,336,320 (+57,592) |
+
+- The differences equal the CI run's (10,780,534 − 10,721,930 = 58,604 and 20,477,361 − 20,419,769 = 57,592), so the replica reproduces it. The other 18 arms of the group are equal in all three builds.
+- Commit A, the one-pass demotion, moves neither arm. Commit B, the exact recount at the demotion floor, carries both rises in full. Whether the added instructions are the longer count itself or a change in the surrounding function's code is unmeasured.
+
+**What this leaves.** The layout mechanism passed every bound it could affect. The removal-walk change is not merged under this record. A follow-up either drops or reworks commit B, or names the two arms in a new record under the owner's 2026-11-15 exemption, which is the owner's to invoke; each needs a new pre-registration and fresh runs.
 
 ## Reproduce
 
