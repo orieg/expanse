@@ -2404,6 +2404,32 @@ The change edits no lookup code. Why the 1 Ki find rate falls is unmeasured; the
 - **What this establishes.** On this host, moving the lookup helpers by 1,792 bytes with no change to any instruction that runs lowers the 1 Ki find rate by 1.5% to 2.6%, the size of the registered G/M reading (0.969 to 0.981). With the helpers at equal addresses the candidate's find rate equals main's. The registered L2 break is therefore the address of code the diff did not edit, not the diff's own instructions.
 - **What it does not establish.** Which front-end or predictor resource the address change costs is unmeasured. Only the reference host and the 1 Ki cell were run. Starting every function on a 64-byte boundary does not remove this sensitivity: both addresses are at offset 0 within a line.
 
+### Diagnostic: lookup functions placed first by the linker (reference host)
+
+**A build-only trial, outside the registered record.** Nothing below changes the verdict above, and no source file is changed.
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, rustc 1.98.1 with LLD 22.1.8, aligned builds; M main `59110748f` (sha256 `ccc782a4…`), Mpin the same source (`ad95ee33…`), Gpin `d2b788a19` (`143e708f…`), S `76f121a8…`; artifacts `results/diagnostic_increment_pin_mm_ref_run{1,2}.json` and `results/diagnostic_increment_pin_gm_ref_run{1,2}.json`) (workload: `sng_judy_1k`)
+
+**Design, fixed before the runs.**
+- Mpin and Gpin add two linker arguments to the aligned build: `--symbol-ordering-file`, naming `Judy1Test`, `JudyLGet`, `get::locate_slot_popcnt` and `leaf::search`, and `--no-warn-symbol-ordering`. The four functions then open `.text` at the same addresses in both files (`JudyLGet` `0x48900`, `locate_slot_popcnt` `0x48ac0`), and the `JudyL` entry points after them sit 8,384 bytes later than in M.
+- Two pairings on `sng_judy_1k` at W = 1, 2, 4, 8 by the same host-side wrapper as above: Mpin against M, and Gpin against Mpin. Two runs of 12 rounds each (scratch runs 51 and 52), 144 processes per run.
+- Reading rule on `judy-find-operations-per-sec` of Gpin/Mpin over both runs: STABLE if both intervals lie inside [0.98, 1.02] at every W, NOT STABLE otherwise. Mpin/M is reported with no prediction.
+
+**Hygiene.** Four runs on 2026-11-25 under the host bench lock, 01:00:22–01:07:46 UTC. No process discarded; max load1 2.90, 2.80, 3.02 and 2.64 against a void limit of 12. The launching session stayed connected and idle through the runs; the login journal shows no login during them.
+
+**Reading: STABLE, and the ordering has a cost of its own.** BCa 95%, run 1 | run 2:
+
+| W | find, Gpin/Mpin | delete, Gpin/Mpin | find, Mpin/M | delete, Mpin/M | insert, Mpin/M |
+|---|---|---|---|---|---|
+| 1 | 1.001 [0.995, 1.007] \| 0.996 [0.988, 1.003] | 1.009 [1.006, 1.014] \| 1.004 [0.998, 1.008] | 0.988 [0.977, 0.994] \| 0.992 [0.987, 0.997] | 0.983 [0.978, 0.987] \| 0.984 [0.981, 0.987] | 1.004 [1.000, 1.008] \| 1.006 [1.003, 1.010] |
+| 2 | 0.995 [0.989, 1.002] \| 0.997 [0.993, 1.001] | 1.009 [1.005, 1.013] \| 1.005 [1.002, 1.008] | 0.991 [0.986, 0.997] \| 0.990 [0.986, 0.993] | 0.983 [0.979, 0.988] \| 0.984 [0.982, 0.987] | 1.002 [0.998, 1.008] \| 1.005 [1.002, 1.009] |
+| 4 | 0.999 [0.992, 1.005] \| 1.004 [0.997, 1.010] | 1.012 [1.006, 1.018] \| 1.014 [1.008, 1.020] | 0.999 [0.993, 1.005] \| 0.989 [0.981, 0.997] | 0.987 [0.981, 0.993] \| 0.980 [0.973, 0.987] | 1.012 [1.005, 1.019] \| 1.005 [0.997, 1.011] |
+| 8 | 0.997 [0.993, 1.000] \| 0.997 [0.994, 1.000] | 1.010 [1.007, 1.012] \| 1.012 [1.009, 1.014] | 0.990 [0.987, 0.993] \| 0.990 [0.987, 0.992] | 0.984 [0.982, 0.986] \| 0.986 [0.984, 0.988] | 1.007 [1.005, 1.009] \| 1.009 [1.007, 1.011] |
+
+- **Stable.** With the lookup functions at equal addresses in both builds, the candidate's 1 Ki find rate equals main's at every W.
+- **Not free.** Against main as built today, the ordered build finds at 0.988 to 0.999 and deletes at 0.980 to 0.987 on this cell, with the delete upper end below 1 at every W in both runs. The ordering moves the `JudyL` entry points, and the delete path was not ordered; which of the moved functions carries the delete cost is unmeasured.
+- **What this leaves open.** Only the reference host and the 1 Ki cell were run. The ordering file names Rust symbols by their mangled names, which a compiler or crate change can alter, so it is a trial mechanism and not a build change proposed here. Ordering four functions fixes the address of those four only: every other hot path still moves when code before it changes size.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
