@@ -2270,8 +2270,8 @@ Refs #1680.
 
 **Why.** On the reference host the `sng_judy_1k` rates follow the addresses of the functions they run. The layout-only builds above showed it for 64-byte alignment. The removal-walk change measured in draft pull request [1789](https://github.com/orieg/expanse/pull/1789) showed it again with every function already on a 64-byte boundary: the change edits no lookup code, moves the lookup helper by 1,792 bytes, and its registered runs read the 1 Ki find rate at 0.969 to 0.981 of main's. That record is a FAIL and stays one.
 
-**The mechanism.** No function's code changes.
-- Thirteen functions on the `JudyL` get, insert and delete paths carry a Linux-only `link_section` attribute naming an input section `.text.expanse_hot.<group>.<name>`. Without a linker script these sections fall into `.text` as before.
+**The mechanism, as first built.** The second record below replaces the attributes with patterns in the script. No function's code changes in the shared library.
+- Fifteen functions on the `JudyL` get, insert and delete paths carry a Linux-only `link_section` attribute naming an input section `.text.expanse_hot.<group>.<name>`. Without a linker script these sections fall into `.text` as before.
 - With `EXPANSE_LINK_HOT_LAYOUT=1`, `crates/expanse-capi/build.rs` links the shared library with `crates/expanse-capi/hot_layout.ld`. The script places the sections in one output section ahead of `.text`, each main function at a stated offset within a 4 KiB page. A function placed that way keeps its offset whatever the size of the code before it.
 - `crates/expanse-capi/tests/test_hot_layout_sync.rs` fails when the script and the attributes name different functions. It was shown to fail on a commented-out attribute and on a name removed from the script.
 - Opt-in, because the script needs a linker that accepts `SECTIONS ... INSERT` (GNU ld and LLD do).
@@ -2286,7 +2286,7 @@ Refs #1680.
 
 **Design, fixed before each trial's runs.** One pairing of the increment driver on `sng_judy_1k` at W = 1, 2, 4, 8, restricted to that cell by a host-side wrapper that is not in the repository. Two runs of 12 rounds, 144 processes per run. Reading rule over both runs: NO LOSS if no phase rate at any W has its upper end below 1 in both runs, LOSS otherwise.
 - H1: three groups (get, insert, delete), each starting on a page boundary with its functions packed in a fixed order.
-- H2: the six main functions (`JudyLGet`, `get::locate_slot_popcnt`, `leaf::search`, `JudyLIns`, the insert walk, `JudyLDel` with the removal walk) at the within-page offsets they have in M.
+- H2: the seven main functions (`JudyLGet`, `get::locate_slot_popcnt`, `leaf::search`, `JudyLIns`, the insert walk, `JudyLDel`, the removal walk) at the within-page offsets they have in M.
 - H3: H2, and the seven helpers (`leaf::locate`, `bits::find_byte_8`, `write_map_immed`, `upgrade_b_to_u`, `leaf::map_realloc_remove`, `downgrade_u_to_b`, `linear_remove_slot`) at theirs. This is the committed script.
 
 **Hygiene.** Eight runs on 2026-11-25 under the host bench lock, between 18:05 and 18:33 UTC, none spanning the host's hourly sync. No process discarded; max load1 between 1.46 and 3.07 against a void limit of 12. No login was made during a run; each trial's launching session stayed connected and idle until its second run ended.
@@ -2396,7 +2396,7 @@ Refs #1679, #1680, #1684.
 
 ### Outcome on the reference host: the layout with the removal walk's `BranchU` drain
 
-**No target or bound read so far is broken; the verdict is not yet PASS.** The pre-registration above is unchanged. T1 and the stress-ng bounds L2 and L1b hold on the reference host. T2 (second host) has not run. T3 and the Callgrind, fuel, `memory-budget` and CI bounds have not been read: the pull request was a draft through these runs and its full CI had not run.
+**Verdict: FAIL, on the Callgrind bound.** The pre-registration above is unchanged and no bound is moved (AGENTS.md §8.19). T1 and the stress-ng bounds L2 and L1b hold on the reference host; the pull request's CI then read arms above +0.1% against main, recorded under "The Callgrind bound, broken" below. T2 (second host) was not run.
 
 (measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, commit `9792d4580`; G `9792d4580` built with `EXPANSE_LINK_HOT_LAYOUT=1` (sha256 `22a7932f…`, the same bytes as H3D above), M its merge base `547e0f6cc` (`ccc782a4…`, the same bytes as the `59110748f` file), both with `-C llvm-args=-align-all-functions=6`, S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_hot_layout_reg_ref_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
 
@@ -2447,7 +2447,31 @@ The lowest G/M lower end is 1.064, above the 1.03 floor at every W in both runs.
 
   The placed section spans 196,608 bytes and G's file is 33,488 bytes larger than M's (3,189,168 against 3,155,680). Which of the two builds' differences carries the resident pages (the layout or the removal-walk change) is unmeasured; the record made no `max-rss` prediction and gates none.
 
-**What remains before a verdict.** T3 and the Callgrind, fuel, `memory-budget` and CI bounds, read from the pull request's full CI; and T2, which needs the owner's approval for the second host.
+**The Callgrind bound, broken.** (measured: GitHub-hosted x86-64 runner, commit `7acf23dd7`, [CI run 45691969163](https://github.com/orieg/expanse/actions/runs/45691969163), jobs `Perf / Callgrind Deterministic Instructions` and `Perf / Callgrind Fast Smoke (Ubuntu)`; exact instruction counts, so no interval applies)
+
+| job | arm | main | head | change |
+|---|---|---|---|---|
+| deterministic | `map_get` `clustered` | 5,619,910 | 5,669,909 | +0.89% |
+| deterministic | `map_get_slot_ptr` `sm_1m` | 457,177,921 | 461,177,921 | +0.87% |
+| deterministic | `map_get_slot_ptr` `sm_10k` | 4,597,794 | 4,637,794 | +0.87% |
+| deterministic | `set_contains` `random` | 6,026,222 | 6,076,220 | +0.83% |
+| deterministic | `map_get` `random` | 6,265,115 | 6,315,114 | +0.80% |
+| deterministic | `map_get` `sequential` | 6,950,214 | 7,000,213 | +0.72% |
+| deterministic | `strmap_oscillate` `routes` | 27,085,169 | 27,235,170 | +0.55% |
+| smoke | `judy1_test` `clustered` | 1,056,062 | 1,096,058 | +3.79% |
+| smoke | `judy1_test` `sequential` | 1,173,022 | 1,213,018 | +3.41% |
+| smoke | `judy1_test` `random` | 1,243,714 | 1,283,710 | +3.22% |
+| smoke | `set_contains` `clustered` | 906,257 | 916,255 | +1.10% |
+| smoke | `map_get` `clustered` | 1,017,650 | 1,027,649 | +0.98% |
+| smoke | `set_contains` `sequential` | 1,023,093 | 1,033,091 | +0.98% |
+| smoke | `set_contains` `random` | 1,093,785 | 1,103,783 | +0.91% |
+| smoke | `map_get` `random` | 1,133,840 | 1,143,839 | +0.88% |
+| smoke | `map_get` `sequential` | 1,231,033 | 1,241,032 | +0.81% |
+
+- These are the arms the jobs' gates listed, each above +0.5%; arms between +0.1% and +0.5% were not extracted from the run.
+- The same run's `Core / Public Rust API Surface` job failed: on Linux the snapshot loses `bits::find_byte_8` and `leaf::search`, the two public functions that carried an attribute.
+- The record's `nm -S` bound compared the shared library, built with thin LTO at one codegen unit, where every symbol size is equal. The benchmark binaries are built differently, and there the `link_section` attributes change the code of the Rust lookup arms. Why they do is unmeasured.
+- The change is not merged under this record. The attributes are the cause named by the run; the second record below removes them.
 
 ## Reproduce
 
