@@ -2339,6 +2339,61 @@ Two runs of 12 rounds over every cell on 2026-11-25 under the host bench lock, 1
 - Upper end below 1 in one run and not the other: the 4 Mi insert rate at W = 1 ([0.987, 0.999] in run 1) and at W = 4 ([0.985, 0.997] in run 2); in run 2 the hashjudy default put rate at W = 4 ([0.990, 0.999]), the sparsematrix judy default put rate at W = 8 ([0.998, 0.999]) and the 1 Ki find rate at W = 8 (upper end 0.9997).
 
 
+### Pre-registration: the layout with the removal walk's `BranchU` drain
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. The change under test is this pull request's `crates/` diff and nothing else:
+
+- **The layout.** The `link_section` attributes, `crates/expanse-capi/hot_layout.ld`, its opt-in in `crates/expanse-capi/build.rs`, and the sync test, as described above.
+- **A, `downgrade_u_to_b`, and B, `branch_u_digits_after_null`.** The two removal-walk commits of draft pull request 1789, unchanged: the demotion of a `BranchU` reads its 256 slots once, and the recount at the demotion floor stores the exact count.
+
+No node layout, `Edge` or `ValueSlot` encoding, threshold or node-form transition changes. The set walks are not touched.
+
+**Builds.** G is the pull request's head built by `scripts/build_layout_lib.sh` with `-C llvm-args=-align-all-functions=6` and `EXPANSE_LINK_HOT_LAYOUT=1`. M is its merge base on main built with the same flag and without the variable, which main does not have. Both are hash-recorded. The result describes G's build: a library built without the variable is not measured by this record, and its instructions are bounded by the Callgrind rows below. Allocator settings are glibc's defaults in every arm.
+
+**Owner exemption (2026-11-15): not invoked.** No Callgrind arm is named above +0.1%.
+
+**Observed before this commit, and therefore not evidence for it.** Everything under "Layout trials" and "All cells" above, and the registered FAIL of pull request 1789. The targets and predictions below were written after those were read. The instrument is wall clock on fresh processes and the registered runs are new, so they remain predictions, informed and not blind.
+
+**Derived before the runs.**
+
+- The removal-walk commits lower `map_remove_revgen` `gen_4m` by 4.26% (pull request 1789's Callgrind artifact). If cycles per delete followed instructions, the delete rate would rise by 1 / (1 − 0.0426) = 1.044. The floor below is 1.03.
+- The offsets in the script are the ones the functions have in the library built from `59110748f`. If M's merge base differs from `59110748f` in `crates/`, M's own offsets may differ from the script's, and G/M then also measures that difference.
+
+**Definitions.** G, M, S, the cells, the metrics and the verdict rule are those of [`METHODOLOGY.md`](METHODOLOGY.md) §4–§8 and of `scripts/diag_increment.py`: two-sample BCa 95% intervals of the ratio of means over each run's 12 rounds, two independent runs per host, every cell of §5. *Instruction change* is an arm's change against main in the named CI job.
+
+**Hygiene, beyond METHODOLOGY.md §7.**
+
+- A run during which a login is made to the host, or a bench workflow starts, is void and is replaced whole; the replacement and its reason are disclosed.
+- The cells whose processes are shorter than the load window's minimum read load by the opt-in round window of METHODOLOGY.md §11.
+- If the pull request's `crates/` diff changes after a run, both runs on that host are taken again.
+
+**Target, all of which must hold.**
+
+- T1, reference host (Intel Core i9-12900F): `sng_judy_4m` `judy-delete-operations-per-sec` G/M lower end above 1.03 in both runs, at each of W = 1, 2, 4 and 8.
+- T2, second host (AMD Ryzen 9 9955HX): the same. That host runs only with the owner's approval (METHODOLOGY.md §3); without it, or if its bench lock is not free, T2 is pending and the verdict says so.
+- T3, deterministic: `map_remove_revgen` `gen_4m`, `gen_256k` and `gen_1k` each read below main's count in the pull request's `instruction-counts` job.
+
+**Bounds, every one of which must hold.**
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| `git diff` against the merge base | `crates/`, `include/` | the nine files of the layout commit and `crates/expanse/src/mutate.rs` only |
+| `nm -S`, M against the same source as G built without the variable and without A and B | every symbol | equal sizes |
+| x86-64 deterministic, x86-64 smoke and AArch64 Callgrind; wasm32 and wasm64 fuel | every arm | ≤ +0.1% against main |
+| stress-ng, both hosts | `sng_judy_1k` `judy-find-operations-per-sec`, every W (L2, named as the likeliest falsifier: it broke the earlier record) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every other primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every primary cell-metric (L1b) | not SLOWER against stock where the merge base is FASTER or EQUIVALENT and G/M is SLOWER |
+| `memory-budget` | every row | unchanged |
+| CI | workspace tests (`PROPTEST_CASES=500`), Tier-1 Miri, ASan, loom, `differential-oracle`, `php-judy-*` | pass |
+
+**The comparison with stock, reported under its own label and not gated.** `sng_judy_4m` `judy-delete-operations-per-sec` G/S: *BEAT* if the lower end is above 1.0 in both runs at every W on both hosts; *INTERMEDIATE* if that holds on one host or at some W only; *NOT MET* otherwise. Predicted on the reference host: the lower end is above 1.0 in both runs at W = 1, 2 and 8, and the interval contains 1 at W = 4. Every W on the second host is not predicted.
+
+**Not predicted.** Every magnitude on the second host, where the offsets have never been measured; G/M on both sparsematrix families; every `max-rss` ratio.
+
+**Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved (§8.19). A PASS with T2 pending is recorded as PASS on the reference host only. The pull request carries no `allow-regression:` line.
+
+Refs #1679, #1680, #1684.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
