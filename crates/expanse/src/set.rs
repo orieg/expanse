@@ -1793,12 +1793,14 @@ impl ExpanseSet {
     ///
     /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
     #[doc(hidden)]
+    #[inline(always)]
     pub fn first_absent_within(&self, from: Key, steps: usize) -> Result<Option<Key>, Key> {
-        match &self.root {
+        let found = match &self.root {
             // SAFETY: trie maintained/owned by this set's engine.
-            Root::Tree { top, .. } => unsafe { Self::gap_result::<true>(top, from, steps) },
-            _ => self.range_fwd_raw(from).first_gap(from, steps),
-        }
+            Root::Tree { top, .. } => unsafe { Self::tree_gap::<true>(top, from, steps) },
+            _ => self.untreed_gap::<true>(from, steps),
+        };
+        Self::gap_result(found)
     }
 
     /// Largest absent key `<= upto` (compat: `Judy1LastEmpty`; mirror of
@@ -1806,12 +1808,14 @@ impl ExpanseSet {
     ///
     /// The `libexpanse` `Judy*Empty` shim's search; not a stable API.
     #[doc(hidden)]
+    #[inline(always)]
     pub fn last_absent_within(&self, upto: Key, steps: usize) -> Result<Option<Key>, Key> {
-        match &self.root {
+        let found = match &self.root {
             // SAFETY: trie maintained/owned by this set's engine.
-            Root::Tree { top, .. } => unsafe { Self::gap_result::<false>(top, upto, steps) },
-            _ => self.range_rev_raw(upto).last_gap(upto, steps),
-        }
+            Root::Tree { top, .. } => unsafe { Self::tree_gap::<false>(top, upto, steps) },
+            _ => self.untreed_gap::<false>(upto, steps),
+        };
+        Self::gap_result(found)
     }
 
     /// The tree half of [`first_absent_within`](Self::first_absent_within)
@@ -1823,14 +1827,36 @@ impl ExpanseSet {
     ///
     /// `top` is this set's live level-8 root edge.
     #[inline(always)]
-    unsafe fn gap_result<const FWD: bool>(
-        top: &Edge,
-        start: Key,
-        steps: usize,
-    ) -> Result<Option<Key>, Key> {
+    unsafe fn tree_gap<const FWD: bool>(top: &Edge, start: Key, steps: usize) -> crate::gap::Gap {
         let mut budget = steps;
         // SAFETY: forwarded contract.
-        match unsafe { crate::gap::gap::<FWD>(top, start, 8, &mut budget) } {
+        unsafe { crate::gap::gap::<FWD>(top, start, 8, &mut budget) }
+    }
+
+    /// The root-leaf and empty half of the same search, by the ordered
+    /// cursor. Out of line, so the tree half inlines into its caller without
+    /// the cursor. It answers in [`Gap`](crate::gap::Gap) form, which the
+    /// x86-64 build returns in registers where it returns the `Result`
+    /// through memory, so both halves hand their answer over without a
+    /// stack round trip.
+    #[inline(never)]
+    fn untreed_gap<const FWD: bool>(&self, start: Key, steps: usize) -> crate::gap::Gap {
+        let found = if FWD {
+            self.range_fwd_raw(start).first_gap(start, steps)
+        } else {
+            self.range_rev_raw(start).last_gap(start, steps)
+        };
+        match found {
+            Ok(Some(k)) => crate::gap::Gap::At(k),
+            Ok(None) => crate::gap::Gap::Full,
+            Err(k) => crate::gap::Gap::Budget(k),
+        }
+    }
+
+    /// A search outcome in the `*_absent_within` form.
+    #[inline(always)]
+    fn gap_result(found: crate::gap::Gap) -> Result<Option<Key>, Key> {
+        match found {
             crate::gap::Gap::At(k) => Ok(Some(k)),
             crate::gap::Gap::Full => Ok(None),
             crate::gap::Gap::Budget(k) => Err(k),
