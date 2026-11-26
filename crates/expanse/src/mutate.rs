@@ -3807,6 +3807,14 @@ pub(crate) fn branch_u_digits_to_floor(edges: &[Edge; crate::types::BRANCH_FANOU
     n
 }
 
+/// Every non-null slot of a `BranchU`'s edge array, counted out of line so
+/// the removal walks that call it rarely do not carry the loop.
+#[cold]
+#[inline(never)]
+pub(crate) fn branch_u_digits_exact(edges: &[Edge; crate::types::BRANCH_FANOUT]) -> usize {
+    edges.iter().filter(|e| !e.is_null()).count()
+}
+
 /// The non-null slots of the `BranchU` at `b` after a removal has nulled one
 /// of them, for the map walks (#1679): `0` when the branch is empty, the
 /// exact count when it is at or below the demotion floor, and a count above
@@ -3831,7 +3839,7 @@ pub(crate) unsafe fn branch_u_digits_after_null<const OCC: bool>(b: *mut BranchU
     let lower = (unsafe { BranchU::digits_lower::<OCC>(b) } as usize).saturating_sub(1);
     let digits = if branch_u_below_floor(lower) {
         // SAFETY: caller contract; the slots are inside the live branch.
-        unsafe { (*b).edges.iter().filter(|e| !e.is_null()).count() }
+        unsafe { branch_u_digits_exact(&(*b).edges) }
     } else {
         lower
     };
