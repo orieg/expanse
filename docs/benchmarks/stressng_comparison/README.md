@@ -2675,6 +2675,63 @@ A frozen record (§8.8 commit 2), never reconciled in place with what the runs m
 
 Refs #1679, #1680, #1684.
 
+### Third record's outcome on the reference host
+
+**No verdict yet: the stress-ng target and bounds hold on the reference host, and the deterministic bounds have not been read.** The third pre-registration above is unchanged and no bound is moved (AGENTS.md §8.19). T1, L2, L1b and the `git diff` bound hold. T3, the Callgrind and fuel bounds, the public API snapshot, `memory-budget` and the CI bound wait for a full CI run of this head, which a draft does not start. T2 (second host) was not run.
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, commit `8096576f0`; G `8096576f0` built with `EXPANSE_LINK_HOT_LAYOUT=1` (sha256 `687e24af…`), M its merge base `9bfedc25e` (`c104eee3…`), GA (`8682276f…`), all with `-C llvm-args=-align-all-functions=6`, S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_hot_layout_reg3_ref_run{1,2}.json` and `results/diagnostic_increment_hot_layout_reg3_bshare_ref_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
+
+**The runs.** Four runs of 12 rounds over every cell on 2026-11-26 under the host bench lock: G against M at 05:36:30–05:46:34 and 05:47:55–05:58:01 UTC, G against GA at 05:59:21–06:09:25 and 06:19:05–06:29:07; the last waited for the host's hourly sync to pass. Each has 720 processes, none discarded, and is valid (max load1 4.98, 4.53, 4.94 and 5.15 against a void limit of 12). No process needed the round window. The host's login journal shows no login during any run; it shows one at 06:17:40, between the third and fourth, and the launching session stayed connected and idle. No run was discarded or repeated.
+
+**The `git diff` bound holds.** Against the merge base, `crates/` differs in the four files the record names; `include/` is unchanged.
+
+**T1, met.** (workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, BCa 95%, run 1 | run 2:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 1.080 [1.070, 1.091] \| 1.086 [1.076, 1.096] | 0.996 [0.989, 1.002] \| 0.995 [0.988, 1.002] | 0.922 [0.916, 0.928] \| 0.917 [0.912, 0.923] |
+| 2 | 1.079 [1.070, 1.087] \| 1.080 [1.069, 1.090] | 1.001 [0.995, 1.008] \| 1.002 [0.995, 1.010] | 0.927 [0.922, 0.935] \| 0.928 [0.922, 0.935] |
+| 4 | 1.083 [1.076, 1.089] \| 1.077 [1.070, 1.083] | 0.997 [0.992, 1.002] \| 0.992 [0.986, 0.997] | 0.921 [0.916, 0.927] \| 0.921 [0.917, 0.926] |
+| 8 | 1.080 [1.078, 1.081] \| 1.080 [1.079, 1.081] | 1.040 [1.038, 1.042] \| 1.039 [1.039, 1.040] | 0.963 [0.962, 0.965] \| 0.962 [0.961, 0.963] |
+
+The lowest G/M lower end is 1.069, above the 1.03 floor at every W in both runs.
+
+**L2 and L1b, held.** (workload: `sng_judy_1k`) The named falsifier, `judy-find-operations-per-sec`, G/M:
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 1 | 1.001 [0.998, 1.006] | 1.002 [0.998, 1.009] |
+| 2 | 0.994 [0.987, 1.002] | 1.004 [0.998, 1.009] |
+| 4 | 1.001 [0.996, 1.007] | 1.004 [1.000, 1.009] |
+| 8 | 0.997 [0.995, 0.999] | 0.997 [0.995, 1.000] |
+
+- Over the 52 primary cell-metrics the lowest G/M upper end is 0.9976, so none is below 0.98. L1b holds on every cell. No cell has its upper end below 1 in both runs.
+- Upper end below 1 in one run and not the other: the 1 Ki find rate at W = 8 (0.9988 in run 1), the 256 Ki insert rate at W = 1 (0.980 [0.963, 0.998] in run 2) and the sparsematrix judy default get rate at W = 1 (0.997 [0.994, 0.9991] in run 2).
+- The offset risk the record named did not show on the find rate: in M, built from a merge base whose `nav.rs` differs, `get::locate_slot_popcnt` sits at offset `0xc00` within its page against G's `0x6c0`, and the 1 Ki find rate reads as above.
+
+**The comparison with stock (not gated): INTERMEDIATE.** On the 4 Mi delete rate the G/S lower end is above 1.0 in both runs at W = 8 only, as predicted. The interval contains 1 at W = 1 and W = 2 in both runs, as predicted. At W = 4, which was not predicted, it contains 1 in run 1 and lies below 1 in run 2.
+
+**Second pairing: SEPARATED.** (workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, G against GA, BCa 95%:
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 1 | 1.039 [1.026, 1.051] | 1.038 [1.029, 1.044] |
+| 2 | 1.044 [1.035, 1.053] | 1.047 [1.038, 1.057] |
+| 4 | 1.039 [1.034, 1.044] | 1.043 [1.037, 1.049] |
+| 8 | 1.044 [1.042, 1.046] | 1.040 [1.039, 1.042] |
+
+- The lower end is above 1.0 at every W in both runs; the lowest is 1.026. The exact recount, with its count out of line, therefore carries a delete-rate gain of its own on this cell, apart from the one-pass demotion.
+- The reading is above the 1.015 that the instruction counts gave by the rule in the record. Why the rate rises more than the instruction count falls is unmeasured.
+- On the 4 Mi delete rate this pairing reads GA against stock at 0.954 to 0.964 for W = 1, 2 and 4 and at 0.998 to 1.000 for W = 8: without the recount, the layout and the demotion change leave that cell below stock at three of four W.
+- Losing reading: the 4 Mi insert rate at W = 4 reads 0.986 [0.952, 0.998] in run 1 and 1.002 [0.994, 1.008] in run 2. No primary cell-metric has its upper end below 1 in both runs.
+
+**Reported.**
+- (workloads differ: `sng_judy_256k` vs `sng_judy_1k`) The delete rate G/M reads 1.039 to 1.084 at 256 Ki keys (lowest lower end 1.015) and 1.012 to 1.022 at 1 Ki keys (lowest lower end 1.006).
+- **The predicted resident-memory cost.** stress-ng's `max-rss` G/M on the 1 Ki cell at W = 1 reads 1.0457 [1.0188, 1.0696] | 1.0376 [1.0096, 1.0596], as predicted. Both runs' lower ends are above 1 on ten cells; the largest after that one are the 1 Ki cell at W = 8 (1.029 and 1.050), the 256 Ki cell at W = 2 (1.013 and 1.011) and the sparsematrix judy big cell at W = 1 (1.012 and 1.011).
+- **It does not belong to the recount.** In the second pairing `max-rss` G/GA on the 1 Ki cell at W = 1 reads 1.013 [0.990, 1.036] | 0.990 [0.961, 1.019], and one cell has both runs' lower ends above 1 (sparsematrix judy big, W = 8, 1.005 and 1.004). Whether the layout or the demotion change carries the rest is unmeasured.
+
+**What this leaves.** A verdict needs the full CI run of this head for T3 and the deterministic bounds, the AArch64 arms first among them; the local replica's reading of those two arms is not that job's. T2 needs the owner's approval for the second host.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
