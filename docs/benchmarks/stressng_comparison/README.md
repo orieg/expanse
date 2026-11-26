@@ -2601,6 +2601,80 @@ The lowest G/M lower end is 1.062, above the 1.03 floor at every W in both runs.
 
 **What this leaves.** The layout mechanism passed every bound it could affect. The removal-walk change is not merged under this record. A follow-up either drops or reworks commit B, or names the two arms in a new record under the owner's 2026-11-15 exemption, which is the owner's to invoke; each needs a new pre-registration and fresh runs.
 
+### Diagnostic: the exact count moved out of line
+
+**After the second record's FAIL and outside it.** That verdict stays FAIL and no bound is moved.
+
+(measured: AArch64 in a container `linux/arm64` on an Apple M1 host, valgrind 3.24.0, rustc 1.100.0, main `547e0f6cc`; x86-64 on the reference host Intel Core i9-12900F, valgrind 3.27.1, rustc 1.98.1, main `09681eb51`; artifact `results/diagnostic_hot_layout_outline_counts.txt`; exact counts, so no interval applies) (workloads: `smoke_instructions` on AArch64, `instructions` on x86-64, the arms named)
+
+- **Where commit B's AArch64 instructions are.** `branch_u_digits_after_null` is `#[inline(always)]` into the recursive removal walks. In the AArch64 disassembly of the smoke binary, the walk built from A and B opens by saving two callee-saved vector registers (`d8`, `d9`; a third, `d10`, in one OCC form), and the walk built from main or from A alone does not. `map_churn` removes a key whose neighbour stays, so no child becomes null and the count itself never runs on that arm; the register saves run on every entry to the walk. The disassembly is the observation; no counter separates the saves from the rest of the function's 110 added instructions.
+- **Variant C.** The count moves to `branch_u_digits_exact`, marked `#[cold]` and `#[inline(never)]`. Variant D is the same without `#[cold]`.
+
+| arm | main | A | A and B | C | D |
+|---|---|---|---|---|---|
+| AArch64 `map_churn` `random` | 10,733,668 | 10,733,668 | 10,792,272 | 10,733,668 | 10,723,668 |
+| AArch64 `bytesmap_churn` `routes` | 20,278,728 | 20,278,728 | 20,336,320 | 20,278,728 | 20,268,728 |
+| x86-64 `map_remove_revgen` `gen_4m` | 2,806,593,090 | 2,728,408,701 | 2,686,969,941 | 2,687,166,561 | 2,690,181,401 |
+| x86-64 `map_remove_revgen` `gen_256k` | 174,777,555 | 169,886,592 | 167,293,272 | 167,305,572 | 167,494,172 |
+| x86-64 `map_remove_revgen` `gen_1k` | 599,432 | 594,661 | 591,037 | 591,049 | 591,233 |
+
+- **AArch64.** C equals main on all 20 arms of the group. D reads 10,000 below main on the two arms and equals it on the other 18.
+- **x86-64.** Of 313 arms, 20 read above main with C, the highest `sync_strmap_remove` `routes` by 1,753 instructions (+0.002%); with A and B, 17 read above main, the highest by 7. C keeps the reverse-delete arms within 0.01 point of A and B (−4.26%, −4.28%, −1.40% against main); D gives back 0.11 point on the two larger ones.
+- **Not measured.** CI has read neither variant. No timed process ran a library built from C or D.
+
+## Third pre-registration: the exact count out of line ([#1679](https://github.com/orieg/expanse/issues/1679), [#1684](https://github.com/orieg/expanse/issues/1684))
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. It differs from the second record in one thing: commit C.
+
+- **The layout**, as in the second record, unchanged.
+- **A and B**, the two removal-walk commits, unchanged.
+- **C (`5f39b38fd`).** The exact count that B added runs in `branch_u_digits_exact`, a function marked cold and never inlined, called from `branch_u_digits_after_null`. The stored bound is the same number as with B.
+- Every other file under `crates/` equals main's.
+
+**Builds.** G is the pull request's head built by `scripts/build_layout_lib.sh` with `-C llvm-args=-align-all-functions=6` and `EXPANSE_LINK_HOT_LAYOUT=1`. M is its merge base `9bfedc25e` built with the same flag and without the variable. GA, for the second pairing only, is G's source with `crates/expanse/src/mutate.rs` taken from commit `0fb763dd7` (A without B or C), built as G is. All three are hash-recorded.
+
+**Owner exemption (2026-11-15): not invoked.** No Callgrind arm is named above +0.1%.
+
+**Observed before this commit, and therefore not evidence for it.**
+
+- Everything above: both earlier records' registered runs and FAILs, the attribution of the two AArch64 arms, and the counts of the diagnostic directly above.
+- No timed process has run a library that holds C. No library has been built from this record's head or from its merge base.
+
+**Derived before the runs.**
+
+- On the reference host C lowers `map_remove_revgen` `gen_4m` by 4.255% against main (the artifact above). If cycles per delete followed instructions, the delete rate would rise by 1 / (1 − 0.04255) = 1.044. The floor is 1.03, unchanged.
+- The same artifact puts C 1.51% below A on that arm, a rate ratio of 1.015 for the second pairing by the same rule.
+- The merge base differs from the second record's (`547e0f6cc`) in `crates/expanse/src/nav.rs`. The script's offsets are the ones the functions had in a library built before that change, so M's own offsets may now differ from G's, and G/M then also measures that difference. On this host a move of the lookup helper by 1,792 bytes read the 1 Ki find rate at 0.969 to 0.981 of main's ("Why" under the candidate's heading above; draft pull request 1789's registered runs). Whether M's offsets differ here is not checked before this commit.
+
+**Definitions and hygiene.** Those of the first record. The second pairing's runs follow the same hygiene and are void, and replaced whole, on the same conditions.
+
+**Target, all of which must hold.** T1, T2 and T3 of the first record, unchanged, read on G against M.
+
+**Bounds, every one of which must hold.** Those of the second record, unchanged:
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| `git diff` against the merge base | `crates/`, `include/` | `crates/expanse/src/mutate.rs`, `crates/expanse-capi/build.rs`, `crates/expanse-capi/hot_layout.ld` and `crates/expanse-capi/tests/test_hot_layout_sync.rs` only |
+| x86-64 deterministic, x86-64 smoke and AArch64 Callgrind; wasm32 and wasm64 fuel | every arm, `map_churn` `random` and `bytesmap_churn` `routes` on AArch64 named as the likeliest falsifiers | ≤ +0.1% against main |
+| `Core / Public Rust API Surface` | the committed snapshot | unchanged |
+| stress-ng, both hosts | `sng_judy_1k` `judy-find-operations-per-sec`, every W (L2, named as the likeliest stress-ng falsifier) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every other primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every primary cell-metric (L1b) | not SLOWER against stock where the merge base is FASTER or EQUIVALENT and G/M is SLOWER |
+| `memory-budget` | every row | unchanged |
+| CI | workspace tests (`PROPTEST_CASES=500`), Tier-1 Miri, ASan, loom, `differential-oracle`, `php-judy-*` | pass |
+
+**The comparison with stock, reported under its own label and not gated.** Labelled as in the first record. Predicted on the reference host from the second record's runs: the G/S lower end on the 4 Mi delete rate is above 1.0 in both runs at W = 8, and the interval contains 1 at W = 1 and W = 2. W = 4 is not predicted.
+
+**Second pairing, reported and not gated: B and C's own share.** G against GA over every cell, two runs of 12 rounds, by the same driver. Neither earlier record measured the recount apart from the demotion. Predicted: `sng_judy_4m` `judy-delete-operations-per-sec` G/GA has its lower end above 1.0 in both runs at each of W = 1, 2, 4 and 8. Read as SEPARATED if that holds and NOT SEPARATED otherwise. The verdict below does not depend on it.
+
+**Predicted and not gated.** stress-ng's `max-rss` G/M is above 1 on the 1 Ki cell at W = 1, as in both earlier records' runs.
+
+**Not predicted.** Every magnitude on the second host; G/M on both sparsematrix families; every `max-rss` ratio of the second pairing.
+
+**Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved (§8.19). A PASS with T2 pending is recorded as PASS on the reference host only. The pull request carries no `allow-regression:` line.
+
+Refs #1679, #1680, #1684.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:
