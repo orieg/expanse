@@ -173,6 +173,26 @@ impl ImmedKeys {
         }
         lo
     }
+
+    /// The last slot whose key satisfies `pred` (keys ascending, `pred`
+    /// true on a prefix), with its key: the search keeps the key of the
+    /// last probe that satisfied `pred`, which is that slot's, so the key
+    /// is not extracted a second time.
+    #[inline(always)]
+    fn last_where(&self, pred: impl Fn(u64) -> bool) -> Option<(usize, u64)> {
+        let (mut lo, mut hi, mut key) = (0, self.count, 0);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            let k = self.get(mid);
+            if pred(k) {
+                lo = mid + 1;
+                key = k;
+            } else {
+                hi = mid;
+            }
+        }
+        if lo == 0 { None } else { Some((lo - 1, key)) }
+    }
 }
 
 /// The value of slot `slot` in a map immediate.
@@ -232,6 +252,17 @@ pub(crate) trait Hit {
     /// `p` points at a live value word, derived from a stored node or
     /// value-array pointer.
     unsafe fn at(p: *mut u64) -> Self::Out;
+    /// Whether [`prev_hit`] reads immediates in place and takes a
+    /// `BranchB`'s later children one slot lower ([`prev_child`]). The
+    /// value walk ([`Val`]) keeps the original immediate arm and `BranchB`
+    /// loop: the in-place form, applied to it, measured +0.65% on
+    /// `map_prev sequential` and +0.30% on `map_prev clustered`
+    /// (Callgrind, x86), whose paths do not reach the changed arms,
+    /// through code generation of the shared walk. The set walk ([`Key`])
+    /// and the slot walk ([`Slot`], `JudyLPrev` / `JudyLLast`) take it; no
+    /// Callgrind arm walks a sequential or clustered population through
+    /// the slot walk.
+    const PREV_IN_PLACE: bool;
 }
 
 /// [`Hit`] returning the value.
@@ -240,6 +271,7 @@ pub(crate) enum Val {}
 impl Hit for Val {
     type Out = u64;
     const NONE: u64 = 0;
+    const PREV_IN_PLACE: bool = false;
     #[inline(always)]
     unsafe fn immed(ep: *const Edge, im: crate::types::ImmedType, slot: usize) -> u64 {
         // SAFETY: this trait method's contract.
@@ -261,6 +293,7 @@ pub(crate) enum Key {}
 impl Hit for Key {
     type Out = ();
     const NONE: () = ();
+    const PREV_IN_PLACE: bool = true;
     #[inline(always)]
     unsafe fn immed(_ep: *const Edge, _im: crate::types::ImmedType, _slot: usize) {}
     #[inline(always)]
@@ -277,6 +310,7 @@ pub(crate) enum Slot {}
 impl Hit for Slot {
     type Out = *mut u64;
     const NONE: *mut u64 = core::ptr::null_mut();
+    const PREV_IN_PLACE: bool = true;
     #[inline(always)]
     unsafe fn immed(ep: *const Edge, im: crate::types::ImmedType, slot: usize) -> *mut u64 {
         if im.key_count() == 1 {
@@ -624,6 +658,92 @@ pub(crate) unsafe fn prev_slot(
     unsafe { prev_hit::<true, Slot>(edge, suffix, level) }
 }
 
+/// Largest key `<= suffix` of an immediate edge, with its entry.
+///
+/// # Safety
+///
+/// `ep` points at a live immediate edge of tag `im`, as [`prev_hit`].
+#[inline(always)]
+unsafe fn immed_prev<const MAP: bool, H: Hit>(
+    ep: *const Edge,
+    im: crate::types::ImmedType,
+    suffix: u64,
+) -> Option<(u64, H::Out)> {
+    // SAFETY: live edge per contract.
+    let edge = unsafe { &*ep };
+    let (slot, k) = ImmedKeys::of::<MAP>(edge, im).last_where(|k| k <= suffix)?;
+    let v = if MAP {
+        // SAFETY: live map immediate per contract.
+        unsafe { H::immed(ep, im, slot) }
+    } else {
+        H::NONE
+    };
+    Some((k, v))
+}
+
+/// The largest key of an immediate edge, with its entry.
+///
+/// # Safety
+///
+/// As [`immed_prev`].
+#[inline(always)]
+unsafe fn immed_last<const MAP: bool, H: Hit>(
+    ep: *const Edge,
+    im: crate::types::ImmedType,
+) -> (u64, H::Out) {
+    // SAFETY: live edge per contract.
+    let keys = ImmedKeys::of::<MAP>(unsafe { &*ep }, im);
+    let slot = keys.count - 1;
+    let v = if MAP {
+        // SAFETY: live map immediate per contract.
+        unsafe { H::immed(ep, im, slot) }
+    } else {
+        H::NONE
+    };
+    (keys.get(slot), v)
+}
+
+/// [`prev_hit`] on a branch's child at `level`, which holds the key bytes
+/// below the branch digit. `bounded` says the child's digit is the
+/// suffix's own, so the search is bounded by the suffix's low `level`
+/// bytes; otherwise the child's digit is below it and the answer is the
+/// child's largest key.
+///
+/// An immediate child is read in place rather than through another call:
+/// below a sparse branch most children are immediates, and a backward step
+/// from a present key reads two of them (its own, which holds nothing
+/// smaller, then its neighbour's largest key, which needs no search).
+///
+/// # Safety
+///
+/// As [`prev_hit`].
+#[inline(always)]
+unsafe fn prev_child<const MAP: bool, H: Hit>(
+    child: *const Edge,
+    bounded: bool,
+    suffix: u64,
+    level: u8,
+) -> Option<(u64, H::Out)> {
+    let rem = if bounded {
+        key_low(suffix, level)
+    } else {
+        pow256(level) - 1
+    };
+    // SAFETY: live child edge per contract.
+    if let Some(EdgeTag::Immed(im)) = unsafe { (*child).tag() } {
+        if bounded {
+            // SAFETY: as above.
+            unsafe { immed_prev::<MAP, H>(child, im, rem) }
+        } else {
+            // SAFETY: as above.
+            Some(unsafe { immed_last::<MAP, H>(child, im) })
+        }
+    } else {
+        // SAFETY: forwarded contract.
+        unsafe { prev_hit::<MAP, H>(child, rem, level) }
+    }
+}
+
 /// The walk behind [`prev`] and [`prev_slot`].
 ///
 /// # Safety
@@ -642,6 +762,12 @@ unsafe fn prev_hit<const MAP: bool, H: Hit>(
         EdgeTag::Structural(EdgeType::Null) => None,
 
         EdgeTag::Immed(im) => {
+            if H::PREV_IN_PLACE {
+                // SAFETY: live immediate per contract.
+                return unsafe { immed_prev::<MAP, H>(ep, im, suffix) };
+            }
+            // The value walk keeps this arm, and the `BranchB` loop below,
+            // as they were ([`Hit::PREV_IN_PLACE`]).
             let (slot, k) = {
                 let keys = ImmedKeys::of::<MAP>(edge, im);
                 let slot = keys.partition_point(|k| k <= suffix).checked_sub(1)?;
@@ -805,28 +931,68 @@ unsafe fn prev_hit<const MAP: bool, H: Hit>(
             let d = digit(suffix, bl);
             // SAFETY: live BranchB per contract.
             let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
-            let mut cur = b.bitmap.prev_set(d);
-            while let Some(bd) = cur {
-                let rem = if bd == d {
-                    key_low(suffix, bl - 1)
-                } else {
-                    pow256(bl - 1) - 1
-                };
-                let sub = (bd >> 5) as usize;
+            if !H::PREV_IN_PLACE {
+                // The value walk keeps the loop below unchanged
+                // ([`Hit::PREV_IN_PLACE`]).
+                let mut cur = b.bitmap.prev_set(d);
+                while let Some(bd) = cur {
+                    let rem = if bd == d {
+                        key_low(suffix, bl - 1)
+                    } else {
+                        pow256(bl - 1) - 1
+                    };
+                    let sub = (bd >> 5) as usize;
+                    let rank = b.bitmap.subexpanse_rank(bd) as usize;
+                    // SAFETY: bit set → subarray holds rank + 1 edges.
+                    let child = unsafe { b.subarrays[sub].add(rank).cast_const() };
+                    // SAFETY: child subtree per contract.
+                    if let Some((r, v)) = unsafe { prev_hit::<MAP, H>(child, rem, bl - 1) } {
+                        return Some(((dv << shift) | compose(bd, r, bl), v));
+                    }
+                    cur = if bd == 0 {
+                        None
+                    } else {
+                        b.bitmap.prev_set(bd - 1)
+                    };
+                }
+                None
+            } else {
+                // The first digit tried is the suffix's own or the next set one
+                // below it; every later one is below the suffix's digit, so its
+                // child's largest key is the answer. A later digit in the
+                // subexpanse of the one tried before it is the next set bit
+                // below it there, and its edge sits one slot lower: only the
+                // first digit tried in a subexpanse needs its rank.
+                let mut bd = b.bitmap.prev_set(d)?;
+                let mut sub = (bd >> 5) as usize;
                 let rank = b.bitmap.subexpanse_rank(bd) as usize;
                 // SAFETY: bit set → subarray holds rank + 1 edges.
-                let child = unsafe { b.subarrays[sub].add(rank).cast_const() };
+                let mut child = unsafe { b.subarrays[sub].add(rank).cast_const() };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { prev_hit::<MAP, H>(child, rem, bl - 1) } {
+                let found = unsafe { prev_child::<MAP, H>(child, bd == d, suffix, bl - 1) };
+                if let Some((r, v)) = found {
                     return Some(((dv << shift) | compose(bd, r, bl), v));
                 }
-                cur = if bd == 0 {
-                    None
-                } else {
-                    b.bitmap.prev_set(bd - 1)
-                };
+                while bd > 0 {
+                    bd = b.bitmap.prev_set(bd - 1)?;
+                    if (bd >> 5) as usize == sub {
+                        // SAFETY: the digit tried before this one is the next
+                        // set bit above it in this subexpanse, at slot >= 1.
+                        child = unsafe { child.sub(1) };
+                    } else {
+                        sub = (bd >> 5) as usize;
+                        let rank = b.bitmap.subexpanse_rank(bd) as usize;
+                        // SAFETY: bit set → subarray holds rank + 1 edges.
+                        child = unsafe { b.subarrays[sub].add(rank).cast_const() };
+                    }
+                    // SAFETY: child subtree per contract.
+                    let found = unsafe { prev_child::<MAP, H>(child, false, suffix, bl - 1) };
+                    if let Some((r, v)) = found {
+                        return Some(((dv << shift) | compose(bd, r, bl), v));
+                    }
+                }
+                None
             }
-            None
         }
 
         EdgeTag::Structural(EdgeType::BranchU) => {
