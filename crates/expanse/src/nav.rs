@@ -252,6 +252,17 @@ pub(crate) trait Hit {
     /// `p` points at a live value word, derived from a stored node or
     /// value-array pointer.
     unsafe fn at(p: *mut u64) -> Self::Out;
+    /// Whether [`prev_hit`] reads immediates in place and takes a
+    /// `BranchB`'s later children one slot lower ([`prev_child`]). The
+    /// value walk ([`Val`]) keeps the original immediate arm and `BranchB`
+    /// loop: the in-place form, applied to it, measured +0.65% on
+    /// `map_prev sequential` and +0.30% on `map_prev clustered`
+    /// (Callgrind, x86), whose paths do not reach the changed arms,
+    /// through code generation of the shared walk. The set walk ([`Key`])
+    /// and the slot walk ([`Slot`], `JudyLPrev` / `JudyLLast`) take it; no
+    /// Callgrind arm walks a sequential or clustered population through
+    /// the slot walk.
+    const PREV_IN_PLACE: bool;
 }
 
 /// [`Hit`] returning the value.
@@ -260,6 +271,7 @@ pub(crate) enum Val {}
 impl Hit for Val {
     type Out = u64;
     const NONE: u64 = 0;
+    const PREV_IN_PLACE: bool = false;
     #[inline(always)]
     unsafe fn immed(ep: *const Edge, im: crate::types::ImmedType, slot: usize) -> u64 {
         // SAFETY: this trait method's contract.
@@ -281,6 +293,7 @@ pub(crate) enum Key {}
 impl Hit for Key {
     type Out = ();
     const NONE: () = ();
+    const PREV_IN_PLACE: bool = true;
     #[inline(always)]
     unsafe fn immed(_ep: *const Edge, _im: crate::types::ImmedType, _slot: usize) {}
     #[inline(always)]
@@ -297,6 +310,7 @@ pub(crate) enum Slot {}
 impl Hit for Slot {
     type Out = *mut u64;
     const NONE: *mut u64 = core::ptr::null_mut();
+    const PREV_IN_PLACE: bool = true;
     #[inline(always)]
     unsafe fn immed(ep: *const Edge, im: crate::types::ImmedType, slot: usize) -> *mut u64 {
         if im.key_count() == 1 {
@@ -748,12 +762,12 @@ unsafe fn prev_hit<const MAP: bool, H: Hit>(
         EdgeTag::Structural(EdgeType::Null) => None,
 
         EdgeTag::Immed(im) => {
-            if !MAP {
+            if H::PREV_IN_PLACE {
                 // SAFETY: live immediate per contract.
                 return unsafe { immed_prev::<MAP, H>(ep, im, suffix) };
             }
-            // The map flavour keeps this arm, and the `BranchB` loop below,
-            // as they were (see there).
+            // The value walk keeps this arm, and the `BranchB` loop below,
+            // as they were ([`Hit::PREV_IN_PLACE`]).
             let (slot, k) = {
                 let keys = ImmedKeys::of::<MAP>(edge, im);
                 let slot = keys.partition_point(|k| k <= suffix).checked_sub(1)?;
@@ -917,12 +931,9 @@ unsafe fn prev_hit<const MAP: bool, H: Hit>(
             let d = digit(suffix, bl);
             // SAFETY: live BranchB per contract.
             let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
-            if MAP {
-                // The map flavour keeps the loop below unchanged: the
-                // set-flavour form after it, applied to the map walk,
-                // measured +0.65% on `map_prev sequential` and +0.30% on
-                // `map_prev clustered` (Callgrind, x86), whose paths do not
-                // reach it, through code generation of the shared walk.
+            if !H::PREV_IN_PLACE {
+                // The value walk keeps the loop below unchanged
+                // ([`Hit::PREV_IN_PLACE`]).
                 let mut cur = b.bitmap.prev_set(d);
                 while let Some(bd) = cur {
                     let rem = if bd == d {
