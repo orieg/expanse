@@ -94,10 +94,12 @@ unsafe fn free_array<T>(
 /// within it is found by the walk alone.
 const EMPTY_WALK_BUDGET: usize = 1024;
 
-/// Finds the smallest absent key `>= from` — shared by the four `*Empty`
-/// search families. `walk` is the engine's ordered search from `from`
-/// (`first_absent_within`); when its budget runs out with `from..resume`
-/// present, the search continues by rank bisection from `resume`.
+/// Finds the smallest absent key `>= from` for the `JudyL` `*Empty`
+/// searches (`Judy1` resolves in its entry points, with
+/// [`judy1_first_absent_from`] out of line). `walk` is the engine's ordered
+/// search from `from` (`first_absent_within`); when its budget runs out with
+/// `from..resume` present, the search continues by rank bisection from
+/// `resume`.
 fn first_absent(
     walk: Result<Option<u64>, u64>,
     contains: impl Fn(u64) -> bool,
@@ -383,8 +385,24 @@ macro_rules! walk_upto {
     };
 }
 
+/// The rank-bisection continuation of a `Judy1` ascending empty search whose
+/// walk budget ran out at `resume`; out of line, so the entry points' common
+/// path (the walk answers) carries none of it.
+#[cold]
+#[inline(never)]
+fn judy1_first_absent_from(set: &ExpanseSet, resume: u64) -> Option<u64> {
+    first_absent_by_rank(|k| set.contains(k), |a, b| set.count_range(a..=b), resume)
+}
+
+/// The descending mirror of [`judy1_first_absent_from`].
+#[cold]
+#[inline(never)]
+fn judy1_last_absent_from(set: &ExpanseSet, resume: u64) -> Option<u64> {
+    last_absent_by_rank(|k| set.contains(k), |a, b| set.count_range(a..=b), resume)
+}
+
 macro_rules! judy1_empty {
-    ($name:ident, $absent:ident, $keys:ident, $adjust:expr, $doc:literal) => {
+    ($name:ident, $resume:ident, $keys:ident, $adjust:expr, $doc:literal) => {
         #[doc = $doc]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
@@ -403,20 +421,18 @@ macro_rules! judy1_empty {
                     return 0;
                 };
                 let found = match set_handle(parray) {
-                    None => Some(start),
-                    Some(set) => $absent(
-                        $keys!(set, start),
-                        |k| set.contains(k),
-                        |a, b| set.count_range(a..=b),
-                    ),
+                    None => start,
+                    Some(set) => match $keys!(set, start) {
+                        Ok(Some(k)) => k,
+                        Ok(None) => return 0,
+                        Err(resume) => match $resume(set, resume) {
+                            Some(k) => k,
+                            None => return 0,
+                        },
+                    },
                 };
-                match found {
-                    Some(k) => {
-                        *pindex = k as Word;
-                        1
-                    }
-                    None => 0,
-                }
+                *pindex = found as Word;
+                1
             }
         }
     };
@@ -424,28 +440,28 @@ macro_rules! judy1_empty {
 
 judy1_empty!(
     Judy1FirstEmpty,
-    first_absent,
+    judy1_first_absent_from,
     walk_from,
     |k: u64| Some(k),
     "Smallest unset index >= *pindex."
 );
 judy1_empty!(
     Judy1NextEmpty,
-    first_absent,
+    judy1_first_absent_from,
     walk_from,
     |k: u64| k.checked_add(1),
     "Smallest unset index > *pindex."
 );
 judy1_empty!(
     Judy1LastEmpty,
-    last_absent,
+    judy1_last_absent_from,
     walk_upto,
     |k: u64| Some(k),
     "Largest unset index <= *pindex."
 );
 judy1_empty!(
     Judy1PrevEmpty,
-    last_absent,
+    judy1_last_absent_from,
     walk_upto,
     |k: u64| k.checked_sub(1),
     "Largest unset index < *pindex."
