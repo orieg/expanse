@@ -129,10 +129,10 @@ Callgrind counts through the same C ABI, in millions of instructions, from `crat
 | `Judy1Next`, random | 30,000 | **11.82** | 11.52 | 12.84 | **0.920×** | 0.897× |
 | `Judy1Last`, random | 30,000 | **10.59** | 9.93 | 18.63 | **0.568×** | 0.533× |
 | `Judy1Prev`, random | 30,000 | **10.38** | 9.78 | 12.13 | **0.856×** | 0.806× |
-| `Judy1FirstEmpty`, clustered | 30,000 | **0.131** | 0.122 | 0.194 | **0.676×** | 0.628× |
-| `Judy1NextEmpty`, clustered | 30,000 | 0.133 | 0.123 | **0.121** | 1.092×, **loss** | 1.015×, **loss** |
-| `Judy1LastEmpty`, clustered | 30,000 | **0.127** | 0.118 | 0.190 | **0.668×** | 0.619× |
-| `Judy1PrevEmpty`, clustered | 30,000 | 0.129 | 0.120 | **0.118** | 1.095×, **loss** | 1.016×, **loss** |
+| `Judy1FirstEmpty`, clustered | 30,000 | **0.114** | 0.115 | 0.194 | **0.589×** | 0.594× |
+| `Judy1NextEmpty`, clustered | 30,000 | **0.117** | 0.117 | 0.121 | **0.961×** | 0.961× |
+| `Judy1LastEmpty`, clustered | 30,000 | **0.110** | 0.111 | 0.190 | **0.579×** | 0.584× |
+| `Judy1PrevEmpty`, clustered | 30,000 | **0.113** | 0.113 | 0.118 | **0.964×** | 0.961× |
 | `Judy1Count`, random | 30,000 | **117.67** | 117.71 | 283.73 | **0.415×** | 0.415× |
 | `Judy1ByCount`, random | 30,000 | **138.36** | 138.30 | 267.09 | **0.518×** | 0.518× |
 | `Judy1FreeArray`, random | 30,000 | **0.466** | 0.463 | 1.04 | **0.448×** | 0.445× |
@@ -157,11 +157,13 @@ Callgrind counts through the same C ABI, in millions of instructions, from `crat
 | `JudyHSGet`, route keys | 30,000 | **29.38** | 29.37 | 45.43 | **0.647×** | 0.647× |
 | `JudyHSDel`, route keys | 30,000 | **38.18** | 37.78 | 75.98 | **0.502×** | 0.497× |
 
-*(measured: Intel Core i9-12900F reference host, `0b5d5b82`, [run 45754654605](https://github.com/orieg/expanse/actions/runs/45754654605); [`results/baseline_vs_stock.json`](../results/baseline_vs_stock.json), 189 arms, 63 operations.)*
+*(measured: Intel Core i9-12900F reference host, `7c7914ca`, [run 45880115469](https://github.com/orieg/expanse/actions/runs/45880115469); [`results/baseline_vs_stock.json`](../results/baseline_vs_stock.json), 189 arms, 63 operations.)*
 
-Eight operations retire more instructions than stock through the `.so`, and every other operation retires fewer: the six `JudyL` small-array lifetimes, 1.500× to 9.975× (the many-small-arrays shape of [#1742](https://github.com/orieg/expanse/issues/1742)), and `Judy1NextEmpty` and `Judy1PrevEmpty` clustered, 1.092× and 1.095× (1.015× and 1.016× through the rlib).
+Six operations retire more instructions than stock through the `.so`, and every other operation retires fewer: the six `JudyL` small-array lifetimes, 1.500× to 9.975× (the many-small-arrays shape of [#1742](https://github.com/orieg/expanse/issues/1742)).
 
-**Correction.** At `864f8e00` ([run 45709424282](https://github.com/orieg/expanse/actions/runs/45709424282)) this table recorded nine losses, among them `JudyLPrev` random at 1.058× stock through the `.so` (13.25 M instructions) and 1.006× through the rlib. [#1793](https://github.com/orieg/expanse/pull/1793) moved the slot walk behind `JudyLPrev` and `JudyLLast` to the in-place backward form; at `0b5d5b82` `JudyLPrev` random reads 0.908× (11.37 M) and 0.876×. Between the two runs exactly four libexpanse counts moved, all downward: `JudyLPrev` random `.so` −14.18% and rlib −12.97%, `JudyLLast` random `.so` −13.99% and rlib −12.79%; every stock count and every other libexpanse count is identical. The `864f8e00` counts are superseded, not adjusted.
+**Correction.** At `0b5d5b82` ([run 45754654605](https://github.com/orieg/expanse/actions/runs/45754654605)) this table recorded eight losses, among them `Judy1NextEmpty` and `Judy1PrevEmpty` clustered at 1.092× and 1.095× stock through the `.so` (0.133 M and 0.129 M instructions) and 1.015× and 1.016× through the rlib. [#1795](https://github.com/orieg/expanse/pull/1795) inlined the engine's empty search into the `Judy1*Empty` entry points and moved the rank-bisection fallback out of line; at `7c7914ca` they read 0.961× and 0.964× (0.117 M and 0.113 M), and 0.961× each through the rlib. Between the two runs exactly eight libexpanse counts moved, all downward, the four `Judy1*Empty` searches through both builds: `.so` −12.01% to −13.29%, rlib −5.33% to −5.57%; every stock count and every other libexpanse count is identical. The `0b5d5b82` counts are superseded, not adjusted.
+
+At `864f8e00` ([run 45709424282](https://github.com/orieg/expanse/actions/runs/45709424282)) this table recorded nine losses, among them `JudyLPrev` random at 1.058× stock through the `.so` (13.25 M instructions) and 1.006× through the rlib. [#1793](https://github.com/orieg/expanse/pull/1793) moved the slot walk behind `JudyLPrev` and `JudyLLast` to the in-place backward form; at `0b5d5b82` `JudyLPrev` random reads 0.908× (11.37 M) and 0.876×. Between the two runs exactly four libexpanse counts moved, all downward: `JudyLPrev` random `.so` −14.18% and rlib −12.97%, `JudyLLast` random `.so` −13.99% and rlib −12.79%; every stock count and every other libexpanse count is identical. The `864f8e00` counts are superseded, not adjusted.
 
 **Correction.** This table previously held 75 arms (25 operations) at commit `cbbc762a` ([run 43689888414](https://github.com/orieg/expanse/actions/runs/43689888414)) and recorded one loss: `JudyHSIns` on route keys at 1.076× through the `.so` and 1.047× through the rlib. At `864f8e00` that operation reads 0.839× and 0.784×. The stock counts of the 75 shared arms are identical in both runs. The libexpanse counts that moved by more than 0.1% are `JudyHSIns` on route keys (`.so` −22.0%), `JudyHSDel` on route keys (`.so` −25.1%) and `Judy1Set` random (`.so` −0.104%); route-key `JudyHSGet` is within 0.01%. Between the two commits the harness changed how the route-key arms seed the shipped hasher (#1762, #1764) and the engine changed how a collision bucket is allocated (#1770); no run isolates which of the two moved the route-key counts. The 25-operation table is superseded, not adjusted; it is replaced by the full harness surface, which it did not cover and which carries the nine losses above.
 
