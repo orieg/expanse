@@ -4,8 +4,8 @@
   "suite": "vs_stock",
   "provenance": {
     "host_description": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-138-generic)",
-    "commit": "864f8e000267fe5f3f887c62d7cf720e28d03013",
-    "run_id": "https://github.com/orieg/expanse/actions/runs/45709424282",
+    "commit": "0b5d5b826882be6b2904a43df253d881d927536c",
+    "run_id": "https://github.com/orieg/expanse/actions/runs/45754654605",
     "generated_by": "scripts/perf_report.py --emit-json",
     "source": "iai-callgrind stdout, parsed by perf_report.parse_full"
   },
@@ -22,11 +22,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 172398592,
+        "Estimated Cycles": 172425568,
         "Instructions": 138298236,
-        "L1 Hits": 168909892,
-        "LL Hits": 697334,
-        "RAM Hits": 58,
+        "L1 Hits": 168903133,
+        "LL Hits": 704095,
+        "RAM Hits": 56,
         "Total read+write": 169607284
       }
     },
@@ -36,10 +36,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 171623876,
+        "Estimated Cycles": 171664384,
         "Instructions": 138362980,
-        "L1 Hits": 169222081,
-        "LL Hits": 479939,
+        "L1 Hits": 169211954,
+        "LL Hits": 490066,
         "RAM Hits": 60,
         "Total read+write": 169702080
       }
@@ -50,11 +50,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 331313096,
+        "Estimated Cycles": 331313066,
         "Instructions": 267093449,
         "L1 Hits": 328808266,
-        "LL Hits": 500686,
-        "RAM Hits": 40,
+        "LL Hits": 500687,
+        "RAM Hits": 39,
         "Total read+write": 329308992
       }
     },
@@ -64,11 +64,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 342537789,
+        "Estimated Cycles": 342541383,
         "Instructions": 255207110,
-        "L1 Hits": 334040599,
-        "LL Hits": 631231,
-        "RAM Hits": 152601,
+        "L1 Hits": 334039678,
+        "LL Hits": 632155,
+        "RAM Hits": 152598,
         "Total read+write": 334824431
       }
     },
@@ -78,11 +78,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 29633619,
+        "Estimated Cycles": 29633629,
         "Instructions": 22301187,
-        "L1 Hits": 29513029,
-        "LL Hits": 16803,
-        "RAM Hits": 1045,
+        "L1 Hits": 29513019,
+        "LL Hits": 16814,
+        "RAM Hits": 1044,
         "Total read+write": 29530877
       }
     },
@@ -92,11 +92,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 341083898,
+        "Estimated Cycles": 341077308,
         "Instructions": 254751486,
-        "L1 Hits": 332562268,
-        "LL Hits": 635671,
-        "RAM Hits": 152665,
+        "L1 Hits": 332563893,
+        "LL Hits": 634049,
+        "RAM Hits": 152662,
         "Total read+write": 333350604
       }
     },
@@ -106,11 +106,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 29406777,
+        "Estimated Cycles": 29406807,
         "Instructions": 22191913,
         "L1 Hits": 29283262,
-        "LL Hits": 16898,
-        "RAM Hits": 1115,
+        "LL Hits": 16897,
+        "RAM Hits": 1116,
         "Total read+write": 29301275
       }
     },
@@ -120,10 +120,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 464931182,
+        "Estimated Cycles": 464931178,
         "Instructions": 336280737,
-        "L1 Hits": 457121562,
-        "LL Hits": 508543,
+        "L1 Hits": 457121563,
+        "LL Hits": 508542,
         "RAM Hits": 150483,
         "Total read+write": 457780588
       }
@@ -134,10 +134,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 38150812,
+        "Estimated Cycles": 38150808,
         "Instructions": 28187447,
-        "L1 Hits": 38059682,
-        "LL Hits": 15790,
+        "L1 Hits": 38059683,
+        "LL Hits": 15789,
         "RAM Hits": 348,
         "Total read+write": 38075820
       }
@@ -148,10 +148,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 142870190,
+        "Estimated Cycles": 142851174,
         "Instructions": 117707462,
-        "L1 Hits": 137953065,
-        "LL Hits": 982396,
+        "L1 Hits": 137957819,
+        "LL Hits": 977642,
         "RAM Hits": 147,
         "Total read+write": 138935608
       }
@@ -162,11 +162,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 141803172,
+        "Estimated Cycles": 141828204,
         "Instructions": 117672300,
-        "L1 Hits": 138108567,
-        "LL Hits": 737857,
-        "RAM Hits": 152,
+        "L1 Hits": 138102324,
+        "LL Hits": 744098,
+        "RAM Hits": 154,
         "Total read+write": 138846576
       }
     },
@@ -176,11 +176,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 357512773,
+        "Estimated Cycles": 357512739,
         "Instructions": 283729500,
-        "L1 Hits": 355937318,
+        "L1 Hits": 355937319,
         "LL Hits": 313908,
-        "RAM Hits": 169,
+        "RAM Hits": 168,
         "Total read+write": 356251395
       }
     },
@@ -190,11 +190,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 160087,
+        "Estimated Cycles": 160023,
         "Instructions": 121825,
-        "L1 Hits": 155552,
-        "LL Hits": 641,
-        "RAM Hits": 38,
+        "L1 Hits": 155553,
+        "LL Hits": 642,
+        "RAM Hits": 36,
         "Total read+write": 156231
       }
     },
@@ -204,11 +204,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 175975,
+        "Estimated Cycles": 175941,
         "Instructions": 131205,
-        "L1 Hits": 171490,
+        "L1 Hits": 171491,
         "LL Hits": 652,
-        "RAM Hits": 35,
+        "RAM Hits": 34,
         "Total read+write": 172177
       }
     },
@@ -218,11 +218,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 257106,
+        "Estimated Cycles": 257072,
         "Instructions": 194008,
-        "L1 Hits": 252786,
+        "L1 Hits": 252787,
         "LL Hits": 563,
-        "RAM Hits": 43,
+        "RAM Hits": 42,
         "Total read+write": 253392
       }
     },
@@ -232,10 +232,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 14783517,
+        "Estimated Cycles": 14783513,
         "Instructions": 11728722,
-        "L1 Hits": 14385957,
-        "LL Hits": 79197,
+        "L1 Hits": 14385958,
+        "LL Hits": 79196,
         "RAM Hits": 45,
         "Total read+write": 14465199
       }
@@ -246,11 +246,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 15207376,
+        "Estimated Cycles": 15207456,
         "Instructions": 12025744,
-        "L1 Hits": 14808971,
-        "LL Hits": 79373,
-        "RAM Hits": 44,
+        "L1 Hits": 14808966,
+        "LL Hits": 79376,
+        "RAM Hits": 46,
         "Total read+write": 14888388
       }
     },
@@ -260,11 +260,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 24075505,
+        "Estimated Cycles": 24075539,
         "Instructions": 19366264,
-        "L1 Hits": 23732135,
+        "L1 Hits": 23732134,
         "LL Hits": 67932,
-        "RAM Hits": 106,
+        "RAM Hits": 107,
         "Total read+write": 23800173
       }
     },
@@ -274,11 +274,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 645617,
+        "Estimated Cycles": 645643,
         "Instructions": 462662,
-        "L1 Hits": 588372,
-        "LL Hits": 11092,
-        "RAM Hits": 51,
+        "L1 Hits": 588373,
+        "LL Hits": 11090,
+        "RAM Hits": 52,
         "Total read+write": 599515
       }
     },
@@ -288,11 +288,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 650588,
+        "Estimated Cycles": 650550,
         "Instructions": 466204,
-        "L1 Hits": 593148,
-        "LL Hits": 11096,
-        "RAM Hits": 56,
+        "L1 Hits": 593150,
+        "LL Hits": 11095,
+        "RAM Hits": 55,
         "Total read+write": 604300
       }
     },
@@ -330,10 +330,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 170974,
+        "Estimated Cycles": 170970,
         "Instructions": 127047,
-        "L1 Hits": 166389,
-        "LL Hits": 651,
+        "L1 Hits": 166390,
+        "LL Hits": 650,
         "RAM Hits": 38,
         "Total read+write": 167078
       }
@@ -358,11 +358,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 12502432,
+        "Estimated Cycles": 12502462,
         "Instructions": 9931338,
         "L1 Hits": 12104462,
-        "LL Hits": 79230,
-        "RAM Hits": 52,
+        "LL Hits": 79229,
+        "RAM Hits": 53,
         "Total read+write": 12183744
       }
     },
@@ -372,10 +372,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 13401693,
+        "Estimated Cycles": 13401785,
         "Instructions": 10587844,
-        "L1 Hits": 13003658,
-        "LL Hits": 79236,
+        "L1 Hits": 13003635,
+        "LL Hits": 79259,
         "RAM Hits": 53,
         "Total read+write": 13082947
       }
@@ -386,11 +386,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 23160887,
+        "Estimated Cycles": 23160853,
         "Instructions": 18634419,
-        "L1 Hits": 22817927,
+        "L1 Hits": 22817928,
         "LL Hits": 67850,
-        "RAM Hits": 106,
+        "RAM Hits": 105,
         "Total read+write": 22885883
       }
     },
@@ -400,10 +400,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 161422,
+        "Estimated Cycles": 161414,
         "Instructions": 123170,
-        "L1 Hits": 156887,
-        "LL Hits": 641,
+        "L1 Hits": 156889,
+        "LL Hits": 639,
         "RAM Hits": 38,
         "Total read+write": 157566
       }
@@ -442,11 +442,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 14230304,
+        "Estimated Cycles": 14230266,
         "Instructions": 11519014,
-        "L1 Hits": 14187244,
-        "LL Hits": 8262,
-        "RAM Hits": 50,
+        "L1 Hits": 14187246,
+        "LL Hits": 8261,
+        "RAM Hits": 49,
         "Total read+write": 14195556
       }
     },
@@ -456,11 +456,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 14623461,
+        "Estimated Cycles": 14623435,
         "Instructions": 11816043,
-        "L1 Hits": 14580456,
-        "LL Hits": 8251,
-        "RAM Hits": 50,
+        "L1 Hits": 14580455,
+        "LL Hits": 8253,
+        "RAM Hits": 49,
         "Total read+write": 14588757
       }
     },
@@ -484,10 +484,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 157374,
+        "Estimated Cycles": 157366,
         "Instructions": 119601,
-        "L1 Hits": 152979,
-        "LL Hits": 641,
+        "L1 Hits": 152981,
+        "LL Hits": 639,
         "RAM Hits": 34,
         "Total read+write": 153654
       }
@@ -498,10 +498,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 172741,
+        "Estimated Cycles": 172737,
         "Instructions": 128855,
-        "L1 Hits": 168191,
-        "LL Hits": 651,
+        "L1 Hits": 168192,
+        "LL Hits": 650,
         "RAM Hits": 37,
         "Total read+write": 168879
       }
@@ -526,11 +526,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 12008982,
+        "Estimated Cycles": 12009046,
         "Instructions": 9781559,
-        "L1 Hits": 11965692,
-        "LL Hits": 8266,
-        "RAM Hits": 56,
+        "L1 Hits": 11965691,
+        "LL Hits": 8265,
+        "RAM Hits": 58,
         "Total read+write": 11974014
       }
     },
@@ -540,11 +540,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 12818190,
+        "Estimated Cycles": 12818232,
         "Instructions": 10378089,
-        "L1 Hits": 12774940,
-        "LL Hits": 8258,
-        "RAM Hits": 56,
+        "L1 Hits": 12774937,
+        "LL Hits": 8260,
+        "RAM Hits": 57,
         "Total read+write": 12783254
       }
     },
@@ -568,11 +568,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 9418641,
+        "Estimated Cycles": 9418607,
         "Instructions": 6871450,
-        "L1 Hits": 9339286,
+        "L1 Hits": 9339287,
         "LL Hits": 4188,
-        "RAM Hits": 1669,
+        "RAM Hits": 1668,
         "Total read+write": 9345143
       }
     },
@@ -582,11 +582,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 20372384,
+        "Estimated Cycles": 20373430,
         "Instructions": 14268974,
-        "L1 Hits": 19446989,
-        "LL Hits": 88066,
-        "RAM Hits": 13859,
+        "L1 Hits": 19446720,
+        "LL Hits": 88336,
+        "RAM Hits": 13858,
         "Total read+write": 19548914
       }
     },
@@ -596,11 +596,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 9286279,
+        "Estimated Cycles": 9286149,
         "Instructions": 6792525,
-        "L1 Hits": 9207279,
-        "LL Hits": 4124,
-        "RAM Hits": 1668,
+        "L1 Hits": 9207289,
+        "LL Hits": 4117,
+        "RAM Hits": 1665,
         "Total read+write": 9213071
       }
     },
@@ -610,10 +610,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 20170283,
+        "Estimated Cycles": 20170591,
         "Instructions": 14168063,
-        "L1 Hits": 19241733,
-        "LL Hits": 88648,
+        "L1 Hits": 19241656,
+        "LL Hits": 88725,
         "RAM Hits": 13866,
         "Total read+write": 19344247
       }
@@ -624,11 +624,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 16430604,
+        "Estimated Cycles": 16430638,
         "Instructions": 11899560,
-        "L1 Hits": 16397434,
+        "L1 Hits": 16397433,
         "LL Hits": 3988,
-        "RAM Hits": 378,
+        "RAM Hits": 379,
         "Total read+write": 16401800
       }
     },
@@ -638,11 +638,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 25131928,
+        "Estimated Cycles": 25131966,
         "Instructions": 17259597,
-        "L1 Hits": 24313303,
-        "LL Hits": 90057,
-        "RAM Hits": 10524,
+        "L1 Hits": 24313301,
+        "LL Hits": 90058,
+        "RAM Hits": 10525,
         "Total read+write": 24413884
       }
     },
@@ -652,11 +652,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5336387,
+        "Estimated Cycles": 5336377,
         "Instructions": 3881552,
-        "L1 Hits": 4989807,
-        "LL Hits": 69036,
-        "RAM Hits": 40,
+        "L1 Hits": 4989832,
+        "LL Hits": 69008,
+        "RAM Hits": 43,
         "Total read+write": 5058883
       }
     },
@@ -666,10 +666,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5336347,
+        "Estimated Cycles": 5336479,
         "Instructions": 3881555,
-        "L1 Hits": 4989822,
-        "LL Hits": 69025,
+        "L1 Hits": 4989789,
+        "LL Hits": 69058,
         "RAM Hits": 40,
         "Total read+write": 5058887
       }
@@ -708,10 +708,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 19780943,
+        "Estimated Cycles": 19781227,
         "Instructions": 14929442,
-        "L1 Hits": 19236373,
-        "LL Hits": 106296,
+        "L1 Hits": 19236302,
+        "LL Hits": 106367,
         "RAM Hits": 374,
         "Total read+write": 19343043
       }
@@ -722,11 +722,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 11822903,
+        "Estimated Cycles": 11822949,
         "Instructions": 8952365,
-        "L1 Hits": 11789608,
-        "LL Hits": 4174,
-        "RAM Hits": 355,
+        "L1 Hits": 11789604,
+        "LL Hits": 4177,
+        "RAM Hits": 356,
         "Total read+write": 11794137
       }
     },
@@ -736,10 +736,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 19700781,
+        "Estimated Cycles": 19700693,
         "Instructions": 14806452,
-        "L1 Hits": 19151851,
-        "LL Hits": 106713,
+        "L1 Hits": 19151873,
+        "LL Hits": 106691,
         "RAM Hits": 439,
         "Total read+write": 19259003
       }
@@ -778,11 +778,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 26552265,
+        "Estimated Cycles": 26552603,
         "Instructions": 19726955,
-        "L1 Hits": 25913940,
-        "LL Hits": 111509,
-        "RAM Hits": 2308,
+        "L1 Hits": 25913863,
+        "LL Hits": 111585,
+        "RAM Hits": 2309,
         "Total read+write": 26027757
       }
     },
@@ -792,11 +792,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 28080204,
+        "Estimated Cycles": 28079844,
         "Instructions": 20767078,
-        "L1 Hits": 27440269,
-        "LL Hits": 111712,
-        "RAM Hits": 2325,
+        "L1 Hits": 27440329,
+        "LL Hits": 111656,
+        "RAM Hits": 2321,
         "Total read+write": 27554306
       }
     },
@@ -806,11 +806,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 60437150,
+        "Estimated Cycles": 60437116,
         "Instructions": 44863600,
-        "L1 Hits": 59811400,
+        "L1 Hits": 59811401,
         "LL Hits": 123659,
-        "RAM Hits": 213,
+        "RAM Hits": 212,
         "Total read+write": 59935272
       }
     },
@@ -820,11 +820,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 17873435,
+        "Estimated Cycles": 17873429,
         "Instructions": 13164599,
-        "L1 Hits": 17115600,
-        "LL Hits": 151476,
-        "RAM Hits": 13,
+        "L1 Hits": 17115594,
+        "LL Hits": 151483,
+        "RAM Hits": 12,
         "Total read+write": 17267089
       }
     },
@@ -834,11 +834,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 17633606,
+        "Estimated Cycles": 17633732,
         "Instructions": 12984603,
-        "L1 Hits": 16875556,
-        "LL Hits": 151526,
-        "RAM Hits": 12,
+        "L1 Hits": 16875517,
+        "LL Hits": 151566,
+        "RAM Hits": 11,
         "Total read+write": 17027094
       }
     },
@@ -848,10 +848,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 32962482,
+        "Estimated Cycles": 32962470,
         "Instructions": 25402212,
-        "L1 Hits": 32240177,
-        "LL Hits": 144272,
+        "L1 Hits": 32240180,
+        "LL Hits": 144269,
         "RAM Hits": 27,
         "Total read+write": 32384476
       }
@@ -862,11 +862,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 34757436,
+        "Estimated Cycles": 34763468,
         "Instructions": 24724991,
-        "L1 Hits": 33513251,
-        "LL Hits": 130187,
-        "RAM Hits": 16950,
+        "L1 Hits": 33511728,
+        "LL Hits": 131712,
+        "RAM Hits": 16948,
         "Total read+write": 33660388
       }
     },
@@ -876,11 +876,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 35492494,
+        "Estimated Cycles": 35512872,
         "Instructions": 25201009,
-        "L1 Hits": 34258639,
-        "LL Hits": 127834,
-        "RAM Hits": 16991,
+        "L1 Hits": 34253552,
+        "LL Hits": 132920,
+        "RAM Hits": 16992,
         "Total read+write": 34403464
       }
     },
@@ -904,11 +904,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 52671331,
+        "Estimated Cycles": 52671449,
         "Instructions": 37780472,
-        "L1 Hits": 49891156,
-        "LL Hits": 545339,
-        "RAM Hits": 1528,
+        "L1 Hits": 49891134,
+        "LL Hits": 545360,
+        "RAM Hits": 1529,
         "Total read+write": 50438023
       }
     },
@@ -918,11 +918,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 53186947,
+        "Estimated Cycles": 53187099,
         "Instructions": 38175985,
-        "L1 Hits": 50236122,
-        "LL Hits": 579693,
-        "RAM Hits": 1496,
+        "L1 Hits": 50236039,
+        "LL Hits": 579782,
+        "RAM Hits": 1490,
         "Total read+write": 50817311
       }
     },
@@ -932,11 +932,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 98653306,
+        "Estimated Cycles": 98653332,
         "Instructions": 75983841,
-        "L1 Hits": 97046806,
-        "LL Hits": 313362,
-        "RAM Hits": 1134,
+        "L1 Hits": 97046807,
+        "LL Hits": 313360,
+        "RAM Hits": 1135,
         "Total read+write": 97361302
       }
     },
@@ -946,11 +946,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 41872975,
+        "Estimated Cycles": 41873337,
         "Instructions": 29372903,
-        "L1 Hits": 37488445,
-        "LL Hits": 365437,
-        "RAM Hits": 73067,
+        "L1 Hits": 37488407,
+        "LL Hits": 365468,
+        "RAM Hits": 73074,
         "Total read+write": 37926949
       }
     },
@@ -960,11 +960,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 42019149,
+        "Estimated Cycles": 42019907,
         "Instructions": 29380991,
-        "L1 Hits": 37429979,
-        "LL Hits": 438103,
-        "RAM Hits": 68533,
+        "L1 Hits": 37430007,
+        "LL Hits": 438046,
+        "RAM Hits": 68562,
         "Total read+write": 37936615
       }
     },
@@ -974,11 +974,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 58648918,
+        "Estimated Cycles": 58648764,
         "Instructions": 45428906,
-        "L1 Hits": 56111923,
-        "LL Hits": 367105,
-        "RAM Hits": 20042,
+        "L1 Hits": 56111924,
+        "LL Hits": 367109,
+        "RAM Hits": 20037,
         "Total read+write": 56499070
       }
     },
@@ -988,11 +988,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 50751825,
+        "Estimated Cycles": 50753329,
         "Instructions": 35311204,
-        "L1 Hits": 47556845,
-        "LL Hits": 205570,
-        "RAM Hits": 61918,
+        "L1 Hits": 47556439,
+        "LL Hits": 205980,
+        "RAM Hits": 61914,
         "Total read+write": 47824333
       }
     },
@@ -1002,11 +1002,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 54162766,
+        "Estimated Cycles": 54177980,
         "Instructions": 37789506,
-        "L1 Hits": 50972901,
-        "LL Hits": 204981,
-        "RAM Hits": 61856,
+        "L1 Hits": 50969105,
+        "LL Hits": 208776,
+        "RAM Hits": 61857,
         "Total read+write": 51239738
       }
     },
@@ -1016,11 +1016,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 61430215,
+        "Estimated Cycles": 61430245,
         "Instructions": 45037631,
         "L1 Hits": 59609030,
-        "LL Hits": 92546,
-        "RAM Hits": 38813,
+        "LL Hits": 92545,
+        "RAM Hits": 38814,
         "Total read+write": 59740389
       }
     },
@@ -1030,10 +1030,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 170984041,
+        "Estimated Cycles": 171047397,
         "Instructions": 136821167,
-        "L1 Hits": 167204706,
-        "LL Hits": 755461,
+        "L1 Hits": 167188867,
+        "LL Hits": 771300,
         "RAM Hits": 58,
         "Total read+write": 167960225
       }
@@ -1044,11 +1044,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 169336053,
+        "Estimated Cycles": 169338803,
         "Instructions": 136867765,
-        "L1 Hits": 167750008,
-        "LL Hits": 316810,
-        "RAM Hits": 57,
+        "L1 Hits": 167749343,
+        "LL Hits": 317472,
+        "RAM Hits": 60,
         "Total read+write": 168066875
       }
     },
@@ -1058,11 +1058,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 312702435,
+        "Estimated Cycles": 312702469,
         "Instructions": 247831593,
-        "L1 Hits": 310127305,
+        "L1 Hits": 310127304,
         "LL Hits": 514767,
-        "RAM Hits": 37,
+        "RAM Hits": 38,
         "Total read+write": 310642109
       }
     },
@@ -1072,11 +1072,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 50546523,
+        "Estimated Cycles": 50546897,
         "Instructions": 36719564,
-        "L1 Hits": 49911153,
-        "LL Hits": 92032,
-        "RAM Hits": 5006,
+        "L1 Hits": 49911067,
+        "LL Hits": 92117,
+        "RAM Hits": 5007,
         "Total read+write": 50008191
       }
     },
@@ -1086,11 +1086,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 52905296,
+        "Estimated Cycles": 52905014,
         "Instructions": 38351318,
-        "L1 Hits": 52264826,
-        "LL Hits": 92534,
-        "RAM Hits": 5080,
+        "L1 Hits": 52264889,
+        "LL Hits": 92472,
+        "RAM Hits": 5079,
         "Total read+write": 52362440
       }
     },
@@ -1100,11 +1100,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 77716632,
+        "Estimated Cycles": 77716666,
         "Instructions": 56299746,
-        "L1 Hits": 77316372,
+        "L1 Hits": 77316371,
         "LL Hits": 79520,
-        "RAM Hits": 76,
+        "RAM Hits": 77,
         "Total read+write": 77395968
       }
     },
@@ -1114,11 +1114,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 133525931,
+        "Estimated Cycles": 133518455,
         "Instructions": 108292207,
-        "L1 Hits": 128505931,
-        "LL Hits": 1002936,
-        "RAM Hits": 152,
+        "L1 Hits": 128507785,
+        "LL Hits": 1001084,
+        "RAM Hits": 150,
         "Total read+write": 129509019
       }
     },
@@ -1128,11 +1128,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 130873776,
+        "Estimated Cycles": 130873074,
         "Instructions": 108257172,
-        "L1 Hits": 129057816,
-        "LL Hits": 362149,
-        "RAM Hits": 149,
+        "L1 Hits": 129057999,
+        "LL Hits": 361965,
+        "RAM Hits": 150,
         "Total read+write": 129420114
       }
     },
@@ -1142,11 +1142,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 340761783,
+        "Estimated Cycles": 340761749,
         "Instructions": 265859169,
-        "L1 Hits": 339128408,
+        "L1 Hits": 339128409,
         "LL Hits": 325653,
-        "RAM Hits": 146,
+        "RAM Hits": 145,
         "Total read+write": 339454207
       }
     },
@@ -1156,11 +1156,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 16161889,
+        "Estimated Cycles": 16162215,
         "Instructions": 11871211,
-        "L1 Hits": 15605864,
-        "LL Hits": 91206,
-        "RAM Hits": 2857,
+        "L1 Hits": 15605790,
+        "LL Hits": 91279,
+        "RAM Hits": 2858,
         "Total read+write": 15699927
       }
     },
@@ -1170,11 +1170,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 19128171,
+        "Estimated Cycles": 19128441,
         "Instructions": 13992362,
-        "L1 Hits": 18502221,
-        "LL Hits": 119681,
-        "RAM Hits": 787,
+        "L1 Hits": 18502161,
+        "LL Hits": 119740,
+        "RAM Hits": 788,
         "Total read+write": 18622689
       }
     },
@@ -1184,11 +1184,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 16538059,
+        "Estimated Cycles": 16537463,
         "Instructions": 12190431,
-        "L1 Hits": 15981334,
-        "LL Hits": 91668,
-        "RAM Hits": 2811,
+        "L1 Hits": 15981468,
+        "LL Hits": 91536,
+        "RAM Hits": 2809,
         "Total read+write": 16075813
       }
     },
@@ -1198,11 +1198,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 19496959,
+        "Estimated Cycles": 19496813,
         "Instructions": 14320499,
-        "L1 Hits": 18868209,
-        "LL Hits": 120136,
-        "RAM Hits": 802,
+        "L1 Hits": 18868223,
+        "LL Hits": 120125,
+        "RAM Hits": 799,
         "Total read+write": 18989147
       }
     },
@@ -1240,11 +1240,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 498842,
+        "Estimated Cycles": 498900,
         "Instructions": 352089,
-        "L1 Hits": 490982,
-        "LL Hits": 900,
-        "RAM Hits": 96,
+        "L1 Hits": 490975,
+        "LL Hits": 906,
+        "RAM Hits": 97,
         "Total read+write": 491978
       }
     },
@@ -1254,11 +1254,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 531196,
+        "Estimated Cycles": 531324,
         "Instructions": 377175,
-        "L1 Hits": 523601,
-        "LL Hits": 875,
-        "RAM Hits": 92,
+        "L1 Hits": 523599,
+        "LL Hits": 873,
+        "RAM Hits": 96,
         "Total read+write": 524568
       }
     },
@@ -1268,11 +1268,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 952197,
+        "Estimated Cycles": 952231,
         "Instructions": 825109,
-        "L1 Hits": 946717,
+        "L1 Hits": 946716,
         "LL Hits": 767,
-        "RAM Hits": 47,
+        "RAM Hits": 48,
         "Total read+write": 947531
       }
     },
@@ -1282,10 +1282,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 16353112,
+        "Estimated Cycles": 16353140,
         "Instructions": 12436887,
-        "L1 Hits": 15868927,
-        "LL Hits": 96487,
+        "L1 Hits": 15868920,
+        "LL Hits": 96494,
         "RAM Hits": 50,
         "Total read+write": 15965464
       }
@@ -1296,11 +1296,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 16768966,
+        "Estimated Cycles": 16768932,
         "Instructions": 12702392,
-        "L1 Hits": 16284981,
+        "L1 Hits": 16284982,
         "LL Hits": 96447,
-        "RAM Hits": 50,
+        "RAM Hits": 49,
         "Total read+write": 16381478
       }
     },
@@ -1310,11 +1310,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 25650484,
+        "Estimated Cycles": 25650450,
         "Instructions": 20518505,
-        "L1 Hits": 25210039,
+        "L1 Hits": 25210040,
         "LL Hits": 87417,
-        "RAM Hits": 96,
+        "RAM Hits": 95,
         "Total read+write": 25297552
       }
     },
@@ -1324,11 +1324,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 1169973,
+        "Estimated Cycles": 1170007,
         "Instructions": 853655,
-        "L1 Hits": 1089438,
+        "L1 Hits": 1089437,
         "LL Hits": 15708,
-        "RAM Hits": 57,
+        "RAM Hits": 58,
         "Total read+write": 1105203
       }
     },
@@ -1338,11 +1338,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 1174823,
+        "Estimated Cycles": 1174759,
         "Instructions": 857174,
-        "L1 Hits": 1094188,
-        "LL Hits": 15707,
-        "RAM Hits": 60,
+        "L1 Hits": 1094189,
+        "LL Hits": 15708,
+        "RAM Hits": 58,
         "Total read+write": 1109955
       }
     },
@@ -1352,11 +1352,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 3744857,
+        "Estimated Cycles": 3744887,
         "Instructions": 2481224,
         "L1 Hits": 3505247,
-        "LL Hits": 47775,
-        "RAM Hits": 21,
+        "LL Hits": 47774,
+        "RAM Hits": 22,
         "Total read+write": 3553043
       }
     },
@@ -1366,11 +1366,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5050182,
+        "Estimated Cycles": 5050154,
         "Instructions": 3631156,
-        "L1 Hits": 4840787,
-        "LL Hits": 41816,
-        "RAM Hits": 9,
+        "L1 Hits": 4840809,
+        "LL Hits": 41792,
+        "RAM Hits": 11,
         "Total read+write": 4882612
       }
     },
@@ -1380,11 +1380,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5367670,
+        "Estimated Cycles": 5367636,
         "Instructions": 3824534,
-        "L1 Hits": 4963615,
-        "LL Hits": 80734,
-        "RAM Hits": 11,
+        "L1 Hits": 4963646,
+        "LL Hits": 80700,
+        "RAM Hits": 14,
         "Total read+write": 5044360
       }
     },
@@ -1394,11 +1394,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 493932882,
+        "Estimated Cycles": 493933340,
         "Instructions": 303770302,
-        "L1 Hits": 368916672,
-        "LL Hits": 3080250,
-        "RAM Hits": 3131856,
+        "L1 Hits": 368916625,
+        "LL Hits": 3080288,
+        "RAM Hits": 3131865,
         "Total read+write": 375128778
       }
     },
@@ -1408,11 +1408,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5954738,
+        "Estimated Cycles": 5954712,
         "Instructions": 4350100,
-        "L1 Hits": 5749068,
-        "LL Hits": 41071,
-        "RAM Hits": 9,
+        "L1 Hits": 5749082,
+        "LL Hits": 41056,
+        "RAM Hits": 10,
         "Total read+write": 5790148
       }
     },
@@ -1422,11 +1422,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 4720588,
+        "Estimated Cycles": 4720620,
         "Instructions": 3481159,
-        "L1 Hits": 4510698,
-        "LL Hits": 41908,
-        "RAM Hits": 10,
+        "L1 Hits": 4510675,
+        "LL Hits": 41933,
+        "RAM Hits": 8,
         "Total read+write": 4552616
       }
     },
@@ -1436,11 +1436,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5038178,
+        "Estimated Cycles": 5038050,
         "Instructions": 3674537,
-        "L1 Hits": 4633508,
-        "LL Hits": 80843,
-        "RAM Hits": 13,
+        "L1 Hits": 4633510,
+        "LL Hits": 80845,
+        "RAM Hits": 9,
         "Total read+write": 4714364
       }
     },
@@ -1450,11 +1450,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 477363228,
+        "Estimated Cycles": 477362760,
         "Instructions": 296270305,
-        "L1 Hits": 352418228,
-        "LL Hits": 3080813,
-        "RAM Hits": 3129741,
+        "L1 Hits": 352418330,
+        "LL Hits": 3080713,
+        "RAM Hits": 3129739,
         "Total read+write": 358628782
       }
     },
@@ -1464,11 +1464,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 5625030,
+        "Estimated Cycles": 5625050,
         "Instructions": 4200103,
-        "L1 Hits": 5419000,
-        "LL Hits": 41143,
-        "RAM Hits": 9,
+        "L1 Hits": 5418980,
+        "LL Hits": 41165,
+        "RAM Hits": 7,
         "Total read+write": 5460152
       }
     },
@@ -1478,11 +1478,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 7589558,
+        "Estimated Cycles": 7589592,
         "Instructions": 5861565,
-        "L1 Hits": 7382018,
+        "L1 Hits": 7382017,
         "LL Hits": 41333,
-        "RAM Hits": 25,
+        "RAM Hits": 26,
         "Total read+write": 7423376
       }
     },
@@ -1492,11 +1492,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 8909930,
+        "Estimated Cycles": 8909964,
         "Instructions": 6769783,
-        "L1 Hits": 8548250,
+        "L1 Hits": 8548249,
         "LL Hits": 72161,
-        "RAM Hits": 25,
+        "RAM Hits": 26,
         "Total read+write": 8620436
       }
     },
@@ -1506,10 +1506,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 728445005,
+        "Estimated Cycles": 728445009,
         "Instructions": 478172566,
-        "L1 Hits": 604013860,
-        "LL Hits": 3050506,
+        "L1 Hits": 604013859,
+        "LL Hits": 3050507,
         "RAM Hits": 3119389,
         "Total read+write": 610183755
       }
@@ -1520,11 +1520,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 8673346,
+        "Estimated Cycles": 8673380,
         "Instructions": 6690103,
-        "L1 Hits": 8481996,
+        "L1 Hits": 8481995,
         "LL Hits": 38137,
-        "RAM Hits": 19,
+        "RAM Hits": 20,
         "Total read+write": 8520152
       }
     },
@@ -1534,11 +1534,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 14570574,
+        "Estimated Cycles": 14570076,
         "Instructions": 10744468,
-        "L1 Hits": 14328574,
-        "LL Hits": 5371,
-        "RAM Hits": 6147,
+        "L1 Hits": 14328676,
+        "LL Hits": 5272,
+        "RAM Hits": 6144,
         "Total read+write": 14340092
       }
     },
@@ -1548,11 +1548,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 24088932,
+        "Estimated Cycles": 24094442,
         "Instructions": 16668237,
-        "L1 Hits": 22939532,
-        "LL Hits": 114163,
-        "RAM Hits": 16531,
+        "L1 Hits": 22938117,
+        "LL Hits": 115583,
+        "RAM Hits": 16526,
         "Total read+write": 23070226
       }
     },
@@ -1562,11 +1562,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 8103278,
+        "Estimated Cycles": 8103198,
         "Instructions": 5997877,
-        "L1 Hits": 7871008,
-        "LL Hits": 4237,
-        "RAM Hits": 6031,
+        "L1 Hits": 7870998,
+        "LL Hits": 4251,
+        "RAM Hits": 6027,
         "Total read+write": 7881276
       }
     },
@@ -1576,10 +1576,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 15040936,
+        "Estimated Cycles": 15041596,
         "Instructions": 11053657,
-        "L1 Hits": 14803986,
-        "LL Hits": 4494,
+        "L1 Hits": 14803821,
+        "LL Hits": 4659,
         "RAM Hits": 6128,
         "Total read+write": 14814608
       }
@@ -1590,11 +1590,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 24700936,
+        "Estimated Cycles": 24709422,
         "Instructions": 17105139,
-        "L1 Hits": 23560616,
-        "LL Hits": 112277,
-        "RAM Hits": 16541,
+        "L1 Hits": 23558502,
+        "LL Hits": 114390,
+        "RAM Hits": 16542,
         "Total read+write": 23689434
       }
     },
@@ -1604,11 +1604,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 8318277,
+        "Estimated Cycles": 8318787,
         "Instructions": 6138550,
-        "L1 Hits": 8084392,
-        "LL Hits": 4693,
-        "RAM Hits": 6012,
+        "L1 Hits": 8084287,
+        "LL Hits": 4795,
+        "RAM Hits": 6015,
         "Total read+write": 8095097
       }
     },
@@ -1618,11 +1618,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 18399554,
+        "Estimated Cycles": 18399520,
         "Instructions": 13367598,
-        "L1 Hits": 18223904,
+        "L1 Hits": 18223905,
         "LL Hits": 4050,
-        "RAM Hits": 4440,
+        "RAM Hits": 4439,
         "Total read+write": 18232394
       }
     },
@@ -1632,11 +1632,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 27768272,
+        "Estimated Cycles": 27768242,
         "Instructions": 18979639,
         "L1 Hits": 26743862,
-        "LL Hits": 110823,
-        "RAM Hits": 13437,
+        "LL Hits": 110824,
+        "RAM Hits": 13436,
         "Total read+write": 26868122
       }
     },
@@ -1646,11 +1646,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 20355331,
+        "Estimated Cycles": 20355293,
         "Instructions": 14707090,
-        "L1 Hits": 20178491,
-        "LL Hits": 3910,
-        "RAM Hits": 4494,
+        "L1 Hits": 20178493,
+        "LL Hits": 3909,
+        "RAM Hits": 4493,
         "Total read+write": 20186895
       }
     },
@@ -1660,11 +1660,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 515441,
+        "Estimated Cycles": 515601,
         "Instructions": 366246,
-        "L1 Hits": 507566,
-        "LL Hits": 875,
-        "RAM Hits": 100,
+        "L1 Hits": 507556,
+        "LL Hits": 881,
+        "RAM Hits": 104,
         "Total read+write": 508541
       }
     },
@@ -1674,11 +1674,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 543912,
+        "Estimated Cycles": 543670,
         "Instructions": 390792,
-        "L1 Hits": 535837,
-        "LL Hits": 887,
-        "RAM Hits": 104,
+        "L1 Hits": 535845,
+        "LL Hits": 886,
+        "RAM Hits": 97,
         "Total read+write": 536828
       }
     },
@@ -1688,11 +1688,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 1061918,
+        "Estimated Cycles": 1061884,
         "Instructions": 935693,
-        "L1 Hits": 1056393,
+        "L1 Hits": 1056394,
         "LL Hits": 762,
-        "RAM Hits": 49,
+        "RAM Hits": 48,
         "Total read+write": 1057204
       }
     },
@@ -1702,12 +1702,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 16810441,
-        "Instructions": 12779776,
-        "L1 Hits": 16327006,
-        "LL Hits": 96330,
-        "RAM Hits": 51,
-        "Total read+write": 16423387
+        "Estimated Cycles": 14628680,
+        "Instructions": 11145368,
+        "L1 Hits": 14145015,
+        "LL Hits": 96327,
+        "RAM Hits": 58,
+        "Total read+write": 14241400
       }
     },
     {
@@ -1716,12 +1716,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 17671331,
-        "Instructions": 13432555,
-        "L1 Hits": 17187331,
-        "LL Hits": 96464,
-        "RAM Hits": 48,
-        "Total read+write": 17283843
+        "Estimated Cycles": 15282491,
+        "Instructions": 11553799,
+        "L1 Hits": 14797926,
+        "LL Hits": 96528,
+        "RAM Hits": 55,
+        "Total read+write": 14894509
       }
     },
     {
@@ -1730,11 +1730,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 24480097,
+        "Estimated Cycles": 24480131,
         "Instructions": 19637668,
-        "L1 Hits": 24040802,
+        "L1 Hits": 24040801,
         "LL Hits": 87187,
-        "RAM Hits": 96,
+        "RAM Hits": 97,
         "Total read+write": 24128085
       }
     },
@@ -1744,11 +1744,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 500599,
+        "Estimated Cycles": 500657,
         "Instructions": 353353,
-        "L1 Hits": 492174,
-        "LL Hits": 901,
-        "RAM Hits": 112,
+        "L1 Hits": 492167,
+        "LL Hits": 907,
+        "RAM Hits": 113,
         "Total read+write": 493187
       }
     },
@@ -1758,11 +1758,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 532972,
+        "Estimated Cycles": 533066,
         "Instructions": 378424,
-        "L1 Hits": 524777,
-        "LL Hits": 876,
-        "RAM Hits": 109,
+        "L1 Hits": 524776,
+        "LL Hits": 874,
+        "RAM Hits": 112,
         "Total read+write": 525762
       }
     },
@@ -1772,11 +1772,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 827849,
+        "Estimated Cycles": 827815,
         "Instructions": 728068,
-        "L1 Hits": 822999,
+        "L1 Hits": 823000,
         "LL Hits": 767,
-        "RAM Hits": 29,
+        "RAM Hits": 28,
         "Total read+write": 823795
       }
     },
@@ -1800,11 +1800,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 16163585,
+        "Estimated Cycles": 16163555,
         "Instructions": 12522715,
         "L1 Hits": 16099390,
-        "LL Hits": 12461,
-        "RAM Hits": 54,
+        "LL Hits": 12462,
+        "RAM Hits": 53,
         "Total read+write": 16111905
       }
     },
@@ -1828,11 +1828,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 517593,
+        "Estimated Cycles": 517749,
         "Instructions": 367880,
-        "L1 Hits": 509068,
-        "LL Hits": 879,
-        "RAM Hits": 118,
+        "L1 Hits": 509059,
+        "LL Hits": 884,
+        "RAM Hits": 122,
         "Total read+write": 510065
       }
     },
@@ -1842,11 +1842,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 545976,
+        "Estimated Cycles": 545734,
         "Instructions": 392407,
-        "L1 Hits": 537331,
-        "LL Hits": 889,
-        "RAM Hits": 120,
+        "L1 Hits": 537339,
+        "LL Hits": 888,
+        "RAM Hits": 113,
         "Total read+write": 538340
       }
     },
@@ -1856,11 +1856,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 937532,
+        "Estimated Cycles": 937498,
         "Instructions": 838652,
-        "L1 Hits": 932677,
+        "L1 Hits": 932678,
         "LL Hits": 761,
-        "RAM Hits": 30,
+        "RAM Hits": 29,
         "Total read+write": 933468
       }
     },
@@ -1870,12 +1870,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 16205582,
-        "Instructions": 12600083,
-        "L1 Hits": 16141262,
-        "LL Hits": 12472,
-        "RAM Hits": 56,
-        "Total read+write": 16153790
+        "Estimated Cycles": 14023807,
+        "Instructions": 10965673,
+        "L1 Hits": 13959262,
+        "LL Hits": 12475,
+        "RAM Hits": 62,
+        "Total read+write": 13971799
       }
     },
     {
@@ -1884,12 +1884,12 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 17065899,
-        "Instructions": 13252880,
-        "L1 Hits": 17001754,
-        "LL Hits": 12465,
-        "RAM Hits": 52,
-        "Total read+write": 17014271
+        "Estimated Cycles": 14676839,
+        "Instructions": 11374114,
+        "L1 Hits": 14612399,
+        "LL Hits": 12468,
+        "RAM Hits": 60,
+        "Total read+write": 14624927
       }
     },
     {
@@ -1912,11 +1912,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 13342667,
+        "Estimated Cycles": 13342709,
         "Instructions": 7618151,
-        "L1 Hits": 13317252,
-        "LL Hits": 337,
-        "RAM Hits": 678,
+        "L1 Hits": 13317249,
+        "LL Hits": 339,
+        "RAM Hits": 679,
         "Total read+write": 13318267
       }
     },
@@ -1926,11 +1926,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 61249673,
+        "Estimated Cycles": 61249471,
         "Instructions": 35148855,
-        "L1 Hits": 61088383,
-        "LL Hits": 19693,
-        "RAM Hits": 1795,
+        "L1 Hits": 61088441,
+        "LL Hits": 19634,
+        "RAM Hits": 1796,
         "Total read+write": 61109871
       }
     },
@@ -1940,10 +1940,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 71958116,
+        "Estimated Cycles": 71960096,
         "Instructions": 43325499,
-        "L1 Hits": 71630651,
-        "LL Hits": 55042,
+        "L1 Hits": 71630156,
+        "LL Hits": 55537,
         "RAM Hits": 1493,
         "Total read+write": 71687186
       }
@@ -1954,10 +1954,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 83168484,
+        "Estimated Cycles": 83164300,
         "Instructions": 51917887,
-        "L1 Hits": 82743894,
-        "LL Hits": 74355,
+        "L1 Hits": 82744940,
+        "LL Hits": 73309,
         "RAM Hits": 1509,
         "Total read+write": 82819758
       }
@@ -1968,11 +1968,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 159760819,
+        "Estimated Cycles": 159840067,
         "Instructions": 100807565,
-        "L1 Hits": 155488009,
-        "LL Hits": 835788,
-        "RAM Hits": 2682,
+        "L1 Hits": 155468167,
+        "LL Hits": 855634,
+        "RAM Hits": 2678,
         "Total read+write": 156326479
       }
     },
@@ -1982,11 +1982,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 220961715,
+        "Estimated Cycles": 220941795,
         "Instructions": 143314664,
-        "L1 Hits": 215339650,
-        "LL Hits": 1104365,
-        "RAM Hits": 2864,
+        "L1 Hits": 215344585,
+        "LL Hits": 1099436,
+        "RAM Hits": 2858,
         "Total read+write": 216446879
       }
     },
@@ -1996,11 +1996,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 13568759,
+        "Estimated Cycles": 13568725,
         "Instructions": 7778961,
-        "L1 Hits": 13542954,
+        "L1 Hits": 13542955,
         "LL Hits": 345,
-        "RAM Hits": 688,
+        "RAM Hits": 687,
         "Total read+write": 13543987
       }
     },
@@ -2010,11 +2010,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 61342854,
+        "Estimated Cycles": 61342018,
         "Instructions": 35336832,
-        "L1 Hits": 61261649,
-        "LL Hits": 6385,
-        "RAM Hits": 1408,
+        "L1 Hits": 61261828,
+        "LL Hits": 6210,
+        "RAM Hits": 1404,
         "Total read+write": 61269442
       }
     },
@@ -2024,11 +2024,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 72208606,
+        "Estimated Cycles": 72238758,
         "Instructions": 43609827,
-        "L1 Hits": 71789151,
-        "LL Hits": 71032,
-        "RAM Hits": 1837,
+        "L1 Hits": 71781583,
+        "LL Hits": 78604,
+        "RAM Hits": 1833,
         "Total read+write": 71862020
       }
     },
@@ -2038,11 +2038,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 83075513,
+        "Estimated Cycles": 83074153,
         "Instructions": 52097562,
-        "L1 Hits": 82654213,
-        "LL Hits": 74537,
-        "RAM Hits": 1389,
+        "L1 Hits": 82654523,
+        "LL Hits": 74231,
+        "RAM Hits": 1385,
         "Total read+write": 82730139
       }
     },
@@ -2052,11 +2052,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 161323962,
+        "Estimated Cycles": 161124532,
         "Instructions": 102151894,
-        "L1 Hits": 156851477,
-        "LL Hits": 876605,
-        "RAM Hits": 2556,
+        "L1 Hits": 156901327,
+        "LL Hits": 826756,
+        "RAM Hits": 2555,
         "Total read+write": 157730638
       }
     },
@@ -2066,11 +2066,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 222085442,
+        "Estimated Cycles": 222014520,
         "Instructions": 144621903,
-        "L1 Hits": 216319012,
-        "LL Hits": 1134141,
-        "RAM Hits": 2735,
+        "L1 Hits": 216336750,
+        "LL Hits": 1116402,
+        "RAM Hits": 2736,
         "Total read+write": 217455888
       }
     },
@@ -2094,10 +2094,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 9927657,
+        "Estimated Cycles": 9927665,
         "Instructions": 7499501,
-        "L1 Hits": 9911222,
-        "LL Hits": 2552,
+        "L1 Hits": 9911220,
+        "LL Hits": 2554,
         "RAM Hits": 105,
         "Total read+write": 9913879
       }
@@ -2108,10 +2108,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 19361636,
+        "Estimated Cycles": 19361640,
         "Instructions": 14863989,
-        "L1 Hits": 19332771,
-        "LL Hits": 5059,
+        "L1 Hits": 19332770,
+        "LL Hits": 5060,
         "RAM Hits": 102,
         "Total read+write": 19337932
       }
@@ -2122,10 +2122,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 29647591,
+        "Estimated Cycles": 29647595,
         "Instructions": 22924842,
-        "L1 Hits": 29604681,
-        "LL Hits": 7812,
+        "L1 Hits": 29604680,
+        "LL Hits": 7813,
         "RAM Hits": 110,
         "Total read+write": 29612603
       }
@@ -2136,10 +2136,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 59497933,
+        "Estimated Cycles": 59505185,
         "Instructions": 46193392,
-        "L1 Hits": 59442878,
-        "LL Hits": 8260,
+        "L1 Hits": 59441065,
+        "LL Hits": 10073,
         "RAM Hits": 393,
         "Total read+write": 59451531
       }
@@ -2150,10 +2150,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 125043387,
+        "Estimated Cycles": 125071323,
         "Instructions": 96403574,
-        "L1 Hits": 124938227,
-        "LL Hits": 17959,
+        "L1 Hits": 124931243,
+        "LL Hits": 24943,
         "RAM Hits": 439,
         "Total read+write": 124956625
       }
@@ -2164,11 +2164,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 52568615,
+        "Estimated Cycles": 52569907,
         "Instructions": 38448607,
-        "L1 Hits": 50934495,
-        "LL Hits": 324619,
-        "RAM Hits": 315,
+        "L1 Hits": 50934202,
+        "LL Hits": 324908,
+        "RAM Hits": 319,
         "Total read+write": 51259429
       }
     },
@@ -2178,11 +2178,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 53848951,
+        "Estimated Cycles": 53845971,
         "Instructions": 39515751,
-        "L1 Hits": 52267386,
-        "LL Hits": 314038,
-        "RAM Hits": 325,
+        "L1 Hits": 52268101,
+        "LL Hits": 313327,
+        "RAM Hits": 321,
         "Total read+write": 52581749
       }
     },
@@ -2192,10 +2192,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 79563398,
+        "Estimated Cycles": 79563402,
         "Instructions": 57758843,
-        "L1 Hits": 77476803,
-        "LL Hits": 409913,
+        "L1 Hits": 77476802,
+        "LL Hits": 409914,
         "RAM Hits": 1058,
         "Total read+write": 77887774
       }
@@ -2206,11 +2206,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 36929119,
+        "Estimated Cycles": 36929369,
         "Instructions": 26171376,
-        "L1 Hits": 35239194,
-        "LL Hits": 336914,
-        "RAM Hits": 153,
+        "L1 Hits": 35239139,
+        "LL Hits": 336968,
+        "RAM Hits": 154,
         "Total read+write": 35576261
       }
     },
@@ -2220,11 +2220,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 37323034,
+        "Estimated Cycles": 37317826,
         "Instructions": 26432701,
-        "L1 Hits": 35539589,
-        "LL Hits": 355632,
-        "RAM Hits": 151,
+        "L1 Hits": 35540906,
+        "LL Hits": 354313,
+        "RAM Hits": 153,
         "Total read+write": 35895372
       }
     },
@@ -2234,11 +2234,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 66440779,
+        "Estimated Cycles": 66440781,
         "Instructions": 50712256,
-        "L1 Hits": 64907944,
-        "LL Hits": 305454,
-        "RAM Hits": 159,
+        "L1 Hits": 64907951,
+        "LL Hits": 305446,
+        "RAM Hits": 160,
         "Total read+write": 65213557
       }
     },
@@ -2248,11 +2248,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 12697444,
+        "Estimated Cycles": 12697532,
         "Instructions": 8842712,
-        "L1 Hits": 12062319,
-        "LL Hits": 125702,
-        "RAM Hits": 189,
+        "L1 Hits": 12062327,
+        "LL Hits": 125690,
+        "RAM Hits": 193,
         "Total read+write": 12188210
       }
     },
@@ -2262,11 +2262,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 12710933,
+        "Estimated Cycles": 12710669,
         "Instructions": 8852082,
-        "L1 Hits": 12074213,
-        "LL Hits": 125797,
-        "RAM Hits": 221,
+        "L1 Hits": 12074234,
+        "LL Hits": 125782,
+        "RAM Hits": 215,
         "Total read+write": 12200231
       }
     },
@@ -2290,11 +2290,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 27101799,
+        "Estimated Cycles": 27100631,
         "Instructions": 20102408,
-        "L1 Hits": 25572374,
-        "LL Hits": 305780,
-        "RAM Hits": 15,
+        "L1 Hits": 25572696,
+        "LL Hits": 305454,
+        "RAM Hits": 19,
         "Total read+write": 25878169
       }
     },
@@ -2304,10 +2304,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 19693411,
+        "Estimated Cycles": 19692791,
         "Instructions": 14138478,
-        "L1 Hits": 18190441,
-        "LL Hits": 300461,
+        "L1 Hits": 18190596,
+        "LL Hits": 300306,
         "RAM Hits": 19,
         "Total read+write": 18490921
       }
@@ -2318,11 +2318,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 21320333,
+        "Estimated Cycles": 21319373,
         "Instructions": 15588378,
-        "L1 Hits": 20126558,
-        "LL Hits": 238580,
-        "RAM Hits": 25,
+        "L1 Hits": 20126813,
+        "LL Hits": 238323,
+        "RAM Hits": 27,
         "Total read+write": 20365163
       }
     },
@@ -2332,11 +2332,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 27928178,
+        "Estimated Cycles": 27927328,
         "Instructions": 20674433,
-        "L1 Hits": 26381123,
-        "LL Hits": 309278,
-        "RAM Hits": 19,
+        "L1 Hits": 26381328,
+        "LL Hits": 309074,
+        "RAM Hits": 18,
         "Total read+write": 26690420
       }
     },
@@ -2346,11 +2346,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 20226700,
+        "Estimated Cycles": 20224938,
         "Instructions": 14566919,
-        "L1 Hits": 18782050,
-        "LL Hits": 288797,
-        "RAM Hits": 19,
+        "L1 Hits": 18782498,
+        "LL Hits": 288348,
+        "RAM Hits": 20,
         "Total read+write": 19070866
       }
     },
@@ -2360,11 +2360,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 22141726,
+        "Estimated Cycles": 22142318,
         "Instructions": 16160487,
-        "L1 Hits": 20936666,
-        "LL Hits": 240816,
-        "RAM Hits": 28,
+        "L1 Hits": 20936503,
+        "LL Hits": 240981,
+        "RAM Hits": 26,
         "Total read+write": 21177510
       }
     },
@@ -2416,11 +2416,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 38907247,
+        "Estimated Cycles": 38907581,
         "Instructions": 28343842,
-        "L1 Hits": 38028907,
-        "LL Hits": 104856,
-        "RAM Hits": 10116,
+        "L1 Hits": 38028861,
+        "LL Hits": 104897,
+        "RAM Hits": 10121,
         "Total read+write": 38143879
       }
     },
@@ -2430,11 +2430,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 55499483,
+        "Estimated Cycles": 55500375,
         "Instructions": 39476583,
-        "L1 Hits": 53331363,
-        "LL Hits": 233235,
-        "RAM Hits": 28627,
+        "L1 Hits": 53331155,
+        "LL Hits": 233441,
+        "RAM Hits": 28629,
         "Total read+write": 53593225
       }
     },
@@ -2444,11 +2444,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 34680744,
+        "Estimated Cycles": 34685640,
         "Instructions": 25108630,
-        "L1 Hits": 34041194,
-        "LL Hits": 60220,
-        "RAM Hits": 9670,
+        "L1 Hits": 34039985,
+        "LL Hits": 61427,
+        "RAM Hits": 9672,
         "Total read+write": 34111084
       }
     },
@@ -2458,11 +2458,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 41309283,
+        "Estimated Cycles": 41314083,
         "Instructions": 30041847,
-        "L1 Hits": 40411273,
-        "LL Hits": 108699,
-        "RAM Hits": 10129,
+        "L1 Hits": 40410043,
+        "LL Hits": 109933,
+        "RAM Hits": 10125,
         "Total read+write": 40530101
       }
     },
@@ -2472,11 +2472,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 57430725,
+        "Estimated Cycles": 57438799,
         "Instructions": 40802730,
-        "L1 Hits": 55203960,
-        "LL Hits": 244817,
-        "RAM Hits": 28648,
+        "L1 Hits": 55201889,
+        "LL Hits": 246895,
+        "RAM Hits": 28641,
         "Total read+write": 55477425
       }
     },
@@ -2486,11 +2486,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 36773469,
+        "Estimated Cycles": 36776547,
         "Instructions": 26579400,
-        "L1 Hits": 36141479,
-        "LL Hits": 58876,
-        "RAM Hits": 9646,
+        "L1 Hits": 36140717,
+        "LL Hits": 59637,
+        "RAM Hits": 9647,
         "Total read+write": 36210001
       }
     },
@@ -2500,10 +2500,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 56594099,
+        "Estimated Cycles": 56593975,
         "Instructions": 41249450,
-        "L1 Hits": 55906104,
-        "LL Hits": 70196,
+        "L1 Hits": 55906135,
+        "LL Hits": 70165,
         "RAM Hits": 9629,
         "Total read+write": 55985929
       }
@@ -2514,10 +2514,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 61975763,
+        "Estimated Cycles": 61975751,
         "Instructions": 43779850,
-        "L1 Hits": 60110508,
-        "LL Hits": 195139,
+        "L1 Hits": 60110511,
+        "LL Hits": 195136,
         "RAM Hits": 25416,
         "Total read+write": 60331063
       }
@@ -2528,10 +2528,10 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 47024592,
+        "Estimated Cycles": 47024496,
         "Instructions": 33835057,
-        "L1 Hits": 46272067,
-        "LL Hits": 54913,
+        "L1 Hits": 46272091,
+        "LL Hits": 54889,
         "RAM Hits": 13656,
         "Total read+write": 46340636
       }
@@ -2542,11 +2542,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 37009294,
+        "Estimated Cycles": 37009314,
         "Instructions": 26181325,
-        "L1 Hits": 35316864,
-        "LL Hits": 337429,
-        "RAM Hits": 151,
+        "L1 Hits": 35316874,
+        "LL Hits": 337417,
+        "RAM Hits": 153,
         "Total read+write": 35654444
       }
     },
@@ -2556,11 +2556,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 38102551,
+        "Estimated Cycles": 38097871,
         "Instructions": 26991841,
-        "L1 Hits": 36325356,
-        "LL Hits": 354445,
-        "RAM Hits": 142,
+        "L1 Hits": 36326511,
+        "LL Hits": 353292,
+        "RAM Hits": 140,
         "Total read+write": 36679943
       }
     },
@@ -2570,11 +2570,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 65812292,
+        "Estimated Cycles": 65812262,
         "Instructions": 50301667,
-        "L1 Hits": 64280612,
-        "LL Hits": 305251,
-        "RAM Hits": 155,
+        "L1 Hits": 64280627,
+        "LL Hits": 305235,
+        "RAM Hits": 156,
         "Total read+write": 64586018
       }
     },
@@ -2584,11 +2584,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 34456681,
+        "Estimated Cycles": 34456687,
         "Instructions": 25151705,
-        "L1 Hits": 33917416,
-        "LL Hits": 106684,
-        "RAM Hits": 167,
+        "L1 Hits": 33917392,
+        "LL Hits": 106711,
+        "RAM Hits": 164,
         "Total read+write": 34024267
       }
     },
@@ -2598,11 +2598,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 34759771,
+        "Estimated Cycles": 34759171,
         "Instructions": 25399497,
-        "L1 Hits": 34219461,
-        "LL Hits": 106914,
-        "RAM Hits": 164,
+        "L1 Hits": 34219596,
+        "LL Hits": 106781,
+        "RAM Hits": 162,
         "Total read+write": 34326539
       }
     },
@@ -2626,11 +2626,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 34534503,
+        "Estimated Cycles": 34534719,
         "Instructions": 25161430,
-        "L1 Hits": 33995423,
-        "LL Hits": 106731,
-        "RAM Hits": 155,
+        "L1 Hits": 33995384,
+        "LL Hits": 106768,
+        "RAM Hits": 157,
         "Total read+write": 34102309
       }
     },
@@ -2640,11 +2640,11 @@
       "group_id": "vs_stock",
       "unit": "count",
       "metrics": {
-        "Estimated Cycles": 35543765,
+        "Estimated Cycles": 35543133,
         "Instructions": 25958834,
-        "L1 Hits": 35004405,
-        "LL Hits": 106836,
-        "RAM Hits": 148,
+        "L1 Hits": 35004533,
+        "LL Hits": 106712,
+        "RAM Hits": 144,
         "Total read+write": 35111389
       }
     },

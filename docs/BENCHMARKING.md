@@ -105,8 +105,8 @@ Callgrind counts through the same C ABI, in millions of instructions, from `crat
 | `JudyL` churn (upsert, insert neighbour, delete it), random | 30,000 | **38.35** | 36.72 | 56.30 | **0.681×** | 0.652× |
 | `JudyLFirst`, random | 30,000 | **12.70** | 12.44 | 20.52 | **0.619×** | 0.606× |
 | `JudyLNext`, random | 30,000 | **12.52** | 12.26 | 13.19 | **0.950×** | 0.930× |
-| `JudyLLast`, random | 30,000 | **13.43** | 12.78 | 19.64 | **0.684×** | 0.651× |
-| `JudyLPrev`, random | 30,000 | 13.25 | 12.60 | **12.52** | 1.058×, **loss** | 1.006×, **loss** |
+| `JudyLLast`, random | 30,000 | **11.55** | 11.15 | 19.64 | **0.588×** | 0.568× |
+| `JudyLPrev`, random | 30,000 | **11.37** | 10.97 | 12.52 | **0.908×** | 0.876× |
 | `JudyLFirstEmpty`, clustered | 30,000 | **0.377** | 0.352 | 0.825 | **0.457×** | 0.427× |
 | `JudyLNextEmpty`, clustered | 30,000 | **0.378** | 0.353 | 0.728 | **0.520×** | 0.485× |
 | `JudyLLastEmpty`, clustered | 30,000 | **0.391** | 0.366 | 0.936 | **0.418×** | 0.391× |
@@ -157,9 +157,11 @@ Callgrind counts through the same C ABI, in millions of instructions, from `crat
 | `JudyHSGet`, route keys | 30,000 | **29.38** | 29.37 | 45.43 | **0.647×** | 0.647× |
 | `JudyHSDel`, route keys | 30,000 | **38.18** | 37.78 | 75.98 | **0.502×** | 0.497× |
 
-*(measured: Intel Core i9-12900F reference host, `864f8e00`, [run 45709424282](https://github.com/orieg/expanse/actions/runs/45709424282); [`results/baseline_vs_stock.json`](../results/baseline_vs_stock.json), 189 arms, 63 operations.)*
+*(measured: Intel Core i9-12900F reference host, `0b5d5b82`, [run 45754654605](https://github.com/orieg/expanse/actions/runs/45754654605); [`results/baseline_vs_stock.json`](../results/baseline_vs_stock.json), 189 arms, 63 operations.)*
 
-Nine operations retire more instructions than stock through the `.so`, and every other operation retires fewer: the six `JudyL` small-array lifetimes, 1.500× to 9.975× (the many-small-arrays shape of [#1742](https://github.com/orieg/expanse/issues/1742)); `JudyLPrev` random, 1.058× (1.006× through the rlib); and `Judy1NextEmpty` and `Judy1PrevEmpty` clustered, 1.092× and 1.095× (1.015× and 1.016× through the rlib).
+Eight operations retire more instructions than stock through the `.so`, and every other operation retires fewer: the six `JudyL` small-array lifetimes, 1.500× to 9.975× (the many-small-arrays shape of [#1742](https://github.com/orieg/expanse/issues/1742)), and `Judy1NextEmpty` and `Judy1PrevEmpty` clustered, 1.092× and 1.095× (1.015× and 1.016× through the rlib).
+
+**Correction.** At `864f8e00` ([run 45709424282](https://github.com/orieg/expanse/actions/runs/45709424282)) this table recorded nine losses, among them `JudyLPrev` random at 1.058× stock through the `.so` (13.25 M instructions) and 1.006× through the rlib. [#1793](https://github.com/orieg/expanse/pull/1793) moved the slot walk behind `JudyLPrev` and `JudyLLast` to the in-place backward form; at `0b5d5b82` `JudyLPrev` random reads 0.908× (11.37 M) and 0.876×. Between the two runs exactly four libexpanse counts moved, all downward: `JudyLPrev` random `.so` −14.18% and rlib −12.97%, `JudyLLast` random `.so` −13.99% and rlib −12.79%; every stock count and every other libexpanse count is identical. The `864f8e00` counts are superseded, not adjusted.
 
 **Correction.** This table previously held 75 arms (25 operations) at commit `cbbc762a` ([run 43689888414](https://github.com/orieg/expanse/actions/runs/43689888414)) and recorded one loss: `JudyHSIns` on route keys at 1.076× through the `.so` and 1.047× through the rlib. At `864f8e00` that operation reads 0.839× and 0.784×. The stock counts of the 75 shared arms are identical in both runs. The libexpanse counts that moved by more than 0.1% are `JudyHSIns` on route keys (`.so` −22.0%), `JudyHSDel` on route keys (`.so` −25.1%) and `Judy1Set` random (`.so` −0.104%); route-key `JudyHSGet` is within 0.01%. Between the two commits the harness changed how the route-key arms seed the shipped hasher (#1762, #1764) and the engine changed how a collision bucket is allocated (#1770); no run isolates which of the two moved the route-key counts. The 25-operation table is superseded, not adjusted; it is replaced by the full harness surface, which it did not cover and which carries the nine losses above.
 
