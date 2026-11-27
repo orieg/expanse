@@ -3807,6 +3807,14 @@ pub(crate) fn branch_u_digits_to_floor(edges: &[Edge; crate::types::BRANCH_FANOU
     n
 }
 
+/// Every non-null slot of a `BranchU`'s edge array, counted out of line so
+/// the removal walks that call it rarely do not carry the loop.
+#[cold]
+#[inline(never)]
+pub(crate) fn branch_u_digits_exact(edges: &[Edge; crate::types::BRANCH_FANOUT]) -> usize {
+    edges.iter().filter(|e| !e.is_null()).count()
+}
+
 /// The non-null slots of the `BranchU` at `b` after a removal has nulled one
 /// of them, for the map walks (#1679): `0` when the branch is empty, the
 /// exact count when it is at or below the demotion floor, and a count above
@@ -3815,13 +3823,11 @@ pub(crate) fn branch_u_digits_to_floor(edges: &[Edge; crate::types::BRANCH_FANOU
 ///
 /// The branch's header bound ([`BranchU::digits_lower`]) held at most its
 /// non-null slots before the null, so one less holds after it. While that
-/// stays above the floor, no slot is read. Otherwise the slots are counted
-/// as [`branch_u_digits_to_floor`] counts them, which is exact at or below
-/// the floor and short of the true count above it, and the count becomes
-/// the bound. That count passes the floor by at most one block of 16, so a
-/// dense branch drained one slot at a time is recounted at most every 16
-/// removals on the way to its floor instead of on every removal, and a
-/// recount reads what the walk read before the bound.
+/// stays above the floor, no slot is read. Otherwise every slot is counted
+/// and the exact count becomes the bound, so a dense branch drained one
+/// slot at a time is counted once on its first removal and once more when
+/// it reaches its floor, where a count that stopped one block past the
+/// floor would be repeated every 16 removals.
 ///
 /// # Safety
 ///
@@ -3833,7 +3839,7 @@ pub(crate) unsafe fn branch_u_digits_after_null<const OCC: bool>(b: *mut BranchU
     let lower = (unsafe { BranchU::digits_lower::<OCC>(b) } as usize).saturating_sub(1);
     let digits = if branch_u_below_floor(lower) {
         // SAFETY: caller contract; the slots are inside the live branch.
-        unsafe { branch_u_digits_to_floor(&(*b).edges) }
+        unsafe { branch_u_digits_exact(&(*b).edges) }
     } else {
         lower
     };
@@ -3969,30 +3975,40 @@ pub(crate) unsafe fn downgrade_u_to_b<const OCC: bool>(a: &NodeAlloc, edge: &mut
     // SAFETY: live BranchU per contract.
     unsafe {
         let old = &*edge.node_ptr().cast::<BranchU>();
-        (*new.as_ptr()).level = level;
-        for (d, child) in old.edges.iter().enumerate() {
-            if !child.is_null() {
-                (*new.as_ptr()).pop_counts[d >> 5] += 1;
-                (*new.as_ptr()).bitmap.set(d as u8);
+        let nb = new.as_ptr();
+        (*nb).level = level;
+        // One read of the node: each 32-slot subexpanse is reduced to its
+        // membership mask, which is the subexpanse's half of a bitmap word
+        // and whose population sizes the subarray, and then only the
+        // non-null slots are copied out.
+        for (sub, block) in old.edges.as_chunks::<32>().0.iter().enumerate() {
+            let mut mask = 0u32;
+            for (i, child) in block.iter().enumerate() {
+                mask |= u32::from(!child.is_null()) << i;
             }
-        }
-        for sub in 0..8 {
-            let n = (*new.as_ptr()).pop_counts[sub] as usize;
-            if n > 0 {
-                (*new.as_ptr()).subarrays[sub] = a
-                    .alloc_bytes_dispatch::<OCC>(sub_edges_size(n))
-                    .cast::<Edge>()
-                    .as_ptr();
+            if mask == 0 {
+                continue;
             }
-        }
-        let mut filled = [0usize; 8];
-        for (d, child) in old.edges.iter().enumerate() {
-            if !child.is_null() {
-                (*new.as_ptr()).subarrays[d >> 5]
-                    .add(filled[d >> 5])
-                    .write(*child);
-                filled[d >> 5] += 1;
+            let n = mask.count_ones() as usize;
+            let arr = a
+                .alloc_bytes_dispatch::<OCC>(sub_edges_size(n))
+                .cast::<Edge>()
+                .as_ptr();
+            if mask == u32::MAX {
+                arr.copy_from_nonoverlapping(block.as_ptr(), 32);
+            } else {
+                let mut rest = mask;
+                let mut filled = 0usize;
+                while rest != 0 {
+                    arr.add(filled)
+                        .write(block[(rest.trailing_zeros() & 31) as usize]);
+                    filled += 1;
+                    rest &= rest - 1;
+                }
             }
+            (*nb).subarrays[sub] = arr;
+            (*nb).pop_counts[sub] = n as u16;
+            (*nb).bitmap.words[sub >> 1] |= u64::from(mask) << (32 * (sub & 1));
         }
     }
     let aux = *edge.aux_bytes();

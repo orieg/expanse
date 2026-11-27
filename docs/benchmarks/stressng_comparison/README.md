@@ -2266,6 +2266,517 @@ This is consistent with PR 1779's own reference-host diagnostic (unregistered; i
 
 Refs #1680.
 
+## Candidate: a linker layout for the hot `JudyL` paths, with the removal walk's `BranchU` drain ([#1679](https://github.com/orieg/expanse/issues/1679), [#1684](https://github.com/orieg/expanse/issues/1684))
+
+**Why.** On the reference host the `sng_judy_1k` rates follow the addresses of the functions they run. The layout-only builds above showed it for 64-byte alignment. The removal-walk change measured in draft pull request [1789](https://github.com/orieg/expanse/pull/1789) showed it again with every function already on a 64-byte boundary: the change edits no lookup code, moves the lookup helper by 1,792 bytes, and its registered runs read the 1 Ki find rate at 0.969 to 0.981 of main's. That record is a FAIL and stays one.
+
+**The mechanism, as first built.** The second record below replaces the attributes with patterns in the script. No function's code changes in the shared library.
+- Fifteen functions on the `JudyL` get, insert and delete paths carry a Linux-only `link_section` attribute naming an input section `.text.expanse_hot.<group>.<name>`. Without a linker script these sections fall into `.text` as before.
+- With `EXPANSE_LINK_HOT_LAYOUT=1`, `crates/expanse-capi/build.rs` links the shared library with `crates/expanse-capi/hot_layout.ld`. The script places the sections in one output section ahead of `.text`, each main function at a stated offset within a 4 KiB page. A function placed that way keeps its offset whatever the size of the code before it.
+- `crates/expanse-capi/tests/test_hot_layout_sync.rs` fails when the script and the attributes name different functions. It was shown to fail on a commented-out attribute and on a name removed from the script.
+- Opt-in, because the script needs a linker that accepts `SECTIONS ... INSERT` (GNU ld and LLD do).
+
+### Layout trials (reference host)
+
+**Unregistered tuning trials.** They chose the layout and are not evidence for the registered claim below.
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, rustc 1.98.1 with LLD 22.1.8, builds with `-C llvm-args=-align-all-functions=6`; M main `59110748f` (sha256 `ccc782a4…`); H1 `ffbef78d…`, H2 `e3716093…`, H3 `36e7c9a4…`, each M's source plus the attributes and one script; H3D `22a7932f…`, H3's source plus the two removal-walk commits; S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_hot_layout_{1,2,3,3_delete}_ref_run{1,2}.json`) (workload: `sng_judy_1k`)
+
+**Same code in every file.** `nm -S` lists 1,551 symbols with equal sizes in M, in the attribute-only build of each trial, and in H1, H2 and H3. The attributes and the script move functions and change none.
+
+**Design, fixed before each trial's runs.** One pairing of the increment driver on `sng_judy_1k` at W = 1, 2, 4, 8, restricted to that cell by a host-side wrapper that is not in the repository. Two runs of 12 rounds, 144 processes per run. Reading rule over both runs: NO LOSS if no phase rate at any W has its upper end below 1 in both runs, LOSS otherwise.
+- H1: three groups (get, insert, delete), each starting on a page boundary with its functions packed in a fixed order.
+- H2: the seven main functions (`JudyLGet`, `get::locate_slot_popcnt`, `leaf::search`, `JudyLIns`, the insert walk, `JudyLDel`, the removal walk) at the within-page offsets they have in M.
+- H3: H2, and the seven helpers (`leaf::locate`, `bits::find_byte_8`, `write_map_immed`, `upgrade_b_to_u`, `leaf::map_realloc_remove`, `downgrade_u_to_b`, `linear_remove_slot`) at theirs. This is the committed script.
+
+**Hygiene.** Eight runs on 2026-11-25 under the host bench lock, between 18:05 and 18:33 UTC, none spanning the host's hourly sync. No process discarded; max load1 between 1.46 and 3.07 against a void limit of 12. No login was made during a run; each trial's launching session stayed connected and idle until its second run ended.
+
+**Readings.** BCa 95%, run 1 | run 2.
+
+| W | phase | H1/M | H2/M | H3/M | H3D/H3 |
+|---|---|---|---|---|---|
+| 1 | find | 0.991 [0.982, 0.997] \| 0.995 [0.987, 1.003] | 1.002 [0.994, 1.009] \| 1.002 [0.996, 1.010] | 0.999 [0.991, 1.006] \| 1.000 [0.996, 1.004] | 1.004 [0.999, 1.012] \| 1.001 [0.996, 1.007] |
+| 1 | insert | 0.998 [0.995, 1.001] \| 0.998 [0.994, 1.003] | 1.003 [1.000, 1.008] \| 0.970 [0.882, 1.000] | 1.001 [0.998, 1.005] \| 1.004 [1.000, 1.007] | 1.003 [0.998, 1.006] \| 1.001 [0.997, 1.004] |
+| 1 | delete | 0.976 [0.972, 0.980] \| 0.982 [0.978, 0.986] | 0.993 [0.990, 0.996] \| 0.993 [0.987, 0.996] | 1.000 [0.996, 1.003] \| 1.001 [0.997, 1.005] | 1.017 [1.010, 1.021] \| 1.012 [1.009, 1.015] |
+| 2 | find | 0.994 [0.989, 0.997] \| 0.994 [0.986, 1.000] | 1.000 [0.995, 1.005] \| 1.004 [0.999, 1.010] | 1.002 [0.996, 1.008] \| 0.998 [0.992, 1.005] | 1.001 [0.995, 1.008] \| 1.000 [0.996, 1.004] |
+| 2 | insert | 0.998 [0.992, 1.003] \| 1.001 [0.995, 1.006] | 0.998 [0.993, 1.003] \| 1.003 [0.997, 1.007] | 1.001 [0.992, 1.007] \| 1.003 [0.997, 1.008] | 0.998 [0.987, 1.004] \| 1.003 [0.999, 1.007] |
+| 2 | delete | 0.978 [0.973, 0.983] \| 0.981 [0.973, 0.986] | 0.990 [0.985, 0.995] \| 0.992 [0.988, 0.996] | 1.000 [0.994, 1.005] \| 1.000 [0.996, 1.005] | 1.015 [1.011, 1.019] \| 1.018 [1.015, 1.022] |
+| 4 | find | 0.996 [0.988, 1.003] \| 1.000 [0.993, 1.007] | 1.004 [0.997, 1.012] \| 1.001 [0.995, 1.008] | 1.000 [0.993, 1.008] \| 1.001 [0.994, 1.008] | 1.002 [0.996, 1.007] \| 1.000 [0.993, 1.008] |
+| 4 | insert | 1.004 [0.997, 1.012] \| 1.005 [0.997, 1.012] | 1.003 [0.997, 1.009] \| 1.000 [0.994, 1.006] | 1.002 [0.995, 1.009] \| 1.000 [0.993, 1.007] | 1.003 [0.999, 1.008] \| 1.001 [0.993, 1.008] |
+| 4 | delete | 0.982 [0.976, 0.988] \| 0.984 [0.978, 0.990] | 0.994 [0.987, 0.999] \| 0.993 [0.986, 0.999] | 0.998 [0.992, 1.005] \| 0.997 [0.990, 1.004] | 1.016 [1.011, 1.021] \| 1.015 [1.008, 1.023] |
+| 8 | find | 0.993 [0.990, 0.996] \| 0.990 [0.987, 0.993] | 0.998 [0.995, 1.002] \| 0.999 [0.996, 1.001] | 1.000 [0.997, 1.003] \| 1.000 [0.996, 1.003] | 0.999 [0.997, 1.002] \| 1.001 [0.999, 1.005] |
+| 8 | insert | 0.999 [0.997, 1.002] \| 0.997 [0.993, 0.999] | 1.002 [0.999, 1.004] \| 1.001 [0.999, 1.003] | 1.003 [1.001, 1.006] \| 1.002 [0.998, 1.004] | 1.001 [0.999, 1.004] \| 1.004 [1.001, 1.009] |
+| 8 | delete | 0.982 [0.980, 0.984] \| 0.981 [0.977, 0.988] | 0.995 [0.993, 0.998] \| 0.995 [0.993, 0.997] | 1.001 [0.999, 1.004] \| 1.000 [0.996, 1.001] | 1.014 [1.012, 1.017] \| 1.017 [1.014, 1.020] |
+
+- **H1: LOSS.** Delete reads 0.976 to 0.984 with the upper end below 1 at every W in both runs.
+- **H2: LOSS, smaller.** Find and insert read 0.998 to 1.004 and 0.970 to 1.003. Delete reads 0.990 to 0.995, the upper end still below 1 at every W.
+- **H3: NO LOSS.** Find 0.998 to 1.002, insert 1.000 to 1.004, delete 0.997 to 1.001.
+- **The removal-walk change under H3.** With the lookup and insert functions held at their offsets, the change leaves find at 0.999 to 1.004 and insert at 0.998 to 1.004 and raises delete to 1.012 to 1.018.
+- **What this establishes.** On this host the 1 Ki rates follow the hot functions' offsets within a 4 KiB page: packing them at new offsets loses up to 2.4%, and restoring M's offsets restores M's rates. Which front-end or predictor resource the offset selects is unmeasured.
+- **What it does not establish.** The offsets are M's, kept because they measured well here; nothing shows they are the best available. The second host has not run any of these files. `Judy1`, `JudySL` and `JudyHS` functions are not placed.
+- **Size.** H3's two code sections total 31,616 bytes more than M's `.text` (derived from the section headers: 0x30000 + 0x2596e3 against 0x281b63).
+
+### All cells, layout and removal-walk change against main (reference host)
+
+**An unregistered diagnostic, observed before the pre-registration below.**
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, harness `d2b788a19`'s `scripts/diag_increment.py`; G H3D (`22a7932f…`), M main `59110748f` (`ccc782a4…`), S `76f121a8…`; artifacts `results/diagnostic_increment_hot_layout_all_ref_run(1, 2).json`, analysed with `--l1-separated --short-window=round`)
+
+Two runs of 12 rounds over every cell on 2026-11-25 under the host bench lock, 18:33:48–18:43:53 and 18:45:18–18:55:22 UTC. Each has 720 processes, none discarded; max load1 5.48 and 5.02 against a void limit of 12. No login was made between the launch and the end of the second run; the launching session stayed connected and idle.
+
+(workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, BCa 95%, run 1 | run 2:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 1.086 [1.082, 1.090] \| 1.085 [1.082, 1.089] | 1.018 [1.016, 1.020] \| 1.017 [1.014, 1.019] | 0.938 [0.935, 0.941] \| 0.937 [0.934, 0.939] |
+| 2 | 1.083 [1.078, 1.088] \| 1.085 [1.078, 1.091] | 1.023 [1.018, 1.027] \| 1.025 [1.020, 1.031] | 0.945 [0.942, 0.948] \| 0.945 [0.942, 0.950] |
+| 4 | 1.081 [1.075, 1.087] \| 1.078 [1.072, 1.084] | 1.002 [0.995, 1.008] \| 1.001 [0.994, 1.008] | 0.927 [0.921, 0.932] \| 0.929 [0.923, 0.934] |
+| 8 | 1.079 [1.076, 1.082] \| 1.086 [1.080, 1.101] | 1.039 [1.036, 1.041] \| 1.040 [1.039, 1.041] | 0.962 [0.961, 0.965] \| 0.958 [0.944, 0.963] |
+
+- (workload: `sng_judy_1k`) The cell that broke the earlier record holds: the find rate G/M reads 0.992 to 1.001, and no upper end is below 0.98.
+- Over all 52 primary cell-metrics, the lowest G/M upper end is 0.997. No cell-metric has its upper end below 1 in both runs.
+- (workloads differ: `sng_judy_256k` vs `sng_judy_1k`) The delete rate G/M reads 1.059 to 1.081 at 256 Ki keys and 1.011 to 1.020 at 1 Ki keys.
+- Upper end below 1 in one run and not the other: the 4 Mi insert rate at W = 1 ([0.987, 0.999] in run 1) and at W = 4 ([0.985, 0.997] in run 2); in run 2 the hashjudy default put rate at W = 4 ([0.990, 0.999]), the sparsematrix judy default put rate at W = 8 ([0.998, 0.999]) and the 1 Ki find rate at W = 8 (upper end 0.9997).
+
+
+### Pre-registration: the layout with the removal walk's `BranchU` drain
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. The change under test is this pull request's `crates/` diff and nothing else:
+
+- **The layout.** The `link_section` attributes, `crates/expanse-capi/hot_layout.ld`, its opt-in in `crates/expanse-capi/build.rs`, and the sync test, as described above.
+- **A, `downgrade_u_to_b`, and B, `branch_u_digits_after_null`.** The two removal-walk commits of draft pull request 1789, unchanged: the demotion of a `BranchU` reads its 256 slots once, and the recount at the demotion floor stores the exact count.
+
+No node layout, `Edge` or `ValueSlot` encoding, threshold or node-form transition changes. The set walks are not touched.
+
+**Builds.** G is the pull request's head built by `scripts/build_layout_lib.sh` with `-C llvm-args=-align-all-functions=6` and `EXPANSE_LINK_HOT_LAYOUT=1`. M is its merge base on main built with the same flag and without the variable, which main does not have. Both are hash-recorded. The result describes G's build: a library built without the variable is not measured by this record, and its instructions are bounded by the Callgrind rows below. Allocator settings are glibc's defaults in every arm.
+
+**Owner exemption (2026-11-15): not invoked.** No Callgrind arm is named above +0.1%.
+
+**Observed before this commit, and therefore not evidence for it.** Everything under "Layout trials" and "All cells" above, and the registered FAIL of pull request 1789. The targets and predictions below were written after those were read. The instrument is wall clock on fresh processes and the registered runs are new, so they remain predictions, informed and not blind.
+
+**Derived before the runs.**
+
+- The removal-walk commits lower `map_remove_revgen` `gen_4m` by 4.26% (pull request 1789's Callgrind artifact). If cycles per delete followed instructions, the delete rate would rise by 1 / (1 − 0.0426) = 1.044. The floor below is 1.03.
+- The offsets in the script are the ones the functions have in the library built from `59110748f`. If M's merge base differs from `59110748f` in `crates/`, M's own offsets may differ from the script's, and G/M then also measures that difference.
+
+**Definitions.** G, M, S, the cells, the metrics and the verdict rule are those of [`METHODOLOGY.md`](METHODOLOGY.md) §4–§8 and of `scripts/diag_increment.py`: two-sample BCa 95% intervals of the ratio of means over each run's 12 rounds, two independent runs per host, every cell of §5. *Instruction change* is an arm's change against main in the named CI job.
+
+**Hygiene, beyond METHODOLOGY.md §7.**
+
+- A run during which a login is made to the host, or a bench workflow starts, is void and is replaced whole; the replacement and its reason are disclosed.
+- The cells whose processes are shorter than the load window's minimum read load by the opt-in round window of METHODOLOGY.md §11.
+- If the pull request's `crates/` diff changes after a run, both runs on that host are taken again.
+
+**Target, all of which must hold.**
+
+- T1, reference host (Intel Core i9-12900F): `sng_judy_4m` `judy-delete-operations-per-sec` G/M lower end above 1.03 in both runs, at each of W = 1, 2, 4 and 8.
+- T2, second host (AMD Ryzen 9 9955HX): the same. That host runs only with the owner's approval (METHODOLOGY.md §3); without it, or if its bench lock is not free, T2 is pending and the verdict says so.
+- T3, deterministic: `map_remove_revgen` `gen_4m`, `gen_256k` and `gen_1k` each read below main's count in the pull request's `instruction-counts` job.
+
+**Bounds, every one of which must hold.**
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| `git diff` against the merge base | `crates/`, `include/` | the nine files of the layout commit and `crates/expanse/src/mutate.rs` only |
+| `nm -S`, M against the same source as G built without the variable and without A and B | every symbol | equal sizes |
+| x86-64 deterministic, x86-64 smoke and AArch64 Callgrind; wasm32 and wasm64 fuel | every arm | ≤ +0.1% against main |
+| stress-ng, both hosts | `sng_judy_1k` `judy-find-operations-per-sec`, every W (L2, named as the likeliest falsifier: it broke the earlier record) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every other primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every primary cell-metric (L1b) | not SLOWER against stock where the merge base is FASTER or EQUIVALENT and G/M is SLOWER |
+| `memory-budget` | every row | unchanged |
+| CI | workspace tests (`PROPTEST_CASES=500`), Tier-1 Miri, ASan, loom, `differential-oracle`, `php-judy-*` | pass |
+
+**The comparison with stock, reported under its own label and not gated.** `sng_judy_4m` `judy-delete-operations-per-sec` G/S: *BEAT* if the lower end is above 1.0 in both runs at every W on both hosts; *INTERMEDIATE* if that holds on one host or at some W only; *NOT MET* otherwise. Predicted on the reference host: the lower end is above 1.0 in both runs at W = 1, 2 and 8, and the interval contains 1 at W = 4. Every W on the second host is not predicted.
+
+**Not predicted.** Every magnitude on the second host, where the offsets have never been measured; G/M on both sparsematrix families; every `max-rss` ratio.
+
+**Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved (§8.19). A PASS with T2 pending is recorded as PASS on the reference host only. The pull request carries no `allow-regression:` line.
+
+Refs #1679, #1680, #1684.
+
+### Outcome on the reference host: the layout with the removal walk's `BranchU` drain
+
+**Verdict: FAIL, on the Callgrind bound.** The pre-registration above is unchanged and no bound is moved (AGENTS.md §8.19). T1 and the stress-ng bounds L2 and L1b hold on the reference host; the pull request's CI then read arms above +0.1% against main, recorded under "The Callgrind bound, broken" below. T2 (second host) was not run.
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, commit `9792d4580`; G `9792d4580` built with `EXPANSE_LINK_HOT_LAYOUT=1` (sha256 `22a7932f…`, the same bytes as H3D above), M its merge base `547e0f6cc` (`ccc782a4…`, the same bytes as the `59110748f` file), both with `-C llvm-args=-align-all-functions=6`, S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_hot_layout_reg_ref_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
+
+**The runs.** Two runs of 12 rounds over every cell on 2026-11-25 under the host bench lock, 19:38:37–19:48:41 and 19:50:21–20:00:26 UTC. Each has 720 processes, none discarded, and is valid (max load1 4.87 and 5.14 against a void limit of 12). No process needed the round window. The host's login journal shows no login between the launch (19:37:04 UTC) and the end of the second run; the launching session stayed connected and idle. No run was discarded or repeated.
+
+**The two structural bounds hold.** The pull request's `crates/` diff is the nine files of the layout commit, `mutate.rs` among them; `include/` is unchanged. `nm -S` lists 1,551 symbols with equal sizes in M and in the layout commit `0ffda8452` built without the variable (`28ff3afe…`); G differs from M in the sizes of seven symbols, all of them instantiations of the removal walks and of `downgrade_u_to_b`.
+
+**T1, met.** (workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, BCa 95%, run 1 | run 2:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 1.083 [1.077, 1.090] \| 1.079 [1.070, 1.086] | 1.001 [0.997, 1.006] \| 0.996 [0.989, 1.001] | 0.924 [0.920, 0.928] \| 0.923 [0.919, 0.927] |
+| 2 | 1.076 [1.064, 1.088] \| 1.082 [1.073, 1.089] | 1.001 [0.995, 1.012] \| 1.005 [0.999, 1.010] | 0.930 [0.924, 0.941] \| 0.929 [0.923, 0.936] |
+| 4 | 1.078 [1.072, 1.085] \| 1.080 [1.075, 1.086] | 1.004 [0.997, 1.011] \| 0.996 [0.991, 1.001] | 0.931 [0.925, 0.936] \| 0.922 [0.918, 0.926] |
+| 8 | 1.080 [1.079, 1.082] \| 1.081 [1.080, 1.083] | 1.043 [1.041, 1.045] \| 1.041 [1.040, 1.043] | 0.965 [0.963, 0.967] \| 0.963 [0.961, 0.965] |
+
+The lowest G/M lower end is 1.064, above the 1.03 floor at every W in both runs.
+
+**L2 and L1b, held.** (workload: `sng_judy_1k`) The named falsifier, `judy-find-operations-per-sec`, G/M:
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 1 | 0.997 [0.993, 1.003] | 0.991 [0.981, 0.997] |
+| 2 | 0.994 [0.987, 1.002] | 0.998 [0.990, 1.006] |
+| 4 | 0.999 [0.995, 1.005] | 1.002 [0.997, 1.010] |
+| 8 | 0.999 [0.997, 1.000] | 0.999 [0.996, 1.001] |
+
+- Over the 52 primary cell-metrics the lowest G/M upper end is 0.997, so none is below 0.98. L1b holds on every cell.
+- Upper end below 1 in one run and not the other: the 1 Ki find rate at W = 1 ([0.981, 0.997] in run 2), the 4 Mi insert rate at W = 2 ([0.988, 0.999] in run 1) and the sparsematrix judy default put rate at W = 1 ([0.997, 0.999] in run 1).
+
+**The comparison with stock (not gated): INTERMEDIATE.** On the 4 Mi delete rate the G/S lower end is above 1.0 in both runs at W = 8 only. The record predicted it above 1.0 at W = 1, 2 and 8; that prediction is refuted at W = 1 and W = 2, where the intervals contain 1. The all-cells diagnostic above read G/S above 1 at W = 1 and 2 with the same two library files; between the two sessions M/S moved from 0.937–0.945 to 0.923–0.930 at those W while G/M stayed at 1.076–1.086, so the stock arm's reading differs between sessions and the cause is unknown.
+
+**Reported, not predicted.**
+- (workloads differ: `sng_judy_256k` vs `sng_judy_1k`) The delete rate G/M reads 1.060 to 1.094 at 256 Ki keys (lowest lower end 1.036) and 1.015 to 1.018 at 1 Ki keys (lowest lower end 1.009).
+- **A resident-memory cost.** stress-ng's `max-rss` G/M is above 1 with both runs' intervals excluding 1 on these cells:
+
+| cell | W | G/M, run 1 \| run 2 |
+|---|---|---|
+| `sng_judy_1k` | 2 | 1.0284 [1.0027, 1.0570] \| 1.0560 [1.0283, 1.0810] |
+| `sng_judy_1k` | 4 | 1.0306 [1.0126, 1.0545] \| 1.0076 [1.0001, 1.0255] |
+| `sng_judy_1k` | 8 | 1.0397 [1.0172, 1.0548] \| 1.0276 [1.0012, 1.0469] |
+| `sng_judy_256k` | 8 | 1.0066 [1.0019, 1.0131] \| 1.0076 [1.0036, 1.0136] |
+| `sng_judy_4m` | 4 | 1.0014 [1.0004, 1.0025] \| 1.0015 [1.0006, 1.0023] |
+| `sng_judy_4m` | 8 | 1.0009 [1.0004, 1.0016] \| 1.0008 [1.0004, 1.0018] |
+| `sng_sm_judy_big` | 1 | 1.0138 [1.0102, 1.0171] \| 1.0087 [1.0042, 1.0132] |
+| `sng_sm_judy_big` | 8 | 1.0077 [1.0048, 1.0105] \| 1.0061 [1.0033, 1.0093] |
+| `sng_sm_judy_default` | 8 | 1.0356 [1.0090, 1.0564] \| 1.0260 [1.0085, 1.0420] |
+
+  The placed section spans 196,608 bytes and G's file is 33,488 bytes larger than M's (3,189,168 against 3,155,680). Which of the two builds' differences carries the resident pages (the layout or the removal-walk change) is unmeasured; the record made no `max-rss` prediction and gates none.
+
+**The Callgrind bound, broken.** (measured: GitHub-hosted x86-64 runner, commit `7acf23dd7`, [CI run 45691969163](https://github.com/orieg/expanse/actions/runs/45691969163), jobs `Perf / Callgrind Deterministic Instructions` and `Perf / Callgrind Fast Smoke (Ubuntu)`; exact instruction counts, so no interval applies)
+
+| job | arm | main | head | change |
+|---|---|---|---|---|
+| deterministic | `map_get` `clustered` | 5,619,910 | 5,669,909 | +0.89% |
+| deterministic | `map_get_slot_ptr` `sm_1m` | 457,177,921 | 461,177,921 | +0.87% |
+| deterministic | `map_get_slot_ptr` `sm_10k` | 4,597,794 | 4,637,794 | +0.87% |
+| deterministic | `set_contains` `random` | 6,026,222 | 6,076,220 | +0.83% |
+| deterministic | `map_get` `random` | 6,265,115 | 6,315,114 | +0.80% |
+| deterministic | `map_get` `sequential` | 6,950,214 | 7,000,213 | +0.72% |
+| deterministic | `strmap_oscillate` `routes` | 27,085,169 | 27,235,170 | +0.55% |
+| smoke | `judy1_test` `clustered` | 1,056,062 | 1,096,058 | +3.79% |
+| smoke | `judy1_test` `sequential` | 1,173,022 | 1,213,018 | +3.41% |
+| smoke | `judy1_test` `random` | 1,243,714 | 1,283,710 | +3.22% |
+| smoke | `set_contains` `clustered` | 906,257 | 916,255 | +1.10% |
+| smoke | `map_get` `clustered` | 1,017,650 | 1,027,649 | +0.98% |
+| smoke | `set_contains` `sequential` | 1,023,093 | 1,033,091 | +0.98% |
+| smoke | `set_contains` `random` | 1,093,785 | 1,103,783 | +0.91% |
+| smoke | `map_get` `random` | 1,133,840 | 1,143,839 | +0.88% |
+| smoke | `map_get` `sequential` | 1,231,033 | 1,241,032 | +0.81% |
+
+- These are the arms the jobs' gates listed, each above +0.5%; arms between +0.1% and +0.5% were not extracted from the run.
+- The same run's `Core / Public Rust API Surface` job failed: on Linux the snapshot loses `bits::find_byte_8` and `leaf::search`, the two public functions that carried an attribute.
+- The record's `nm -S` bound compared the shared library, built with thin LTO at one codegen unit, where every symbol size is equal. The benchmark binaries are built differently, and there the `link_section` attributes change the code of the Rust lookup arms. Why they do is unmeasured.
+- The change is not merged under this record. The attributes are the cause named by the run; the second record below removes them.
+
+## Second pre-registration: the layout with no source attribute ([#1679](https://github.com/orieg/expanse/issues/1679), [#1684](https://github.com/orieg/expanse/issues/1684))
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. It differs from the record above in one thing: no source file names a section.
+
+- **The layout.** `crates/expanse-capi/hot_layout.ld` selects each function by the input section the compiler gives it (`.text.<symbol>`): an exported C function by its name, a Rust function by the tail of its mangled name behind a wildcard for the crate hash. The offsets are unchanged. `crates/expanse-capi/build.rs` applies the script when `EXPANSE_LINK_HOT_LAYOUT=1`. `crates/expanse-capi/tests/test_hot_layout_sync.rs` requires every pattern to name a function the source defines, generic exactly when the pattern says so; it was shown to fail on a misspelt pattern and on a pattern with the wrong generic marker.
+- **A and B**, the two removal-walk commits, unchanged.
+- Every other file under `crates/` equals main's. A build without the variable is therefore the removal-walk change alone.
+
+**Builds.** As in the record above: G is the pull request's head built by `scripts/build_layout_lib.sh` with `-C llvm-args=-align-all-functions=6` and `EXPANSE_LINK_HOT_LAYOUT=1`; M is its merge base built with the same flag and without the variable. Both are hash-recorded.
+
+**Owner exemption (2026-11-15): not invoked.** No Callgrind arm is named above +0.1%.
+
+**Observed before this commit, and therefore not evidence for it.**
+
+- Everything above: the layout trials, the all-cells diagnostic, and the first record's registered runs and FAIL.
+- (measured: reference host Intel Core i9-12900F, rustc 1.98.1 with LLD 22.1.8, main `547e0f6cc` plus this record's `crates/` diff, uncommitted at the time, aligned builds; build-only, nothing timed) Built without the variable, the file is `a6a36d75…`, byte for byte the plain aligned build of the removal-walk change measured in draft pull request 1789. Built with the variable (`492f20f8…`), `nm -S` lists the same 31 symbols at the same addresses and sizes in the placed section as the first record's G (`22a7932f…`), and `.text`, `.rodata` and `.eh_frame` are byte-identical; the two files differ in 233 bytes of the placed section and 282 bytes of `.data.rel.ro`.
+- No timed process has run this record's G file.
+
+**Derived before the runs.** As in the record above: 1 / (1 − 0.0426) = 1.044 against a floor of 1.03.
+
+**Definitions and hygiene.** Those of the record above.
+
+**Target, all of which must hold.** T1, T2 and T3 of the record above, unchanged.
+
+**Bounds, every one of which must hold.**
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| `git diff` against the merge base | `crates/`, `include/` | `crates/expanse/src/mutate.rs`, `crates/expanse-capi/build.rs`, `crates/expanse-capi/hot_layout.ld` and `crates/expanse-capi/tests/test_hot_layout_sync.rs` only |
+| x86-64 deterministic, x86-64 smoke and AArch64 Callgrind; wasm32 and wasm64 fuel | every arm | ≤ +0.1% against main |
+| `Core / Public Rust API Surface` | the committed snapshot | unchanged |
+| stress-ng, both hosts | `sng_judy_1k` `judy-find-operations-per-sec`, every W (L2, named as the likeliest falsifier) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every other primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every primary cell-metric (L1b) | not SLOWER against stock where the merge base is FASTER or EQUIVALENT and G/M is SLOWER |
+| `memory-budget` | every row | unchanged |
+| CI | workspace tests (`PROPTEST_CASES=500`), Tier-1 Miri, ASan, loom, `differential-oracle`, `php-judy-*` | pass |
+
+**The comparison with stock, reported under its own label and not gated.** Labelled as in the record above. Predicted on the reference host from the first record's registered runs: the G/S lower end on the 4 Mi delete rate is above 1.0 in both runs at W = 8, and the interval contains 1 at W = 1, 2 and 4.
+
+**Predicted and not gated.** stress-ng's `max-rss` G/M is above 1 on the 1 Ki cell, as in the first record's runs.
+
+**Not predicted.** Every magnitude on the second host; G/M on both sparsematrix families.
+
+**Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved (§8.19). A PASS with T2 pending is recorded as PASS on the reference host only. The pull request carries no `allow-regression:` line.
+
+Refs #1679, #1680, #1684.
+
+### Second record's outcome on the reference host
+
+**Verdict: FAIL, on the AArch64 Callgrind bound.** The second pre-registration above is unchanged and no bound is moved (AGENTS.md §8.19). T1, T3, the stress-ng bounds L2 and L1b, the `git diff` bound, the public API snapshot, `memory-budget`, the x86-64 Callgrind and fuel bounds and the CI bound hold; two AArch64 arms read above +0.1% against main. T2 (second host) was not run.
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, commit `71df9ed9a`; G `71df9ed9a` built with `EXPANSE_LINK_HOT_LAYOUT=1` (sha256 `492f20f8…`), M its merge base `547e0f6cc` (`ccc782a4…`), both with `-C llvm-args=-align-all-functions=6`, S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_hot_layout_reg2_ref_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
+
+**The runs.** Two runs of 12 rounds over every cell on 2026-11-25 under the host bench lock, 20:56:34–21:06:38 and 21:19:18–21:29:21 UTC; the second waited for the host's hourly sync to pass. Each has 720 processes, none discarded, and is valid (max load1 4.89 and 5.15 against a void limit of 12). No process needed the round window. The host's login journal shows no login during either run; it shows one at 21:17:39, between them, and the launching session stayed connected and idle. No run was discarded or repeated.
+
+**The `git diff` bound holds.** Against the merge base, `crates/` differs in `crates/expanse/src/mutate.rs`, `crates/expanse-capi/build.rs`, `crates/expanse-capi/hot_layout.ld` and `crates/expanse-capi/tests/test_hot_layout_sync.rs`; `include/` is unchanged.
+
+**T1, met.** (workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, BCa 95%, run 1 | run 2:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 1.076 [1.062, 1.085] \| 1.074 [1.064, 1.084] | 0.996 [0.983, 1.004] \| 0.995 [0.987, 1.003] | 0.926 [0.923, 0.930] \| 0.927 [0.922, 0.931] |
+| 2 | 1.080 [1.072, 1.090] \| 1.081 [1.072, 1.089] | 1.005 [0.999, 1.013] \| 1.009 [1.004, 1.014] | 0.931 [0.925, 0.937] \| 0.934 [0.929, 0.940] |
+| 4 | 1.089 [1.081, 1.104] \| 1.080 [1.075, 1.084] | 1.006 [1.000, 1.012] \| 1.007 [1.002, 1.013] | 0.923 [0.910, 0.930] \| 0.933 [0.928, 0.938] |
+| 8 | 1.079 [1.078, 1.080] \| 1.081 [1.080, 1.083] | 1.042 [1.041, 1.044] \| 1.044 [1.042, 1.045] | 0.966 [0.964, 0.968] \| 0.965 [0.964, 0.966] |
+
+The lowest G/M lower end is 1.062, above the 1.03 floor at every W in both runs.
+
+**L2 and L1b, held.** (workload: `sng_judy_1k`) The named falsifier, `judy-find-operations-per-sec`, G/M:
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 1 | 0.999 [0.993, 1.005] | 0.998 [0.991, 1.003] |
+| 2 | 0.995 [0.989, 1.001] | 0.995 [0.990, 1.004] |
+| 4 | 0.999 [0.993, 1.006] | 0.997 [0.991, 1.004] |
+| 8 | 0.998 [0.996, 1.002] | 0.999 [0.997, 1.001] |
+
+- Over the 52 primary cell-metrics the lowest G/M upper end is 0.9993, so none is below 0.98. L1b holds on every cell.
+- **One losing cell inside the bound.** The sparsematrix judy default put rate at W = 1 has its upper end below 1 in both runs: 0.998 [0.998, 0.9994] | 0.999 [0.998, 0.9996].
+- Upper end below 1 in one run and not the other: the hashjudy default get rate at W = 1 (upper end 0.9999 in run 1) and the sparsematrix judy default put rate at W = 8 ([0.998, 0.9993] in run 2).
+
+**The comparison with stock (not gated): INTERMEDIATE.** On the 4 Mi delete rate the G/S lower end is above 1.0 in both runs at W = 8 and, by 0.000001 in run 1, at W = 4. The record predicted an interval containing 1 at W = 1, 2 and 4: it holds at W = 1, holds in run 1 only at W = 2, and is refuted at W = 4.
+
+**Reported.**
+- (workloads differ: `sng_judy_256k` vs `sng_judy_1k`) The delete rate G/M reads 1.060 to 1.083 at 256 Ki keys (lowest lower end 1.040) and 1.012 to 1.035 at 1 Ki keys (lowest lower end 1.007).
+- **The predicted resident-memory cost.** stress-ng's `max-rss` G/M has both runs' lower ends above 1 on these cells:
+
+| cell | W | G/M, run 1 \| run 2 |
+|---|---|---|
+| `sng_judy_1k` | 1 | 1.0584 [1.0331, 1.0785] \| 1.0413 [1.0102, 1.0668] |
+| `sng_judy_1k` | 8 | 1.0318 [1.0059, 1.0521] \| 1.0327 [1.0077, 1.0524] |
+| `sng_judy_256k` | 4 | 1.0139 [1.0006, 1.0255] \| 1.0148 [1.0046, 1.0251] |
+| `sng_judy_4m` | 4 | 1.0018 [1.0006, 1.0028] \| 1.0014 [1.0003, 1.0024] |
+| `sng_judy_4m` | 8 | 1.0004 [1.0002, 1.0010] \| 1.0012 [1.0007, 1.0019] |
+| `sng_sm_judy_big` | 1 | 1.0136 [1.0101, 1.0167] \| 1.0134 [1.0096, 1.0168] |
+| `sng_sm_judy_big` | 8 | 1.0072 [1.0035, 1.0103] \| 1.0076 [1.0041, 1.0110] |
+| `sng_sm_judy_default` | 1 | 1.0389 [1.0130, 1.0621] \| 1.0360 [1.0107, 1.0578] |
+| `sng_sm_judy_default` | 8 | 1.0200 [1.0062, 1.0408] \| 1.0345 [1.0161, 1.0568] |
+
+  Both hashjudy big cells also read above 1, by 0.0001. Which of G's two differences from M carries the resident pages is unmeasured.
+
+**The deterministic bounds.** (measured: GitHub-hosted runners, commit `71df9ed9a`, [CI run 45702042646](https://github.com/orieg/expanse/actions/runs/45702042646), which concluded `success`; exact counts, so no interval applies)
+
+- **T3, met.** `Perf / Callgrind Deterministic Instructions`: `map_remove_revgen` `gen_4m` 2,697,834,833 (−4.28% against main), `gen_256k` 167,700,151 (−4.31%), `gen_1k` 592,728 (−1.41%).
+- **x86-64, held.** In that job's report no arm of the 315 `instructions` arms or the 12 `rmw_instructions` arms reads above main. In `Perf / Callgrind Fast Smoke (Ubuntu)` all 34 arms read no change against main.
+- **Fuel, held.** In `Perf / WebAssembly Fuel` no row reads above its base; six removal rows read below it.
+- **AArch64, broken.** In `Core / AArch64 Linux Tests & Callgrind (Neoverse N2)`, 32 of the 34 smoke arms read no change against main and two read above the +0.1% bound:
+
+  | arm | main | head | change |
+  |---|---|---|---|
+  | `map_churn` `random` | 10,721,930 | 10,780,534 | +0.55% |
+  | `bytesmap_churn` `routes` | 20,419,769 | 20,477,361 | +0.28% |
+
+- Against main this head's engine code differs only in `crates/expanse/src/mutate.rs`, the two removal-walk commits, so the two arms' rise belongs to that change and not to the layout. The attribution below puts it on commit B; why the same arms read no change on x86-64 is unmeasured. Draft pull request 1789 carried the same two commits and never ran this job.
+- `Core / Public Rust API Surface`, `Perf / Memory Budget Invariants`, the workspace tests on three systems, the four Tier-1 Miri shards, ASan, loom, `Compat / Stock libjudy Oracle (Linux)` and both `Compat / PHP-Judy Extension` jobs concluded `success`; of the run's 73 jobs, 71 concluded `success` and 2 were skipped.
+
+**Attribution of the two AArch64 arms: commit B.** (measured: container `linux/arm64` on an Apple M1 host, valgrind 3.24.0, rustc 1.100.0 as in the CI job, bench profile; main `547e0f6cc`, main with commit A's `mutate.rs`, main with A and B's; artifact `results/diagnostic_hot_layout_aarch64_smoke_attribution.txt`; exact counts) (workload: `smoke_instructions`, the arms named)
+
+| arm | main | A | A and B |
+|---|---|---|---|
+| `map_churn` `random` | 10,733,668 | 10,733,668 | 10,792,272 (+58,604) |
+| `bytesmap_churn` `routes` | 20,278,728 | 20,278,728 | 20,336,320 (+57,592) |
+
+- The differences equal the CI run's (10,780,534 − 10,721,930 = 58,604 and 20,477,361 − 20,419,769 = 57,592), so the replica reproduces it. The other 18 arms of the group are equal in all three builds.
+- Commit A, the one-pass demotion, moves neither arm. Commit B, the exact recount at the demotion floor, carries both rises in full. Whether the added instructions are the longer count itself or a change in the surrounding function's code is unmeasured.
+
+**What this leaves.** The layout mechanism passed every bound it could affect. The removal-walk change is not merged under this record. A follow-up either drops or reworks commit B, or names the two arms in a new record under the owner's 2026-11-15 exemption, which is the owner's to invoke; each needs a new pre-registration and fresh runs.
+
+### Diagnostic: the exact count moved out of line
+
+**After the second record's FAIL and outside it.** That verdict stays FAIL and no bound is moved.
+
+(measured: AArch64 in a container `linux/arm64` on an Apple M1 host, valgrind 3.24.0, rustc 1.100.0, main `547e0f6cc`; x86-64 on the reference host Intel Core i9-12900F, valgrind 3.27.1, rustc 1.98.1, main `09681eb51`; artifact `results/diagnostic_hot_layout_outline_counts.txt`; exact counts, so no interval applies) (workloads: `smoke_instructions` on AArch64, `instructions` on x86-64, the arms named)
+
+- **Where commit B's AArch64 instructions are.** `branch_u_digits_after_null` is `#[inline(always)]` into the recursive removal walks. In the AArch64 disassembly of the smoke binary, the walk built from A and B opens by saving two callee-saved vector registers (`d8`, `d9`; a third, `d10`, in one OCC form), and the walk built from main or from A alone does not. `map_churn` removes a key whose neighbour stays, so no child becomes null and the count itself never runs on that arm; the register saves run on every entry to the walk. The disassembly is the observation; no counter separates the saves from the rest of the function's 110 added instructions.
+- **Variant C.** The count moves to `branch_u_digits_exact`, marked `#[cold]` and `#[inline(never)]`. Variant D is the same without `#[cold]`.
+
+| arm | main | A | A and B | C | D |
+|---|---|---|---|---|---|
+| AArch64 `map_churn` `random` | 10,733,668 | 10,733,668 | 10,792,272 | 10,733,668 | 10,723,668 |
+| AArch64 `bytesmap_churn` `routes` | 20,278,728 | 20,278,728 | 20,336,320 | 20,278,728 | 20,268,728 |
+| x86-64 `map_remove_revgen` `gen_4m` | 2,806,593,090 | 2,728,408,701 | 2,686,969,941 | 2,687,166,561 | 2,690,181,401 |
+| x86-64 `map_remove_revgen` `gen_256k` | 174,777,555 | 169,886,592 | 167,293,272 | 167,305,572 | 167,494,172 |
+| x86-64 `map_remove_revgen` `gen_1k` | 599,432 | 594,661 | 591,037 | 591,049 | 591,233 |
+
+- **AArch64.** C equals main on all 20 arms of the group. D reads 10,000 below main on the two arms and equals it on the other 18.
+- **x86-64.** Of 313 arms, 20 read above main with C, the highest `sync_strmap_remove` `routes` by 1,753 instructions (+0.002%); with A and B, 17 read above main, the highest by 7. C keeps the reverse-delete arms within 0.01 point of A and B (−4.26%, −4.28%, −1.40% against main); D gives back 0.11 point on the two larger ones.
+- **Not measured.** CI has read neither variant. No timed process ran a library built from C or D.
+
+## Third pre-registration: the exact count out of line ([#1679](https://github.com/orieg/expanse/issues/1679), [#1684](https://github.com/orieg/expanse/issues/1684))
+
+A frozen record (§8.8 commit 2), never reconciled in place with what the runs measure. It differs from the second record in one thing: commit C.
+
+- **The layout**, as in the second record, unchanged.
+- **A and B**, the two removal-walk commits, unchanged.
+- **C (`5f39b38fd`).** The exact count that B added runs in `branch_u_digits_exact`, a function marked cold and never inlined, called from `branch_u_digits_after_null`. The stored bound is the same number as with B.
+- Every other file under `crates/` equals main's.
+
+**Builds.** G is the pull request's head built by `scripts/build_layout_lib.sh` with `-C llvm-args=-align-all-functions=6` and `EXPANSE_LINK_HOT_LAYOUT=1`. M is its merge base `9bfedc25e` built with the same flag and without the variable. GA, for the second pairing only, is G's source with `crates/expanse/src/mutate.rs` taken from commit `0fb763dd7` (A without B or C), built as G is. All three are hash-recorded.
+
+**Owner exemption (2026-11-15): not invoked.** No Callgrind arm is named above +0.1%.
+
+**Observed before this commit, and therefore not evidence for it.**
+
+- Everything above: both earlier records' registered runs and FAILs, the attribution of the two AArch64 arms, and the counts of the diagnostic directly above.
+- No timed process has run a library that holds C. No library has been built from this record's head or from its merge base.
+
+**Derived before the runs.**
+
+- On the reference host C lowers `map_remove_revgen` `gen_4m` by 4.255% against main (the artifact above). If cycles per delete followed instructions, the delete rate would rise by 1 / (1 − 0.04255) = 1.044. The floor is 1.03, unchanged.
+- The same artifact puts C 1.51% below A on that arm, a rate ratio of 1.015 for the second pairing by the same rule.
+- The merge base differs from the second record's (`547e0f6cc`) in `crates/expanse/src/nav.rs`. The script's offsets are the ones the functions had in a library built before that change, so M's own offsets may now differ from G's, and G/M then also measures that difference. On this host a move of the lookup helper by 1,792 bytes read the 1 Ki find rate at 0.969 to 0.981 of main's ("Why" under the candidate's heading above; draft pull request 1789's registered runs). Whether M's offsets differ here is not checked before this commit.
+
+**Definitions and hygiene.** Those of the first record. The second pairing's runs follow the same hygiene and are void, and replaced whole, on the same conditions.
+
+**Target, all of which must hold.** T1, T2 and T3 of the first record, unchanged, read on G against M.
+
+**Bounds, every one of which must hold.** Those of the second record, unchanged:
+
+| instrument | arm or cell | bound |
+|---|---|---|
+| `git diff` against the merge base | `crates/`, `include/` | `crates/expanse/src/mutate.rs`, `crates/expanse-capi/build.rs`, `crates/expanse-capi/hot_layout.ld` and `crates/expanse-capi/tests/test_hot_layout_sync.rs` only |
+| x86-64 deterministic, x86-64 smoke and AArch64 Callgrind; wasm32 and wasm64 fuel | every arm, `map_churn` `random` and `bytesmap_churn` `routes` on AArch64 named as the likeliest falsifiers | ≤ +0.1% against main |
+| `Core / Public Rust API Surface` | the committed snapshot | unchanged |
+| stress-ng, both hosts | `sng_judy_1k` `judy-find-operations-per-sec`, every W (L2, named as the likeliest stress-ng falsifier) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every other primary cell-metric (L2) | G/M upper end not below 0.98 in both runs |
+| stress-ng, both hosts | every primary cell-metric (L1b) | not SLOWER against stock where the merge base is FASTER or EQUIVALENT and G/M is SLOWER |
+| `memory-budget` | every row | unchanged |
+| CI | workspace tests (`PROPTEST_CASES=500`), Tier-1 Miri, ASan, loom, `differential-oracle`, `php-judy-*` | pass |
+
+**The comparison with stock, reported under its own label and not gated.** Labelled as in the first record. Predicted on the reference host from the second record's runs: the G/S lower end on the 4 Mi delete rate is above 1.0 in both runs at W = 8, and the interval contains 1 at W = 1 and W = 2. W = 4 is not predicted.
+
+**Second pairing, reported and not gated: B and C's own share.** G against GA over every cell, two runs of 12 rounds, by the same driver. Neither earlier record measured the recount apart from the demotion. Predicted: `sng_judy_4m` `judy-delete-operations-per-sec` G/GA has its lower end above 1.0 in both runs at each of W = 1, 2, 4 and 8. Read as SEPARATED if that holds and NOT SEPARATED otherwise. The verdict below does not depend on it.
+
+**Predicted and not gated.** stress-ng's `max-rss` G/M is above 1 on the 1 Ki cell at W = 1, as in both earlier records' runs.
+
+**Not predicted.** Every magnitude on the second host; G/M on both sparsematrix families; every `max-rss` ratio of the second pairing.
+
+**Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not merged and is recorded with the cell or arm that broke its bound, and no bound is moved (§8.19). A PASS with T2 pending is recorded as PASS on the reference host only. The pull request carries no `allow-regression:` line.
+
+Refs #1679, #1680, #1684.
+
+### Third record's outcome on the reference host
+
+**Verdict: PASS.** The third pre-registration above is unchanged and no bound is moved (AGENTS.md §8.19). T1, T2 and T3 are met and every bound holds: the `git diff` bound, L2 and L1b on both hosts, the Callgrind and fuel bounds, the public API snapshot, `memory-budget` and the CI bound. This section carries the reference host and the deterministic bounds; T2 and the second host's bounds are under "Third record's outcome on the second host" below.
+
+(measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, commit `8096576f0`; G `8096576f0` built with `EXPANSE_LINK_HOT_LAYOUT=1` (sha256 `687e24af…`), M its merge base `9bfedc25e` (`c104eee3…`), GA (`8682276f…`), all with `-C llvm-args=-align-all-functions=6`, S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_hot_layout_reg3_ref_run{1,2}.json` and `results/diagnostic_increment_hot_layout_reg3_bshare_ref_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
+
+**The runs.** Four runs of 12 rounds over every cell on 2026-11-26 under the host bench lock: G against M at 05:36:30–05:46:34 and 05:47:55–05:58:01 UTC, G against GA at 05:59:21–06:09:25 and 06:19:05–06:29:07; the last waited for the host's hourly sync to pass. Each has 720 processes, none discarded, and is valid (max load1 4.98, 4.53, 4.94 and 5.15 against a void limit of 12). No process needed the round window. The host's login journal shows no login during any run; it shows one at 06:17:40, between the third and fourth, and the launching session stayed connected and idle. No run was discarded or repeated.
+
+**The `git diff` bound holds.** Against the merge base, `crates/` differs in the four files the record names; `include/` is unchanged.
+
+**T1, met.** (workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, BCa 95%, run 1 | run 2:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 1.080 [1.070, 1.091] \| 1.086 [1.076, 1.096] | 0.996 [0.989, 1.002] \| 0.995 [0.988, 1.002] | 0.922 [0.916, 0.928] \| 0.917 [0.912, 0.923] |
+| 2 | 1.079 [1.070, 1.087] \| 1.080 [1.069, 1.090] | 1.001 [0.995, 1.008] \| 1.002 [0.995, 1.010] | 0.927 [0.922, 0.935] \| 0.928 [0.922, 0.935] |
+| 4 | 1.083 [1.076, 1.089] \| 1.077 [1.070, 1.083] | 0.997 [0.992, 1.002] \| 0.992 [0.986, 0.997] | 0.921 [0.916, 0.927] \| 0.921 [0.917, 0.926] |
+| 8 | 1.080 [1.078, 1.081] \| 1.080 [1.079, 1.081] | 1.040 [1.038, 1.042] \| 1.039 [1.039, 1.040] | 0.963 [0.962, 0.965] \| 0.962 [0.961, 0.963] |
+
+The lowest G/M lower end is 1.069, above the 1.03 floor at every W in both runs.
+
+**L2 and L1b, held.** (workload: `sng_judy_1k`) The named falsifier, `judy-find-operations-per-sec`, G/M:
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 1 | 1.001 [0.998, 1.006] | 1.002 [0.998, 1.009] |
+| 2 | 0.994 [0.987, 1.002] | 1.004 [0.998, 1.009] |
+| 4 | 1.001 [0.996, 1.007] | 1.004 [1.000, 1.009] |
+| 8 | 0.997 [0.995, 0.999] | 0.997 [0.995, 1.000] |
+
+- Over the 52 primary cell-metrics the lowest G/M upper end is 0.9976, so none is below 0.98. L1b holds on every cell. No cell has its upper end below 1 in both runs.
+- Upper end below 1 in one run and not the other: the 1 Ki find rate at W = 8 (0.9988 in run 1), the 256 Ki insert rate at W = 1 (0.980 [0.963, 0.998] in run 2) and the sparsematrix judy default get rate at W = 1 (0.997 [0.994, 0.9991] in run 2).
+- The offset risk the record named did not show on the find rate: in M, built from a merge base whose `nav.rs` differs, `get::locate_slot_popcnt` sits at offset `0xc00` within its page against G's `0x6c0`, and the 1 Ki find rate reads as above.
+
+**The comparison with stock (not gated): INTERMEDIATE.** On the 4 Mi delete rate the G/S lower end is above 1.0 in both runs at W = 8 only, as predicted. The interval contains 1 at W = 1 and W = 2 in both runs, as predicted. At W = 4, which was not predicted, it contains 1 in run 1 and lies below 1 in run 2.
+
+**Second pairing: SEPARATED.** (workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, G against GA, BCa 95%:
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 1 | 1.039 [1.026, 1.051] | 1.038 [1.029, 1.044] |
+| 2 | 1.044 [1.035, 1.053] | 1.047 [1.038, 1.057] |
+| 4 | 1.039 [1.034, 1.044] | 1.043 [1.037, 1.049] |
+| 8 | 1.044 [1.042, 1.046] | 1.040 [1.039, 1.042] |
+
+- The lower end is above 1.0 at every W in both runs; the lowest is 1.026. The exact recount, with its count out of line, therefore carries a delete-rate gain of its own on this cell, apart from the one-pass demotion.
+- The reading is above the 1.015 that the instruction counts gave by the rule in the record. Why the rate rises more than the instruction count falls is unmeasured.
+- On the 4 Mi delete rate this pairing reads GA against stock at 0.954 to 0.964 for W = 1, 2 and 4 and at 0.998 to 1.000 for W = 8: without the recount, the layout and the demotion change leave that cell below stock at three of four W.
+- Losing reading: the 4 Mi insert rate at W = 4 reads 0.986 [0.952, 0.998] in run 1 and 1.002 [0.994, 1.008] in run 2. No primary cell-metric has its upper end below 1 in both runs.
+
+**Reported.**
+- (workloads differ: `sng_judy_256k` vs `sng_judy_1k`) The delete rate G/M reads 1.039 to 1.084 at 256 Ki keys (lowest lower end 1.015) and 1.012 to 1.022 at 1 Ki keys (lowest lower end 1.006).
+- **The predicted resident-memory cost.** stress-ng's `max-rss` G/M on the 1 Ki cell at W = 1 reads 1.0457 [1.0188, 1.0696] | 1.0376 [1.0096, 1.0596], as predicted. Both runs' lower ends are above 1 on ten cells; the largest after that one are the 1 Ki cell at W = 8 (1.029 and 1.050), the 256 Ki cell at W = 2 (1.013 and 1.011) and the sparsematrix judy big cell at W = 1 (1.012 and 1.011).
+- **It does not belong to the recount.** In the second pairing `max-rss` G/GA on the 1 Ki cell at W = 1 reads 1.013 [0.990, 1.036] | 0.990 [0.961, 1.019], and one cell has both runs' lower ends above 1 (sparsematrix judy big, W = 8, 1.005 and 1.004). Whether the layout or the demotion change carries the rest is unmeasured.
+
+**T3 and the deterministic bounds, held.** (measured: [CI run 45860806403](https://github.com/orieg/expanse/actions/runs/45860806403) at `0d7a527ed`, against its merge base `9bfedc25e`; exact counts, no interval)
+
+- **T3.** `map_remove_revgen` reads below main on all three arms: `gen_4m` 2,696,458,493 against 2,818,538,317 (−4.33%), `gen_256k` 167,614,051 against 175,252,055 (−4.36%), `gen_1k` 592,644 against 601,204 (−1.42%).
+- **x86-64 deterministic.** Of 315 arms, 18 differ from main and none is above it; the other 15 read −0.008% to −4.37% (`sync_map_branchu_band` `top`). Of the 12 read-modify-write arms one differs, below main; the 50 search arms equal main.
+- **x86-64 smoke and AArch64.** All 34 smoke arms equal main on each architecture. The two arms that failed the second record, `map_churn` `random` and `bytesmap_churn` `routes` on AArch64, read 10,721,930 and 20,419,769 at both the merge base and the head.
+- **Fuel.** Of 60 wasm32 and wasm64 rows, 6 differ from their base and all 6 are below it (−0.00% to −0.44%).
+- **Snapshots and CI.** `Core / Public Rust API Surface` and `Perf / Memory Budget Invariants` pass. The three workspace-test jobs, the four Tier-1 Miri shards, ASan, loom, the differential oracle and both `php-judy` jobs pass.
+- **Two jobs needed a second attempt, neither from the change.** `Bindings / Java 22+ Panama (ubuntu-24.04)` failed before any test when the package registry answered HTTP 429 and passed when re-run. `Bindings / PHP (macos-latest, PHP 8.4)` was cancelled and passed when re-run; why it was cancelled is unmeasured.
+
+### Third record's outcome on the second host
+
+(measured: second host AMD Ryzen 9 9955HX, pin `0-7`, governor `performance` for the runs, commit `8096576f0`; G (sha256 `687e24af…`) and M (`c104eee3…`) are the reference host's files, copied and hash-checked, S that host's stock build; artifacts `results/diagnostic_increment_hot_layout_reg3_zen5_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
+
+**The runs.** Two runs of 12 rounds over every cell on 2026-11-27 under the host bench lock, 18:38:36–18:48:16 and 18:49:46–18:59:26 UTC, with the owner's approval (METHODOLOGY.md §3). Each has 720 processes, none discarded, and is valid (max load1 4.69 and 5.48 against a void limit of 16). No process needed the round window. The host's CI runner was stopped while idle and the governor set to `performance` for the runs; both were restored afterwards and compared equal to the recorded originals. The login journal shows no login during either run; the launching session stayed connected and idle. No run was discarded or repeated.
+
+**T2, met.** (workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, BCa 95%, run 1 | run 2:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 1.053 [1.047, 1.059] \| 1.053 [1.046, 1.059] | 1.105 [1.099, 1.111] \| 1.098 [1.092, 1.103] | 1.049 [1.044, 1.053] \| 1.043 [1.037, 1.048] |
+| 2 | 1.048 [1.045, 1.054] \| 1.050 [1.046, 1.055] | 1.097 [1.091, 1.101] \| 1.102 [1.098, 1.107] | 1.047 [1.039, 1.051] \| 1.050 [1.046, 1.054] |
+| 4 | 1.049 [1.044, 1.054] \| 1.051 [1.046, 1.056] | 1.119 [1.114, 1.125] \| 1.118 [1.113, 1.123] | 1.067 [1.064, 1.071] \| 1.064 [1.060, 1.067] |
+| 8 | 1.050 [1.044, 1.056] \| 1.052 [1.044, 1.059] | 1.129 [1.123, 1.136] \| 1.124 [1.117, 1.129] | 1.075 [1.070, 1.081] \| 1.068 [1.064, 1.073] |
+
+The lowest G/M lower end is 1.044, above the 1.03 floor at every W in both runs.
+
+**L2 and L1b, held.** (workload: `sng_judy_1k`) The named falsifier, `judy-find-operations-per-sec`, G/M:
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 1 | 0.991 [0.980, 0.997] | 0.995 [0.993, 1.002] |
+| 2 | 0.998 [0.996, 1.001] | 0.995 [0.994, 0.996] |
+| 4 | 0.994 [0.991, 0.995] | 0.982 [0.947, 0.996] |
+| 8 | 0.993 [0.988, 0.998] | 0.994 [0.990, 1.000] |
+
+- Over the 52 primary cell-metrics the lowest G/M upper end is 0.9955, so none is below 0.98.
+- **One losing cell.** The 1 Ki find rate at W = 4 has its upper end below 1 in both runs, so G is slower than M there (0.994 and 0.982). L1b holds on it: G stays faster than stock on that cell.
+- Upper end below 1 in one run and not the other, on ten cell-metrics: the 1 Ki find rate at W = 1, 2 and 8, the 1 Ki insert rate at W = 4, the 256 Ki find rate at W = 1, the 256 Ki insert rate at W = 2, the 4 Mi find rate at W = 1 and W = 4, and the sparsematrix judy default put rate at W = 1 and W = 8.
+
+**The comparison with stock (not gated): INTERMEDIATE.** On this host the 4 Mi delete rate G/S has its lower end above 1.0 at every W in both runs (lowest 1.091), where the merge base is already above stock. On the reference host that holds at W = 8 only, so the label over both hosts is INTERMEDIATE.
+
+**Reported.**
+- (workloads differ: `sng_judy_256k` vs `sng_judy_1k`) The delete rate G/M reads 1.063 to 1.073 at 256 Ki keys (lowest lower end 1.049) and 1.025 to 1.031 at 1 Ki keys (lowest lower end 1.012).
+- **Resident memory.** stress-ng's `max-rss` G/M on the 1 Ki cell at W = 1 reads 1.065 [1.029, 1.080] | 1.054 [1.030, 1.077]. Both runs' lower ends are above 1 on eight of the twenty cells; no cell has both upper ends below 1. No `max-rss` ratio on this host was predicted.
+
+**What this leaves.** The comparison with stock is INTERMEDIATE. The `max-rss` rise stands on ten cells on the reference host and eight on the second, and whether the layout or the demotion change carries it is unmeasured. The 1 Ki find rate is lower at W = 4 on the second host in both runs, inside its bound.
+
 ## Reproduce
 
 On a host with Docker and the workspace toolchain:

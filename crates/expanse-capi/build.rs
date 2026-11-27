@@ -36,6 +36,7 @@ fn main() {
     println!("cargo:rustc-env=EXPANSE_VERSION_FULL={version_full}");
 
     link_soname();
+    link_hot_layout();
 }
 
 /// The `DT_SONAME` a packaged Linux `libexpanse` carries. `libexpanse1`,
@@ -65,5 +66,30 @@ fn link_soname() {
             }
         }
         Ok(other) => panic!("EXPANSE_LINK_SONAME must be unset, 0 or 1, not {other:?}"),
+    }
+}
+
+/// Applies `hot_layout.ld` to the Linux cdylib when `EXPANSE_LINK_HOT_LAYOUT=1`.
+///
+/// The script places the functions that carry a `.text.expanse_hot.*`
+/// `link_section` attribute in one output section ahead of `.text`, one
+/// page-aligned group per operation. Opt-in, because it needs a linker that
+/// accepts a `SECTIONS ... INSERT` script (GNU ld and LLD do).
+fn link_hot_layout() {
+    println!("cargo:rerun-if-env-changed=EXPANSE_LINK_HOT_LAYOUT");
+    println!("cargo:rerun-if-changed=hot_layout.ld");
+    match env::var("EXPANSE_LINK_HOT_LAYOUT").as_deref() {
+        Err(_) | Ok("") | Ok("0") => {}
+        Ok("1") => {
+            if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+                let dir = env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
+                println!("cargo:rustc-cdylib-link-arg=-Wl,-T,{dir}/hot_layout.ld");
+            } else {
+                println!(
+                    "cargo:warning=EXPANSE_LINK_HOT_LAYOUT=1 ignored: the layout script applies to Linux targets only"
+                );
+            }
+        }
+        Ok(other) => panic!("EXPANSE_LINK_HOT_LAYOUT must be unset, 0 or 1, not {other:?}"),
     }
 }
