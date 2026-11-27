@@ -1,13 +1,16 @@
 //! Which byte order an 8-byte `ExpanseShortBytesMap` key is read in decides
 //! how much memory its trie holds (#1681). This census builds the same key
 //! set under both orders in a plain `ExpanseMap` and pins the direction and a
-//! bound on each shape, the losing shape included, so the trade-off recorded
-//! in the module documentation cannot drift unnoticed.
+//! bound on each shape, so the trade-off behind the map's big-endian read
+//! cannot drift unnoticed.
 //!
 //! Deterministic: `mem_used` and `mem_held` are byte counts of the trie's own
 //! allocator, fixed by the key set and its insertion order.
 #![cfg(not(miri))]
 #![cfg(all(feature = "std", target_pointer_width = "64"))]
+// The pinned ratios describe the shipped leaf ladder; under the class-10
+// ablation the dense zmap key set holds more little-endian (105%).
+#![cfg(not(feature = "ablation-leaf-class-10"))]
 
 use expanse_trie::ExpanseMap;
 use expanse_trie::short_bytesmap::ExpanseShortBytesMap;
@@ -126,8 +129,8 @@ fn native_integers_hold_less_little_endian() {
     );
 }
 
-/// The expected loss: 8 bytes of ASCII decimal text hold more than twice as
-/// much little-endian. Pinned so that a change which removes the loss, or
+/// The shape that favours the big-endian read: 8 bytes of ASCII decimal text
+/// hold more than twice as much little-endian. Pinned so that a change which removes the loss, or
 /// one that deepens it, is seen.
 #[test]
 fn ascii_text_holds_more_little_endian() {
@@ -141,10 +144,11 @@ fn ascii_text_holds_more_little_endian() {
     );
 }
 
-/// The map itself uses the order this census favours: its 8-byte trie is
-/// byte for byte the little-endian trie, plus the short-key box.
+/// The map reads 8-byte keys big-endian: its 8-byte trie is byte for byte
+/// the big-endian trie. The little-endian read was a measured candidate
+/// (`docs/benchmarks/zmap_comparison/README.md`) and is not what ships.
 #[test]
-fn the_map_reads_eight_byte_keys_little_endian() {
+fn the_map_reads_eight_byte_keys_big_endian() {
     let keys = zmap_dense();
     let mut m = ExpanseShortBytesMap::new();
     for k in &keys {
@@ -156,7 +160,7 @@ fn the_map_reads_eight_byte_keys_little_endian() {
     let stats = m.stats();
     assert_eq!(
         stats.short_full.expect("8-byte keys").node_bytes.total(),
-        le_used
+        be_used
     );
     // Every key comes back with its own bytes.
     let mut seen = 0usize;

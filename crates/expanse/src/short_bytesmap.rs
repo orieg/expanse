@@ -4,8 +4,7 @@
 //! [`ExpanseShortBytesMap`] composes two plain [`ExpanseMap`] tries with an
 //! unchanged [`ExpanseBytesMap`]:
 //!
-//! - an 8-byte key is its own 64-bit trie key, read little-endian, so its
-//!   last byte is the trie's first digit (*Key order* below);
+//! - an 8-byte key is its own 64-bit trie key, read big-endian;
 //! - a 0- to 7-byte key is packed big-endian into the high bytes of a word
 //!   whose low byte is its length, in a second trie, so `[]`, `[0]` and
 //!   `[0, 0]` stay distinct;
@@ -42,27 +41,17 @@
 //! any key in the map; a long key's word follows [`ExpanseBytesMap`]'s
 //! contract.
 //!
-//! **Key order.** The 8-byte trie descends a key from its last byte to its
-//! first. Which order holds less memory depends on the keys, and the choice
-//! here favours the callers this map exists for:
-//!
-//! - a native integer or a struct of integer fields on a little-endian host,
-//!   and zmap's `{address, port, status}` key, hold less this way: the bytes
-//!   that vary least are the top digits, and the address's host byte is
-//!   reached before its network bytes;
-//! - 8 bytes of ASCII text with a shared prefix, or an integer stored
-//!   big-endian, hold more, because their fastest-varying byte becomes the
-//!   top digit.
-//!
-//! `tests/test_short_key_order_census.rs` pins both directions on
-//! deterministic key sets. The 0- to 7-byte trie keeps its big-endian
-//! packing.
+//! **Key order.** The 8-byte trie reads a key big-endian. Reading it
+//! little-endian holds less memory on zmap's keys and more on ASCII text, and
+//! was measured slower in zmap's dedup harness
+//! (`docs/benchmarks/zmap_comparison/README.md`, the key-order candidate);
+//! `tests/test_short_key_order_census.rs` pins the memory of both orders.
 //!
 //! **Iteration order.** [`ExpanseShortBytesMap::try_for_each`] visits the
-//! 8-byte keys in ascending order of their little-endian word, then the 0-
-//! to 7-byte keys in ascending order of their packed word, then the longer
-//! keys in [`ExpanseBytesMap`]'s unspecified order. The order is not part of
-//! the contract.
+//! 8-byte keys in ascending byte order, then the 0- to 7-byte keys in
+//! ascending order of their packed word, then the longer keys in
+//! [`ExpanseBytesMap`]'s unspecified order. The order is not part of the
+//! contract.
 
 use crate::bytesmap::{DefaultBuildHasher, ExpanseBytesMap};
 use crate::map::ExpanseMap;
@@ -73,7 +62,7 @@ use core_alloc::boxed::Box;
 
 /// The two short-key tries; see the module documentation for the packing.
 struct ShortKeys {
-    /// 8-byte keys, each read as a little-endian `u64`.
+    /// 8-byte keys, each read as a big-endian `u64`.
     full: ExpanseMap,
     /// 0- to 7-byte keys: the bytes big-endian in the high bytes of the word,
     /// zeros below them, and the length in the low byte.
@@ -124,7 +113,7 @@ fn short_word(key: &[u8]) -> (bool, u64) {
     let mut buf = [0u8; 8];
     buf[..n].copy_from_slice(key);
     if n == 8 {
-        return (true, u64::from_le_bytes(buf));
+        return (true, u64::from_be_bytes(buf));
     }
     buf[7] = n as u8;
     (false, u64::from_be_bytes(buf))
@@ -134,11 +123,12 @@ fn short_word(key: &[u8]) -> (bool, u64) {
 /// are the key.
 #[inline]
 fn short_key_bytes(full: bool, w: u64) -> ([u8; 8], usize) {
-    if full {
-        return (w.to_le_bytes(), 8);
-    }
     let bytes = w.to_be_bytes();
-    (bytes, usize::from(bytes[7]))
+    if full {
+        (bytes, 8)
+    } else {
+        (bytes, usize::from(bytes[7]))
+    }
 }
 
 /// Structural statistics of an [`ExpanseShortBytesMap`], one component per
