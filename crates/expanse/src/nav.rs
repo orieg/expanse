@@ -94,7 +94,7 @@ unsafe fn edge_pop_inline(edge: &Edge, level: u8) -> u64 {
 /// return `(0, _)`, making the composition the identity.
 fn skip_parts(edge: &Edge, kb: u8, level: u8) -> (u64, u32) {
     let dv = if kb < level {
-        crate::mutate::decode_value(edge, kb, level)
+        crate::mutate::decode_value_word(edge, kb, level)
     } else {
         0
     };
@@ -520,7 +520,7 @@ unsafe fn next_hit<const MAP: bool, H: Hit>(
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
             let (dv, shift): (u64, u32) = if bl < level {
                 (
-                    crate::mutate::decode_value(edge, bl, level),
+                    crate::mutate::decode_value_word(edge, bl, level),
                     8 * u32::from(bl),
                 )
             } else {
@@ -557,7 +557,7 @@ unsafe fn next_hit<const MAP: bool, H: Hit>(
             let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
             let (dv, shift): (u64, u32) = if bl < level {
                 (
-                    crate::mutate::decode_value(edge, bl, level),
+                    crate::mutate::decode_value_word(edge, bl, level),
                     8 * u32::from(bl),
                 )
             } else {
@@ -872,7 +872,7 @@ unsafe fn prev_hit<const MAP: bool, H: Hit>(
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
             let (dv, shift): (u64, u32) = if bl < level {
                 (
-                    crate::mutate::decode_value(edge, bl, level),
+                    crate::mutate::decode_value_word(edge, bl, level),
                     8 * u32::from(bl),
                 )
             } else {
@@ -913,7 +913,7 @@ unsafe fn prev_hit<const MAP: bool, H: Hit>(
             let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
             let (dv, shift): (u64, u32) = if bl < level {
                 (
-                    crate::mutate::decode_value(edge, bl, level),
+                    crate::mutate::decode_value_word(edge, bl, level),
                     8 * u32::from(bl),
                 )
             } else {
@@ -1119,7 +1119,7 @@ pub(crate) unsafe fn count_below<const MAP: bool>(
             // A narrow branch holds one sub-expanse: a suffix outside it
             // counts none of its keys or all of them.
             let suffix = if bl < level {
-                let dv = crate::mutate::decode_value(edge, bl, level);
+                let dv = crate::mutate::decode_value_word(edge, bl, level);
                 match (suffix >> (8 * u32::from(bl))).cmp(&dv) {
                     core::cmp::Ordering::Less => return 0,
                     core::cmp::Ordering::Equal => key_low(suffix, bl),
@@ -1343,7 +1343,7 @@ pub(crate) unsafe fn count_range<const MAP: bool>(
     };
     // A narrow branch holds one sub-expanse: clip the range to it.
     let (lo, hi) = if bl < level {
-        let dv = crate::mutate::decode_value(edge, bl, level);
+        let dv = crate::mutate::decode_value_word(edge, bl, level);
         let shift = 8 * u32::from(bl);
         let (lo_top, hi_top) = (lo >> shift, hi >> shift);
         if hi_top < dv || lo_top > dv {
@@ -1535,7 +1535,7 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
             let (dv, shift): (u64, u32) = if bl < level {
                 (
-                    crate::mutate::decode_value(edge, bl, level),
+                    crate::mutate::decode_value_word(edge, bl, level),
                     8 * u32::from(bl),
                 )
             } else {
@@ -1584,7 +1584,7 @@ unsafe fn by_count_hit<const MAP: bool, H: Hit>(
             let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
             let (dv, shift): (u64, u32) = if bl < level {
                 (
-                    crate::mutate::decode_value(edge, bl, level),
+                    crate::mutate::decode_value_word(edge, bl, level),
                     8 * u32::from(bl),
                 )
             } else {
