@@ -1,0 +1,86 @@
+== dpkg stock judy
+libjudy-dev 1.0.5-5+b2
+libjudydebian1 1.0.5-5+b2
+== gcc
+gcc (Debian 12.2.0-14+deb12u1) 12.2.0
+== libexpanse
+/opt/expanse/compat:
+total 8
+drwxr-xr-x 2 root root 4096 Nov 27 22:33 .
+drwxr-xr-x 5 root root 4096 Nov 27 22:33 ..
+lrwxrwxrwx 1 root root   20 Nov 27 22:33 libJudy.so.1 -> ../lib/libexpanse.so
+
+/opt/expanse/lib:
+total 3068
+drwxr-xr-x 2 root root    4096 Nov 27 22:33 .
+drwxr-xr-x 5 root root    4096 Nov 27 22:33 ..
+lrwxrwxrwx 1 root root      13 Nov 27 22:33 libJudy.so -> libexpanse.so
+-rwxr-xr-x 1 root root 3130728 Nov 27 22:33 libexpanse.so
+ 0x0000000000000001 (NEEDED)             Shared library: [libgcc_s.so.1]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [ld-linux-x86-64.so.2]
+3dbb469c8c9ff4cbdd4e625a78aa799b10dcdbd94243768e0de514536fc3c583  /opt/expanse/lib/libexpanse.so
+5bb795a5894a00aca3315a2fbde3698921915e70751b8aa68fc625f847387d1d  /usr/lib/x86_64-linux-gnu/libJudy.so.1
+5bb795a5894a00aca3315a2fbde3698921915e70751b8aa68fc625f847387d1d  /usr/lib/x86_64-linux-gnu/libJudy.so.1.0.3
+== /build/stock/src/zmap
+ 0x0000000000000001 (NEEDED)             Shared library: [libJudy.so.1]
+	libJudy.so.1 => /lib/x86_64-linux-gnu/libJudy.so.1 (0x00007340ba5c7000)
+== /build/expanse/src/zmap
+ 0x0000000000000001 (NEEDED)             Shared library: [libJudy.so]
+ 0x000000000000001d (RUNPATH)            Library runpath: [/opt/expanse/lib]
+	libJudy.so => /opt/expanse/lib/libJudy.so (0x00007c0b8fa4c000)
+== /build/stock/cachehash_bench
+ 0x0000000000000001 (NEEDED)             Shared library: [libJudy.so.1]
+	libJudy.so.1 => /lib/x86_64-linux-gnu/libJudy.so.1 (0x00007cd8e155f000)
+== /build/expanse/cachehash_bench
+ 0x0000000000000001 (NEEDED)             Shared library: [libJudy.so]
+ 0x000000000000001d (RUNPATH)            Library runpath: [/opt/expanse/lib]
+	libJudy.so => /opt/expanse/lib/libJudy.so (0x000073065d9f5000)
+== swap: stock zmap with LD_LIBRARY_PATH=/opt/expanse/compat
+	libJudy.so.1 => /opt/expanse/compat/libJudy.so.1 (0x0000769472552000)
+== LD_DEBUG=libs stock
+        66:	  trying file=/lib/x86_64-linux-gnu/libJudy.so.1
+        66:	calling init: /lib/x86_64-linux-gnu/libJudy.so.1
+== LD_DEBUG=libs expanse
+        69:	  trying file=/opt/expanse/lib/glibc-hwcaps/x86-64-v3/libpcap.so.0.8
+        69:	  trying file=/opt/expanse/lib/glibc-hwcaps/x86-64-v2/libpcap.so.0.8
+        69:	  trying file=/opt/expanse/lib/tls/haswell/x86_64/libpcap.so.0.8
+        69:	  trying file=/opt/expanse/lib/tls/haswell/libpcap.so.0.8
+== LD_DEBUG=libs swap
+        72:	  trying file=/opt/expanse/compat/glibc-hwcaps/x86-64-v3/libpcap.so.0.8
+        72:	  trying file=/opt/expanse/compat/glibc-hwcaps/x86-64-v2/libpcap.so.0.8
+        72:	  trying file=/opt/expanse/compat/tls/haswell/x86_64/libpcap.so.0.8
+        72:	  trying file=/opt/expanse/compat/tls/haswell/libpcap.so.0.8
+== JudyHS symbols resolved from
+-- stock
+	binding file /lib/x86_64-linux-gnu/libJudy.so.1 [0] to /lib/x86_64-linux-gnu/libJudy.so.1 [0]: normal symbol `JudyHSGet'
+	binding file /build/stock/src/zmap [0] to /lib/x86_64-linux-gnu/libJudy.so.1 [0]: normal symbol `JudyHSDel'
+	binding file /build/stock/src/zmap [0] to /lib/x86_64-linux-gnu/libJudy.so.1 [0]: normal symbol `JudyHSFreeArray'
+	binding file /build/stock/src/zmap [0] to /lib/x86_64-linux-gnu/libJudy.so.1 [0]: normal symbol `JudyHSIns'
+-- expanse
+	binding file /build/expanse/src/zmap [0] to /opt/expanse/lib/libJudy.so [0]: normal symbol `JudyHSDel'
+	binding file /build/expanse/src/zmap [0] to /opt/expanse/lib/libJudy.so [0]: normal symbol `JudyHSFreeArray'
+	binding file /build/expanse/src/zmap [0] to /opt/expanse/lib/libJudy.so [0]: normal symbol `JudyHSIns'
+	binding file /build/expanse/src/zmap [0] to /opt/expanse/lib/libJudy.so [0]: normal symbol `JudyHSGet'
+-- swap
+	binding file /build/stock/src/zmap [0] to /opt/expanse/compat/libJudy.so.1 [0]: normal symbol `JudyHSDel'
+	binding file /build/stock/src/zmap [0] to /opt/expanse/compat/libJudy.so.1 [0]: normal symbol `JudyHSFreeArray'
+	binding file /build/stock/src/zmap [0] to /opt/expanse/compat/libJudy.so.1 [0]: normal symbol `JudyHSIns'
+	binding file /build/stock/src/zmap [0] to /opt/expanse/compat/libJudy.so.1 [0]: normal symbol `JudyHSGet'
+== zmap undefined Judy symbols
+                 U JudyHSDel
+                 U JudyHSFreeArray
+                 U JudyHSGet
+                 U JudyHSIns
+== governor
+powersave
+powersave
+== cpuset
+0,2,4,6,8,10,12,14
+8
+== both libexpanse
+3dbb469c8c9ff4cbdd4e625a78aa799b10dcdbd94243768e0de514536fc3c583  /opt/expanse/lib/libexpanse.so
+ef59f6e9221bfa240f708b64f58927c84f131d803242a22d9fb16235629972fd  /opt/main/lib/libexpanse.so
+ccebf695854d056b2dc6866dd064a2e64cf4e0abeacbe3b26178612ecc3ca723  /build/stock/cachehash_bench
+84d117d6863074ced9300639be313e4bab64ec4d829bcc5f11ccfec577b12e23  /build/main/cachehash_bench
+5c3a45caa9d41343b4c244523e23b423714c0e9a06043da81296c3cd3b7d18db  /build/expanse/cachehash_bench

@@ -1,0 +1,1 @@
+timed sequence 2026-11-27T22:36:09Z to 22:54:41Z; bench lock held from 22:32:27Z; no login during the run (who=0 at start and end); governor powersave (as found); image built 22:32:27 to 22:33:37 UTC under the same lock
