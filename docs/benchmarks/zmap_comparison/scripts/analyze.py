@@ -126,7 +126,75 @@ def micro():
         print(f"H3 {k[0]} {k[1]}: {verdict(v)}")
 
 
+def key_order_gates():
+    """Gates K1, K2, K3 and K5 of results/zmap_key_order_1681_preregistration.yaml.
+
+    Printed only for a record that carries the MAIN arm (libexpanse at the
+    comparison base); EXPANSE is the candidate. Void rules as above.
+    """
+    def runs(prefix):
+        return sorted(d for d in os.listdir(res) if d.startswith(prefix))
+
+    def bound(name, ivs, limit, strict=False):
+        ok = all((hi < limit) if strict else (hi <= limit) for _, _, hi, _ in ivs)
+        op = "<" if strict else "<="
+        return f"{name}: {'MET' if ok else 'NOT MET'} (upper bound {op} {limit} required in each of {len(ivs)} cells)"
+
+    micro_runs = [d for d in runs("micro_run") if any(r["arm"] == "MAIN" for r in load(os.path.join(res, d, "raw.jsonl")))]
+    e2e_runs = [d for d in runs("e2e_run") if any(r["arm"] == "MAIN" for r in load(os.path.join(res, d, "raw.jsonl")))]
+    if not micro_runs and not e2e_runs:
+        return
+    print("\n## Key-order gates (EXPANSE = candidate, MAIN = comparison base)")
+    k1, k2, k3 = [], [], []
+    for d in micro_runs:
+        recs = load(os.path.join(res, d, "raw.jsonl"))
+        bad = {r["round"] for r in recs if r["rc"] != 0 or not r["ok"] or r["host_busy_core_eq"] - 1.0 > VOID_FOREIGN}
+        keep = [r for r in recs if r["round"] not in bad]
+        print(f"\n### {d}: {len({r['round'] for r in keep})} admissible rounds; void rounds {sorted(bad)}")
+        print("| workload | MAIN ns/resp | EXPANSE/MAIN ns | EXPANSE/STOCK ns | MAIN RSS growth MB | EXPANSE/MAIN RSS | EXPANSE/STOCK RSS |")
+        print("|---|---|---|---|---|---|---|")
+        for wl in ("m1", "m2", "m3"):
+            g = lambda a: [r["ns_per_response"] for r in keep if r["workload"] == wl and r["arm"] == a]
+            rss = lambda a: [(r["maxrss_kb_after"] - r["maxrss_kb_before"]) / 1024 for r in keep if r["workload"] == wl and r["arm"] == a]
+            tm, ts = ratio(g("EXPANSE"), g("MAIN")), ratio(g("EXPANSE"), g("STOCK"))
+            rm, rs = ratio(rss("EXPANSE"), rss("MAIN")), ratio(rss("EXPANSE"), rss("STOCK"))
+            k1.append(rm); k2.append(tm); k3.append(ts)
+            print(f"| {wl} | {fmt(ci(g('MAIN')))} | {fmt(tm, nd=3)} | {fmt(ts, nd=3)} | {fmt(ci(rss('MAIN')))} | {fmt(rm, nd=3)} | {fmt(rs, nd=3)} |")
+    k5t, k5r = [], []
+    for d in e2e_runs:
+        recs = load(os.path.join(res, d, "raw.jsonl"))
+        bad = set()
+        for r in recs:
+            own = (r["user_s"] + r["sys_s"]) / max(r["wall_s"], 1e-9)
+            if (r["rc"] != 0 or r.get("pcap_drop") or r.get("pcap_ifdrop")
+                    or r.get("rows") < EXPECT[r["workload"]] - TOL[r["workload"]]
+                    or r["host_busy_core_eq"] - own > VOID_FOREIGN):
+                bad.add(r["round"])
+        keep = [r for r in recs if r["round"] not in bad]
+        print(f"\n### {d}: {len({r['round'] for r in keep})} admissible rounds; void rounds {sorted(bad)}")
+        print("| workload | EXPANSE/MAIN recv ns per response | EXPANSE/MAIN peak RSS | EXPANSE/MAIN process CPU | EXPANSE/MAIN wall |")
+        print("|---|---|---|---|---|")
+        for wl in ("e1", "e2"):
+            col = lambda a, f: [f(r) for r in keep if r["workload"] == wl and r["arm"] == a]
+            pair = lambda f: ratio(col("EXPANSE", f), col("MAIN", f))
+            t = pair(lambda r: recv_cpu(r) / r["validation_passed"])
+            m = pair(lambda r: r["maxrss_kb"] / 1024)
+            c = pair(lambda r: r["user_s"] + r["sys_s"])
+            w = pair(lambda r: r["wall_s"])
+            k5t.append(t); k5r.append(m)
+            print(f"| {wl} | {fmt(t, nd=4)} | {fmt(m, nd=4)} | {fmt(c, nd=4)} | {fmt(w, nd=4)} |")
+    print("\n### Key-order gate outcomes (this host)")
+    if k1:
+        print(bound("K1 micro RSS growth EXPANSE/MAIN", k1, 0.95))
+        print(bound("K2 micro ns per response EXPANSE/MAIN", k2, 1.02))
+        print(bound("K3 micro ns per response EXPANSE/STOCK", k3, 1.0, strict=True))
+    if k5t:
+        print(bound("K5 e2e receive-thread ns per response EXPANSE/MAIN", k5t, 1.01))
+        print(bound("K5 e2e peak RSS EXPANSE/MAIN", k5r, 1.005))
+
+
 if any(d.startswith("e2e_run") for d in os.listdir(res)):
     e2e()
 if any(d.startswith("micro_run") for d in os.listdir(res)):
     micro()
+key_order_gates()

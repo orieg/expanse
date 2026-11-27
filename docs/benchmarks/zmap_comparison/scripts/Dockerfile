@@ -7,31 +7,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       binutils && rm -rf /var/lib/apt/lists/*
 
 # ---- Expanse: libexpanse from the recorded commit, release profile --------
+# `expanse` is the measured commit (arm EXPANSE). `expanse_base` is the commit
+# it is compared with (arm MAIN, /opt/main); a record with no such comparison
+# passes the same tree for both and runs the default two arms.
 FROM base AS expanse
 COPY expanse /src/expanse
-RUN cd /src/expanse && cargo build --release -p expanse-capi \
- && mkdir -p /opt/expanse/lib /opt/expanse/include /opt/expanse/compat \
- && cp target/release/libexpanse.so /opt/expanse/lib/ \
- && ln -s libexpanse.so /opt/expanse/lib/libJudy.so \
- && ln -s ../lib/libexpanse.so /opt/expanse/compat/libJudy.so.1 \
- && cp include/Judy.h /opt/expanse/include/ \
- && rm -rf target
+COPY expanse_base /src/main
+RUN for v in expanse main; do cd /src/$v && cargo build --release -p expanse-capi \
+ && mkdir -p /opt/$v/lib /opt/$v/include /opt/$v/compat \
+ && cp target/release/libexpanse.so /opt/$v/lib/ \
+ && ln -s libexpanse.so /opt/$v/lib/libJudy.so \
+ && ln -s ../lib/libexpanse.so /opt/$v/compat/libJudy.so.1 \
+ && cp include/Judy.h /opt/$v/include/ \
+ && rm -rf target || exit 1; done
 
 # ---- zmap + harness against Expanse. No stock Judy is installed in this stage.
 FROM base AS zmap-expanse
 COPY --from=expanse /opt/expanse /opt/expanse
+COPY --from=expanse /opt/main /opt/main
 COPY zmap /src/zmap
 COPY harness /src/harness
 RUN test ! -e /usr/include/Judy.h \
- && cmake -S /src/zmap -B /build/expanse \
-      -DCMAKE_LIBRARY_PATH=/opt/expanse/lib \
-      -DCMAKE_C_FLAGS="-I/opt/expanse/include" \
-      -DCMAKE_EXE_LINKER_FLAGS="-L/opt/expanse/lib -Wl,-rpath,/opt/expanse/lib" \
- && make -C /build/expanse -j8 zmap 2>&1 | tail -5 \
- && gcc -O2 -std=gnu11 -I/opt/expanse/include -I/src/zmap/lib \
+ && for v in expanse main; do cmake -S /src/zmap -B /build/$v \
+      -DCMAKE_LIBRARY_PATH=/opt/$v/lib \
+      -DCMAKE_C_FLAGS="-I/opt/$v/include" \
+      -DCMAKE_EXE_LINKER_FLAGS="-L/opt/$v/lib -Wl,-rpath,/opt/$v/lib" \
+ && make -C /build/$v -j8 zmap 2>&1 | tail -5 \
+ && gcc -O2 -std=gnu11 -I/opt/$v/include -I/src/zmap/lib \
       /src/harness/cachehash_bench.c /src/zmap/lib/cachehash.c \
-      -L/opt/expanse/lib -Wl,-rpath,/opt/expanse/lib -lJudy \
-      -o /build/expanse/cachehash_bench
+      -L/opt/$v/lib -Wl,-rpath,/opt/$v/lib -lJudy \
+      -o /build/$v/cachehash_bench || exit 1; done
 
 # ---- final: stock libJudy from the distro package, plus the Expanse builds
 FROM base
@@ -46,4 +51,6 @@ RUN cmake -S /src/zmap -B /build/stock \
       -o /build/stock/cachehash_bench
 COPY --from=zmap-expanse /opt/expanse /opt/expanse
 COPY --from=zmap-expanse /build/expanse /build/expanse
+COPY --from=zmap-expanse /opt/main /opt/main
+COPY --from=zmap-expanse /build/main /build/main
 COPY scripts /scripts
