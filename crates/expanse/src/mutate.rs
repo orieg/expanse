@@ -461,15 +461,15 @@ pub(crate) fn divergence_level(a: u64, b: u64, level: u8) -> u8 {
 
 /// Reads a skipping edge's decode digits (levels `kb+1..=level`) as one
 /// integer, LSB = the digit at level `kb+1`.
+///
+/// The digits are `aux[kb..level]`, and `aux[i]` is byte `i` of the
+/// little-endian `aux_word` (the tag is byte 7), so they are one shifted,
+/// masked field of that word. `kb >= 1` and `level <= 7` keep the shift
+/// below 64 and the tag byte outside the mask.
 pub(crate) fn decode_value(edge: &Edge, kb: u8, level: u8) -> u64 {
-    let d = edge.decode_bytes(kb);
-    let mut v = 0u64;
-    let mut i = (level - kb) as usize;
-    while i > 0 {
-        i -= 1;
-        v = (v << 8) | u64::from(d[i]);
-    }
-    v
+    debug_assert!((1..=7).contains(&kb) && kb <= level && level <= 7);
+    let n = u32::from(level - kb);
+    (u64::from_le(edge.aux_word()) >> (8 * u32::from(kb))) & ((1u64 << (8 * n)) - 1)
 }
 
 /// Writes the decode digits for a child at `kb` under a slot at `level`,
