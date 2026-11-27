@@ -2677,7 +2677,7 @@ Refs #1679, #1680, #1684.
 
 ### Third record's outcome on the reference host
 
-**Verdict: PASS on the reference host only.** The third pre-registration above is unchanged and no bound is moved (AGENTS.md §8.19). T1 and T3 are met and every bound read holds: the `git diff` bound, L2 and L1b on the reference host, the Callgrind and fuel bounds, the public API snapshot, `memory-budget` and the CI bound. T2 (second host) was not run, so the record's verdict is not complete and the change is not merged under it.
+**Verdict: PASS.** The third pre-registration above is unchanged and no bound is moved (AGENTS.md §8.19). T1, T2 and T3 are met and every bound holds: the `git diff` bound, L2 and L1b on both hosts, the Callgrind and fuel bounds, the public API snapshot, `memory-budget` and the CI bound. This section carries the reference host and the deterministic bounds; T2 and the second host's bounds are under "Third record's outcome on the second host" below.
 
 (measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, commit `8096576f0`; G `8096576f0` built with `EXPANSE_LINK_HOT_LAYOUT=1` (sha256 `687e24af…`), M its merge base `9bfedc25e` (`c104eee3…`), GA (`8682276f…`), all with `-C llvm-args=-align-all-functions=6`, S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_hot_layout_reg3_ref_run{1,2}.json` and `results/diagnostic_increment_hot_layout_reg3_bshare_ref_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
 
@@ -2739,7 +2739,43 @@ The lowest G/M lower end is 1.069, above the 1.03 floor at every W in both runs.
 - **Snapshots and CI.** `Core / Public Rust API Surface` and `Perf / Memory Budget Invariants` pass. The three workspace-test jobs, the four Tier-1 Miri shards, ASan, loom, the differential oracle and both `php-judy` jobs pass.
 - **Two jobs needed a second attempt, neither from the change.** `Bindings / Java 22+ Panama (ubuntu-24.04)` failed before any test when the package registry answered HTTP 429 and passed when re-run. `Bindings / PHP (macos-latest, PHP 8.4)` was cancelled and passed when re-run; why it was cancelled is unmeasured.
 
-**What this leaves.** T2 needs the owner's approval for the second host; until it is read the verdict stays PASS on the reference host only. The comparison with stock is INTERMEDIATE, the `max-rss` rise on ten cells stands, and whether the layout or the demotion change carries that rise is unmeasured.
+### Third record's outcome on the second host
+
+(measured: second host AMD Ryzen 9 9955HX, pin `0-7`, governor `performance` for the runs, commit `8096576f0`; G (sha256 `687e24af…`) and M (`c104eee3…`) are the reference host's files, copied and hash-checked, S that host's stock build; artifacts `results/diagnostic_increment_hot_layout_reg3_zen5_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
+
+**The runs.** Two runs of 12 rounds over every cell on 2026-11-27 under the host bench lock, 18:38:36–18:48:16 and 18:49:46–18:59:26 UTC, with the owner's approval (METHODOLOGY.md §3). Each has 720 processes, none discarded, and is valid (max load1 4.69 and 5.48 against a void limit of 16). No process needed the round window. The host's CI runner was stopped while idle and the governor set to `performance` for the runs; both were restored afterwards and compared equal to the recorded originals. The login journal shows no login during either run; the launching session stayed connected and idle. No run was discarded or repeated.
+
+**T2, met.** (workload: `sng_judy_4m`) `judy-delete-operations-per-sec`, BCa 95%, run 1 | run 2:
+
+| W | G/M | G/S | M/S |
+|---|---|---|---|
+| 1 | 1.053 [1.047, 1.059] \| 1.053 [1.046, 1.059] | 1.105 [1.099, 1.111] \| 1.098 [1.092, 1.103] | 1.049 [1.044, 1.053] \| 1.043 [1.037, 1.048] |
+| 2 | 1.048 [1.045, 1.054] \| 1.050 [1.046, 1.055] | 1.097 [1.091, 1.101] \| 1.102 [1.098, 1.107] | 1.047 [1.039, 1.051] \| 1.050 [1.046, 1.054] |
+| 4 | 1.049 [1.044, 1.054] \| 1.051 [1.046, 1.056] | 1.119 [1.114, 1.125] \| 1.118 [1.113, 1.123] | 1.067 [1.064, 1.071] \| 1.064 [1.060, 1.067] |
+| 8 | 1.050 [1.044, 1.056] \| 1.052 [1.044, 1.059] | 1.129 [1.123, 1.136] \| 1.124 [1.117, 1.129] | 1.075 [1.070, 1.081] \| 1.068 [1.064, 1.073] |
+
+The lowest G/M lower end is 1.044, above the 1.03 floor at every W in both runs.
+
+**L2 and L1b, held.** (workload: `sng_judy_1k`) The named falsifier, `judy-find-operations-per-sec`, G/M:
+
+| W | run 1 | run 2 |
+|---|---|---|
+| 1 | 0.991 [0.980, 0.997] | 0.995 [0.993, 1.002] |
+| 2 | 0.998 [0.996, 1.001] | 0.995 [0.994, 0.996] |
+| 4 | 0.994 [0.991, 0.995] | 0.982 [0.947, 0.996] |
+| 8 | 0.993 [0.988, 0.998] | 0.994 [0.990, 1.000] |
+
+- Over the 52 primary cell-metrics the lowest G/M upper end is 0.9955, so none is below 0.98.
+- **One losing cell.** The 1 Ki find rate at W = 4 has its upper end below 1 in both runs, so G is slower than M there (0.994 and 0.982). L1b holds on it: G stays faster than stock on that cell.
+- Upper end below 1 in one run and not the other, on ten cell-metrics: the 1 Ki find rate at W = 1, 2 and 8, the 1 Ki insert rate at W = 4, the 256 Ki find rate at W = 1, the 256 Ki insert rate at W = 2, the 4 Mi find rate at W = 1 and W = 4, and the sparsematrix judy default put rate at W = 1 and W = 8.
+
+**The comparison with stock (not gated): INTERMEDIATE.** On this host the 4 Mi delete rate G/S has its lower end above 1.0 at every W in both runs (lowest 1.091), where the merge base is already above stock. On the reference host that holds at W = 8 only, so the label over both hosts is INTERMEDIATE.
+
+**Reported.**
+- (workloads differ: `sng_judy_256k` vs `sng_judy_1k`) The delete rate G/M reads 1.063 to 1.073 at 256 Ki keys (lowest lower end 1.049) and 1.025 to 1.031 at 1 Ki keys (lowest lower end 1.012).
+- **Resident memory.** stress-ng's `max-rss` G/M on the 1 Ki cell at W = 1 reads 1.065 [1.029, 1.080] | 1.054 [1.030, 1.077]. Both runs' lower ends are above 1 on eight of the twenty cells; no cell has both upper ends below 1. No `max-rss` ratio on this host was predicted.
+
+**What this leaves.** The comparison with stock is INTERMEDIATE. The `max-rss` rise stands on ten cells on the reference host and eight on the second, and whether the layout or the demotion change carries it is unmeasured. The 1 Ki find rate is lower at W = 4 on the second host in both runs, inside its bound.
 
 ## Reproduce
 
