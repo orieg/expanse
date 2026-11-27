@@ -2,7 +2,7 @@
 //! how much memory its trie holds (#1681). This census builds the same key
 //! set under both orders in a plain `ExpanseMap` and pins the direction and a
 //! bound on each shape, the losing shape included, so the trade-off recorded
-//! in the pre-registration cannot drift unnoticed.
+//! in the module documentation cannot drift unnoticed.
 //!
 //! Deterministic: `mem_used` and `mem_held` are byte counts of the trie's own
 //! allocator, fixed by the key set and its insertion order.
@@ -10,6 +10,7 @@
 #![cfg(all(feature = "std", target_pointer_width = "64"))]
 
 use expanse_trie::ExpanseMap;
+use expanse_trie::short_bytesmap::ExpanseShortBytesMap;
 
 /// Bijective 32-bit mix, the generator of
 /// `docs/benchmarks/zmap_comparison/scripts/cachehash_bench.c`.
@@ -138,4 +139,31 @@ fn ascii_text_holds_more_little_endian() {
         (200..=280).contains(&pct),
         "ASCII decimal keys: {pct}% of big-endian"
     );
+}
+
+/// The map itself uses the order this census favours: its 8-byte trie is
+/// byte for byte the little-endian trie, plus the short-key box.
+#[test]
+fn the_map_reads_eight_byte_keys_little_endian() {
+    let keys = zmap_dense();
+    let mut m = ExpanseShortBytesMap::new();
+    for k in &keys {
+        m.insert(k, 1);
+    }
+    let (le_used, _) = census(&keys, u64::from_le_bytes);
+    let (be_used, _) = census(&keys, u64::from_be_bytes);
+    assert_ne!(le_used, be_used, "the two orders differ on this key set");
+    let stats = m.stats();
+    assert_eq!(
+        stats.short_full.expect("8-byte keys").node_bytes.total(),
+        le_used
+    );
+    // Every key comes back with its own bytes.
+    let mut seen = 0usize;
+    m.for_each(|k, v| {
+        assert_eq!((k.len(), v), (8, 1));
+        seen += 1;
+    });
+    assert_eq!(seen, keys.len());
+    assert!(keys.iter().all(|k| m.get(k) == Some(1)));
 }
