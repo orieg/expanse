@@ -936,6 +936,12 @@ jobs:
           # (concurrency METHODOLOGY sections 32 to 35, patricia Amendment
           # A4, remove_retention section 15, set_algebra), so a change to one
           # must fail here and not only on a contributor's machine.
+          # dns_name_bounds.py holds the #1800 bounds: the reversed-label key
+          # encodings and their RFC 4034 order, the exact string-map census of a
+          # name set and the lower bound on its bytes, pinned against the engine
+          # by crates/expanse/tests/test_dns_name_bounds.rs (AGENTS.md section 8.8
+          # commit 1).
+          python3 scripts/dns_name_bounds.py --self-test
           python3 scripts/batch_cursor_bounds.py --self-test
           python3 scripts/str_cursor_bounds.py --self-test
           python3 scripts/blob_peak_bounds.py --self-test
