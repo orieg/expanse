@@ -60,7 +60,7 @@
 //! | `group` | 1 |
 //! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000`; the `judysl_*`, `judyhs_*` and `judyhs_long_*` arms use `POP`; the `judy1_colour_*` arms (#1682) replay one breadth-first search over 10k (`n10k`) or 100k (`n100k`) vertices; the `judyl_small_array_*` arms (#1742) run 1,000 arrays of 1, 10, 20, 31, 32 or 64 keys (`k1` to `k64`) |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build; `judy1_colour_*` set vertex ids in breadth-first visit order; `judyl_small_array_*` inserts each array's keys as drawn |
-//! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0; `judy1_colour_*`: the search's 12n + 2 Judy1 calls, once; `judyl_next_*` and `judyl_prev_*` one whole traversal, the four `judyl_*_empty_*` families every 64th probe (469 searches), `judyl_free_*` one call; the `judy1_*` and `judysl_*` neighbour, traversal, empty-index and free arms count as their `judyl_*` twins do (`judysl_*` has no count or empty-index search); `judyl_small_array_*`: per array k inserts, 2k lookups, one traversal, one count, one by-count, one `JudyLMemUsed`, k or k/2 deletes and one `JudyLFreeArray` |
+//! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0; `judy1_colour_*`: the search's 12n + 2 Judy1 calls, once; `judyl_next_*` and `judyl_prev_*` one whole traversal (`judyl_prev_*` over all three distributions), the four `judyl_*_empty_*` families every 64th probe (469 searches), `judyl_free_*` one call; the `judy1_*` and `judysl_*` neighbour, traversal, empty-index and free arms count as their `judyl_*` twins do (`judysl_*` has no count or empty-index search); `judyl_small_array_*`: per array k inserts, 2k lookups, one traversal, one count, one by-count, one `JudyLMemUsed`, k or k/2 deletes and one `JudyLFreeArray` |
 //! | `hit_rate` | 100% / mixed; `judyhs_get_*` and `judyhs_long_get_*` 50% (every present key and `POP` absent ones, shuffled together); `judy1_colour_*` as the search produces it; `judyl_small_array_*` lookups 50% (each array's k keys and k absent ones) |
 //! | `miss_gen_method` | Interleaved keys; `judyhs_get_*` continues `fixed8_stream` past the population, rejected on membership; `judyhs_long_get_*` continues `route_keys` past the population (an injective generator, so absent by construction); `judyl_small_array_*` continues its key generator past the population, rejected on membership |
 //! | `value_dereference` | `*slot` dereferenced |
@@ -2093,19 +2093,25 @@ fn judyl_next_stock(b: JlBuilt) -> Word {
 }
 
 #[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = jl_expanse)]
 #[bench::random(args = ("random",), setup = jl_expanse)]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse)]
 fn judyl_prev_expanse(b: JlBuilt) -> Word {
     jl_walk(&b, b.j.last, b.j.prev, Word::MAX)
 }
 
 #[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = jl_expanse_dl)]
 #[bench::random(args = ("random",), setup = jl_expanse_dl)]
+#[bench::clustered(args = ("clustered",), setup = jl_expanse_dl)]
 fn judyl_prev_expanse_dl(b: JlBuilt) -> Word {
     jl_walk(&b, b.j.last, b.j.prev, Word::MAX)
 }
 
 #[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = jl_stock)]
 #[bench::random(args = ("random",), setup = jl_stock)]
+#[bench::clustered(args = ("clustered",), setup = jl_stock)]
 fn judyl_prev_stock(b: JlBuilt) -> Word {
     jl_walk(&b, b.j.last, b.j.prev, Word::MAX)
 }
