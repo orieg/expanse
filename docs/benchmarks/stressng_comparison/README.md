@@ -2677,7 +2677,7 @@ Refs #1679, #1680, #1684.
 
 ### Third record's outcome on the reference host
 
-**No verdict yet: the stress-ng target and bounds hold on the reference host, and the deterministic bounds have not been read.** The third pre-registration above is unchanged and no bound is moved (AGENTS.md §8.19). T1, L2, L1b and the `git diff` bound hold. T3, the Callgrind and fuel bounds, the public API snapshot, `memory-budget` and the CI bound wait for a full CI run of this head, which a draft does not start. T2 (second host) was not run.
+**Verdict: PASS on the reference host only.** The third pre-registration above is unchanged and no bound is moved (AGENTS.md §8.19). T1 and T3 are met and every bound read holds: the `git diff` bound, L2 and L1b on the reference host, the Callgrind and fuel bounds, the public API snapshot, `memory-budget` and the CI bound. T2 (second host) was not run, so the record's verdict is not complete and the change is not merged under it.
 
 (measured: reference host Intel Core i9-12900F, pin `0,2,4,6,8,10,12,14`, commit `8096576f0`; G `8096576f0` built with `EXPANSE_LINK_HOT_LAYOUT=1` (sha256 `687e24af…`), M its merge base `9bfedc25e` (`c104eee3…`), GA (`8682276f…`), all with `-C llvm-args=-align-all-functions=6`, S `76f121a8…`, stress-ng `490c0595…`; artifacts `results/diagnostic_increment_hot_layout_reg3_ref_run{1,2}.json` and `results/diagnostic_increment_hot_layout_reg3_bshare_ref_run{1,2}.json`, analysed by `scripts/diag_increment_analyze.py --l1-separated --short-window=round`)
 
@@ -2730,7 +2730,16 @@ The lowest G/M lower end is 1.069, above the 1.03 floor at every W in both runs.
 - **The predicted resident-memory cost.** stress-ng's `max-rss` G/M on the 1 Ki cell at W = 1 reads 1.0457 [1.0188, 1.0696] | 1.0376 [1.0096, 1.0596], as predicted. Both runs' lower ends are above 1 on ten cells; the largest after that one are the 1 Ki cell at W = 8 (1.029 and 1.050), the 256 Ki cell at W = 2 (1.013 and 1.011) and the sparsematrix judy big cell at W = 1 (1.012 and 1.011).
 - **It does not belong to the recount.** In the second pairing `max-rss` G/GA on the 1 Ki cell at W = 1 reads 1.013 [0.990, 1.036] | 0.990 [0.961, 1.019], and one cell has both runs' lower ends above 1 (sparsematrix judy big, W = 8, 1.005 and 1.004). Whether the layout or the demotion change carries the rest is unmeasured.
 
-**What this leaves.** A verdict needs the full CI run of this head for T3 and the deterministic bounds, the AArch64 arms first among them; the local replica's reading of those two arms is not that job's. T2 needs the owner's approval for the second host.
+**T3 and the deterministic bounds, held.** (measured: [CI run 45860806403](https://github.com/orieg/expanse/actions/runs/45860806403) at `0d7a527ed`, against its merge base `9bfedc25e`; exact counts, no interval)
+
+- **T3.** `map_remove_revgen` reads below main on all three arms: `gen_4m` 2,696,458,493 against 2,818,538,317 (−4.33%), `gen_256k` 167,614,051 against 175,252,055 (−4.36%), `gen_1k` 592,644 against 601,204 (−1.42%).
+- **x86-64 deterministic.** Of 315 arms, 18 differ from main and none is above it; the other 15 read −0.008% to −4.37% (`sync_map_branchu_band` `top`). Of the 12 read-modify-write arms one differs, below main; the 50 search arms equal main.
+- **x86-64 smoke and AArch64.** All 34 smoke arms equal main on each architecture. The two arms that failed the second record, `map_churn` `random` and `bytesmap_churn` `routes` on AArch64, read 10,721,930 and 20,419,769 at both the merge base and the head.
+- **Fuel.** Of 60 wasm32 and wasm64 rows, 6 differ from their base and all 6 are below it (−0.00% to −0.44%).
+- **Snapshots and CI.** `Core / Public Rust API Surface` and `Perf / Memory Budget Invariants` pass. The three workspace-test jobs, the four Tier-1 Miri shards, ASan, loom, the differential oracle and both `php-judy` jobs pass.
+- **Two jobs needed a second attempt, neither from the change.** `Bindings / Java 22+ Panama (ubuntu-24.04)` failed before any test when the package registry answered HTTP 429 and passed when re-run. `Bindings / PHP (macos-latest, PHP 8.4)` was cancelled and passed when re-run; why it was cancelled is unmeasured.
+
+**What this leaves.** T2 needs the owner's approval for the second host; until it is read the verdict stays PASS on the reference host only. The comparison with stock is INTERMEDIATE, the `max-rss` rise on ten cells stands, and whether the layout or the demotion change carries that rise is unmeasured.
 
 ## Reproduce
 
