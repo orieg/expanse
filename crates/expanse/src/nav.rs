@@ -892,7 +892,7 @@ unsafe fn prev_hit<const MAP: bool, H: Hit>(
             let (num, digits, edges_ptr) =
                 unsafe { linear_branch_parts(edge, matches!(t, EdgeType::BranchL3)) };
             let bound = digits[..num].partition_point(|&bd| bd <= d);
-            for (slot, &bd) in digits.iter().enumerate().take(bound).rev() {
+            for (slot, &bd) in digits[..bound].iter().enumerate().rev() {
                 let rem = if bd == d {
                     key_low(suffix, bl - 1)
                 } else {
