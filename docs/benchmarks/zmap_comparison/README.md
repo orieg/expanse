@@ -13,6 +13,7 @@ The suite has no `/benchmark` token: its harness runs zmap in a privileged conta
 | [`results/era_0_18_82eb56af/`](results/era_0_18_82eb56af/) | `82eb56af` (v0.18.0) | Intel Core i9-12900F reference host, container on `0,2,4,6,8,10,12,14` | the correctness gate (12 live runs, dedup oracle, churn differential, dryrun), the first timed runs, the derived JudyHS footprint, and the library provenance |
 | [`results/rerun_573a6f39/`](results/rerun_573a6f39/) | `573a6f39` | same host and pin | timed re-run: end to end and cachehash harness, two runs each |
 | [`results/rerun_edee6bfa/`](results/rerun_edee6bfa/) | `edee6bfa` | same host and pin | timed re-run on main, the figures the top-level README cites |
+| [`results/key_order_cf2dac5eb/`](results/key_order_cf2dac5eb/) | candidate `cf2dac5eb` against main `5b66ff635` | same host and pin | the key-order candidate's record: correctness gate, three-arm timed runs, verdict NOT MET |
 
 Each timed record holds `e2e_run{1,2}/raw.jsonl` and `micro_run{1,2}/raw.jsonl` (one row per process, with its `load_before` and host busy-CPU in core-equivalents), the `analysis.md` that `scripts/analyze.py` prints for it, and, for the re-runs, the driver's `driver.log` with the quiet-gate and load lines between runs. The re-runs used the 0.18-era pre-registration and harness unchanged, with the container image rebuilt at the named commit.
 
@@ -62,6 +63,55 @@ These are 0.18-era records. Since then, the differential oracle's JudyHS evict-a
 | `zmap_e2e_e2_probes2` | 1.0045 [1.0028, 1.0065] | 1.0063 [1.0026, 1.0166] | slower |
 
 End to end, process CPU and wall time show no difference detected on either workload, and dedup is 3.1–5.6% of receive-thread CPU in either arm (H1: off the hot path). The full tables, with the no-Judy floor arm, are in [`results/rerun_edee6bfa/analysis.md`](results/rerun_edee6bfa/analysis.md).
+
+## Key-order candidate (`cf2dac5eb`): NOT MET
+
+`ExpanseShortBytesMap` reads an 8-byte key big-endian. The candidate read it little-endian, which changes the trie zmap's keys build. It was pre-registered in [`results/zmap_key_order_1681_preregistration.yaml`](../../../results/zmap_key_order_1681_preregistration.yaml) before any run ([#1681](https://github.com/orieg/expanse/issues/1681)) and is not reconciled with the outcome here. The candidate held less memory, as derived, and was slower than main in the harness on two of three workloads, so the time gate was missed and the change is not on main.
+
+*(measured: Intel Core i9-12900F reference host, P-cores pinned one SMT sibling each, governor powersave as found; candidate `cf2dac5eb`, main `5b66ff635`, stock libJudy 1.0.5; [`results/key_order_cf2dac5eb/`](results/key_order_cf2dac5eb/), two runs, 15 admissible rounds each in the harness and 10 end to end, 0 void; two-sample BCa 95% intervals)*
+
+**cachehash harness, candidate ÷ main** (below 1 means the candidate is faster or smaller):
+
+| Workload | Time per response, run 1 | Run 2 | RSS growth, run 1 | Run 2 |
+|---|---:|---:|---:|---:|
+| `zmap_dedup_m1_miss` | 1.019 [1.017, 1.021] | 1.018 [1.015, 1.021] | 0.903 [0.901, 0.904] | 0.903 [0.902, 0.904] |
+| `zmap_dedup_m2_dup50` | 1.067 [1.048, 1.073] | 1.064 [1.055, 1.068] | 0.903 [0.902, 0.904] | 0.903 [0.902, 0.904] |
+| `zmap_dedup_m3_evict` | 0.983 [0.982, 0.985] | 0.983 [0.982, 0.985] | 0.914 [0.913, 0.915] | 0.914 [0.912, 0.915] |
+
+**cachehash harness, candidate ÷ stock:**
+
+| Workload | Time per response, run 1 | Run 2 | RSS growth, run 1 | Run 2 |
+|---|---:|---:|---:|---:|
+| `zmap_dedup_m1_miss` | 0.877 [0.874, 0.880] | 0.862 [0.797, 0.877] | 1.083 [1.081, 1.085] | 1.082 [1.081, 1.083] |
+| `zmap_dedup_m2_dup50` | 0.934 [0.932, 0.937] | 0.932 [0.929, 0.933] | 1.082 [1.081, 1.083] | 1.083 [1.081, 1.084] |
+| `zmap_dedup_m3_evict` | 0.733 [0.732, 0.733] | 0.733 [0.732, 0.734] | 1.101 [1.100, 1.103] | 1.102 [1.100, 1.103] |
+
+**End to end, candidate ÷ main:**
+
+| Workload | Receive-thread time per response, run 1 | Run 2 | Peak RSS, run 1 | Run 2 |
+|---|---:|---:|---:|---:|
+| `zmap_e2e_e1_probes1` | 0.9987 [0.9928, 1.0026] | 1.0001 [0.9978, 1.0032] | 0.9943 [0.9922, 0.9961] | 0.9935 [0.9917, 0.9951] |
+| `zmap_e2e_e2_probes2` | 1.0019 [1.0000, 1.0039] | 1.0048 [1.0023, 1.0080] | 0.9938 [0.9922, 0.9956] | 0.9943 [0.9920, 0.9961] |
+
+Gate by gate, on this host:
+
+| Gate | Bound | Outcome |
+|---|---|---|
+| K1 harness RSS growth against main | upper bound at most 0.95 | **met**: the six cells are 0.903 to 0.914 (derived beforehand: 0.908 and 0.935) |
+| K2 harness time against main | upper bound at most 1.02 | **not met**: `m2` is 1.064 to 1.067 in both runs and `m1`'s upper bound is 1.021 in both |
+| K3 harness time against stock | upper bound below 1.0 | **met** |
+| K4 instruction counts against main | named arms at most +0.1% (to +2.0% only under the owner's exemption) | **not met**: `short_bytesmap_insert/zmap` +26.86% (53,189,407 against 41,927,870), `short_bytesmap_get/zmap` +16.35% (34,061,653 against 29,274,712), `short_bytesmap_remove/zmap` +12.07% (40,849,086 against 36,448,878) |
+| K5 end to end against main | receive thread at most 1.01, peak RSS at most 1.005 | **met** |
+
+**Verdict: NOT MET.** K2 was missed in both runs on the reference host and K4 was missed outright; either decides the verdict under the pre-registration, so the second host was not run. The bounds stay where they were set.
+
+The K4 counts are from the `instruction-counts` job of [run 46078207329](https://github.com/orieg/expanse/actions/runs/46078207329) at `36478e2c9`, whose engine sources are the candidate's; they were the only three arms that job reported above its 0.5% floor. The `judyhs_*` arms of `vs_stock.rs` have no baseline in that job and were not compared.
+
+- Against stock, the candidate's harness memory was 1.082 to 1.102× (main's at `edee6bfa`, above, is 1.196 to 1.206×), still larger, as the pre-registration said it would be.
+- The candidate retires more instructions per operation on the dense /15 key set (K4). Which part of the walk they are in is unmeasured; one hypothesis, not tested, is that the little-endian read puts the key's constant bytes and its port at the top of the trie, so an operation crosses more levels before it reaches the address bytes.
+- The memory gain belongs to this key shape and population. The census that predicted it ([`crates/expanse/tests/test_short_key_order_census.rs`](../../../crates/expanse/tests/test_short_key_order_census.rs)) also pins the shape that loses: 8 bytes of ASCII decimal text hold 2.42× the bytes little-endian. Under the class-10 leaf-ladder ablation the dense /15 key set flips as well and holds 5% more little-endian (12,681,344 against 13,320,448 bytes, the same test built with `ablation-leaf-class-10`).
+- Correctness before timing: 12 live runs with 0 dedup-oracle mismatches, one churn sequence hash for stock, main, the candidate and the swapped binary, and one dryrun target sequence ([`results/key_order_cf2dac5eb/correctness/`](results/key_order_cf2dac5eb/correctness/)).
+- The rows carry `load_before` and the host busy-CPU per process, as the earlier records do; the run window and the library hashes are in `run_window.txt` and `provenance.txt`.
 
 ## Earlier records
 

@@ -1,0 +1,171 @@
+# #1681 — pre-registration for reading ExpanseShortBytesMap's 8-byte keys
+# little-endian (AGENTS.md §8.8 commit 2). Written and committed before the
+# engine change and before any timed or Callgrind run of it; never reconciled
+# in place with outcomes (§8.7). Outcomes and the verdict go to
+# docs/benchmarks/zmap_comparison/README.md and to the artifacts this file
+# names. Thresholds, method and sample size below are fixed; changing any of
+# them after data is seen relabels the result INTERMEDIATE and needs fresh
+# runs (§8.19).
+
+issue: 1681
+candidate: >-
+  crates/expanse/src/short_bytesmap.rs reads an 8-byte key as a little-endian
+  u64 (its last byte becomes the trie's first digit) where main reads it
+  big-endian. One line in short_word and its inverse in short_key_bytes. The
+  0- to 7-byte trie, the hashed map, ExpanseBytesMap and every expanse_* C
+  entry point are unchanged. The JudyHS C surface (JudyHSIns, JudyHSGet,
+  JudyHSDel, JudyHSFreeArray) exposes no key order, so the change is not
+  observable through Judy.h; ExpanseShortBytesMap::try_for_each's order
+  changes and is documented as not part of the contract.
+
+arms:
+  S: stock libJudy (Debian bookworm libjudy-dev), black box (AGENTS.md §3)
+  M: libexpanse at origin/main 5b66ff635 (big-endian read)
+  G: libexpanse at the candidate commit (little-endian read), same build
+  NONE: zmap --dedup-method none, end to end only, a floor and not a competitor
+
+what_this_can_and_cannot_show: >-
+  The candidate targets memory. It is not expected to make libexpanse smaller
+  than stock on zmap's sparse keys: the derived expectation below leaves it
+  about 9% to 12% larger. A memory win over stock is therefore not a
+  prediction of this record, and a G/S memory ratio whose interval is above 1
+  is recorded as LARGER, not as a met gate.
+
+math_first:
+  instrument: >-
+    crates/expanse/tests/test_short_key_order_census.rs (commit 32af38f98,
+    engine sources of 5b66ff635): the same key set built in a plain ExpanseMap
+    under both reads; mem_used and mem_held are exact byte counts of the
+    trie's allocator. Deterministic; reproduce with
+    `cargo test -p expanse-trie --test test_short_key_order_census -- --nocapture`
+    (5 tests with the candidate, 4 before it).
+  held_bytes:   # big-endian (M's order) -> little-endian (G's order)
+    zmap_sparse_window_full_1000000: {be: 24719472, le: 19296512}
+    zmap_sparse_after_eviction_4194304_through_1000000: {be: 24658544, le: 20742400}
+    zmap_dense_slash15_524288: {be: 12562560, le: 12075264}
+    native_integers_sequential_1000000: {be: 30146624, le: 8653504}
+    ascii_decimal_sequential_1000000: {be: 14939648, le: 36100608}
+  used_bytes:
+    zmap_sparse_window_full_1000000: {be: 17594720, le: 16335920}
+    zmap_dense_slash15_524288: {be: 8429824, le: 8471232}
+  derived_expectations:   # derived, not measured
+    inputs: >-
+      Harness RSS growth at edee6bfa, MiB, from
+      docs/benchmarks/zmap_comparison/results/rerun_edee6bfa/analysis.md:
+      stock 47.1 (m1, m2) and 47.4 (m3); libexpanse 56.4 (m1, m2) and
+      57.1 to 57.2 (m3). Assumes RSS growth falls by the held-byte difference
+      and that M at 5b66ff635 matches edee6bfa on this path.
+    m1_m2_G_over_M: "(56.4 - (24719472 - 19296512) / 2^20) / 56.4 = 51.2 / 56.4 = 0.908"
+    m3_G_over_M: "(57.1 - (24658544 - 20742400) / 2^20) / 57.1 = 53.4 / 57.1 = 0.935"
+    m1_m2_G_over_S: "51.2 / 47.1 = 1.087"
+    m3_G_over_S: "53.4 / 47.4 = 1.127"
+    dense_e2e_peak_rss: "falls by (12562560 - 12075264) / 2^20 = 0.46 MiB of about 72.3"
+  silent_on: >-
+    Time per operation in either direction; RSS against held bytes (page
+    touching, allocator behaviour); the second host.
+
+expected_losses:   # named before measuring; each stays in the PR body
+  - shape: 8 bytes of ASCII text with a shared prefix (sequential decimal)
+    loss: held bytes 2.42x the big-endian read's (36100608 / 14939648)
+    status: pinned by the census test (200% to 280%)
+  - shape: an integer stored big-endian (sequential)
+    loss: held bytes 3.48x (30146624 / 8653504), the mirror of the native-integer gain
+    status: derived from the native-integer census by symmetry
+  - shape: uniformly random 8 bytes
+    loss: none expected in either direction
+    status: not pinned
+  - what: time per operation on the two losing shapes
+    status: unmeasured; no arm covers them, and none is added by this record
+  - what: the judyhs fixed8 Callgrind arms, whose trie shape changes
+    status: direction not predicted; bounded by K4
+
+prior_data_seen_before_this_file:
+  - the census above, and a wider scratch census (13 shapes, three orders)
+    whose figures are not cited here because its program is not committed
+  - every committed zmap record under docs/benchmarks/zmap_comparison/results/
+    and results/zmap_judyhs_rss_edee6bfa.json
+  - no timed or Callgrind measurement of the candidate
+
+hosts:
+  reference: >-
+    12th Gen Intel Core i9-12900F (8P+8E), container cpuset
+    0,2,4,6,8,10,12,14 (one sibling per P-core), governor as found and
+    recorded.
+  second: >-
+    AMD Ryzen 9 9955HX, container cpuset of one logical CPU per physical
+    core, read from the host's topology at run time and recorded; governor
+    performance for the timed rounds and its CI runner stopped, both restored
+    afterwards (needs the owner's approval before the run).
+  rules: >-
+    Every run under the host-wide bench lock, started only when the lock is
+    free and no bench_baremetal.yml run is in progress, outside :17 past the
+    hour and 17:39 UTC, with no login to the host while a run is in flight.
+    The image is built before the timed rounds, under the same lock.
+
+design:
+  image: >-
+    docs/benchmarks/zmap_comparison/scripts/Dockerfile extended to build
+    libexpanse, zmap d8fc99c9 and cachehash_bench against both M and G.
+    Each library's sha256 is recorded in the artifact.
+  micro: >-
+    cachehash_bench m1, m2, m3 (workload shape table in cachehash_bench.c),
+    seed 4242, arms S, M, G. 15 rounds per run, 2 independent runs per host,
+    arm order rotated per round, workloads rotated, one process per
+    measurement, taskset to one CPU of the cpuset.
+  e2e: >-
+    zmap_e2e_e1_probes1 and zmap_e2e_e2_probes2 as in METHODOLOGY.md with
+    amendment A1 (200,000 pps, 524,288 targets), arms NONE, S, M, G. 10 rounds
+    per run, 2 independent runs per host, arm order rotated per round.
+  void_rule: >-
+    METHODOLOGY.md's, unchanged: a measurement is void if host busy minus the
+    process's own CPU exceeds 2.5 core-equivalents, on pcap_drop > 0, or on
+    fewer responses than expected minus 0.01%; a round with a void cell is
+    dropped whole; voids are counted and disclosed. A micro process whose
+    `ok` is false stops the run and is the headline.
+  statistics: >-
+    Two-sample BCa 95% ratio interval (scripts/bca_bootstrap.py, 2,000
+    resamples) per run and host, the method of the committed records.
+  correctness_before_timing: >-
+    scripts/correctness.sh's churn differential and dryrun comparison with G
+    in place of the libexpanse arm, and the differential-oracle CI job green
+    on the candidate commit. Any mismatch stops the record.
+
+gates:   # every gate on each host and in both of its runs
+  K1_memory_vs_main:
+    metric: micro RSS growth, G / M
+    met_iff: the interval's upper bound is at most 0.95 on m1, m2 and m3
+  K2_time_vs_main:
+    metric: micro ns per response, G / M
+    met_iff: the interval's upper bound is at most 1.02 on m1, m2 and m3
+    note: no direction predicted
+  K3_time_vs_stock:
+    metric: micro ns per response, G / S
+    met_iff: the interval's upper bound is below 1.0 on m1, m2 and m3
+  K4_instructions:
+    instrument: the instruction-counts and callgrind-smoke CI jobs on the PR head
+    K4a: every arm other than those named in K4b is at most +0.1% against main
+    K4b: >-
+      short_bytesmap_*/zmap (instructions.rs) and
+      judyhs_{insert,get,del}_expanse{,_dl} (vs_stock.rs): at most +0.1% is
+      met. Above +0.1% and at most +2.0% is met only if the owner invokes the
+      2026-11-15 exemption for these named arms; without it the gate is NOT
+      MET. Above +2.0% is NOT MET.
+  K5_end_to_end:
+    receive_thread: G / M ns per response, upper bound at most 1.01 on e1 and e2
+    peak_rss: G / M, upper bound at most 1.005 on e1 and e2
+  reported_not_gated:
+    - micro RSS growth G / S (expected above 1: see what_this_can_and_cannot_show)
+    - end-to-end G / S on every metric, and the dedup share
+    - zmap's peak RSS on sparse responders end to end (the +10 MB cell of
+      docs/ARCHITECTURE.md's known-cost paragraph) is not re-measured here
+
+verdict:
+  PASS: K1 to K5 met on both hosts in both runs
+  NOT_MET: any gate missed in both runs on a host, or K4 missed
+  INTERMEDIATE: anything else, with the intervals reported
+  scope: >-
+    PASS means the candidate narrows libexpanse's memory cost on zmap's keys
+    at no time cost. It does not mean libexpanse holds less than stock, and
+    the expected losses above ship with it.
+
+review: no independent, non-LLM review of this pre-registration has been done.

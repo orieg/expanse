@@ -1,0 +1,17 @@
+# dedup_oracle.py over each live correctness run, then diff_churn.c (200,000-key pool, window 65,536, 4,000,000 ops); expanse = candidate cf2dac5eb, main = 5b66ff635
+corr-e1-expanse-115.csv window=1000000 rows=524283 repeats=0 mismatches=0 first=None
+corr-e1-stock+swap-120.csv window=1000000 rows=524286 repeats=0 mismatches=0 first=None
+corr-e1-stock-110.csv window=1000000 rows=524286 repeats=0 mismatches=0 first=None
+corr-e2-expanse-130.csv window=1000000 rows=1048568 repeats=524284 mismatches=0 first=None
+corr-e2-stock+swap-135.csv window=1000000 rows=1048576 repeats=524288 mismatches=0 first=None
+corr-e2-stock-125.csv window=1000000 rows=1048566 repeats=524283 mismatches=0 first=None
+corr-evict-expanse-145.csv window=65536 rows=1048570 repeats=524285 mismatches=0 first=None
+corr-evict-stock+swap-150.csv window=65536 rows=1048566 repeats=524283 mismatches=0 first=None
+corr-evict-stock-140.csv window=65536 rows=1048570 repeats=524285 mismatches=0 first=None
+corr-evict1-expanse-160.csv window=65536 rows=524285 repeats=0 mismatches=0 first=None
+corr-evict1-stock+swap-165.csv window=65536 rows=524286 repeats=0 mismatches=0 first=None
+corr-evict1-stock-155.csv window=65536 rows=524286 repeats=0 mismatches=0 first=None
+stock: ops=4000000 hits=1297196 seqhash=b38819d521ed1b43
+expanse: ops=4000000 hits=1297196 seqhash=b38819d521ed1b43
+main: ops=4000000 hits=1297196 seqhash=b38819d521ed1b43
+swap: ops=4000000 hits=1297196 seqhash=b38819d521ed1b43

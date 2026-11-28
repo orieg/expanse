@@ -41,6 +41,12 @@
 //! any key in the map; a long key's word follows [`ExpanseBytesMap`]'s
 //! contract.
 //!
+//! **Key order.** The 8-byte trie reads a key big-endian. Reading it
+//! little-endian holds less memory on zmap's keys and more on ASCII text, and
+//! was measured slower in zmap's dedup harness
+//! (`docs/benchmarks/zmap_comparison/README.md`, the key-order candidate);
+//! `tests/test_short_key_order_census.rs` pins the memory of both orders.
+//!
 //! **Iteration order.** [`ExpanseShortBytesMap::try_for_each`] visits the
 //! 8-byte keys in ascending byte order, then the 0- to 7-byte keys in
 //! ascending order of their packed word, then the longer keys in

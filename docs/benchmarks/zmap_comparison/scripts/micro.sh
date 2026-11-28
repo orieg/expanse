@@ -1,6 +1,8 @@
 #!/bin/sh
 # Microbenchmark run: ROUNDS rounds, arms alternated, workloads rotated,
 # one process per measurement, pinned to one CPU of the container's cpuset.
+# ZMAP_ARMS names the arms (default "stock expanse"); with three, "stock main
+# expanse", the arm order is rotated by one per round.
 set -eu
 RUN=$1; ROUNDS=$2; CPU=$3
 OUT=/results/micro_run$RUN; mkdir -p $OUT
@@ -10,11 +12,16 @@ run, rounds, cpu = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 def busy():
     v=[int(x) for x in open("/proc/stat").readline().split()[1:]]
     return sum(v[:8])-v[3]-v[4], sum(v[:8])
-wls = ["m1", "m2", "m3"]; arms = ["stock", "expanse"]
+wls = ["m1", "m2", "m3"]; arms = os.environ.get("ZMAP_ARMS", "stock expanse").split()
+def order(r):
+    if len(arms) == 2:
+        return arms if r % 2 == 0 else arms[::-1]
+    k = r % len(arms)
+    return arms[k:] + arms[:k]
 with open(f"/results/micro_run{run}/raw.jsonl", "a") as f:
     for r in range(rounds):
         for wl in wls[r % 3:] + wls[:r % 3]:
-            for arm in (arms if r % 2 == 0 else arms[::-1]):
+            for arm in order(r):
                 load = open("/proc/loadavg").read().split()[:3]
                 b0, t0 = busy()
                 p = subprocess.run(["taskset", "-c", cpu, f"/build/{arm}/cachehash_bench", wl, "4242"],
