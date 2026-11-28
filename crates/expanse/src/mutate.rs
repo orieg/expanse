@@ -459,6 +459,23 @@ pub(crate) fn divergence_level(a: u64, b: u64, level: u8) -> u8 {
     (63 - x.leading_zeros() as u8) / 8 + 1
 }
 
+/// [`decode_value`] in one load, for the read-side walks.
+///
+/// The digits are `aux[kb..level]`, and `aux[i]` is byte `i` of the
+/// little-endian `aux_word` (the tag is byte 7), so they are one shifted,
+/// masked field of that word. `kb >= 1` and `level <= 7` keep the shift
+/// below 64 and the tag byte outside the mask.
+///
+/// The mutation paths keep the byte loop: inlining this form into them
+/// changed `insert_with_path_flat`'s code generation and cost the set insert
+/// arms up to 1.6% although its hot path calls neither.
+#[inline(always)]
+pub(crate) fn decode_value_word(edge: &Edge, kb: u8, level: u8) -> u64 {
+    debug_assert!((1..=7).contains(&kb) && kb <= level && level <= 7);
+    let n = u32::from(level - kb);
+    (u64::from_le(edge.aux_word()) >> (8 * u32::from(kb))) & ((1u64 << (8 * n)) - 1)
+}
+
 /// Reads a skipping edge's decode digits (levels `kb+1..=level`) as one
 /// integer, LSB = the digit at level `kb+1`.
 pub(crate) fn decode_value(edge: &Edge, kb: u8, level: u8) -> u64 {
