@@ -275,6 +275,14 @@ jobs:
       # layout-only builds"). Release builds only: CI, benchmark and other
       # targets' builds are unchanged.
       X86_64_LINUX_ALIGN_RUSTFLAGS: "-C llvm-args=-align-all-functions=6"
+      # The x86_64 Linux library, baseline and glibc-hwcaps variants, is linked
+      # with crates/expanse-capi/hot_layout.ld (build.rs), which holds the hot
+      # JudyL paths at fixed offsets within their pages. Measured with the
+      # alignment above on the baseline build: the stress-ng 4 Mi delete rate
+      # rose 7.7-8.6% on the reference host and 4.8-5.3% on a second host
+      # (docs/benchmarks/stressng_comparison/README.md, "Third record's
+      # outcome"). The step below fails the job if the layout did not take.
+      EXPANSE_LINK_HOT_LAYOUT: ${{ matrix.target == 'x86_64-unknown-linux-gnu' && '1' || '0' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -348,6 +356,19 @@ jobs:
             bash scripts/test_hwcaps.sh dist
             python3 scripts/check_function_alignment.py dist/lib/libexpanse.so.1.0.0 \
               dist/lib/glibc-hwcaps/*/libexpanse.so.1.0.0
+            # The hot layout took: the output section exists, and JudyLGet and
+            # JudyLIns sit at the within-page offsets hot_layout.ld gives them.
+            for so in dist/lib/libexpanse.so.1.0.0 dist/lib/glibc-hwcaps/*/libexpanse.so.1.0.0; do
+              readelf -SW "$so" | grep -q '[[:space:]]\.text\.expanse_hot[[:space:]]' \
+                || { echo "::error::$so has no .text.expanse_hot section: hot_layout.ld was not applied"; exit 1; }
+              for want in JudyLGet:9c0 JudyLIns:b80; do
+                sym="${want%%:*}"
+                addr="$(nm -D --defined-only "$so" | awk -v s="$sym" '$3 == s { print $1 }')"
+                [ -n "$addr" ] || { echo "::error::$so exports no $sym"; exit 1; }
+                [ "${addr: -3}" = "${want##*:}" ] \
+                  || { echo "::error::$so places $sym at page offset 0x${addr: -3}, not 0x${want##*:}"; exit 1; }
+              done
+            done
           fi
 
           tar -czvf "expanse-${VERSION}-${T}.tar.gz" -C dist .

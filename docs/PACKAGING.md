@@ -114,6 +114,10 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat
     - The release job builds with `-C llvm-args=-align-all-functions=6`, through `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS`, and passes it to `scripts/build_hwcaps.sh` as `EXPANSE_HWCAPS_EXTRA_RUSTFLAGS`. `scripts/check_function_alignment.py` fails the job if a function is off a boundary.
     - Without it, the speed of the stress-ng 1 Ki find depended on where the hot code fell in its 64-byte lines (#1684; `docs/benchmarks/stressng_comparison/README.md`, "Diagnostic: layout-only builds").
     - A packager building the x86_64 Linux library from source gets the same layout by passing the same flag.
+  - The `amd64` library, baseline and `glibc-hwcaps` variants alike, is linked with `crates/expanse-capi/hot_layout.ld`, which holds fifteen functions of the `JudyL` get, insert and delete paths at fixed offsets within 4 KiB pages.
+    - The release job sets `EXPANSE_LINK_HOT_LAYOUT=1` for that target and fails if a library lacks the `.text.expanse_hot` section or places `JudyLGet` or `JudyLIns` off its offset.
+    - Its measurements were taken on the baseline build with the alignment above (`docs/benchmarks/stressng_comparison/README.md`, "Third record's outcome on the reference host" and "on the second host"). The `glibc-hwcaps` variants carry the same script and were not measured separately.
+    - A packager building from source gets it by setting the same variable; it needs GNU ld or LLD.
   - `arm64` (AArch64 Apple Silicon Linux, Graviton, Raspberry Pi 4/5)
   - `riscv64` (RV64GC embedded and server systems)
 
