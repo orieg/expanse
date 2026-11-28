@@ -2920,7 +2920,12 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             let d = digit(key, bl);
             let b = edge.node_ptr().cast::<BranchB>();
             // SAFETY: live BranchB per contract.
-            let Some(rank) = (unsafe { &(*b).bitmap }).test_and_subexpanse_rank(d) else {
+            let Some(rank) = (unsafe {
+                crate::bits::shared_bitmap::test_and_subexpanse_rank::<OCC>(
+                    &raw const (*b).bitmap,
+                    d,
+                )
+            }) else {
                 return false;
             };
             let sub = (d >> 5) as usize;
@@ -3485,7 +3490,12 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
             let d = digit(key, bl);
             let b = edge.node_ptr().cast::<BranchB>();
             // SAFETY: live BranchB per contract.
-            let Some(rank) = (unsafe { &(*b).bitmap }).test_and_subexpanse_rank(d) else {
+            let Some(rank) = (unsafe {
+                crate::bits::shared_bitmap::test_and_subexpanse_rank::<OCC>(
+                    &raw const (*b).bitmap,
+                    d,
+                )
+            }) else {
                 return false;
             };
             let sub = (d >> 5) as usize;
