@@ -1,0 +1,225 @@
+# #1682, #1680 — pre-registration for entering a tree below its one-child top
+# node (AGENTS.md §8.8 commit 2). Written and committed before any engine code
+# for it and before any timed or Callgrind run of it; never reconciled in place
+# with outcomes (§8.7). Outcomes and the verdict go to
+# docs/benchmarks/stressng_comparison/README.md and to the artifacts this file
+# names. Thresholds, method and sample size below are fixed; changing any of
+# them after data is seen relabels the result INTERMEDIATE and needs fresh runs
+# (§8.19).
+
+issues: [1682, 1680]
+decision_history: >-
+  results/colour_map_1682_preregistration.yaml records an earlier scope
+  decision to leave the root alone in that pull request, and
+  docs/ARCHITECTURE.md §3.2 says the top-node skip stays open in #1682. The
+  owner asked for this pre-registration on 2026-11-28.
+
+candidate: >-
+  A 64-bit tree whose keys all share their high bytes is entered at the
+  highest level where its keys differ. The root records that level and the
+  shared bytes; lookups, inserts and removals check the key's high bytes
+  against them and start there, and the one-child branches above that level
+  are not built. A key that differs in a shared byte re-roots the tree one
+  step, at most seven times in a tree's life; a removal that leaves the top
+  branch with one child lowers the root level. `Edge`, `ValueSlot`, every node
+  form and the `Judy*` and `expanse_*` C surfaces are unchanged, and the root
+  stays 24 bytes. Both the flat and the OCC walks change together (AGENTS.md
+  §2.1 invariant 5). The 32-bit engine is out of scope.
+
+known_dependents: >-
+  docs/ARCHITECTURE.md §3.2 names four places that assume a level-8 slot never
+  skips: the insert-path cache, the validator, the bulk builder and set
+  algebra. Iteration, navigation, the cursors, the shared-tree root word
+  (#1086) and the saved image are read for the same assumption before any
+  code is written; each is listed in the pull request with what it needed.
+
+arms:
+  S: stock libJudy, the hash-checked file scripts/build.sh uses (AGENTS.md §3)
+  M: the candidate's merge base on main
+  G: the candidate
+  build: >-
+    M and G are built as the release builds the x86_64 Linux library: 64-byte
+    function alignment and EXPANSE_LINK_HOT_LAYOUT=1. Each file's sha256 is
+    recorded.
+
+math_first:
+  instrument: >-
+    scripts/root_skip_bounds.py (commit 1 of this record), `--audit`, over
+    results/colour_top_skip_02d1ee099_run{1,2}.json and
+    docs/benchmarks/stressng_comparison/results/diagnostic_increment_hot_layout_reg3_{ref,zen5}_run{1,2}.json.
+  saving_upper_bound:   # reference host, per Judy1 test
+    cycles: [5.891, 7.864]   # lowest lower end, highest upper end, both runs and populations
+    instructions: 26.981
+    caveats: >-
+      An upper bound: it also skips the root match the candidate keeps. It was
+      measured on the set lookup; the map lookup, insert and removal walks
+      were not measured. Nothing was measured on the second host.
+  clock_assumption: >-
+    The reference host's performance-core clock under these runs is not
+    recorded. The bounds are evaluated at 4.5e9 and 5.1e9 Hz; the higher value
+    is the conservative one.
+  per_cell:   # G is the layout build of the latest two-host record; run 1 | run 2
+    sng_sm_judy_default_gets:
+      ratio_to_stock_ref: {W1: "0.9587 | 0.9577", W8: "0.9569 | 0.9554"}
+      cycles_for_lower_end_above_1_ref: {W1: "5.01 to 5.76", W8: "5.40 to 6.48"}
+      ratio_after_saving_ref: {W1: "1.005 to 1.032", W8: "0.999 to 1.024"}
+      needed_ns_zen5: {W1: "0.672 | 0.759", W8: "0.685 | 0.729"}
+      reading: needs about all of the upper bound; a win over stock is not predicted
+    sng_sm_judy_big_gets_W8:
+      ratio_to_stock_ref: "0.9980 | 0.9990"
+      cycles_for_lower_end_above_1_ref: "0.77 to 1.25"
+      ratio_after_saving_ref: "1.011 to 1.018"
+      reading: predicted above stock if a quarter of the upper bound survives
+    sng_judy_4m_delete:
+      ratio_to_stock_ref: {W1: "0.9965 | 0.9955", W2: "1.0006 | 1.0015", W4: "0.9971 | 0.9917"}
+      cycles_for_lower_end_above_1_ref: {W1: "1.85 to 2.27", W2: "0.91 to 1.07", W4: "1.38 to 2.88"}
+      ratio_after_saving_ref: {W1: "1.027 to 1.045", W2: "1.031 to 1.048", W4: "1.021 to 1.043"}
+      reading: predicted above stock if the removal walk saves half of what the lookup does; that transfer is unmeasured
+    sng_judy_4m_insert:
+      ratio_to_stock_ref: {W1: "0.9618 | 0.9630", W8: "0.9905 | 0.9909"}
+      cycles_for_lower_end_above_1_ref: {W1: "6.50 to 7.68", W8: "1.65 to 1.91"}
+      needed_ns_zen5: {W1: "0.925 | 0.553", W8: "0.966 | 0.573"}
+      reading: not predicted; the insert-path cache may already bypass the top node, which is unmeasured
+  instruction_share: >-
+    26.981 of 229.9 instructions per get on map_get_slot_ptr/sm_10k (CI run
+    46116903374, head 5397bcf7b) is 11.7%, if the map lookup crosses the top
+    node as the set lookup does. Derived, not measured.
+  detectability: >-
+    The record's delete and get intervals are 0.1% to 0.8% wide per side at 12
+    rounds, so an effect of 1% or more separates from 1 in one run.
+  step_0_verdict: PROCEED_WITH_AMENDMENT
+  amendment: >-
+    The stock-side target is set on the cells the bounds predict (the big
+    sparsematrix gets at 8 workers and the 4 Mi deletes at 1, 2 and 4
+    workers). The default sparsematrix gets and the 4 Mi inserts are reported
+    with their labels and are not targets.
+
+expected_losses:   # named before measuring
+  - what: lookups, inserts and removals on a tree whose keys differ in their top byte
+    loss: the check of the root level on entry; bounded by K2
+  - what: a tree that grows into a higher byte
+    loss: one re-root per byte, at most seven per tree; not expected to show in any arm
+  - what: the default sparsematrix gets against stock on the reference host
+    loss: may stay below stock (see per_cell)
+  - what: the second host
+    loss: no saving was measured there; the direction is expected, the size is not
+
+prior_data_seen_before_this_file:
+  - the two artifact sets named under math_first, and the audit's output
+  - docs/benchmarks/stressng_comparison/README.md in full, with every record of a rejected candidate
+  - CI run 46116903374's instruction table
+  - an external model's review of main at d1b00bea7, which proposed this change with its own bounds; those bounds are not used here
+  - no timed or Callgrind measurement of the candidate; no candidate code exists
+
+hosts:
+  reference: 12th Gen Intel Core i9-12900F, pin 0,2,4,6,8,10,12,14, governor as found and recorded
+  second: >-
+    AMD Ryzen 9 9955HX, pin 0-7, governor performance for the runs and its CI
+    runner stopped, both restored afterwards; needs the owner's approval
+    before the run. The reference host's library files are copied and
+    hash-checked.
+  rules: >-
+    Every run under the host bench lock, started only when the lock is free and
+    no bench_baremetal.yml run is in progress, outside :17 past the hour and
+    17:39 UTC, with no login to the host while a run is in flight.
+
+design:
+  runs: >-
+    `run.sh <run> <host> increment` over every cell of METHODOLOGY.md §5, 12
+    rounds per run, arm orders rotated, one process per arm per cell per
+    round; two independent runs per host. Analysed by
+    scripts/diag_increment_analyze.py --l1-separated with the T1 targets.
+  statistics: two-sample BCa 95% interval of the ratio of means (scripts/bca_bootstrap.py, 2,000 resamples), per run and host
+  void_rule: METHODOLOGY.md's, unchanged; a void run is discarded, disclosed and repeated
+  correctness_before_timing: >-
+    The differential oracle against stock, the php-judy jobs, the workspace
+    tests with PROPTEST_CASES=500 and Tier-1 Miri green on the candidate's
+    head. Any mismatch stops the record.
+
+targets:   # each on both hosts and in both of its runs
+  T1_against_main:
+    metric: G/M
+    met_iff: >-
+      the interval's lower end is above 1.0 on judy-gets-per-sec at
+      sng_sm_judy_default W = 1 and 8 and sng_sm_judy_big W = 8, and on
+      judy-delete-operations-per-sec at sng_judy_4m W = 1, 2 and 4
+  T2_against_stock:
+    metric: G/S
+    met_iff: >-
+      the interval's lower end is above 1.0 on judy-gets-per-sec at
+      sng_sm_judy_big W = 8 and on judy-delete-operations-per-sec at
+      sng_judy_4m W = 1, 2 and 4
+
+bounds:   # every one must hold
+  L1b: as scripts/diag_increment_analyze.py --l1-separated states it, over every primary cell-metric, on both hosts
+  L2: no primary cell-metric has its G/M upper end below 0.98 in both runs, on either host
+  max_rss: G/M lower end not above 1.02 in both runs on any cell, on either host
+  K1_instructions_all_arms: >-
+    every arm of instructions.rs, rmw_instructions.rs and vs_stock.rs, on the
+    x86-64 deterministic, x86-64 smoke and AArch64 Callgrind jobs, and every
+    wasm32 and wasm64 fuel arm, is at most +0.1% against main, except the arms
+    K2 names
+  K2_full_width_arms: >-
+    map_get/random, set_contains/random, map_insert/random, set_insert/random,
+    map_remove/random, set_remove/random, short_bytesmap_{insert,get,remove}/zmap
+    and their C-ABI twins judyl_get_*, judy1_test_*, judyhs_{insert,get,del}_*:
+    at most +0.1% is met. Above +0.1% and at most +0.5% is met only if the
+    owner invokes the 2026-11-15 exemption for these named arms; without it
+    the bound is NOT MET. Above +0.5% is NOT MET.
+  memory: no memory-budget row rises; mem_used does not rise on any committed census
+  layout: >-
+    size_of::<ExpanseMap>() stays 712 B and the root 24 bytes; the layout
+    tests' pins are unchanged
+  surface: the public API snapshot and include/ are unchanged
+  images: every image written by main loads and round-trips
+  ci: the full CI run on the candidate's head is green
+
+reported_not_gated:
+  - G/S on judy-gets-per-sec at sng_sm_judy_default and on judy-insert-operations-per-sec at sng_judy_4m, with METHODOLOGY.md §8's labels
+  - the Callgrind arms expected to fall (map_get_slot_ptr/*, map_get/sm_*, map_remove_revgen/*, map_ins_slot/gen_*, judy1_colour_*), with their counts
+  - the OQGraph colour-map tape of #1682, if its rig is available
+  - zmap is not re-measured: its keys differ in their top byte
+
+verdict:
+  PASS: T1, T2 and every bound hold on both hosts in both runs
+  INTERMEDIATE: T1 and every bound hold and T2 does not, or the second host is pending
+  FAIL: anything else; the change is not landed and the record names what broke
+  scope: >-
+    PASS means the cells T2 names beat stock on both hosts. It does not cover
+    the default sparsematrix gets, the 4 Mi inserts or the hashjudy cells.
+
+review: no independent, non-LLM review of this pre-registration has been done.
+
+amendments:
+  - date: 2026-11-28
+    before_any_data: >-
+      Written before any timed or Callgrind run of the candidate. Targets,
+      bounds, runs, statistics and the verdict taxonomy above are unchanged.
+    what: the mechanism, and the scope of the first increment
+    registered: >-
+      The one-child branches above the divergence level are not built; the
+      root records a level and the shared bytes; a key that differs re-roots
+      the tree; a removal lowers the root level.
+    built: >-
+      The tree is unchanged. The root carries a hint (`Root::Top1`) set where
+      a plain tree is built, when its top edge is a level-8 BranchL3 with one
+      child. The lookup, insert and removal entry points re-check the top
+      node on every use (BranchL3, one child, the key's top byte is its
+      digit) and enter the existing walks at the child edge with seven
+      undecoded bytes; otherwise they take the walk from the top edge as
+      before. This is the entry the upper-bound measurement used
+      (crates/expanse/src/set/diag_colour_top.rs).
+    why: >-
+      The design read found that the registered form changes about 110 root
+      readers and the shared-tree root word, and that any check on entry
+      costs the full-width-key arms instructions K2 does not allow. A root
+      variant makes the check free for an ordinary tree, and keeping the
+      tree unchanged keeps every other reader correct.
+    consequences:
+      - mem_used does not fall; the memory bound is met by no change
+      - a shared tree never carries the hint (an allocator is shared before it holds a node), so no OCC walk or concurrent reader changes
+      - once a tree has held a key under a second top byte the hint is dropped by the next hinted insert and returns only when the tree is rebuilt (root-leaf promotion, clone, bulk build); the registered lowering on removal is not built
+      - first increment: ExpanseMap `get`, `get_slot_ptr`, `insert`, `ins_slot_plain` and `remove`, the entry points behind JudyLGet, JudyLIns and JudyLDel. ExpanseSet (Judy1) and the remaining map entry points take the walk from the top edge and are a later increment
+    effect_on_targets: >-
+      None on T1 and T2, which are JudyL cells. The OQGraph colour-map tape of
+      #1682 is Judy1 and is not reached by the first increment.

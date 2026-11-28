@@ -273,6 +273,7 @@ jobs:
               - 'scripts/fit_usl.py'
               - 'scripts/reader_scaling_bounds.py'
               - 'scripts/trim_remedy_bounds.py'
+              - 'scripts/root_skip_bounds.py'
             perf-tooling:
               - 'scripts/perf_report.py'
               - 'scripts/bench_report.py'
@@ -596,6 +597,10 @@ jobs:
           # trimming-off runs to the Step 0 ceilings of a page cache across tree
           # drops (#1680); its self-test pins them against the artifacts.
           python3 scripts/trim_remedy_bounds.py --self-test
+          # root_skip_bounds.py reduces the committed top-node measurement and the
+          # latest two-host stress-ng record to the Step 0 bounds of entering a
+          # tree below its one-child top node (#1682).
+          python3 scripts/root_skip_bounds.py --self-test
           # ycsb_concurrent_bounds.py holds the workload bounds the concurrent YCSB
           # pre-registration invokes (#1006): the Zipfian top-k share under the exact
           # rank law and under the generator's closed form, same-key and same-leaf
