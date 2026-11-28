@@ -189,3 +189,37 @@ verdict:
     the default sparsematrix gets, the 4 Mi inserts or the hashjudy cells.
 
 review: no independent, non-LLM review of this pre-registration has been done.
+
+amendments:
+  - date: 2026-11-28
+    before_any_data: >-
+      Written before any timed or Callgrind run of the candidate. Targets,
+      bounds, runs, statistics and the verdict taxonomy above are unchanged.
+    what: the mechanism, and the scope of the first increment
+    registered: >-
+      The one-child branches above the divergence level are not built; the
+      root records a level and the shared bytes; a key that differs re-roots
+      the tree; a removal lowers the root level.
+    built: >-
+      The tree is unchanged. The root carries a hint (`Root::Top1`) set where
+      a plain tree is built, when its top edge is a level-8 BranchL3 with one
+      child. The lookup, insert and removal entry points re-check the top
+      node on every use (BranchL3, one child, the key's top byte is its
+      digit) and enter the existing walks at the child edge with seven
+      undecoded bytes; otherwise they take the walk from the top edge as
+      before. This is the entry the upper-bound measurement used
+      (crates/expanse/src/set/diag_colour_top.rs).
+    why: >-
+      The design read found that the registered form changes about 110 root
+      readers and the shared-tree root word, and that any check on entry
+      costs the full-width-key arms instructions K2 does not allow. A root
+      variant makes the check free for an ordinary tree, and keeping the
+      tree unchanged keeps every other reader correct.
+    consequences:
+      - mem_used does not fall; the memory bound is met by no change
+      - a shared tree never carries the hint (an allocator is shared before it holds a node), so no OCC walk or concurrent reader changes
+      - once a tree has held a key under a second top byte the hint is dropped by the next hinted insert and returns only when the tree is rebuilt (root-leaf promotion, clone, bulk build); the registered lowering on removal is not built
+      - first increment: ExpanseMap `get`, `get_slot_ptr`, `insert`, `ins_slot_plain` and `remove`, the entry points behind JudyLGet, JudyLIns and JudyLDel. ExpanseSet (Judy1) and the remaining map entry points take the walk from the top edge and are a later increment
+    effect_on_targets: >-
+      None on T1 and T2, which are JudyL cells. The OQGraph colour-map tape of
+      #1682 is Judy1 and is not reached by the first increment.
