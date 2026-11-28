@@ -4,14 +4,14 @@
  "memory_only": "no timing figure from the sparse, allocator or reclaim studies is reported; the shared host's load makes them inadmissible as timings",
  "build": {
   "libexpanse_commit": "edee6bfa5 (#1709); no change under crates/expanse or crates/expanse-capi on the JudyHS path up to 59119d217",
-  "libexpanse_sha256": "926640c13fd2c0653facf27d58ec194697d481714f34556d2061ff9141104c21 (honeypot image, sparse, allocator and reclaim studies; not recorded for the dense run)",
+  "libexpanse_sha256": "926640c13fd2c0653facf27d58ec194697d481714f34556d2061ff9141104c21 (Xeon-host image, sparse, allocator and reclaim studies; not recorded for the dense run)",
   "stock": "libJudy.so.1 1.0.5-5+b2 (Debian)",
   "zmap_commit": "d8fc99c9, unchanged source, two builds: linked to stock libJudy and to libexpanse",
   "container_libc": "glibc 2.36",
   "reclaim_build_sha256": "03500483326c0470150dd6e191c2ba7865d16141d1c634d0437b7f81103828d8 (edee6bfa5 plus the shape (a) patch in results/judyhs_reclaim_callgrind_59119d217.json; never published)"
  },
  "hosts": {
-  "dense_e2e": "reference host, i9-12900F, P-cores pinned; image zmap-judy-eval:d8fc99c9-edee6bfa built from the same zmap and libexpanse commits. The dense run did not record its libexpanse sha256, so byte identity with the library of the honeypot runs (926640c1...) is unverified",
+  "dense_e2e": "reference host, i9-12900F, P-cores pinned; image zmap-judy-eval:d8fc99c9-edee6bfa built from the same zmap and libexpanse commits. The dense run did not record its libexpanse sha256, so byte identity with the library of the Xeon-host runs (926640c1...) is unverified",
   "sparse_allocator_reclaim": "2x Intel Xeon E5-2697 v4 (18 cores / 36 threads each, 72 threads), Linux 5.15, shared with other work; memory only"
  },
  "rig": {
