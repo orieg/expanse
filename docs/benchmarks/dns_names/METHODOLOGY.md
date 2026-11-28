@@ -323,3 +323,59 @@ shows whether the per-call registration or the host is the reason.
 
 **A1.4 Artifacts.** The first dispatch writes `results/baseline_*.json`, the
 second the same files renamed `baseline_*_run2.json`.
+
+### A2 (2026-11-28): a pre-encoded lookup arm on `dns_get`, after the verdicts
+
+Written after both dispatches of the suite were read and their verdicts
+published. Nothing in §1 to §7 or A1 is edited, and no verdict of §4 is
+re-evaluated: G1 to G3 stay as judged on `baseline_get.json` and
+`baseline_get_run2.json`, which this amendment does not replace.
+
+**Why.** G3 shows that `expanse_ordered` pays for the key form, and G2 that it
+loses to `qp_trie`. `ExpanseOrderedBytesMap::get` re-encodes every probe that
+holds a `0x00` or `0x01` octet before it descends, and every `key_nul` probe
+holds one. `expanse_direct` removes that pass, but it also stores a different
+key (`key_direct`), so G3 cannot say how much of the difference is the pass
+and how much the stored key. The new arm separates the two.
+
+**A2.1 The arm.** `expanse_ordered_pre_encoded` reads the same map as
+`expanse_ordered`, built once per cell. Its probes are the `key_nul` probes
+encoded outside the timed window with `expanse_trie::domain::escape_encode`,
+the encoding the map applies itself, and looked up with
+`as_inner().get(..)`, which descends without re-encoding. Same names, same
+probe order, same hit set; its hit count and value sum are checked against
+`expanse_ordered`'s before timing. `dns_get` then times five arms per round,
+the order rotated by the round over five.
+
+**A2.2 What had been seen when A2 was written.** Every figure of the suite's
+README, in particular `expanse_ordered` over `qp_trie` 1.03 to 1.42 and
+`expanse_direct` over `qp_trie` 0.63 to 0.75 at n = 1,000,000 and at or below
+1.0 at n = 100,000. An instruction-count profile of the lookup, taken on a
+development machine and not committed (unsourced here, and it decides nothing):
+about 548 and 594 instructions per lookup for `expanse_ordered` at n = 1,000
+and 1,000,000, about 269 and 316 with the probe encoded beforehand, about 265
+and 309 for `expanse_direct`. No wall-clock figure of the new arm on any host.
+
+**A2.3 Predictions.** A ratio is the first-named arm's ns per operation over
+the second's, read under the rule of §4: a cell is PASS only when its interval
+lies on the predicted side of 1.0 in both dispatches.
+- P1: `expanse_ordered_pre_encoded` over `expanse_ordered` is below 1.0 in
+  all eight cells at n ∈ {100,000, 1,000,000}.
+- P2: `expanse_ordered_pre_encoded` over `qp_trie` is below 1.0 in the four
+  cells at n = 1,000,000.
+- No prediction, reported: the same ratio at n = 100,000, and
+  `expanse_ordered_pre_encoded` over `expanse_direct` and over `btreemap`.
+
+The instruction counts above predict P1's direction and are silent on P2: at
+n = 1,000,000 a stored `key_nul` sends more misses to a second level than a
+stored `key_direct` does, and what that costs in time is not measured.
+
+**A2.4 What it decides.** Nothing in §6. P1 and P2 say whether a lookup entry
+point that takes an already encoded key is worth proposing for callers that
+hold their probes in stored form; they are not a claim about `get` as shipped,
+which re-encodes.
+
+**A2.5 Artifacts.** `dns_get` as amended writes `results/baseline_get_a2.json`,
+and the second dispatch's file is renamed `baseline_get_a2_run2.json`. The
+dispatch runs the whole suite; the other four artifacts of those two runs are
+not read and not committed.

@@ -11,7 +11,7 @@
 
 ## Pre-registered verdicts
 
-Evaluated at n ∈ {100,000, 1,000,000} in both build orders, under METHODOLOGY.md §4 and §5 as amended by A1. A timing cell is PASS only when its interval lies on the predicted side of the threshold in both dispatches. No result here has had independent review.
+Evaluated at n ∈ {100,000, 1,000,000} in both build orders, under METHODOLOGY.md §4 and §5 as amended by A1; the two A2 rows are the predictions of amendment A2, registered after the others were judged and read on their own artifacts. A timing cell is PASS only when its interval lies on the predicted side of the threshold in both dispatches. No result here has had independent review.
 
 | Prediction | Cells | Verdict | Breakdown |
 |---|---|---|---|
@@ -29,6 +29,8 @@ Evaluated at n ∈ {100,000, 1,000,000} in both build orders, under METHODOLOGY.
 | C1 `sync_locked` does not scale: upper bound of S(8) below 2 | 1 | PASS | PASS 1 |
 | C2 `clone_per_reader` scales: lower bound of S(8) above 4 (A1.1) | 1 | PASS | PASS 1 |
 | C3 `sync_get` scales: lower bound of S(8) above 4 | 1 | REFUTED | REFUTED 1 |
+| A2 P1 `dns_get`: `expanse_ordered_pre_encoded` faster than `expanse_ordered` | 8 | PASS | PASS 8 |
+| A2 P2 `dns_get`: `expanse_ordered_pre_encoded` faster than `qp_trie` at n = 1,000,000 | 4 | PASS | PASS 4 |
 
 ## Decision (METHODOLOGY.md §6)
 
@@ -100,6 +102,55 @@ Workload `dns_get` (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 
 | 1,000,000 | sorted | `hit+miss_under_sld` | 241.5 | 152.4 | 493.8 | 203.4 | 0.495 [0.491, 0.499] · 0.494 [0.488, 0.501] | 1.193 [1.177, 1.202] · 1.199 [1.190, 1.214] | 1.607 [1.588, 1.633] · 1.603 [1.588, 1.628] | 0.742 [0.728, 0.751] · 0.748 [0.743, 0.753] |
 | 1,000,000 | shuffled | `hit+miss_new_sld` | 201.3 | 123.8 | 533.4 | 195.7 | 0.383 [0.375, 0.394] · 0.383 [0.374, 0.393] | 1.032 [1.019, 1.046] · 1.031 [1.021, 1.042] | 1.647 [1.620, 1.672] · 1.645 [1.622, 1.671] | 0.627 [0.621, 0.632] · 0.626 [0.620, 0.633] |
 | 1,000,000 | shuffled | `hit+miss_under_sld` | 256.8 | 160.2 | 537.0 | 213.1 | 0.487 [0.476, 0.503] · 0.486 [0.474, 0.502] | 1.211 [1.195, 1.228] · 1.212 [1.198, 1.231] | 1.629 [1.604, 1.659] · 1.631 [1.602, 1.665] | 0.744 [0.738, 0.750] · 0.744 [0.737, 0.751] |
+
+## Exact lookup with the probe encoded beforehand (A2)
+
+`expanse_ordered_pre_encoded` reads `expanse_ordered`'s own map with each probe escape-encoded outside the timed window, so the per-lookup encoding pass is removed and the stored key is unchanged (METHODOLOGY.md A2). These are separate runs of `dns_get` with five arms; the table above and G1 to G3 are not drawn from them.
+
+- Dispatch 1 (`baseline_get_a2.json`): 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-138-generic); core pin `0-15`; governor `performance`; commit `81979942`; run https://github.com/orieg/expanse/actions/runs/46167110825; 45 load windows, one per harness process; largest busy-CPU figure from outside the run 0.02 core-equivalents.
+- Dispatch 2 (`baseline_get_a2_run2.json`): 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-138-generic); core pin `0-15`; governor `performance`; commit `81979942`; run https://github.com/orieg/expanse/actions/runs/46171938311; 45 load windows, one per harness process; largest busy-CPU figure from outside the run 0.02 core-equivalents.
+
+Workload `dns_get` (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-138-generic), 81979942). Arm columns are median ns per operation in dispatch 1; a ratio is the first arm's time over the second's, geometric mean of the per-round ratios with its BCa 95% interval, dispatch 1 then dispatch 2. Below 1.0 the first arm is faster.
+
+| n | order | probes | `expanse_ordered` | `expanse_ordered_pre_encoded` | `expanse_direct` | `btreemap` | `qp_trie` | `expanse_ordered_pre_encoded_over_expanse_ordered` | `expanse_ordered_pre_encoded_over_qp_trie` | `expanse_ordered_pre_encoded_over_expanse_direct` | `expanse_ordered_pre_encoded_over_btreemap` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1,000 | sorted | `hit+miss_new_sld` | 43.7 | 18.9 | 17.2 | 61.3 | 15.9 | 0.429 [0.417, 0.443] · 0.419 [0.411, 0.425] | 1.177 [1.138, 1.218] · 1.144 [1.117, 1.168] | 1.065 [1.021, 1.106] · 1.031 [0.997, 1.067] | 0.306 [0.296, 0.318] · 0.305 [0.296, 0.314] |
+| 1,000 | sorted | `hit+miss_under_sld` | 56.4 | 22.3 | 20.8 | 55.8 | 17.1 | 0.402 [0.392, 0.418] · 0.400 [0.388, 0.412] | 1.319 [1.287, 1.365] · 1.314 [1.281, 1.364] | 1.076 [1.024, 1.129] · 1.074 [1.033, 1.127] | 0.407 [0.395, 0.425] · 0.393 [0.381, 0.407] |
+| 1,000 | shuffled | `hit+miss_new_sld` | 42.6 | 17.9 | 16.8 | 64.6 | 15.3 | 0.431 [0.415, 0.451] · 0.423 [0.412, 0.441] | 1.200 [1.160, 1.252] · 1.163 [1.126, 1.222] | 1.084 [1.033, 1.136] · 1.063 [1.013, 1.130] | 0.286 [0.274, 0.304] · 0.284 [0.273, 0.300] |
+| 1,000 | shuffled | `hit+miss_under_sld` | 56.3 | 22.4 | 21.2 | 61.1 | 17.0 | 0.407 [0.397, 0.422] · 0.394 [0.386, 0.400] | 1.334 [1.300, 1.394] · 1.305 [1.282, 1.321] | 1.086 [1.051, 1.117] · 1.060 [1.032, 1.099] | 0.374 [0.360, 0.393] · 0.373 [0.364, 0.382] |
+| 10,000 | sorted | `hit+miss_new_sld` | 71.1 | 51.6 | 49.7 | 115.6 | 43.4 | 0.724 [0.718, 0.729] · 0.721 [0.717, 0.726] | 1.181 [1.172, 1.191] · 1.179 [1.171, 1.187] | 1.036 [1.028, 1.044] · 1.033 [1.027, 1.041] | 0.445 [0.442, 0.448] · 0.445 [0.441, 0.447] |
+| 10,000 | sorted | `hit+miss_under_sld` | 83.9 | 58.0 | 56.9 | 117.8 | 49.0 | 0.693 [0.690, 0.698] · 0.694 [0.692, 0.696] | 1.189 [1.179, 1.196] · 1.195 [1.190, 1.199] | 1.020 [1.014, 1.028] · 1.020 [1.014, 1.026] | 0.495 [0.490, 0.497] · 0.494 [0.490, 0.498] |
+| 10,000 | shuffled | `hit+miss_new_sld` | 71.4 | 51.2 | 49.9 | 122.3 | 43.8 | 0.726 [0.719, 0.734] · 0.723 [0.716, 0.731] | 1.176 [1.160, 1.190] · 1.178 [1.166, 1.191] | 1.038 [1.026, 1.054] · 1.038 [1.027, 1.052] | 0.425 [0.418, 0.434] · 0.422 [0.416, 0.430] |
+| 10,000 | shuffled | `hit+miss_under_sld` | 83.6 | 58.6 | 57.4 | 124.5 | 49.3 | 0.701 [0.696, 0.708] · 0.697 [0.693, 0.703] | 1.194 [1.183, 1.206] · 1.190 [1.181, 1.201] | 1.029 [1.018, 1.043] · 1.027 [1.016, 1.041] | 0.475 [0.467, 0.485] · 0.471 [0.465, 0.481] |
+| 100,000 | sorted | `hit+miss_new_sld` | 88.1 | 67.2 | 64.1 | 200.7 | 70.3 | 0.766 [0.759, 0.771] · 0.763 [0.757, 0.770] | 0.962 [0.953, 0.972] · 0.961 [0.952, 0.971] | 1.053 [1.044, 1.061] · 1.052 [1.046, 1.062] | 0.339 [0.334, 0.346] · 0.339 [0.335, 0.344] |
+| 100,000 | sorted | `hit+miss_under_sld` | 110.3 | 82.4 | 77.9 | 204.2 | 79.4 | 0.748 [0.742, 0.753] · 0.748 [0.743, 0.752] | 1.045 [1.034, 1.056] · 1.049 [1.042, 1.058] | 1.060 [1.051, 1.067] · 1.060 [1.053, 1.067] | 0.407 [0.397, 0.417] · 0.408 [0.403, 0.415] |
+| 100,000 | shuffled | `hit+miss_new_sld` | 89.1 | 68.3 | 64.5 | 214.4 | 70.2 | 0.774 [0.763, 0.792] · 0.776 [0.764, 0.795] | 0.979 [0.968, 0.994] · 0.985 [0.972, 0.997] | 1.072 [1.054, 1.100] · 1.074 [1.056, 1.101] | 0.326 [0.317, 0.339] · 0.328 [0.320, 0.342] |
+| 100,000 | shuffled | `hit+miss_under_sld` | 111.9 | 83.5 | 78.9 | 217.5 | 78.7 | 0.753 [0.747, 0.764] · 0.758 [0.746, 0.774] | 1.069 [1.059, 1.079] · 1.078 [1.068, 1.089] | 1.075 [1.061, 1.094] · 1.085 [1.069, 1.107] | 0.392 [0.384, 0.407] · 0.397 [0.387, 0.412] |
+| 1,000,000 | sorted | `hit+miss_new_sld` | 191.8 | 134.8 | 118.6 | 490.4 | 184.6 | 0.704 [0.702, 0.707] · 0.706 [0.702, 0.712] | 0.729 [0.724, 0.733] · 0.732 [0.726, 0.738] | 1.143 [1.132, 1.152] · 1.146 [1.132, 1.157] | 0.275 [0.273, 0.278] · 0.278 [0.276, 0.280] |
+| 1,000,000 | sorted | `hit+miss_under_sld` | 241.0 | 161.1 | 152.1 | 492.9 | 201.0 | 0.670 [0.668, 0.673] · 0.666 [0.662, 0.670] | 0.800 [0.794, 0.805] · 0.799 [0.792, 0.804] | 1.064 [1.055, 1.073] · 1.066 [1.057, 1.073] | 0.328 [0.325, 0.330] · 0.329 [0.327, 0.331] |
+| 1,000,000 | shuffled | `hit+miss_new_sld` | 203.4 | 142.8 | 123.6 | 536.1 | 195.7 | 0.711 [0.705, 0.720] · 0.729 [0.706, 0.822] | 0.738 [0.727, 0.752] · 0.756 [0.730, 0.856] | 1.175 [1.152, 1.205] · 1.200 [1.154, 1.368] | 0.272 [0.266, 0.283] · 0.279 [0.267, 0.323] |
+| 1,000,000 | shuffled | `hit+miss_under_sld` | 257.0 | 171.9 | 159.8 | 540.0 | 212.5 | 0.671 [0.668, 0.675] · 0.691 [0.669, 0.785] | 0.818 [0.805, 0.833] · 0.838 [0.806, 0.972] | 1.102 [1.082, 1.130] · 1.133 [1.085, 1.317] | 0.326 [0.318, 0.339] · 0.336 [0.320, 0.394] |
+
+- `expanse_ordered_pre_encoded_over_expanse_direct` n = 100,000, sorted, `hit+miss_new_sld` (no prediction): UNPREDICTED_LOSS (1.053 [1.044, 1.061]; 1.052 [1.046, 1.062])
+- `expanse_ordered_pre_encoded_over_btreemap` n = 100,000, sorted, `hit+miss_new_sld` (no prediction): below 1.0 (0.339 [0.334, 0.346]; 0.339 [0.335, 0.344])
+- `expanse_ordered_pre_encoded_over_qp_trie` n = 100,000, sorted, `hit+miss_new_sld` (no prediction): below 1.0 (0.962 [0.953, 0.972]; 0.961 [0.952, 0.971])
+- `expanse_ordered_pre_encoded_over_expanse_direct` n = 100,000, sorted, `hit+miss_under_sld` (no prediction): UNPREDICTED_LOSS (1.060 [1.051, 1.067]; 1.060 [1.053, 1.067])
+- `expanse_ordered_pre_encoded_over_btreemap` n = 100,000, sorted, `hit+miss_under_sld` (no prediction): below 1.0 (0.407 [0.397, 0.417]; 0.408 [0.403, 0.415])
+- `expanse_ordered_pre_encoded_over_qp_trie` n = 100,000, sorted, `hit+miss_under_sld` (no prediction): UNPREDICTED_LOSS (1.045 [1.034, 1.056]; 1.049 [1.042, 1.058])
+- `expanse_ordered_pre_encoded_over_expanse_direct` n = 100,000, shuffled, `hit+miss_new_sld` (no prediction): UNPREDICTED_LOSS (1.072 [1.054, 1.100]; 1.074 [1.056, 1.101])
+- `expanse_ordered_pre_encoded_over_btreemap` n = 100,000, shuffled, `hit+miss_new_sld` (no prediction): below 1.0 (0.326 [0.317, 0.339]; 0.328 [0.320, 0.342])
+- `expanse_ordered_pre_encoded_over_qp_trie` n = 100,000, shuffled, `hit+miss_new_sld` (no prediction): below 1.0 (0.979 [0.968, 0.994]; 0.985 [0.972, 0.997])
+- `expanse_ordered_pre_encoded_over_expanse_direct` n = 100,000, shuffled, `hit+miss_under_sld` (no prediction): UNPREDICTED_LOSS (1.075 [1.061, 1.094]; 1.085 [1.069, 1.107])
+- `expanse_ordered_pre_encoded_over_btreemap` n = 100,000, shuffled, `hit+miss_under_sld` (no prediction): below 1.0 (0.392 [0.384, 0.407]; 0.397 [0.387, 0.412])
+- `expanse_ordered_pre_encoded_over_qp_trie` n = 100,000, shuffled, `hit+miss_under_sld` (no prediction): UNPREDICTED_LOSS (1.069 [1.059, 1.079]; 1.078 [1.068, 1.089])
+- `expanse_ordered_pre_encoded_over_expanse_direct` n = 1,000,000, sorted, `hit+miss_new_sld` (no prediction): UNPREDICTED_LOSS (1.143 [1.132, 1.152]; 1.146 [1.132, 1.157])
+- `expanse_ordered_pre_encoded_over_btreemap` n = 1,000,000, sorted, `hit+miss_new_sld` (no prediction): below 1.0 (0.275 [0.273, 0.278]; 0.278 [0.276, 0.280])
+- `expanse_ordered_pre_encoded_over_expanse_direct` n = 1,000,000, sorted, `hit+miss_under_sld` (no prediction): UNPREDICTED_LOSS (1.064 [1.055, 1.073]; 1.066 [1.057, 1.073])
+- `expanse_ordered_pre_encoded_over_btreemap` n = 1,000,000, sorted, `hit+miss_under_sld` (no prediction): below 1.0 (0.328 [0.325, 0.330]; 0.329 [0.327, 0.331])
+- `expanse_ordered_pre_encoded_over_expanse_direct` n = 1,000,000, shuffled, `hit+miss_new_sld` (no prediction): UNPREDICTED_LOSS (1.175 [1.152, 1.205]; 1.200 [1.154, 1.368])
+- `expanse_ordered_pre_encoded_over_btreemap` n = 1,000,000, shuffled, `hit+miss_new_sld` (no prediction): below 1.0 (0.272 [0.266, 0.283]; 0.279 [0.267, 0.323])
+- `expanse_ordered_pre_encoded_over_expanse_direct` n = 1,000,000, shuffled, `hit+miss_under_sld` (no prediction): UNPREDICTED_LOSS (1.102 [1.082, 1.130]; 1.133 [1.085, 1.317])
+- `expanse_ordered_pre_encoded_over_btreemap` n = 1,000,000, shuffled, `hit+miss_under_sld` (no prediction): below 1.0 (0.326 [0.318, 0.339]; 0.336 [0.320, 0.394])
 
 ## Predecessor of an absent name
 
