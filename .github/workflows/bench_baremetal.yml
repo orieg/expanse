@@ -132,6 +132,7 @@ on:
           - art_memory
           - art_small_payload
           - patricia_comparison
+          - dns_names
           - hashbrown_comparison
           - patricia_d2_paging
           - hot_string_memory
@@ -1300,6 +1301,20 @@ jobs:
                 # file the report step already posts. Fatal on failure: the
                 # runner IS the measurement (AGENTS.md section 8.1).
                 python3 docs/benchmarks/patricia_comparison/scripts/run_all.py \
+                  --host-desc "$HOST_DESC" \
+                  --run-id "$RUN_URL" \
+                  | tee bench-output.txt
+                ;;
+              "dns_names")
+                # The DNS-shaped key suite (#1800) through its own runner: one
+                # process per round (12 rounds, 8 for the concurrent readers),
+                # one load window per process, BCa 95% intervals on paired
+                # per-round ratios, and the provenance gate applied to every
+                # artifact it writes. This step already holds the bench lock
+                # and the pin, so the runner is invoked directly rather than
+                # through run.sh. Fatal on failure: the runner IS the
+                # measurement (AGENTS.md section 8.1).
+                python3 docs/benchmarks/dns_names/scripts/run_all.py \
                   --host-desc "$HOST_DESC" \
                   --run-id "$RUN_URL" \
                   | tee bench-output.txt
@@ -2538,6 +2553,7 @@ jobs:
             docs/benchmarks/patricia_comparison/results/baseline_*.json \
             docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_*.json \
             docs/benchmarks/hashbrown_comparison/results/baseline_*.json \
+            docs/benchmarks/dns_names/results/baseline_*.json \
             docs/benchmarks/hot_comparison/results/baseline_string_memory.json \
             docs/benchmarks/hot_comparison/results/baseline_string_latency.json \
             docs/benchmarks/hot_comparison/results/baseline_string_sensitivity.json \

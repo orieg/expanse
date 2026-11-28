@@ -36,12 +36,6 @@ colour map) and [`gtkwave_comparison/`](gtkwave_comparison/README.md)
 Callgrind and RSS evaluation). They are the evaluation records behind the
 top-level README's *Verified in real projects* table.
 
-**Pre-registered, not yet measured.**
-[`dns_names/`](dns_names/METHODOLOGY.md) holds the pre-registration for
-`ExpanseOrderedBytesMap` against `BTreeMap` and `qp-trie` on DNS-shaped keys
-([#1800](https://github.com/orieg/expanse/issues/1800)). It has no harness, no
-`/benchmark` token and no results yet.
-
 **Cross-language binding harnesses** are documented separately in
 [`../BINDINGS_BENCHMARKS.md`](../BINDINGS_BENCHMARKS.md).
 
@@ -55,6 +49,7 @@ top-level README's *Verified in real projects* table.
 | [`art_comparison/`](art_comparison/README.md) | `art_insert`, `art_lookup_hit`, `art_lookup_miss`, `art_memory`, `art_scan`, `art_small_payload` | wall-clock | Expanse vs. Adaptive Radix Tree (ART): Empirical Benchmark Suite |
 | [`avx512/`](avx512/README.md) | `avx512_bitmap` | wall-clock | AVX-512 `vpopcntq` for `Bitmap256` cardinality |
 | [`concurrency/`](concurrency/README.md) | `concurrency`, `concurrency_blob_peak`, `concurrency_update_cells`, `concurrency_update_cells_blob`, `concurrency_update_cells_blob_fix`, `concurrency_update_cells_fix`, `mixed_concurrency_step2_gate`, `reclaim_stall`, `reclaim_stall_free_gate`, `reclaim_stall_wait_share`, `strmap_branchb_remove_g53`, `strmap_poll_stall`, `strmap_poll_stall_g47`, `strmap_remove_split_g52`, `writer_scaling`, `writer_scaling_1586_str_vs_base`, `writer_scaling_929_blob_gate`, `writer_scaling_929_bytes_gate`, `writer_scaling_929_str_gate`, `writer_scaling_929_str_gate_v2`, `writer_scaling_ablation_alloc`, `writer_scaling_ablation_blob_shared_arena`, `writer_scaling_ablation_epoch`, `writer_scaling_ablation_freelist`, `writer_scaling_ablation_unpadded_lock`, `writer_scaling_ablation_unsharded_alloc`, `writer_scaling_ablation_unstriped_freelist`, `writer_scaling_band`, `writer_scaling_count_cells`, `writer_scaling_diagnostic`, `writer_scaling_ordered_readers`, `writer_scaling_padded`, `writer_scaling_readers_only`, `writer_scaling_scan`, `writer_scaling_set_ordered_readers`, `ycsb_concurrent` | `perf stat` + wall-clock | Concurrency instruments — results |
+| [`dns_names/`](dns_names/README.md) | `dns_names` | wall-clock | DNS-Shaped Keys: Expanse vs. BTreeMap and QP-Trie |
 | [`embedded/`](embedded/README.md) | `embedded`, `embedded_memtable` | wall-clock | Embedded memtable shapes (host suite) |
 | [`hashbrown_comparison/`](hashbrown_comparison/README.md) | `hashbrown_comparison`, `hashbrown_container_dists`, `hashbrown_fifo_churn`, `hashbrown_memory_alloc`, `hashbrown_native_suite`, `hashbrown_pop_sweep`, `hashbrown_tail_latency`, `hashbrown_ycsb` | wall-clock | Expanse vs. Hashbrown vs. BTreeMap: Empirical Comparative Benchmark Suite |
 | [`hot_comparison/`](hot_comparison/README.md) | `hot_concurrent`, `hot_latency`, `hot_memory_curve`, `hot_string_latency`, `hot_string_memory`, `leaf_cap_cascaded`, `leaf_cap_cascaded_wallclock` | Callgrind + wall-clock | Expanse vs. HOT (Height Optimized Trie): Empirical Benchmark Suite |

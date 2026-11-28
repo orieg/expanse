@@ -189,6 +189,9 @@ CI_METHOD_PRODUCERS = {
     # The hashbrown pillars' per-arm and paired per-round ratio intervals
     # (native, tail latency, key distributions).
     "docs/benchmarks/hashbrown_comparison/scripts/run_all.py",
+    # The DNS-shaped key suite (#1800): paired per-round ratios and S(W), each
+    # written with its `ci_method`.
+    "docs/benchmarks/dns_names/scripts/run_all.py",
     "docs/benchmarks/hot_comparison/scripts/run_all.py",
     "docs/benchmarks/hot_comparison/scripts/run_strings.py",
     "docs/benchmarks/masstree_comparison/scripts/run_all.py",
@@ -424,6 +427,9 @@ SUITES = (
     # stress-ng as a libJudy consumer, stock vs Expanse by library swap (#1666
     # item 4): the pre-registered pair and the old-vs-new library diagnostic.
     "stressng_comparison",
+    # `ExpanseOrderedBytesMap` vs BTreeMap and qp-trie on DNS-shaped keys
+    # (#1800); its first artifacts land with the suite.
+    "dns_names",
 )
 
 # The artifact filename families this gate governs, in a suite's `results/`
