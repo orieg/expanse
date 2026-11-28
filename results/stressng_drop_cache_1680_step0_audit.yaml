@@ -1,0 +1,82 @@
+# #1680 — Step 0 audit for a bounded, process-wide page cache across tree
+# drops (candidate R of docs/benchmarks/stressng_comparison/README.md, "Fix
+# candidates, proposed and not built"). AGENTS.md §8.8 commit 1: every value
+# below is returned by scripts/trim_remedy_bounds.py over committed artifacts
+# (`python3 scripts/trim_remedy_bounds.py --audit`), and its self-test pins
+# them. No run was made for this audit and no engine code was written.
+
+issue: 1680
+candidate: >-
+  Keep a dropped tree's slab pages and system-served blocks in a bounded,
+  process-wide cache that the next tree draws on before glibc, so that the
+  stress-ng `judy` stressor's free-and-rebuild rounds neither trim nor regrow
+  the heap.
+target_cell: sng_judy_4m, delete rate, 8 workers (the cell behind stock on main)
+arms: {M: main 4af9e927f, G: the BranchU size class f4b78d1bf (pull request 1779), S: stock libJudy}
+
+bounds:
+  - name: share of the give-back that happens at the drop
+    function: census_drop_share(census, arm, W)
+    artifact: docs/benchmarks/stressng_comparison/results/diagnostic_trim_census_m1_amd64.json
+    returned: {N/W1: 0.2517, N/W4: 0.0026, N/W8: 0.0357, P/W1: 1.0, P/W4: 1.0, P/W8: 1.0}
+    reading: >-
+      On main (N) the pages go back during the delete phase, as demoted
+      BranchU blocks are freed; the drop carries 0.3% to 3.6% of them at 4 and
+      8 workers. A cache that fills at the drop therefore keeps at most that
+      share from glibc unless demoted blocks are also held until the drop,
+      which is the BranchU size class (P), where the drop carries all of them.
+    requirement: the cache must see most of the give-back
+    verdict: NOT MET without the size class; met only with it
+
+  - name: what full retention adds to the size class
+    function: rate_ratio(G trimming off, G registered settings)
+    artifacts: diagnostic_increment_heap_trim_class_ref_run{1,2}.json, diagnostic_increment_heap_trim_class_trimoff_ref_run{1,2}.json
+    returned: {run1/W8: 1.0016, run2/W8: 1.0031, run1/W4: 1.0079, run2/W4: 1.0044}
+    reading: cross-run ceiling; the cache adds at most 0.2% to 0.3% at 8 workers and 0.4% to 0.8% at 4
+
+  - name: the size class with no trim left, over main as registered
+    function: rate_ratio(G trimming off, M registered settings)
+    returned: {run1/W8: 0.9959, run2/W8: 0.9958, run1/W4: 1.0376, run2/W4: 1.0367}
+    requirement: above 1.0 on the target cell
+    verdict: NOT MET at 8 workers (ceiling_clears is false in both runs)
+
+  - name: main with no trim left, over main as registered
+    function: rate_ratio(M trimming off, M registered settings)
+    returned: {run1/W8: 1.0188, run2/W8: 1.018, run1/W4: 1.0526, run2/W4: 1.056}
+    reading: >-
+      The ceiling for a retention mechanism that adds no cost of its own. No
+      such mechanism is known: the one built (the size class) costs 1.2% to
+      2.2% of delete rate with trimming off, and where that cost falls is
+      unmeasured.
+
+  - name: ceiling against stock, delete rate, upper end of the BCa 95% interval
+    function: delete_cell(trimming-off artifact, W, pair)["ci_upper"]
+    returned:
+      class_no_trim_over_stock: {run1/W8: 0.9696, run2/W8: 0.9694, run1/W4: 0.9827, run2/W4: 0.9811}
+      main_no_trim_over_stock: {run1/W8: 0.9919, run2/W8: 0.9908, run1/W4: 0.9968, run2/W4: 1.0003}
+    requirement: a win over stock needs a ceiling whose interval is above 1.0
+    verdict: NOT MET on every cell of both runs
+
+assumptions:
+  - Trimming fixed off stands for full retention. It removes every trim in all arms, stock included; the ceilings over main use absolute mean rates, so stock's setting does not enter them.
+  - The ceilings over main compare sessions run on different days under different settings (AGENTS.md, docs/BENCHMARKING.md rule 18). Within each session the two runs' mean rates for main agree to 0.07% and 0.01%.
+  - The census is from a laptop, not the reference host; its counts are exact and reproduced on two platforms, and its magnitudes differ from the reference host's (README, trim census result).
+
+empirical_residuals:
+  - where the size class's user-cycle cost falls, and whether a process-wide structure would carry less of it
+  - the 1 and 2 worker cells under the registered settings (not run for these arms)
+  - the second host
+
+math_derived_pass_prior: 0.0
+rationale: >-
+  The stated goal is a clear win over stock. With every trim removed, neither
+  main nor the size class has an interval above 1.0 against stock on any cell.
+  On the target cell the only mechanism that lets a cache see the give-back
+  reads 0.996 of main at its ceiling.
+verdict: REJECT_INFEASIBLE
+scope: >-
+  Rejected as a route to a win over stock on the 4 Mi delete cell, and as an
+  improvement over main at 8 workers. Not rejected: that a cost-free retention
+  mechanism, if one were found, could gain up to 1.8% over main at 8 workers
+  and 5.3% to 5.6% at 4.
+review: no independent, non-LLM review of this audit has been done.

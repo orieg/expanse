@@ -272,6 +272,7 @@ jobs:
               - 'scripts/check_bench_provenance.py'
               - 'scripts/fit_usl.py'
               - 'scripts/reader_scaling_bounds.py'
+              - 'scripts/trim_remedy_bounds.py'
             perf-tooling:
               - 'scripts/perf_report.py'
               - 'scripts/bench_report.py'
@@ -591,6 +592,10 @@ jobs:
           # rounds and counter cells (#730); its self-test also holds
           # docs/benchmarks/concurrency/README.md §13 to its own output.
           python3 scripts/reader_scaling_bounds.py --self-test
+          # trim_remedy_bounds.py reduces the committed stress-ng trim census and
+          # trimming-off runs to the Step 0 ceilings of a page cache across tree
+          # drops (#1680); its self-test pins them against the artifacts.
+          python3 scripts/trim_remedy_bounds.py --self-test
           # ycsb_concurrent_bounds.py holds the workload bounds the concurrent YCSB
           # pre-registration invokes (#1006): the Zipfian top-k share under the exact
           # rank law and under the generator's closed form, same-key and same-leaf
