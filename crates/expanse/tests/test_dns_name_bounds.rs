@@ -15,8 +15,13 @@
 //! Not built under Miri: it is byte accounting over safe calls that the
 //! string map's own Miri tests already walk, and the 2,000-name cells would
 //! only lengthen a nightly shard.
+//!
+//! Not built under `ablation-unpacked-suffix`: that diagnostic restores the
+//! older suffix leaf, whose bytes are accounted unrounded, and the script
+//! derives the default layout only.
 #![cfg(not(miri))]
 #![cfg(target_pointer_width = "64")]
+#![cfg(not(feature = "ablation-unpacked-suffix"))]
 
 use expanse_trie::ExpanseOrderedBytesMap;
 use expanse_trie::strmap::{ExpanseStrMap, NulFreeStr};
