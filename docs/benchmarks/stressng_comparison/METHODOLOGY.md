@@ -189,3 +189,12 @@ Class W is every arm whose measured region can allocate: the insert, remove, chu
 **Runs, fixed here.** Two runs per host of `run.sh <run> <host> increment`, 12 rounds, analysed by `scripts/diag_increment_analyze.py --l1-separated` with the T2 targets; T1 and the max-rss bound are read from the same artifacts. A void run is discarded, disclosed and repeated; no valid run is repeated or dropped.
 
 **Verdict.** PASS only if every target and every bound holds. Otherwise FAIL: the change is not landed, and the record names the arm or cell that broke its bound. No bound is moved (AGENTS.md §8.19). A PASS with the second host pending is recorded as PASS on the reference host only. On a PASS the pull request carries an `allow-regression:` line naming the arms above the CI gate's thresholds and citing this section and the measuring runs.
+
+## 13. Pre-registration: entering a tree below its one-child top node ([#1682](https://github.com/orieg/expanse/issues/1682), [#1680](https://github.com/orieg/expanse/issues/1680))
+
+A frozen record (AGENTS.md §8.8 commit 2), never reconciled in place with what the runs measure. It lives in `results/root_skip_1682_preregistration.yaml`; its Step 0 bounds are computed by `scripts/root_skip_bounds.py` from committed artifacts. Committed before any engine code for the change.
+
+- **The change:** a tree whose keys share their high bytes is entered at the highest level where they differ, and the one-child branches above that level are not built.
+- **Targets:** against main, the sparsematrix `judy` gets and the 4 Mi deletes at 1, 2 and 4 workers; against stock, the `big` sparsematrix gets at 8 workers and the same deletes. Both hosts, two runs each.
+- **Not targets:** the `default` sparsematrix gets and the 4 Mi inserts against stock. The Step 0 bounds do not predict them, and the record says so before any run.
+- **Bounds:** the suite's L1b and L2, peak memory, instruction counts on every arm, layout pins, the public surface and saved images, as the file states them.
