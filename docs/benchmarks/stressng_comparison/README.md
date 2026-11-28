@@ -2395,6 +2395,18 @@ Two diagnostics, neither registered: no bound was fixed before this data (AGENTS
 
 Holding a demoted `BranchU` on a class freelist is a recorded negative as the remedy for the W = 8 delete cell. Refs #1680.
 
+### Step 0 for a page cache across tree drops: rejected before a pre-registration
+
+Candidate R of the table above was taken to a math-first audit (AGENTS.md §8.8 commit 1) and stops there: `results/stressng_drop_cache_1680_step0_audit.yaml`, computed by `scripts/trim_remedy_bounds.py` from the trim census and the trimming-off runs above. No run was made for it and no engine code was written. (workload: `sng_judy_4m`)
+
+- **A cache filled at the drop sees little on main.** The census puts 0.3% and 3.6% of main's given-back pages at the drop at W = 4 and 8 (236 of 91,618; 7,231 of 202,477); the rest go back during the delete phase as demoted `BranchU` blocks are freed. The cache sees all of them only if those blocks are held until the drop, which is the size class.
+- **On top of the size class, full retention adds at most 0.2% to 0.3% at W = 8** and 0.4% to 0.8% at W = 4: the class's mean delete rate with trimming off over its rate under the registered settings. With that, the class reads 0.996 of main at W = 8.
+- **Against stock no ceiling is above 1.** With every trim removed, the class's delete-rate interval against stock has its upper end at 0.969 to 0.983, and main's at 0.991 to 1.000.
+- **Not rejected:** a retention mechanism with no cost of its own would have a ceiling of 1.8% over main at W = 8 and 5.3% to 5.6% at W = 4. None is known, and where the size class's cost falls is unmeasured.
+- The ceilings over main compare sessions run on different days under different settings; they are derived bounds, not paired measurements.
+
+Refs #1680.
+
 ## Candidate: a linker layout for the hot `JudyL` paths, with the removal walk's `BranchU` drain ([#1679](https://github.com/orieg/expanse/issues/1679), [#1684](https://github.com/orieg/expanse/issues/1684))
 
 **Why.** On the reference host the `sng_judy_1k` rates follow the addresses of the functions they run. The layout-only builds above showed it for 64-byte alignment. The removal-walk change measured in draft pull request [1789](https://github.com/orieg/expanse/pull/1789) showed it again with every function already on a 64-byte boundary: the change edits no lookup code, moves the lookup helper by 1,792 bytes, and its registered runs read the 1 Ki find rate at 0.969 to 0.981 of main's. That record is a FAIL and stays one.
