@@ -255,3 +255,71 @@ measures the first condition and not the second.
 The harnesses, their `# Workload shape` tables, the `.github/bench-suites.json`
 entries, `run.sh`, the suite `README.md` and every result arrive with the data
 (§8.8 commit 3).
+
+## Amendments
+
+### A1 (2026-11-27): harness construction, before the first dispatch
+
+Written with the harnesses, before any reference-host run. Nothing in §1 to §7
+is edited; where this section and those disagree, this section is what was run.
+
+**What had been seen when A1 was written.** No reference-host figure. The
+harnesses were smoke-run on a development laptop (`--quick`, and one full-size
+round of each to size the run) with their timing rows not displayed, with one
+exception: while the artifact shape was checked, one `--quick` cell was read
+(`dns_get`, n = 1,000, sorted, `hit+miss_new_sld`, three rounds, on a laptop
+whose load average was above 30): 62.6 ns per lookup for `expanse_ordered`,
+29.8 for `expanse_direct`, 68.3 for `btreemap`, 17.6 for `qp_trie`. The
+memory census is deterministic, and its `--quick` output at n = 1,000 and
+10,000 was read: at 10,000 names `expanse_ordered` requested 69.0 B/name
+sorted and 73.1 shuffled, `btreemap` 80.3 and 67.3, `qp_trie` 85.1 in both.
+While the README generator was tested on that `--quick` output, its tables
+at n = 1,000 and 10,000 were read too. At 10,000 names on the laptop,
+`expanse_ordered` took 0.68 to 0.77 of `btreemap`'s time on `dns_get`, 1.38
+to 1.43 of `qp_trie`'s, and 1.36 to 1.60 of `btreemap`'s on the predecessor;
+with 0.1 s windows S(8) read 3.9 for `clone_per_reader`, 0.15 for
+`sync_locked` and 0.24 for `sync_get`.
+
+Every prediction was locked in §4 before any of this and none is changed;
+those two populations carry no prediction, and a loaded laptop is not the
+reference host. What was seen points against G2 and C3, which stay as written.
+
+**A1.1 `shared_ref` cannot be built; `clone_per_reader` replaces it.**
+`ExpanseOrderedBytesMap` is `Send` and not `Sync`: its allocator handle has one
+owner (`crates/expanse/src/alloc.rs`, `NodeAlloc`), so a `&` to the map cannot
+cross threads and the §5 arm does not compile. Each reader thread instead owns
+a `Clone` of the map, made before the cell and outside its window. C2 and the
+W = 8 throughput ratio of §5 read `clone_per_reader` where they say
+`shared_ref`. The consequence is part of the answer to §1: serving predecessor
+lookups from a snapshot today costs one copy of the index per reader thread,
+or needs a shareable read-only view the crate does not have.
+
+**A1.2 `sync_reader_get`, an extra row with no prediction.** The one-shot
+`SyncExpanseOrderedBytesMap::get` that §5 names as the control registers a
+reader on every call (`crates/expanse/src/sync.rs`, "the per-call registry
+lock"), and the smoke run above showed it not scaling. `sync_get` stays the
+C3 control exactly as registered. Beside it, `sync_reader_get` makes the same
+lookups through an `OrderedBytesReader` each thread registers once. It decides
+nothing in §5: if C3 fails, C1 still says nothing about the lock, and this row
+shows whether the per-call registration or the host is the reason.
+
+**A1.3 Parameters §3 and §5 left open, fixed here.**
+- Probes: n/2 per class. `encloser` probes are their own draw of the
+  `miss_under_sld` shape from a third stream, not the `miss_under_sld` probes
+  extended.
+- `dns_get` has two probe mixes per (n, order), so G1 to G3 have eight cells
+  each. A ratio is the first-named arm's ns per operation over the second's:
+  below 1.0 the first is faster. G3 predicts `expanse_ordered` over
+  `expanse_direct` above 1.0.
+- `dns_closest_encloser` is timed per probe (k + 1 lookups), not per lookup.
+- `dns_memory` counts the requested `Layout::size` of every allocation the
+  build left live, so an Expanse arm is charged its slab pages whole and
+  `mem_used()` is reported beside that figure, not in place of it.
+- Concurrent cells: a 1 s window per (arm, W) after one discarded 0.2 s
+  single-reader pass per arm. Reader threads are not placed one by one: they
+  run inside the affinity mask the process inherits, which each row records.
+- Each timed process takes one round of every (n, order, class) cell of its
+  harness; its load window covers the process.
+
+**A1.4 Artifacts.** The first dispatch writes `results/baseline_*.json`, the
+second the same files renamed `baseline_*_run2.json`.

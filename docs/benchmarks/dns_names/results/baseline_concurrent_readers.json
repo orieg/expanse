@@ -1,0 +1,3560 @@
+{
+  "benchmark": "dns_predecessor_concurrent",
+  "min_window_ns": 20000000,
+  "quick": false,
+  "twins": [
+    "std BTreeMap",
+    "qp-trie 0.8.2"
+  ],
+  "workload_id": "dns_predecessor_concurrent",
+  "rounds": 8,
+  "throughput": [
+    {
+      "arm": "clone_per_reader",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "miss_under_sld",
+      "readers": 1,
+      "rounds_raw": [
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3157441.9734319486,
+          "readers": 1,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3187595.215504526,
+          "readers": 1,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3172907.2871910348,
+          "readers": 1,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3188698.2556659305,
+          "readers": 1,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3181742.806929427,
+          "readers": 1,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3141721.4761375464,
+          "readers": 1,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3160653.7259461647,
+          "readers": 1,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3161869.8770413385,
+          "readers": 1,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 3167388.5821161866,
+      "scaling": {
+        "point": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "ci_method": "degenerate",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "clone_per_reader",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "miss_under_sld",
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 5354424.818097648,
+          "readers": 2,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 5367769.344587465,
+          "readers": 2,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 5352548.669143016,
+          "readers": 2,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 5383170.964275086,
+          "readers": 2,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 5357418.624219072,
+          "readers": 2,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 5357386.87249233,
+          "readers": 2,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 5327417.109635507,
+          "readers": 2,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 5364155.008027354,
+          "readers": 2,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 5357402.748355702,
+      "scaling": {
+        "point": 1.6907524640358154,
+        "ci_lower": 1.6867662841394564,
+        "ci_upper": 1.6971151827139808,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "clone_per_reader",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "miss_under_sld",
+      "readers": 4,
+      "rounds_raw": [
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9295627.406278357,
+          "readers": 4,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9367151.021979801,
+          "readers": 4,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9479875.278261345,
+          "readers": 4,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9458018.056383062,
+          "readers": 4,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9299491.850423299,
+          "readers": 4,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9331262.101335391,
+          "readers": 4,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9411570.010606034,
+          "readers": 4,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9442040.539428964,
+          "readers": 4,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 9389360.516292918,
+      "scaling": {
+        "point": 2.9616692589425497,
+        "ci_lower": 2.943455533362508,
+        "ci_upper": 2.9755502578703026,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "clone_per_reader",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "miss_under_sld",
+      "readers": 8,
+      "rounds_raw": [
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 15554539.769159872,
+          "readers": 8,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 15476864.06278994,
+          "readers": 8,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 15552251.06470151,
+          "readers": 8,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 15540904.206247339,
+          "readers": 8,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 15527169.184251701,
+          "readers": 8,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 15498421.197286477,
+          "readers": 8,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 15516957.772863975,
+          "readers": 8,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "clone_per_reader",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 15528734.278777776,
+          "readers": 8,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 15527951.731514739,
+      "scaling": {
+        "point": 4.89885265460701,
+        "ci_lower": 4.8798756450076874,
+        "ci_upper": 4.915100712255725,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_locked",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "miss_under_sld",
+      "readers": 1,
+      "rounds_raw": [
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1935899.4499111143,
+          "readers": 1,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1944538.9968639526,
+          "readers": 1,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1936249.266834202,
+          "readers": 1,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1932508.0126989807,
+          "readers": 1,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1926324.1076483685,
+          "readers": 1,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1949146.166215443,
+          "readers": 1,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1930357.4503800017,
+          "readers": 1,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1928411.4656461743,
+          "readers": 1,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 1934203.7313050474,
+      "scaling": {
+        "point": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "ci_method": "degenerate",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_locked",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "miss_under_sld",
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1637857.5403169517,
+          "readers": 2,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1632887.9701975489,
+          "readers": 2,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1633718.1650558154,
+          "readers": 2,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1637774.8930959818,
+          "readers": 2,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1645362.2479435788,
+          "readers": 2,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1643110.752561443,
+          "readers": 2,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1652928.8810536438,
+          "readers": 2,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1629587.1107979394,
+          "readers": 2,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 1637816.2167064669,
+      "scaling": {
+        "point": 0.846934274502102,
+        "ci_lower": 0.8437745710241786,
+        "ci_upper": 0.8511539526826732,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_locked",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "miss_under_sld",
+      "readers": 4,
+      "rounds_raw": [
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1473258.615485935,
+          "readers": 4,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1478515.6193008432,
+          "readers": 4,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1457519.0647310452,
+          "readers": 4,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1505483.014134657,
+          "readers": 4,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1434301.8207486032,
+          "readers": 4,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1495856.9165295907,
+          "readers": 4,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1449369.8610693973,
+          "readers": 4,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1492316.900005806,
+          "readers": 4,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 1475887.117393389,
+      "scaling": {
+        "point": 0.7612321212228483,
+        "ci_lower": 0.7542951526133547,
+        "ci_upper": 0.7694503345011742,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_locked",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "miss_under_sld",
+      "readers": 8,
+      "rounds_raw": [
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1417563.6941323143,
+          "readers": 8,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1438239.4988241936,
+          "readers": 8,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1422011.6961778044,
+          "readers": 8,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1433232.8361249166,
+          "readers": 8,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1422159.5014716971,
+          "readers": 8,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1417136.251916273,
+          "readers": 8,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1439808.4846813658,
+          "readers": 8,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_locked",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 1415773.6310466263,
+          "readers": 8,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 1422085.5988247506,
+      "scaling": {
+        "point": 0.7366642339141134,
+        "ci_lower": 0.732708387238022,
+        "ci_upper": 0.7401978415805827,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_get",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "hit",
+      "readers": 1,
+      "rounds_raw": [
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2219791.065269376,
+          "readers": 1,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2215963.7963987403,
+          "readers": 1,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2219282.3291868106,
+          "readers": 1,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2224373.890197314,
+          "readers": 1,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2222745.156075234,
+          "readers": 1,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2200411.433028923,
+          "readers": 1,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2205690.443874026,
+          "readers": 1,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2224067.4422793,
+          "readers": 1,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 2219536.6972280936,
+      "scaling": {
+        "point": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "ci_method": "degenerate",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_get",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "hit",
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3274246.57208611,
+          "readers": 2,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3100104.0301622357,
+          "readers": 2,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3151108.4887354113,
+          "readers": 2,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3137123.869580564,
+          "readers": 2,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3085342.1636461355,
+          "readers": 2,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3150967.170698491,
+          "readers": 2,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3107032.7771121818,
+          "readers": 2,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3245697.0898254793,
+          "readers": 2,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 3144045.5201395275,
+      "scaling": {
+        "point": 1.4240365235040253,
+        "ci_lower": 1.4070416392207865,
+        "ci_upper": 1.4445450620176803,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_get",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "hit",
+      "readers": 4,
+      "rounds_raw": [
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3243889.3066626685,
+          "readers": 4,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3097188.003625418,
+          "readers": 4,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2874917.9764204645,
+          "readers": 4,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3123452.410030974,
+          "readers": 4,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3176264.644653355,
+          "readers": 4,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2883511.442855317,
+          "readers": 4,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3163319.325059458,
+          "readers": 4,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 3102847.918207512,
+          "readers": 4,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 3113150.1641192427,
+      "scaling": {
+        "point": 1.3909189238840192,
+        "ci_lower": 1.3455189380355477,
+        "ci_upper": 1.4230785316352503,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_get",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "hit",
+      "readers": 8,
+      "rounds_raw": [
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2254095.3532145456,
+          "readers": 8,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2192698.060755569,
+          "readers": 8,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2228407.087652359,
+          "readers": 8,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2232066.02986852,
+          "readers": 8,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2179852.452764453,
+          "readers": 8,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2205542.6135763624,
+          "readers": 8,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2200161.8761938615,
+          "readers": 8,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2219322.0079670297,
+          "readers": 8,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 2212432.3107716963,
+      "scaling": {
+        "point": 0.9988648686675157,
+        "ci_lower": 0.9922347799884326,
+        "ci_upper": 1.0049939165682702,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_reader_get",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "hit",
+      "readers": 1,
+      "rounds_raw": [
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2432305.217447802,
+          "readers": 1,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2420221.7395273563,
+          "readers": 1,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2436175.828941271,
+          "readers": 1,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2432383.605554047,
+          "readers": 1,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2425320.452220436,
+          "readers": 1,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2427510.2673557885,
+          "readers": 1,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2422659.363274281,
+          "readers": 1,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 2434420.8822437017,
+          "readers": 1,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 2429907.7424017955,
+      "scaling": {
+        "point": 1.0,
+        "ci_lower": 1.0,
+        "ci_upper": 1.0,
+        "ci_method": "degenerate",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_reader_get",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "hit",
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 4729530.640009953,
+          "readers": 2,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 4731783.819085004,
+          "readers": 2,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 4728881.071021394,
+          "readers": 2,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 4738668.819841614,
+          "readers": 2,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 4751087.559809419,
+          "readers": 2,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 4732892.766091212,
+          "readers": 2,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 4759987.793771015,
+          "readers": 2,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 4726742.24376589,
+          "readers": 2,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 4732338.292588107,
+      "scaling": {
+        "point": 1.9504855166638684,
+        "ci_lower": 1.9455243265226603,
+        "ci_upper": 1.9562863291376265,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_reader_get",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "hit",
+      "readers": 4,
+      "rounds_raw": [
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9149572.981087178,
+          "readers": 4,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9076256.940364525,
+          "readers": 4,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9152415.206897058,
+          "readers": 4,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9237777.462224476,
+          "readers": 4,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9144045.286761194,
+          "readers": 4,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9205199.502742343,
+          "readers": 4,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9107697.724943703,
+          "readers": 4,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 9217833.110788524,
+          "readers": 4,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 9150994.093992118,
+      "scaling": {
+        "point": 3.7718355697540087,
+        "ci_lower": 3.7612905356391417,
+        "ci_upper": 3.7845977517645886,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "arm": "sync_reader_get",
+      "order": "sorted",
+      "population": 1000000,
+      "probe_class": "hit",
+      "readers": 8,
+      "rounds_raw": [
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 17036029.919765588,
+          "readers": 8,
+          "round": 0,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=0",
+            "wall_s": 22.132,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 16984341.031345464,
+          "readers": 8,
+          "round": 1,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=1",
+            "wall_s": 22.13,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 17015884.41207461,
+          "readers": 8,
+          "round": 2,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=2",
+            "wall_s": 22.131,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 17017430.232217632,
+          "readers": 8,
+          "round": 3,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=3",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 16901393.289478455,
+          "readers": 8,
+          "round": 4,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=4",
+            "wall_s": 22.139,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 16995469.695476998,
+          "readers": 8,
+          "round": 5,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=5",
+            "wall_s": 22.135,
+            "busy_cpus_since_prev": 2.57,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 17025448.184133742,
+          "readers": 8,
+          "round": 6,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=6",
+            "wall_s": 22.14,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "arm": "sync_reader_get",
+          "cpus_allowed": "0-15",
+          "ops_per_s": 17011665.317970518,
+          "readers": 8,
+          "round": 7,
+          "window_s": 1.0,
+          "load": {
+            "since": "cell:dns_predecessor_concurrent/round=7",
+            "wall_s": 22.144,
+            "busy_cpus_since_prev": 2.58,
+            "own_busy_cpus": 2.57,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "ops_per_s": 17013774.865022562,
+      "scaling": {
+        "point": 6.998511323589742,
+        "ci_lower": 6.985787596003552,
+        "ci_upper": 7.010170936248748,
+        "ci_method": "bca",
+        "n": 8
+      },
+      "rounds": 8,
+      "load": {
+        "aggregation": "maximum over the cell's round processes",
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus": 2.57,
+        "foreign_busy_cpus": 0.01
+      }
+    }
+  ],
+  "clone_per_reader_over_sync_locked": {
+    "1": {
+      "point": 1.6373959908123028,
+      "ci_lower": 1.62655816674167,
+      "ci_upper": 1.6435189196848394,
+      "ci_method": "bca",
+      "n": 8
+    },
+    "2": {
+      "point": 3.268801233092334,
+      "ci_lower": 3.2500222808968733,
+      "ci_upper": 3.280179442841044,
+      "ci_method": "bca",
+      "n": 8
+    },
+    "4": {
+      "point": 6.370981293671285,
+      "ci_lower": 6.3062167524547705,
+      "ci_upper": 6.44019768965676,
+      "ci_method": "bca",
+      "n": 8
+    },
+    "8": {
+      "point": 10.888924469180008,
+      "ci_lower": 10.831724554368263,
+      "ci_upper": 10.937632705341445,
+      "ci_method": "bca",
+      "n": 8
+    }
+  },
+  "provenance": {
+    "suite": "dns_names",
+    "issue": 1800,
+    "commit": "d58eb0dd",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "performance",
+      "scaling_governor_by_cpu": {
+        "0": "performance",
+        "1": "performance",
+        "2": "performance",
+        "3": "performance",
+        "4": "performance",
+        "5": "performance",
+        "6": "performance",
+        "7": "performance",
+        "8": "performance",
+        "9": "performance",
+        "10": "performance",
+        "11": "performance",
+        "12": "performance",
+        "13": "performance",
+        "14": "performance",
+        "15": "performance"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "paired per round: the first-named arm's ns per operation over the second's, so a value below 1 means the first-named arm is faster. The point is the geometric mean of the per-round ratios and the interval is BCa 95% on the per-round log ratios (2000 resamples), which is not the quotient of the two per-arm medians. In the concurrent artifact `scaling` is throughput at W readers over throughput at 1 reader, paired per round, mean with BCa 95% on the per-round quotients, and `clone_per_reader_over_sync_locked` is a throughput ratio (above 1 = the cloned readers do more)",
+      "columns": "`ns_per_op` and `ops_per_s` are medians over the cell's round processes of that round's one timed pass; the memory census publishes exact requested bytes, one count per cell",
+      "raw": "every timed cell carries rounds_raw, one row per (round process, arm) with that process's load window; the memory census (under `memory`) has no rounds"
+    },
+    "core_pin": "0-15",
+    "host_description": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-138-generic)",
+    "run_id": "https://github.com/orieg/expanse/actions/runs/46120661817",
+    "quick": false,
+    "rounds_planned": {
+      "dns_get": 12,
+      "dns_predecessor": 12,
+      "dns_closest_encloser": 12,
+      "dns_predecessor_concurrent": 8,
+      "dns_memory": 1
+    },
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 1.23,
+        "load5": 0.39,
+        "load15": 0.13,
+        "at": "2026-11-28T07:21:04Z",
+        "stat_busy_jiffies": 88697706,
+        "stat_total_jiffies": 8956881805,
+        "child_cpu_s": 120.057,
+        "monotonic_s": 3733290.554,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "cell:dns_get/round=0",
+        "since": "start",
+        "load1": 1.23,
+        "load5": 0.39,
+        "load15": 0.13,
+        "at": "2026-11-28T07:21:04Z",
+        "stat_busy_jiffies": 88697713,
+        "stat_total_jiffies": 8956881955,
+        "child_cpu_s": 120.121,
+        "monotonic_s": 3733290.617,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "cell:dns_get/round=1",
+        "since": "cell:dns_get/round=0",
+        "load1": 1.15,
+        "load5": 0.44,
+        "load15": 0.16,
+        "at": "2026-11-28T07:21:28Z",
+        "stat_busy_jiffies": 88700148,
+        "stat_total_jiffies": 8956939380,
+        "child_cpu_s": 144.05,
+        "monotonic_s": 3733314.55,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_get/round=2",
+        "since": "cell:dns_get/round=1",
+        "load1": 1.1,
+        "load5": 0.49,
+        "load15": 0.18,
+        "at": "2026-11-28T07:21:52Z",
+        "stat_busy_jiffies": 88702577,
+        "stat_total_jiffies": 8956996674,
+        "child_cpu_s": 167.923,
+        "monotonic_s": 3733338.427,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_get/round=3",
+        "since": "cell:dns_get/round=2",
+        "load1": 1.14,
+        "load5": 0.55,
+        "load15": 0.21,
+        "at": "2026-11-28T07:22:16Z",
+        "stat_busy_jiffies": 88704990,
+        "stat_total_jiffies": 8957053686,
+        "child_cpu_s": 191.681,
+        "monotonic_s": 3733362.187,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_get/round=4",
+        "since": "cell:dns_get/round=3",
+        "load1": 1.1,
+        "load5": 0.58,
+        "load15": 0.23,
+        "at": "2026-11-28T07:22:40Z",
+        "stat_busy_jiffies": 88707441,
+        "stat_total_jiffies": 8957111646,
+        "child_cpu_s": 215.835,
+        "monotonic_s": 3733386.341,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_get/round=5",
+        "since": "cell:dns_get/round=4",
+        "load1": 1.06,
+        "load5": 0.61,
+        "load15": 0.25,
+        "at": "2026-11-28T07:23:04Z",
+        "stat_busy_jiffies": 88709872,
+        "stat_total_jiffies": 8957169053,
+        "child_cpu_s": 239.757,
+        "monotonic_s": 3733410.266,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_get/round=6",
+        "since": "cell:dns_get/round=5",
+        "load1": 1.04,
+        "load5": 0.64,
+        "load15": 0.27,
+        "at": "2026-11-28T07:23:28Z",
+        "stat_busy_jiffies": 88712302,
+        "stat_total_jiffies": 8957226412,
+        "child_cpu_s": 263.655,
+        "monotonic_s": 3733434.17,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_get/round=7",
+        "since": "cell:dns_get/round=6",
+        "load1": 1.03,
+        "load5": 0.67,
+        "load15": 0.29,
+        "at": "2026-11-28T07:23:51Z",
+        "stat_busy_jiffies": 88714720,
+        "stat_total_jiffies": 8957283508,
+        "child_cpu_s": 287.445,
+        "monotonic_s": 3733457.964,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_get/round=8",
+        "since": "cell:dns_get/round=7",
+        "load1": 1.08,
+        "load5": 0.72,
+        "load15": 0.32,
+        "at": "2026-11-28T07:24:16Z",
+        "stat_busy_jiffies": 88717175,
+        "stat_total_jiffies": 8957341509,
+        "child_cpu_s": 311.616,
+        "monotonic_s": 3733482.135,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_get/round=9",
+        "since": "cell:dns_get/round=8",
+        "load1": 1.06,
+        "load5": 0.74,
+        "load15": 0.33,
+        "at": "2026-11-28T07:24:40Z",
+        "stat_busy_jiffies": 88719604,
+        "stat_total_jiffies": 8957398846,
+        "child_cpu_s": 335.508,
+        "monotonic_s": 3733506.03,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_get/round=10",
+        "since": "cell:dns_get/round=9",
+        "load1": 1.04,
+        "load5": 0.76,
+        "load15": 0.35,
+        "at": "2026-11-28T07:25:03Z",
+        "stat_busy_jiffies": 88722032,
+        "stat_total_jiffies": 8957456175,
+        "child_cpu_s": 359.396,
+        "monotonic_s": 3733529.921,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_get/round=11",
+        "since": "cell:dns_get/round=10",
+        "load1": 1.09,
+        "load5": 0.79,
+        "load15": 0.37,
+        "at": "2026-11-28T07:25:27Z",
+        "stat_busy_jiffies": 88724459,
+        "stat_total_jiffies": 8957513513,
+        "child_cpu_s": 383.287,
+        "monotonic_s": 3733553.815,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor/round=0",
+        "since": "cell:dns_get/round=11",
+        "load1": 1.06,
+        "load5": 0.81,
+        "load15": 0.39,
+        "at": "2026-11-28T07:25:52Z",
+        "stat_busy_jiffies": 88726919,
+        "stat_total_jiffies": 8957571646,
+        "child_cpu_s": 407.511,
+        "monotonic_s": 3733578.042,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor/round=1",
+        "since": "cell:dns_predecessor/round=0",
+        "load1": 1.04,
+        "load5": 0.83,
+        "load15": 0.41,
+        "at": "2026-11-28T07:26:11Z",
+        "stat_busy_jiffies": 88728909,
+        "stat_total_jiffies": 8957618593,
+        "child_cpu_s": 427.072,
+        "monotonic_s": 3733597.607,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor/round=2",
+        "since": "cell:dns_predecessor/round=1",
+        "load1": 1.03,
+        "load5": 0.84,
+        "load15": 0.42,
+        "at": "2026-11-28T07:26:31Z",
+        "stat_busy_jiffies": 88730893,
+        "stat_total_jiffies": 8957665387,
+        "child_cpu_s": 446.571,
+        "monotonic_s": 3733617.108,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor/round=3",
+        "since": "cell:dns_predecessor/round=2",
+        "load1": 1.02,
+        "load5": 0.85,
+        "load15": 0.43,
+        "at": "2026-11-28T07:26:50Z",
+        "stat_busy_jiffies": 88732874,
+        "stat_total_jiffies": 8957712216,
+        "child_cpu_s": 466.084,
+        "monotonic_s": 3733636.623,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor/round=4",
+        "since": "cell:dns_predecessor/round=3",
+        "load1": 1.02,
+        "load5": 0.86,
+        "load15": 0.44,
+        "at": "2026-11-28T07:27:10Z",
+        "stat_busy_jiffies": 88734867,
+        "stat_total_jiffies": 8957759226,
+        "child_cpu_s": 485.672,
+        "monotonic_s": 3733656.214,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor/round=5",
+        "since": "cell:dns_predecessor/round=4",
+        "load1": 1.01,
+        "load5": 0.87,
+        "load15": 0.46,
+        "at": "2026-11-28T07:27:29Z",
+        "stat_busy_jiffies": 88736849,
+        "stat_total_jiffies": 8957806108,
+        "child_cpu_s": 505.209,
+        "monotonic_s": 3733675.752,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_predecessor/round=6",
+        "since": "cell:dns_predecessor/round=5",
+        "load1": 1.01,
+        "load5": 0.88,
+        "load15": 0.47,
+        "at": "2026-11-28T07:27:49Z",
+        "stat_busy_jiffies": 88738841,
+        "stat_total_jiffies": 8957853037,
+        "child_cpu_s": 524.765,
+        "monotonic_s": 3733695.309,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor/round=7",
+        "since": "cell:dns_predecessor/round=6",
+        "load1": 1.0,
+        "load5": 0.89,
+        "load15": 0.48,
+        "at": "2026-11-28T07:28:08Z",
+        "stat_busy_jiffies": 88740832,
+        "stat_total_jiffies": 8957900054,
+        "child_cpu_s": 544.357,
+        "monotonic_s": 3733714.903,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor/round=8",
+        "since": "cell:dns_predecessor/round=7",
+        "load1": 1.0,
+        "load5": 0.89,
+        "load15": 0.49,
+        "at": "2026-11-28T07:28:28Z",
+        "stat_busy_jiffies": 88742810,
+        "stat_total_jiffies": 8957946865,
+        "child_cpu_s": 563.865,
+        "monotonic_s": 3733734.412,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_predecessor/round=9",
+        "since": "cell:dns_predecessor/round=8",
+        "load1": 1.0,
+        "load5": 0.9,
+        "load15": 0.5,
+        "at": "2026-11-28T07:28:47Z",
+        "stat_busy_jiffies": 88744790,
+        "stat_total_jiffies": 8957993604,
+        "child_cpu_s": 583.34,
+        "monotonic_s": 3733753.889,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor/round=10",
+        "since": "cell:dns_predecessor/round=9",
+        "load1": 1.0,
+        "load5": 0.91,
+        "load15": 0.52,
+        "at": "2026-11-28T07:29:07Z",
+        "stat_busy_jiffies": 88746781,
+        "stat_total_jiffies": 8958040659,
+        "child_cpu_s": 602.949,
+        "monotonic_s": 3733773.499,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor/round=11",
+        "since": "cell:dns_predecessor/round=10",
+        "load1": 1.08,
+        "load5": 0.93,
+        "load15": 0.53,
+        "at": "2026-11-28T07:29:27Z",
+        "stat_busy_jiffies": 88748763,
+        "stat_total_jiffies": 8958087554,
+        "child_cpu_s": 622.492,
+        "monotonic_s": 3733793.043,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=0",
+        "since": "cell:dns_predecessor/round=11",
+        "load1": 1.06,
+        "load5": 0.94,
+        "load15": 0.54,
+        "at": "2026-11-28T07:29:46Z",
+        "stat_busy_jiffies": 88750751,
+        "stat_total_jiffies": 8958134322,
+        "child_cpu_s": 641.979,
+        "monotonic_s": 3733812.533,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=1",
+        "since": "cell:dns_closest_encloser/round=0",
+        "load1": 1.04,
+        "load5": 0.94,
+        "load15": 0.55,
+        "at": "2026-11-28T07:30:02Z",
+        "stat_busy_jiffies": 88752323,
+        "stat_total_jiffies": 8958171482,
+        "child_cpu_s": 657.464,
+        "monotonic_s": 3733828.018,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=2",
+        "since": "cell:dns_closest_encloser/round=1",
+        "load1": 1.03,
+        "load5": 0.95,
+        "load15": 0.56,
+        "at": "2026-11-28T07:30:17Z",
+        "stat_busy_jiffies": 88753890,
+        "stat_total_jiffies": 8958208449,
+        "child_cpu_s": 672.865,
+        "monotonic_s": 3733843.424,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=3",
+        "since": "cell:dns_closest_encloser/round=2",
+        "load1": 1.02,
+        "load5": 0.95,
+        "load15": 0.57,
+        "at": "2026-11-28T07:30:32Z",
+        "stat_busy_jiffies": 88755446,
+        "stat_total_jiffies": 8958245314,
+        "child_cpu_s": 688.228,
+        "monotonic_s": 3733858.788,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=4",
+        "since": "cell:dns_closest_encloser/round=3",
+        "load1": 1.02,
+        "load5": 0.95,
+        "load15": 0.57,
+        "at": "2026-11-28T07:30:48Z",
+        "stat_busy_jiffies": 88757000,
+        "stat_total_jiffies": 8958282004,
+        "child_cpu_s": 703.517,
+        "monotonic_s": 3733874.078,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=5",
+        "since": "cell:dns_closest_encloser/round=4",
+        "load1": 1.01,
+        "load5": 0.95,
+        "load15": 0.58,
+        "at": "2026-11-28T07:31:03Z",
+        "stat_busy_jiffies": 88758577,
+        "stat_total_jiffies": 8958319291,
+        "child_cpu_s": 719.054,
+        "monotonic_s": 3733889.617,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=6",
+        "since": "cell:dns_closest_encloser/round=5",
+        "load1": 1.01,
+        "load5": 0.96,
+        "load15": 0.59,
+        "at": "2026-11-28T07:31:19Z",
+        "stat_busy_jiffies": 88760140,
+        "stat_total_jiffies": 8958356270,
+        "child_cpu_s": 734.465,
+        "monotonic_s": 3733905.028,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=7",
+        "since": "cell:dns_closest_encloser/round=6",
+        "load1": 1.01,
+        "load5": 0.96,
+        "load15": 0.6,
+        "at": "2026-11-28T07:31:34Z",
+        "stat_busy_jiffies": 88761710,
+        "stat_total_jiffies": 8958393187,
+        "child_cpu_s": 749.846,
+        "monotonic_s": 3733920.414,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=8",
+        "since": "cell:dns_closest_encloser/round=7",
+        "load1": 1.0,
+        "load5": 0.96,
+        "load15": 0.6,
+        "at": "2026-11-28T07:31:49Z",
+        "stat_busy_jiffies": 88763263,
+        "stat_total_jiffies": 8958429894,
+        "child_cpu_s": 765.143,
+        "monotonic_s": 3733935.711,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=9",
+        "since": "cell:dns_closest_encloser/round=8",
+        "load1": 1.0,
+        "load5": 0.97,
+        "load15": 0.61,
+        "at": "2026-11-28T07:32:05Z",
+        "stat_busy_jiffies": 88764843,
+        "stat_total_jiffies": 8958467132,
+        "child_cpu_s": 780.659,
+        "monotonic_s": 3733951.23,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=10",
+        "since": "cell:dns_closest_encloser/round=9",
+        "load1": 1.0,
+        "load5": 0.97,
+        "load15": 0.62,
+        "at": "2026-11-28T07:32:20Z",
+        "stat_busy_jiffies": 88766411,
+        "stat_total_jiffies": 8958504148,
+        "child_cpu_s": 796.085,
+        "monotonic_s": 3733966.655,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_closest_encloser/round=11",
+        "since": "cell:dns_closest_encloser/round=10",
+        "load1": 1.0,
+        "load5": 0.97,
+        "load15": 0.63,
+        "at": "2026-11-28T07:32:36Z",
+        "stat_busy_jiffies": 88767974,
+        "stat_total_jiffies": 8958541023,
+        "child_cpu_s": 811.449,
+        "monotonic_s": 3733982.023,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor_concurrent/round=0",
+        "since": "cell:dns_closest_encloser/round=11",
+        "load1": 1.0,
+        "load5": 0.97,
+        "load15": 0.63,
+        "at": "2026-11-28T07:32:51Z",
+        "stat_busy_jiffies": 88769530,
+        "stat_total_jiffies": 8958577775,
+        "child_cpu_s": 826.764,
+        "monotonic_s": 3733997.339,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:dns_predecessor_concurrent/round=1",
+        "since": "cell:dns_predecessor_concurrent/round=0",
+        "load1": 1.37,
+        "load5": 1.06,
+        "load15": 0.67,
+        "at": "2026-11-28T07:33:13Z",
+        "stat_busy_jiffies": 88775236,
+        "stat_total_jiffies": 8958630887,
+        "child_cpu_s": 883.806,
+        "monotonic_s": 3734019.533,
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus_since_prev": 2.57,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_predecessor_concurrent/round=2",
+        "since": "cell:dns_predecessor_concurrent/round=1",
+        "load1": 1.58,
+        "load5": 1.12,
+        "load15": 0.7,
+        "at": "2026-11-28T07:33:35Z",
+        "stat_busy_jiffies": 88780942,
+        "stat_total_jiffies": 8958684000,
+        "child_cpu_s": 940.746,
+        "monotonic_s": 3734041.724,
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus_since_prev": 2.57,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_predecessor_concurrent/round=3",
+        "since": "cell:dns_predecessor_concurrent/round=2",
+        "load1": 2.08,
+        "load5": 1.26,
+        "load15": 0.76,
+        "at": "2026-11-28T07:33:57Z",
+        "stat_busy_jiffies": 88786628,
+        "stat_total_jiffies": 8958737088,
+        "child_cpu_s": 997.631,
+        "monotonic_s": 3734063.917,
+        "busy_cpus_since_prev": 2.57,
+        "own_busy_cpus_since_prev": 2.56,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_predecessor_concurrent/round=4",
+        "since": "cell:dns_predecessor_concurrent/round=3",
+        "load1": 2.33,
+        "load5": 1.36,
+        "load15": 0.8,
+        "at": "2026-11-28T07:34:20Z",
+        "stat_busy_jiffies": 88792324,
+        "stat_total_jiffies": 8958790210,
+        "child_cpu_s": 1054.561,
+        "monotonic_s": 3734086.121,
+        "busy_cpus_since_prev": 2.57,
+        "own_busy_cpus_since_prev": 2.56,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_predecessor_concurrent/round=5",
+        "since": "cell:dns_predecessor_concurrent/round=4",
+        "load1": 2.65,
+        "load5": 1.5,
+        "load15": 0.86,
+        "at": "2026-11-28T07:34:42Z",
+        "stat_busy_jiffies": 88798031,
+        "stat_total_jiffies": 8958843329,
+        "child_cpu_s": 1111.608,
+        "monotonic_s": 3734108.322,
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus_since_prev": 2.57,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_predecessor_concurrent/round=6",
+        "since": "cell:dns_predecessor_concurrent/round=5",
+        "load1": 2.48,
+        "load5": 1.53,
+        "load15": 0.89,
+        "at": "2026-11-28T07:35:04Z",
+        "stat_busy_jiffies": 88803708,
+        "stat_total_jiffies": 8958896421,
+        "child_cpu_s": 1168.47,
+        "monotonic_s": 3734130.517,
+        "busy_cpus_since_prev": 2.57,
+        "own_busy_cpus_since_prev": 2.56,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_predecessor_concurrent/round=7",
+        "since": "cell:dns_predecessor_concurrent/round=6",
+        "load1": 2.82,
+        "load5": 1.67,
+        "load15": 0.95,
+        "at": "2026-11-28T07:35:26Z",
+        "stat_busy_jiffies": 88809414,
+        "stat_total_jiffies": 8958949545,
+        "child_cpu_s": 1225.506,
+        "monotonic_s": 3734152.72,
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus_since_prev": 2.57,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:dns_memory/round=0",
+        "since": "cell:dns_predecessor_concurrent/round=7",
+        "load1": 3.01,
+        "load5": 1.77,
+        "load15": 1.0,
+        "at": "2026-11-28T07:35:48Z",
+        "stat_busy_jiffies": 88815116,
+        "stat_total_jiffies": 8959002672,
+        "child_cpu_s": 1282.515,
+        "monotonic_s": 3734174.925,
+        "busy_cpus_since_prev": 2.58,
+        "own_busy_cpus_since_prev": 2.57,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "end",
+        "since": "cell:dns_memory/round=0",
+        "load1": 2.7,
+        "load5": 1.75,
+        "load15": 1.0,
+        "at": "2026-11-28T07:35:57Z",
+        "stat_busy_jiffies": 88815976,
+        "stat_total_jiffies": 8959022995,
+        "child_cpu_s": 1290.984,
+        "monotonic_s": 3734183.395,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      }
+    ],
+    "load_windows": true,
+    "windows": [
+      {
+        "id": "dns_get/round=0",
+        "load": {
+          "since": "cell:dns_get/round=0",
+          "wall_s": 23.871,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_get/round=1",
+        "load": {
+          "since": "cell:dns_get/round=1",
+          "wall_s": 23.815,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_get/round=2",
+        "load": {
+          "since": "cell:dns_get/round=2",
+          "wall_s": 23.699,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_get/round=3",
+        "load": {
+          "since": "cell:dns_get/round=3",
+          "wall_s": 24.093,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_get/round=4",
+        "load": {
+          "since": "cell:dns_get/round=4",
+          "wall_s": 23.863,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_get/round=5",
+        "load": {
+          "since": "cell:dns_get/round=5",
+          "wall_s": 23.842,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_get/round=6",
+        "load": {
+          "since": "cell:dns_get/round=6",
+          "wall_s": 23.732,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_get/round=7",
+        "load": {
+          "since": "cell:dns_get/round=7",
+          "wall_s": 24.112,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_get/round=8",
+        "load": {
+          "since": "cell:dns_get/round=8",
+          "wall_s": 23.833,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_get/round=9",
+        "load": {
+          "since": "cell:dns_get/round=9",
+          "wall_s": 23.829,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_get/round=10",
+        "load": {
+          "since": "cell:dns_get/round=10",
+          "wall_s": 23.834,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_get/round=11",
+        "load": {
+          "since": "cell:dns_get/round=11",
+          "wall_s": 24.164,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_predecessor/round=0",
+        "load": {
+          "since": "cell:dns_predecessor/round=0",
+          "wall_s": 19.504,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_predecessor/round=1",
+        "load": {
+          "since": "cell:dns_predecessor/round=1",
+          "wall_s": 19.439,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_predecessor/round=2",
+        "load": {
+          "since": "cell:dns_predecessor/round=2",
+          "wall_s": 19.452,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_predecessor/round=3",
+        "load": {
+          "since": "cell:dns_predecessor/round=3",
+          "wall_s": 19.53,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_predecessor/round=4",
+        "load": {
+          "since": "cell:dns_predecessor/round=4",
+          "wall_s": 19.476,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_predecessor/round=5",
+        "load": {
+          "since": "cell:dns_predecessor/round=5",
+          "wall_s": 19.497,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_predecessor/round=6",
+        "load": {
+          "since": "cell:dns_predecessor/round=6",
+          "wall_s": 19.535,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_predecessor/round=7",
+        "load": {
+          "since": "cell:dns_predecessor/round=7",
+          "wall_s": 19.447,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_predecessor/round=8",
+        "load": {
+          "since": "cell:dns_predecessor/round=8",
+          "wall_s": 19.417,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_predecessor/round=9",
+        "load": {
+          "since": "cell:dns_predecessor/round=9",
+          "wall_s": 19.549,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_predecessor/round=10",
+        "load": {
+          "since": "cell:dns_predecessor/round=10",
+          "wall_s": 19.482,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_predecessor/round=11",
+        "load": {
+          "since": "cell:dns_predecessor/round=11",
+          "wall_s": 19.428,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=0",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=0",
+          "wall_s": 15.423,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=1",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=1",
+          "wall_s": 15.341,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=2",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=2",
+          "wall_s": 15.304,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=3",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=3",
+          "wall_s": 15.229,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=4",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=4",
+          "wall_s": 15.477,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=5",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=5",
+          "wall_s": 15.349,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=6",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=6",
+          "wall_s": 15.325,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=7",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=7",
+          "wall_s": 15.235,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=8",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=8",
+          "wall_s": 15.458,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=9",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=9",
+          "wall_s": 15.364,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=10",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=10",
+          "wall_s": 15.307,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_closest_encloser/round=11",
+        "load": {
+          "since": "cell:dns_closest_encloser/round=11",
+          "wall_s": 15.253,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "dns_predecessor_concurrent/round=0",
+        "load": {
+          "since": "cell:dns_predecessor_concurrent/round=0",
+          "wall_s": 22.132,
+          "busy_cpus_since_prev": 2.58,
+          "own_busy_cpus": 2.57,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_predecessor_concurrent/round=1",
+        "load": {
+          "since": "cell:dns_predecessor_concurrent/round=1",
+          "wall_s": 22.13,
+          "busy_cpus_since_prev": 2.58,
+          "own_busy_cpus": 2.57,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_predecessor_concurrent/round=2",
+        "load": {
+          "since": "cell:dns_predecessor_concurrent/round=2",
+          "wall_s": 22.131,
+          "busy_cpus_since_prev": 2.57,
+          "own_busy_cpus": 2.57,
+          "foreign_busy_cpus": 0.0
+        }
+      },
+      {
+        "id": "dns_predecessor_concurrent/round=3",
+        "load": {
+          "since": "cell:dns_predecessor_concurrent/round=3",
+          "wall_s": 22.144,
+          "busy_cpus_since_prev": 2.58,
+          "own_busy_cpus": 2.57,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_predecessor_concurrent/round=4",
+        "load": {
+          "since": "cell:dns_predecessor_concurrent/round=4",
+          "wall_s": 22.139,
+          "busy_cpus_since_prev": 2.58,
+          "own_busy_cpus": 2.57,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_predecessor_concurrent/round=5",
+        "load": {
+          "since": "cell:dns_predecessor_concurrent/round=5",
+          "wall_s": 22.135,
+          "busy_cpus_since_prev": 2.57,
+          "own_busy_cpus": 2.57,
+          "foreign_busy_cpus": 0.0
+        }
+      },
+      {
+        "id": "dns_predecessor_concurrent/round=6",
+        "load": {
+          "since": "cell:dns_predecessor_concurrent/round=6",
+          "wall_s": 22.14,
+          "busy_cpus_since_prev": 2.58,
+          "own_busy_cpus": 2.57,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_predecessor_concurrent/round=7",
+        "load": {
+          "since": "cell:dns_predecessor_concurrent/round=7",
+          "wall_s": 22.144,
+          "busy_cpus_since_prev": 2.58,
+          "own_busy_cpus": 2.57,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "dns_memory/round=0",
+        "load": {
+          "since": "cell:dns_memory/round=0",
+          "wall_s": 8.469,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      }
+    ]
+  }
+}

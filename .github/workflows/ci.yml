@@ -838,6 +838,9 @@ jobs:
           # patricia_d2_bounds.py's unit tests pin that check and D2's dynamic
           # derivation from the committed counter JSON artifacts.
           python3 docs/benchmarks/patricia_comparison/scripts/generate_readme.py --check
+          # dns_names' README is generated from its results/baseline_*.json:
+          # every verdict applies METHODOLOGY.md sections 4 to 6 to the artifacts.
+          python3 docs/benchmarks/dns_names/scripts/generate_readme.py --check
           (cd scripts && python3 -m unittest patricia_d2_bounds)
       - name: Verify Benchmark Artifact Provenance
         run: |
@@ -908,6 +911,7 @@ jobs:
           python3 docs/benchmarks/masstree_comparison/scripts/run_all.py --self-test
           python3 docs/benchmarks/art_comparison/scripts/run_all.py --self-test
           python3 docs/benchmarks/hashbrown_comparison/scripts/run_all.py --self-test
+          python3 docs/benchmarks/dns_names/scripts/run_all.py --self-test
           python3 docs/benchmarks/set_algebra/scripts/harvest_domain.py --self-test
           python3 docs/benchmarks/stressng_comparison/scripts/short_window.py --self-test
           python3 scripts/discipline_replay.py --self-test

@@ -954,6 +954,14 @@
       "suite": "patricia_comparison"
     },
     {
+      "name": "dns_names",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "`ExpanseOrderedBytesMap` vs `BTreeMap` and `qp-trie` on DNS-shaped keys through `docs/benchmarks/dns_names/scripts/run_all.py`: exact lookup at 50% hit, predecessor, closest encloser, concurrent predecessor readers and a live-heap census, both insertion orders; one process per round (12 rounds, 8 for the concurrent readers) with BCa intervals on paired per-round ratios; writes `results/baseline_*.json`.",
+      "suite": "dns_names"
+    },
+    {
       "name": "hashbrown_comparison",
       "available": true,
       "kind": "wallclock",

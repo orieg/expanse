@@ -421,6 +421,31 @@ harness = false
 test = false
 
 [[bench]]
+name = "dns_get"
+harness = false
+test = false
+
+[[bench]]
+name = "dns_predecessor"
+harness = false
+test = false
+
+[[bench]]
+name = "dns_closest_encloser"
+harness = false
+test = false
+
+[[bench]]
+name = "dns_memory"
+harness = false
+test = false
+
+[[bench]]
+name = "dns_predecessor_concurrent"
+harness = false
+test = false
+
+[[bench]]
 name = "art_lookup_hit"
 harness = false
 test = false
