@@ -3826,7 +3826,7 @@ pub(crate) fn branch_u_digits_exact(edges: &[Edge; crate::types::BRANCH_FANOUT])
 /// exact count when it is at or below the demotion floor, and a count above
 /// the floor otherwise. The caller asks only whether the branch is now empty
 /// and whether it is below its floor ([`branch_u_below_floor`]), and both
-/// answers read the same from either.
+/// answers read the same from that count as from the exact one.
 ///
 /// The branch's header bound ([`BranchU::digits_lower`]) held at most its
 /// non-null slots before the null, so one less holds after it. While that
@@ -3835,6 +3835,10 @@ pub(crate) fn branch_u_digits_exact(edges: &[Edge; crate::types::BRANCH_FANOUT])
 /// slot at a time is counted once on its first removal and once more when
 /// it reaches its floor, where a count that stopped one block past the
 /// floor would be repeated every 16 removals.
+///
+/// The bound is the writer's own word: no reader loads it, so on a shared
+/// tree it is stored outside the branch's version bracket. A reader that
+/// came to depend on it would need that store moved inside the bracket.
 ///
 /// # Safety
 ///

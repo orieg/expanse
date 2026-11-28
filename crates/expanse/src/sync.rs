@@ -1382,7 +1382,7 @@ unsafe fn null_branch_u_slot<T, R>(
     // SAFETY: the slot is inside the locked, EBR-live branch, and this
     // writer is its one writer until the unlock.
     unsafe { Edge::store_at::<true>(edge_ptr, Edge::NULL) };
-    // The exclusive map walks keep a lower bound on the non-null slots
+    // The exclusive removal walks keep a lower bound on the non-null slots
     // (#1679); this null would leave it one too high, and 0 is a bound for
     // every branch.
     // SAFETY: as for the store above.
