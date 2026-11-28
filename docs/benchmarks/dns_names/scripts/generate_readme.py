@@ -24,6 +24,8 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent.parent
 RESULTS = BASE / "results"
 README_PATH = BASE / "README.md"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import run_all  # noqa: E402  (the runner's own pairing: per-round ratio, BCa on the logs)
 ISSUE = "[#1800](https://github.com/orieg/expanse/issues/1800)"
 
 RUNS = ("", "_run2")
@@ -34,12 +36,26 @@ FILES = {"dns_get": "get", "dns_predecessor": "predecessor",
          "dns_predecessor_concurrent": "concurrent_readers", "dns_memory": "memory"}
 
 
+#: A pair with no prediction that the runner does not publish: the control arm
+#: against `qp_trie`. Formed here from the cells' own `rounds_raw`, by the
+#: runner's pairing, so the escape pass can be separated from the engine.
+DERIVED_PAIR = ("expanse_direct", "qp_trie")
+DERIVED_NAME = "expanse_direct_over_qp_trie"
+
+
 def load(stem: str, results: Path) -> list[dict | None]:
     """The artifact of each dispatch, `None` where it is not committed."""
     out = []
     for suffix in RUNS:
         path = results / f"baseline_{stem}{suffix}.json"
-        out.append(json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None)
+        art = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+        for cell in (art or {}).get("cells", []):
+            arms = {r["arm"] for r in cell["rounds_raw"]}
+            if set(DERIVED_PAIR) <= arms:
+                num, den = (run_all.by_round(cell["rounds_raw"], a, "ns_per_op")
+                            for a in DERIVED_PAIR)
+                cell["ratios"][DERIVED_NAME] = run_all.paired(num, den, DERIVED_NAME, True)
+        out.append(art)
     return out
 
 
@@ -381,12 +397,15 @@ def render(results: Path = RESULTS) -> str:
         out += [f"- {n}" for n in notes] or ["- Every predicted cell is PASS."]
         loss = []
         for arts, wid, names in (
+            (get, "dns_get", (DERIVED_NAME,)),
             (pred, "dns_predecessor", ("expanse_ordered_over_btreemap",
                                        "expanse_ordered_owned_over_btreemap")),
+            (enc, "dns_closest_encloser", (DERIVED_NAME,)),
         ):
             for key in keys_of(arts):
                 for name in names:
-                    if name == "expanse_ordered_over_btreemap" and key[0] == 1_000_000:
+                    if (wid == "dns_predecessor" and name == "expanse_ordered_over_btreemap"
+                            and key[0] == 1_000_000):
                         continue  # N1's cells, judged above
                     if key[0] not in EVAL_N:
                         continue
@@ -404,7 +423,7 @@ def render(results: Path = RESULTS) -> str:
         out += timing_table(get, "dns_get",
                             ("expanse_ordered", "expanse_direct", "btreemap", "qp_trie"),
                             ("expanse_ordered_over_btreemap", "expanse_ordered_over_qp_trie",
-                             "expanse_ordered_over_expanse_direct")) + [""]
+                             "expanse_ordered_over_expanse_direct", DERIVED_NAME)) + [""]
         out += ["## Predecessor of an absent name", ""]
         out += timing_table(pred, "dns_predecessor",
                             ("expanse_ordered", "expanse_ordered_owned", "expanse_direct",
@@ -417,7 +436,7 @@ def render(results: Path = RESULTS) -> str:
         out += timing_table(enc, "dns_closest_encloser",
                             ("expanse_ordered", "expanse_direct", "btreemap", "qp_trie"),
                             ("expanse_ordered_over_btreemap", "expanse_ordered_over_qp_trie",
-                             "expanse_ordered_over_expanse_direct")) + [""]
+                             "expanse_ordered_over_expanse_direct", DERIVED_NAME)) + [""]
 
         m = mem[0] or mem[1]
         if m is not None:
@@ -477,6 +496,12 @@ def render(results: Path = RESULTS) -> str:
                     f"METHODOLOGY.md §5 reopens an optimistic predecessor only if the lower bound "
                     f"is at least 2 and a caller cannot use snapshots; the suite measures the "
                     f"first condition only.", ""]
+            if V["C3"] != "PASS":
+                out += [f"C3, the control, is {V['C3']}: the one-shot `get` does not scale under this "
+                        f"pin. By METHODOLOGY.md §5, C1 therefore says nothing about the lock. "
+                        f"`sync_reader_get` (A1.2) makes the same lookups through a reader each "
+                        f"thread registers once; its S(W) rows above show what the per-call "
+                        f"registration costs. It carries no prediction.", ""]
 
     out += ["## Reproduce", "",
             "```bash", "docs/benchmarks/dns_names/run.sh          # full run, on the Linux reference host",
