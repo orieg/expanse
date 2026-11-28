@@ -540,13 +540,30 @@ unsafe fn next_hit<const MAP: bool, H: Hit>(
             let (num, digits, edges_ptr) =
                 unsafe { linear_branch_parts(edge, matches!(t, EdgeType::BranchL3)) };
             let start = digits[..num].partition_point(|&bd| bd < d);
-            for (slot, &bd) in digits.iter().enumerate().take(num).skip(start) {
-                let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
-                // SAFETY: slot < num live child edges.
-                let child = unsafe { edges_ptr.add(slot) };
-                // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { next_hit::<MAP, H>(child, rem, bl - 1) } {
-                    return Some(((dv << shift) | compose(bd, r, bl), v));
+            // The set walk slices to `start..num`; the map walk keeps the
+            // `take`/`skip` form. Every slice form measured on the map walk
+            // changed its `BranchB` arm's code generation and cost
+            // `JudyLNext` and `JudyLFirst` on random keys 1.0-1.7%.
+            if MAP {
+                for (slot, &bd) in digits.iter().enumerate().take(num).skip(start) {
+                    let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
+                    // SAFETY: slot < num live child edges.
+                    let child = unsafe { edges_ptr.add(slot) };
+                    // SAFETY: child subtree per contract.
+                    if let Some((r, v)) = unsafe { next_hit::<MAP, H>(child, rem, bl - 1) } {
+                        return Some(((dv << shift) | compose(bd, r, bl), v));
+                    }
+                }
+            } else {
+                for (i, &bd) in digits[start..num].iter().enumerate() {
+                    let slot = start + i;
+                    let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
+                    // SAFETY: slot < num live child edges.
+                    let child = unsafe { edges_ptr.add(slot) };
+                    // SAFETY: child subtree per contract.
+                    if let Some((r, v)) = unsafe { next_hit::<MAP, H>(child, rem, bl - 1) } {
+                        return Some(((dv << shift) | compose(bd, r, bl), v));
+                    }
                 }
             }
             None
