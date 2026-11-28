@@ -12,10 +12,11 @@ use crate::bits::shared_word;
 use crate::get;
 use crate::mutate;
 use crate::mutate_map;
-use crate::node::Edge;
+use crate::node::{BranchL3, Edge};
 use crate::set::ROOT_LEAF_CAP;
 #[cfg(all(target_pointer_width = "64", feature = "std"))]
 use crate::sync::RootSnapshot;
+use crate::types::EdgeType;
 use crate::types::Key;
 use crate::validate::ExpanseStats;
 use core::ptr::NonNull;
@@ -46,11 +47,74 @@ enum Root {
     Tree {
         top: Edge,
     } = ROOT_TREE,
+    /// A [`Root::Tree`] whose keys all share their top byte (#1682): `top`
+    /// references a level-8 `BranchL3` with exactly one child. The lookup,
+    /// insert and removal entry points test the key's top byte against that
+    /// child's digit and enter the walk at the child edge with seven
+    /// undecoded bytes, without the top node's step. The tree is the same
+    /// tree: every other reader treats this variant as `Tree`.
+    ///
+    /// Held only by a tree whose allocator was never shared. A shared tree is
+    /// shared before it holds a node (`NodeAlloc::defer_to`), and
+    /// [`Root::tree_of`] gives it `Tree`, so no concurrent reader or writer
+    /// meets this variant. It is a hint: [`Root::top1_entry`] re-checks the
+    /// top node on every use, so a mutation that changes the top node through
+    /// the level-8 walk leaves a correct tree behind it.
+    Top1 {
+        top: Edge,
+    } = ROOT_TOP1,
 }
 
 const ROOT_EMPTY: u64 = 0;
 const ROOT_LEAF: u64 = 1;
 const ROOT_TREE: u64 = 2;
+const ROOT_TOP1: u64 = 3;
+
+impl Root {
+    /// The root for a tree whose top edge is `top`: [`Root::Top1`] when the
+    /// tree's allocator was never shared and `top` is a level-8 `BranchL3`
+    /// with one child, [`Root::Tree`] otherwise. Called where a tree root is
+    /// built, never on a lookup or mutation path.
+    #[inline]
+    fn tree_of(alloc: &NodeAlloc, top: Edge) -> Self {
+        if !alloc.occ_enabled() && top.tag_byte() == EdgeType::BranchL3.as_u8() {
+            // SAFETY: a BranchL3-tagged top edge references a live BranchL3.
+            let hdr = unsafe { &(*top.node_ptr().cast::<BranchL3>()).hdr };
+            if hdr.num == 1 && hdr.level == 8 {
+                return Root::Top1 { top };
+            }
+        }
+        Root::Tree { top }
+    }
+
+    /// The edge to enter a walk for `key` at, with seven undecoded bytes, on a
+    /// [`Root::Top1`] root: the top node's one child, when `top` is still a
+    /// `BranchL3` with exactly one child and that child's digit is `key`'s
+    /// top byte. `None` sends the caller to the walk from `top` with eight,
+    /// which is correct for every tree: the variant is a hint, re-checked
+    /// here on every use, so a top node changed by a path that did not
+    /// update the root costs these compares and nothing else.
+    ///
+    /// # Safety
+    /// `top` is the top edge of a live tree root: null, or a pointer edge
+    /// whose tag names the node it references.
+    #[inline(always)]
+    unsafe fn top1_entry(top: &Edge, key: Key) -> Option<*mut Edge> {
+        if top.tag_byte() != EdgeType::BranchL3.as_u8() {
+            return None;
+        }
+        let b = top.node_ptr().cast::<BranchL3>();
+        // SAFETY: a BranchL3-tagged edge references a live BranchL3.
+        unsafe {
+            if (*b).hdr.num == 1 && (*b).hdr.digits[0] == (key >> 56) as u8 {
+                debug_assert!((*b).hdr.level == 8);
+                Some(&raw mut (*b).edges[0])
+            } else {
+                None
+            }
+        }
+    }
+}
 
 /// `Root::Leaf` and `Root::Tree` as the primitive representation lays them
 /// out: the tag word, then the variant's fields in declaration order.
@@ -135,7 +199,9 @@ mod root_word {
         let (t, words) = match root {
             Root::Empty => (ROOT_EMPTY, None),
             Root::Leaf { ptr, pop } => (ROOT_LEAF, Some((ptr.as_ptr(), pop as u64))),
-            Root::Tree { top } => (ROOT_TREE, Some((top.node_ptr(), top.aux_word()))),
+            Root::Tree { top } | Root::Top1 { top } => {
+                (ROOT_TREE, Some((top.node_ptr(), top.aux_word())))
+            }
         };
         // SAFETY: caller contract; words 1 and 2, then word 0.
         unsafe {
@@ -339,6 +405,7 @@ fn tree_insert<const KEEP: bool, const OCC: bool, const NESTED: bool>(
     top: &mut Edge,
     key: Key,
     val: u64,
+    level: u8,
 ) -> (Option<u64>, *mut u64) {
     // SAFETY: trie maintained/owned by this map's engine.
     let r = unsafe {
@@ -347,7 +414,7 @@ fn tree_insert<const KEEP: bool, const OCC: bool, const NESTED: bool>(
             top,
             key,
             val,
-            8,
+            level,
             path,
             crate::occ::Cover::Tree,
         )
@@ -366,6 +433,7 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
     tree_pop: &mut u64,
     top: &mut Edge,
     key: Key,
+    level: u8,
 ) -> (Option<u64>, u64) {
     // SAFETY: trie maintained/owned by this map's engine.
     // A shared tree's removal is the raw-pointer copy (#1086), chosen here
@@ -376,11 +444,11 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
                 alloc,
                 &raw mut *top,
                 key,
-                8,
+                level,
                 crate::occ::Cover::Tree,
             )
         } else {
-            mutate_map::map_remove::<false, NESTED>(alloc, top, key, 8, crate::occ::Cover::Tree)
+            mutate_map::map_remove::<false, NESTED>(alloc, top, key, level, crate::occ::Cover::Tree)
         }
     };
     let now = if old.is_none() {
@@ -398,7 +466,7 @@ fn root_fingerprint_of(root: &Root) -> (u8, u64, u64) {
     match root {
         Root::Empty => (0, 0, 0),
         Root::Leaf { ptr, .. } => (1, ptr.as_ptr() as u64, 0),
-        Root::Tree { top, .. } => (2, top.word0(), top.aux_word()),
+        Root::Tree { top, .. } | Root::Top1 { top, .. } => (2, top.word0(), top.aux_word()),
     }
 }
 
@@ -526,7 +594,7 @@ fn leaf_state_insert<const OCC: bool, const NESTED: bool>(
                 }
             }
         }
-        Root::Tree { .. } => unreachable!("leaf_state_insert on a tree root"),
+        Root::Tree { .. } | Root::Top1 { .. } => unreachable!("leaf_state_insert on a tree root"),
     }
 }
 
@@ -611,7 +679,7 @@ fn leaf_state_remove<const OCC: bool>(
                 )
             }
         }
-        Root::Tree { .. } => unreachable!("leaf_state_remove on a tree root"),
+        Root::Tree { .. } | Root::Top1 { .. } => unreachable!("leaf_state_remove on a tree root"),
     }
 }
 
@@ -738,7 +806,7 @@ fn leaf_state_insert_shared(
                 }
             }
         }
-        Root::Tree { .. } => unreachable!("leaf_state_insert on a tree root"),
+        Root::Tree { .. } | Root::Top1 { .. } => unreachable!("leaf_state_insert on a tree root"),
     }
 }
 
@@ -801,7 +869,7 @@ fn leaf_state_remove_shared(
                 )
             }
         }
-        Root::Tree { .. } => unreachable!("leaf_state_remove on a tree root"),
+        Root::Tree { .. } | Root::Top1 { .. } => unreachable!("leaf_state_remove on a tree root"),
     }
 }
 
@@ -873,7 +941,7 @@ impl MapCore {
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { pop, .. } => *pop as u64,
-            Root::Tree { .. } => self.tree_pop,
+            Root::Tree { .. } | Root::Top1 { .. } => self.tree_pop,
         }
     }
 
@@ -985,7 +1053,9 @@ impl MapCore {
             }
             // SAFETY: the trie is maintained by the map mutation engine
             // and satisfies the lookup contract.
-            Root::Tree { top, .. } => unsafe { get::get_map_near(top, key, 8, miss, found) },
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
+                get::get_map_near(top, key, 8, miss, found)
+            },
         }
     }
 
@@ -1049,6 +1119,14 @@ impl MapCore {
             // SAFETY: the trie is maintained by the map mutation engine
             // and satisfies the lookup contract.
             Root::Tree { top, .. } => unsafe { get::get_map(top, key, 8) },
+            // SAFETY: as above; `top1_entry` returns the top node's one
+            // child only when `key`'s top byte is its digit.
+            Root::Top1 { top, .. } => unsafe {
+                match Root::top1_entry(top, key) {
+                    Some(child) => get::get_map(&*child, key, 7),
+                    None => get::get_map(top, key, 8),
+                }
+            },
         }
     }
 
@@ -1124,7 +1202,7 @@ impl MapCore {
                 }
             }
             // SAFETY: `top` is a valid root edge of a live trie.
-            Root::Tree { top, .. } => unsafe {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
                 crate::validate::walk_map_probe_visits(top, key, 8)
             },
         }
@@ -1142,7 +1220,7 @@ impl MapCore {
                 total_keys: *pop,
             },
             // SAFETY: `top` is a valid root edge of a live trie.
-            Root::Tree { top, .. } => unsafe {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
                 crate::validate::walk_map_probe_visits_census(top, 8, 0, 0)
             },
         }
@@ -1174,7 +1252,7 @@ impl MapCore {
                     *o = self.get(*k);
                 }
             }
-            Root::Tree { top, .. } => {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => {
                 // SAFETY: tree satisfies lookup invariants.
                 unsafe {
                     get::get_map_batch_w::<W>(top, keys, out, 8);
@@ -1299,6 +1377,17 @@ impl MapCore {
                 // SAFETY: top is live valid tree root pointer.
                 unsafe { crate::get::locate_slot((&raw const *top).cast_mut(), key, 8) }
             }
+            Root::Top1 { top, .. } => {
+                // SAFETY: top is live valid tree root pointer; `top1_entry`
+                // returns the top node's one child only when `key`'s top
+                // byte is its digit.
+                unsafe {
+                    match Root::top1_entry(top, key) {
+                        Some(child) => crate::get::locate_slot(child, key, 7),
+                        None => crate::get::locate_slot((&raw const *top).cast_mut(), key, 8),
+                    }
+                }
+            }
         }
     }
 
@@ -1369,7 +1458,7 @@ impl MapCore {
             }
             // SAFETY: trie maintained/owned by this map's engine; the
             // raw walk derives the slot from node pointers only.
-            Root::Tree { top, .. } => {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
                     if let Some(leaf) = core::ptr::NonNull::new(path.leaf) {
@@ -1420,7 +1509,7 @@ impl MapCore {
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> core::ptr::NonNull<u64> {
         match &mut self.root {
-            Root::Tree { top } => {
+            Root::Tree { top } | Root::Top1 { top } => {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
                     alloc.assert_bracketed();
@@ -1532,7 +1621,7 @@ impl MapCore {
                 // tree still dispatches by flag so its stores are bracketed.
                 let (_prev, slot) = by_mode!(
                     alloc,
-                    tree_insert::<true>(alloc, &mut self.tree_pop, path, top, key, 0)
+                    tree_insert::<true>(alloc, &mut self.tree_pop, path, top, key, 0, 8)
                 );
                 // SAFETY: map_insert always returns a valid, non-null slot pointer.
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
@@ -1665,7 +1754,7 @@ impl MapCore {
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> core::ptr::NonNull<u64> {
         match &mut self.root {
-            Root::Tree { top } => {
+            Root::Tree { top } | Root::Top1 { top } => {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
                     alloc.assert_bracketed();
@@ -1777,7 +1866,7 @@ impl MapCore {
                 // tree still dispatches by flag so its stores are bracketed.
                 let (_prev, slot) = by_mode!(
                     alloc,
-                    tree_insert::<true>(alloc, &mut self.tree_pop, path, top, key, 0)
+                    tree_insert::<true>(alloc, &mut self.tree_pop, path, top, key, 0, 8)
                 );
                 // SAFETY: map_insert always returns a valid, non-null slot pointer.
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
@@ -1906,118 +1995,150 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> core::ptr::NonNull<u64> {
-        match &mut self.root {
-            Root::Tree { top } => {
-                let prefix = key >> 8;
-                if path.prefix == prefix {
-                    alloc.assert_bracketed();
-                    if let Some(mut leaf) = core::ptr::NonNull::new(path.leaf) {
-                        let d = (key & 0xFF) as u8;
-                        // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { leaf.as_mut() };
-                        let sub = (d >> 5) as usize;
-                        if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
-                            // SAFETY: value subarray holds subexpanse_count values.
-                            let slot = unsafe { node.values[sub].add(rank) };
-                            return core::ptr::NonNull::new(slot).expect("slot");
-                        }
-                        let rank = node.bitmap.subexpanse_rank(d) as usize;
-                        let old_n = node.bitmap.subexpanse_count(sub) as usize;
-                        if old_n > 0
-                            && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
-                        {
-                            // Fast path: spare class capacity — shift in place.
-                            // SAFETY: the subarray holds cap_class(old_n) slots.
-                            unsafe {
-                                let arr = node.values[sub];
-                                core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                                arr.add(rank).write(0);
-                            }
-                        } else {
-                            let new = alloc
-                                .alloc_bytes_plain(crate::mutate::sub_vals_size(old_n + 1))
-                                .cast::<u64>();
-                            // SAFETY: copy old_n values around the inserted rank.
-                            unsafe {
-                                if old_n > 0 {
-                                    let old = node.values[sub];
-                                    new.as_ptr().copy_from_nonoverlapping(old, rank);
-                                    new.as_ptr()
-                                        .add(rank + 1)
-                                        .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                                    alloc.free_bytes_plain(
-                                        core::ptr::NonNull::new(old.cast()).expect("values"),
-                                        crate::mutate::sub_vals_size(old_n),
-                                    );
-                                }
-                                new.as_ptr().add(rank).write(0);
-                            }
-                            node.values[sub] = new.as_ptr();
-                        }
-                        node.bitmap.set(d);
-                        path.pending_pop += 1;
-                        path.terminal_pop += 1;
-                        self.tree_pop += 1;
-                        debug_assert!(!path.edges[0].is_null());
-                        // SAFETY: keep terminal edge pop0 up to date. The warm path is
-                        // armed only where `edges[0]` is set beside `prefix`,
-                        // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
-                        // `clear()` resets `prefix` to `u64::MAX`, which matches no
-                        // `key >> 8`, so a cleared path never reaches here.
-                        unsafe {
-                            core::ptr::NonNull::new_unchecked(path.edges[0])
-                                .as_mut()
-                                .set_pop0(1, (path.terminal_pop - 1) as u64);
-                        }
-                        // SAFETY: freshly inserted slot.
-                        let slot = unsafe { node.values[sub].add(rank) };
-                        return core::ptr::NonNull::new(slot).expect("slot");
-                    } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
-                        let d = (key & 0xFF) as u8;
-                        let cur_pop = path.terminal_pop as usize;
-                        let base = leaf1.as_ptr();
-                        // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
-                        let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
-                        // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
-                        let last = unsafe { *keys_ptr.add(cur_pop - 1) };
-                        if d > last {
-                            if cur_pop < crate::mutate::LEAF1_CAP
-                                && crate::leaf::cap_class(cur_pop + 1)
-                                    == crate::leaf::cap_class(cur_pop)
-                            {
-                                // SAFETY: spare class capacity in the live Leaf1 allocation.
-                                unsafe {
-                                    *keys_ptr.add(cur_pop) = d;
-                                    let vals = base.cast::<u64>();
-                                    vals.add(cur_pop).write(0);
-                                    debug_assert!(!path.edges[0].is_null());
-                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
-                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
-                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
-                                    // `key >> 8`, so a cleared path never reaches here.
-                                    core::ptr::NonNull::new_unchecked(path.edges[0])
-                                        .as_mut()
-                                        .set_pop0(1, cur_pop as u64);
-                                }
-                                path.terminal_pop += 1;
-                                path.pending_pop += 1;
-                                self.tree_pop += 1;
-                                // SAFETY: freshly written slot in live value area.
-                                let slot = unsafe { base.cast::<u64>().add(cur_pop) };
+        // The tree arm. `Root::Top1` runs it too when the warm path is armed,
+        // which does not read the top node.
+        macro_rules! tree_arm {
+            ($top:ident) => {{
+                    let prefix = key >> 8;
+                    if path.prefix == prefix {
+                        alloc.assert_bracketed();
+                        if let Some(mut leaf) = core::ptr::NonNull::new(path.leaf) {
+                            let d = (key & 0xFF) as u8;
+                            // SAFETY: path holds valid live LeafBitmapL pointer.
+                            let node = unsafe { leaf.as_mut() };
+                            let sub = (d >> 5) as usize;
+                            if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
+                                // SAFETY: value subarray holds subexpanse_count values.
+                                let slot = unsafe { node.values[sub].add(rank) };
                                 return core::ptr::NonNull::new(slot).expect("slot");
                             }
-                        } else if d == last {
-                            // SAFETY: cur_pop - 1 is the existing slot for `last`.
-                            let slot = unsafe { base.cast::<u64>().add(cur_pop - 1) };
+                            let rank = node.bitmap.subexpanse_rank(d) as usize;
+                            let old_n = node.bitmap.subexpanse_count(sub) as usize;
+                            if old_n > 0
+                                && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
+                            {
+                                // Fast path: spare class capacity — shift in place.
+                                // SAFETY: the subarray holds cap_class(old_n) slots.
+                                unsafe {
+                                    let arr = node.values[sub];
+                                    core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                                    arr.add(rank).write(0);
+                                }
+                            } else {
+                                let new = alloc
+                                    .alloc_bytes_plain(crate::mutate::sub_vals_size(old_n + 1))
+                                    .cast::<u64>();
+                                // SAFETY: copy old_n values around the inserted rank.
+                                unsafe {
+                                    if old_n > 0 {
+                                        let old = node.values[sub];
+                                        new.as_ptr().copy_from_nonoverlapping(old, rank);
+                                        new.as_ptr()
+                                            .add(rank + 1)
+                                            .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                                        alloc.free_bytes_plain(
+                                            core::ptr::NonNull::new(old.cast()).expect("values"),
+                                            crate::mutate::sub_vals_size(old_n),
+                                        );
+                                    }
+                                    new.as_ptr().add(rank).write(0);
+                                }
+                                node.values[sub] = new.as_ptr();
+                            }
+                            node.bitmap.set(d);
+                            path.pending_pop += 1;
+                            path.terminal_pop += 1;
+                            self.tree_pop += 1;
+                            debug_assert!(!path.edges[0].is_null());
+                            // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                            // armed only where `edges[0]` is set beside `prefix`,
+                            // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                            // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                            // `key >> 8`, so a cleared path never reaches here.
+                            unsafe {
+                                core::ptr::NonNull::new_unchecked(path.edges[0])
+                                    .as_mut()
+                                    .set_pop0(1, (path.terminal_pop - 1) as u64);
+                            }
+                            // SAFETY: freshly inserted slot.
+                            let slot = unsafe { node.values[sub].add(rank) };
                             return core::ptr::NonNull::new(slot).expect("slot");
+                        } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
+                            let d = (key & 0xFF) as u8;
+                            let cur_pop = path.terminal_pop as usize;
+                            let base = leaf1.as_ptr();
+                            // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
+                            let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
+                            // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
+                            let last = unsafe { *keys_ptr.add(cur_pop - 1) };
+                            if d > last {
+                                if cur_pop < crate::mutate::LEAF1_CAP
+                                    && crate::leaf::cap_class(cur_pop + 1)
+                                        == crate::leaf::cap_class(cur_pop)
+                                {
+                                    // SAFETY: spare class capacity in the live Leaf1 allocation.
+                                    unsafe {
+                                        *keys_ptr.add(cur_pop) = d;
+                                        let vals = base.cast::<u64>();
+                                        vals.add(cur_pop).write(0);
+                                        debug_assert!(!path.edges[0].is_null());
+                                        // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                        // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                        // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                        // `key >> 8`, so a cleared path never reaches here.
+                                        core::ptr::NonNull::new_unchecked(path.edges[0])
+                                            .as_mut()
+                                            .set_pop0(1, cur_pop as u64);
+                                    }
+                                    path.terminal_pop += 1;
+                                    path.pending_pop += 1;
+                                    self.tree_pop += 1;
+                                    // SAFETY: freshly written slot in live value area.
+                                    let slot = unsafe { base.cast::<u64>().add(cur_pop) };
+                                    return core::ptr::NonNull::new(slot).expect("slot");
+                                }
+                            } else if d == last {
+                                // SAFETY: cur_pop - 1 is the existing slot for `last`.
+                                let slot = unsafe { base.cast::<u64>().add(cur_pop - 1) };
+                                return core::ptr::NonNull::new(slot).expect("slot");
+                            }
                         }
                     }
+                    path.clear();
+                    let (_prev, slot) =
+                        tree_insert::<true, false, false>(alloc, &mut self.tree_pop, path, $top, key, 0, 8);
+                    // SAFETY: map_insert always returns a valid, non-null slot pointer.
+                    unsafe { core::ptr::NonNull::new_unchecked(slot) }
+            }};
+        }
+        match &mut self.root {
+            Root::Tree { top } => tree_arm!(top),
+            Root::Top1 { top } => {
+                if path.prefix != key >> 8 {
+                    // SAFETY: `top` is this tree's live top edge.
+                    if let Some(child) = unsafe { Root::top1_entry(top, key) } {
+                        path.clear();
+                        // SAFETY: `child` is the top node's one child slot, and
+                        // `key`'s top byte is its digit.
+                        let (_prev, slot) = tree_insert::<true, false, false>(
+                            alloc,
+                            &mut self.tree_pop,
+                            path,
+                            unsafe { &mut *child },
+                            key,
+                            0,
+                            7,
+                        );
+                        // SAFETY: map_insert always returns a valid, non-null slot pointer.
+                        return unsafe { core::ptr::NonNull::new_unchecked(slot) };
+                    }
+                    // The key's top byte is not the child's digit, or the top
+                    // node changed: an ordinary tree from here on.
+                    let top = *top;
+                    self.root = Root::Tree { top };
+                    return self.ins_slot_plain(alloc, key, path);
                 }
-                path.clear();
-                let (_prev, slot) =
-                    tree_insert::<true, false, false>(alloc, &mut self.tree_pop, path, top, key, 0);
-                // SAFETY: map_insert always returns a valid, non-null slot pointer.
-                unsafe { core::ptr::NonNull::new_unchecked(slot) }
+                tree_arm!(top)
             }
             Root::Empty => {
                 let ptr = alloc.alloc_bytes_plain(leaf_size(1));
@@ -2143,10 +2264,17 @@ impl MapCore {
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> core::ptr::NonNull<u64> {
         match &mut self.root {
-            Root::Tree { top } => {
+            Root::Tree { top } | Root::Top1 { top } => {
                 path.clear();
-                let (_prev, slot) =
-                    tree_insert::<true, OCC, NESTED>(alloc, &mut self.tree_pop, path, top, key, 0);
+                let (_prev, slot) = tree_insert::<true, OCC, NESTED>(
+                    alloc,
+                    &mut self.tree_pop,
+                    path,
+                    top,
+                    key,
+                    0,
+                    8,
+                );
                 // SAFETY: map_insert always returns a valid, non-null slot pointer.
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
             }
@@ -2273,14 +2401,14 @@ impl MapCore {
     /// a sub-map cursor for it.
     #[inline(always)]
     pub(crate) fn root_is_tree(&self) -> bool {
-        matches!(self.root, Root::Tree { .. })
+        matches!(self.root, Root::Tree { .. } | Root::Top1 { .. })
     }
 
     #[inline(always)]
     #[cfg(feature = "std")]
     pub(crate) unsafe fn root_top_ptr(&self) -> *mut Edge {
         match &self.root {
-            Root::Tree { top } => (top as *const Edge).cast_mut(),
+            Root::Tree { top } | Root::Top1 { top } => (top as *const Edge).cast_mut(),
             _ => core::ptr::null_mut(),
         }
     }
@@ -2300,7 +2428,7 @@ impl MapCore {
                 ptr: ptr.as_ptr(),
                 pop: *pop,
             },
-            Root::Tree { top } => RootSnapshot::Tree { top: *top },
+            Root::Tree { top } | Root::Top1 { top } => RootSnapshot::Tree { top: *top },
         }
     }
 
@@ -2417,7 +2545,7 @@ impl MapCore {
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) unsafe fn root_is_tree_of(this: *const Self) -> bool {
         // SAFETY: caller contract; the tag word heads `Root`.
-        unsafe { root_word::tag((&raw const (*this).root).cast_mut()) == ROOT_TREE }
+        unsafe { root_word::tag((&raw const (*this).root).cast_mut()) >= ROOT_TREE }
     }
 
     /// The entry count, through a raw pointer (see
@@ -2454,7 +2582,7 @@ impl MapCore {
         // layout asserts pin.
         unsafe {
             let r = &raw mut (*this).root;
-            if root_word::tag(r) == ROOT_TREE {
+            if root_word::tag(r) >= ROOT_TREE {
                 NonNull::new(
                     r.cast::<u8>()
                         .add(core::mem::offset_of!(RootTreeLayout, top))
@@ -2764,6 +2892,135 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
+        // The tree arm. `Root::Top1` runs it too when the warm path is armed,
+        // which does not read the top node.
+        macro_rules! tree_arm {
+            ($top:ident) => {{
+                    let prefix = key >> 8;
+                    // A warm path never exists on a shared tree: the shared engine
+                    // clears the cache on entry and records nothing, so this bypass
+                    // is structurally cold there (AGENTS.md §2.1.5); the assert is
+                    // the tripwire, not the guard.
+                    if path.prefix == prefix {
+                        alloc.assert_bracketed();
+                        if let Some(mut leaf) = core::ptr::NonNull::new(path.leaf) {
+                            let d = (key & 0xFF) as u8;
+                            // SAFETY: path holds valid live LeafBitmapL pointer.
+                            let node = unsafe { leaf.as_mut() };
+                            let sub = (d >> 5) as usize;
+                            if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
+                                // SAFETY: value subarray holds subexpanse_count values; in-place swap.
+                                unsafe {
+                                    let slot = node.values[sub].add(rank);
+                                    let old = *slot;
+                                    slot.write(val);
+                                    return Some(old);
+                                }
+                            }
+                            let rank = node.bitmap.subexpanse_rank(d) as usize;
+                            let old_n = node.bitmap.subexpanse_count(sub) as usize;
+                            if old_n > 0
+                                && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
+                            {
+                                // Fast path: spare class capacity — shift in place.
+                                // SAFETY: the subarray holds cap_class(old_n) slots.
+                                unsafe {
+                                    let arr = node.values[sub];
+                                    core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                                    arr.add(rank).write(val);
+                                }
+                            } else {
+                                let new = alloc
+                                    .alloc_bytes_plain(crate::mutate::sub_vals_size(old_n + 1))
+                                    .cast::<u64>();
+                                // SAFETY: copy old_n values around the inserted rank.
+                                unsafe {
+                                    if old_n > 0 {
+                                        let old = node.values[sub];
+                                        new.as_ptr().copy_from_nonoverlapping(old, rank);
+                                        new.as_ptr()
+                                            .add(rank + 1)
+                                            .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                                        alloc.free_bytes_plain(
+                                            core::ptr::NonNull::new(old.cast()).expect("values"),
+                                            crate::mutate::sub_vals_size(old_n),
+                                        );
+                                    }
+                                    new.as_ptr().add(rank).write(val);
+                                }
+                                node.values[sub] = new.as_ptr();
+                            }
+                            node.bitmap.set(d);
+                            path.pending_pop += 1;
+                            path.terminal_pop += 1;
+                            self.tree_pop += 1;
+                            debug_assert!(!path.edges[0].is_null());
+                            // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                            // armed only where `edges[0]` is set beside `prefix`,
+                            // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                            // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                            // `key >> 8`, so a cleared path never reaches here.
+                            unsafe {
+                                core::ptr::NonNull::new_unchecked(path.edges[0])
+                                    .as_mut()
+                                    .set_pop0(1, (path.terminal_pop - 1) as u64);
+                            }
+                            return None;
+                        } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
+                            let d = (key & 0xFF) as u8;
+                            let cur_pop = path.terminal_pop as usize;
+                            let base = leaf1.as_ptr();
+                            // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
+                            let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
+                            // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
+                            let last = unsafe { *keys_ptr.add(cur_pop - 1) };
+                            if d > last {
+                                if cur_pop < crate::mutate::LEAF1_CAP
+                                    && crate::leaf::cap_class(cur_pop + 1)
+                                        == crate::leaf::cap_class(cur_pop)
+                                {
+                                    // SAFETY: spare class capacity in the live Leaf1 allocation.
+                                    unsafe {
+                                        *keys_ptr.add(cur_pop) = d;
+                                        let vals = base.cast::<u64>();
+                                        vals.add(cur_pop).write(val);
+                                        debug_assert!(!path.edges[0].is_null());
+                                        // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                        // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                        // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                        // `key >> 8`, so a cleared path never reaches here.
+                                        core::ptr::NonNull::new_unchecked(path.edges[0])
+                                            .as_mut()
+                                            .set_pop0(1, cur_pop as u64);
+                                    }
+                                    path.terminal_pop += 1;
+                                    path.pending_pop += 1;
+                                    self.tree_pop += 1;
+                                    return None;
+                                }
+                            } else if d == last {
+                                // SAFETY: cur_pop - 1 is the existing slot for `last`.
+                                unsafe {
+                                    let vals = base.cast::<u64>();
+                                    let slot = vals.add(cur_pop - 1);
+                                    let old = *slot;
+                                    slot.write(val);
+                                    return Some(old);
+                                }
+                            }
+                        }
+                    }
+                    path.clear();
+                    // One OCC check per operation, where the runtime dispatch
+                    // always sat; the shared monomorph brackets every store by the
+                    // node that holds it and bumps the population atomically.
+                    by_mode!(
+                        alloc,
+                        tree_insert::<false>(alloc, &mut self.tree_pop, path, $top, key, val, 8)
+                    )
+                    .0
+            }};
+        }
         match &mut self.root {
             Root::Empty => {
                 let ptr = alloc.alloc_bytes(leaf_size(1));
@@ -2857,134 +3114,37 @@ impl MapCore {
                     // SAFETY: old root leaf no longer referenced.
                     unsafe { alloc.free_bytes(ptr, leaf_size(pop)) };
                     self.tree_pop = pop as u64 + 1;
-                    self.root = Root::Tree { top };
+                    self.root = Root::tree_of(alloc, top);
                     None
                 }
             }
-            Root::Tree { top } => {
-                let prefix = key >> 8;
-                // A warm path never exists on a shared tree: the shared engine
-                // clears the cache on entry and records nothing, so this bypass
-                // is structurally cold there (AGENTS.md §2.1.5); the assert is
-                // the tripwire, not the guard.
-                if path.prefix == prefix {
-                    alloc.assert_bracketed();
-                    if let Some(mut leaf) = core::ptr::NonNull::new(path.leaf) {
-                        let d = (key & 0xFF) as u8;
-                        // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { leaf.as_mut() };
-                        let sub = (d >> 5) as usize;
-                        if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
-                            // SAFETY: value subarray holds subexpanse_count values; in-place swap.
-                            unsafe {
-                                let slot = node.values[sub].add(rank);
-                                let old = *slot;
-                                slot.write(val);
-                                return Some(old);
-                            }
-                        }
-                        let rank = node.bitmap.subexpanse_rank(d) as usize;
-                        let old_n = node.bitmap.subexpanse_count(sub) as usize;
-                        if old_n > 0
-                            && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
-                        {
-                            // Fast path: spare class capacity — shift in place.
-                            // SAFETY: the subarray holds cap_class(old_n) slots.
-                            unsafe {
-                                let arr = node.values[sub];
-                                core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                                arr.add(rank).write(val);
-                            }
-                        } else {
-                            let new = alloc
-                                .alloc_bytes_plain(crate::mutate::sub_vals_size(old_n + 1))
-                                .cast::<u64>();
-                            // SAFETY: copy old_n values around the inserted rank.
-                            unsafe {
-                                if old_n > 0 {
-                                    let old = node.values[sub];
-                                    new.as_ptr().copy_from_nonoverlapping(old, rank);
-                                    new.as_ptr()
-                                        .add(rank + 1)
-                                        .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                                    alloc.free_bytes_plain(
-                                        core::ptr::NonNull::new(old.cast()).expect("values"),
-                                        crate::mutate::sub_vals_size(old_n),
-                                    );
-                                }
-                                new.as_ptr().add(rank).write(val);
-                            }
-                            node.values[sub] = new.as_ptr();
-                        }
-                        node.bitmap.set(d);
-                        path.pending_pop += 1;
-                        path.terminal_pop += 1;
-                        self.tree_pop += 1;
-                        debug_assert!(!path.edges[0].is_null());
-                        // SAFETY: keep terminal edge pop0 up to date. The warm path is
-                        // armed only where `edges[0]` is set beside `prefix`,
-                        // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
-                        // `clear()` resets `prefix` to `u64::MAX`, which matches no
-                        // `key >> 8`, so a cleared path never reaches here.
-                        unsafe {
-                            core::ptr::NonNull::new_unchecked(path.edges[0])
-                                .as_mut()
-                                .set_pop0(1, (path.terminal_pop - 1) as u64);
-                        }
-                        return None;
-                    } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
-                        let d = (key & 0xFF) as u8;
-                        let cur_pop = path.terminal_pop as usize;
-                        let base = leaf1.as_ptr();
-                        // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
-                        let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
-                        // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
-                        let last = unsafe { *keys_ptr.add(cur_pop - 1) };
-                        if d > last {
-                            if cur_pop < crate::mutate::LEAF1_CAP
-                                && crate::leaf::cap_class(cur_pop + 1)
-                                    == crate::leaf::cap_class(cur_pop)
-                            {
-                                // SAFETY: spare class capacity in the live Leaf1 allocation.
-                                unsafe {
-                                    *keys_ptr.add(cur_pop) = d;
-                                    let vals = base.cast::<u64>();
-                                    vals.add(cur_pop).write(val);
-                                    debug_assert!(!path.edges[0].is_null());
-                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
-                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
-                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
-                                    // `key >> 8`, so a cleared path never reaches here.
-                                    core::ptr::NonNull::new_unchecked(path.edges[0])
-                                        .as_mut()
-                                        .set_pop0(1, cur_pop as u64);
-                                }
-                                path.terminal_pop += 1;
-                                path.pending_pop += 1;
-                                self.tree_pop += 1;
-                                return None;
-                            }
-                        } else if d == last {
-                            // SAFETY: cur_pop - 1 is the existing slot for `last`.
-                            unsafe {
-                                let vals = base.cast::<u64>();
-                                let slot = vals.add(cur_pop - 1);
-                                let old = *slot;
-                                slot.write(val);
-                                return Some(old);
-                            }
-                        }
+            Root::Tree { top } => tree_arm!(top),
+            Root::Top1 { top } => {
+                if path.prefix != key >> 8 {
+                    // SAFETY: `top` is this tree's live top edge.
+                    if let Some(child) = unsafe { Root::top1_entry(top, key) } {
+                        path.clear();
+                        // SAFETY: `child` is the top node's one child slot, and
+                        // `key`'s top byte is its digit. A `Top1` tree's
+                        // allocator was never shared, so this is the plain walk.
+                        return tree_insert::<false, false, false>(
+                            alloc,
+                            &mut self.tree_pop,
+                            path,
+                            unsafe { &mut *child },
+                            key,
+                            val,
+                            7,
+                        )
+                        .0;
                     }
+                    // The key's top byte is not the child's digit, or the top
+                    // node changed: an ordinary tree from here on.
+                    let top = *top;
+                    self.root = Root::Tree { top };
+                    return self.insert_inner(alloc, key, val, path);
                 }
-                path.clear();
-                // One OCC check per operation, where the runtime dispatch
-                // always sat; the shared monomorph brackets every store by the
-                // node that holds it and bumps the population atomically.
-                by_mode!(
-                    alloc,
-                    tree_insert::<false>(alloc, &mut self.tree_pop, path, top, key, val)
-                )
-                .0
+                tree_arm!(top)
             }
         }
     }
@@ -3099,7 +3259,7 @@ impl MapCore {
                     None
                 }
             }
-            Root::Tree { top } => {
+            Root::Tree { top } | Root::Top1 { top } => {
                 let prefix = key >> 8;
                 // A warm path never exists on a shared tree: the shared engine
                 // clears the cache on entry and records nothing, so this bypass
@@ -3220,7 +3380,7 @@ impl MapCore {
                 // node that holds it and bumps the population atomically.
                 by_mode!(
                     alloc,
-                    tree_insert::<false>(alloc, &mut self.tree_pop, path, top, key, val)
+                    tree_insert::<false>(alloc, &mut self.tree_pop, path, top, key, val, 8)
                 )
                 .0
             }
@@ -3320,11 +3480,11 @@ impl MapCore {
                     // SAFETY: old root leaf no longer referenced.
                     unsafe { alloc.free_bytes_plain(ptr, leaf_size(pop)) };
                     self.tree_pop = pop as u64 + 1;
-                    self.root = Root::Tree { top };
+                    self.root = Root::tree_of(alloc, top);
                     None
                 }
             }
-            Root::Tree { top } => {
+            Root::Tree { top } | Root::Top1 { top } => {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
                     alloc.assert_bracketed();
@@ -3436,7 +3596,16 @@ impl MapCore {
                     }
                 }
                 path.clear();
-                tree_insert::<false, false, false>(alloc, &mut self.tree_pop, path, top, key, val).0
+                tree_insert::<false, false, false>(
+                    alloc,
+                    &mut self.tree_pop,
+                    path,
+                    top,
+                    key,
+                    val,
+                    8,
+                )
+                .0
             }
         }
     }
@@ -3449,7 +3618,7 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        if let Root::Tree { top } = &mut self.root {
+        if let Root::Tree { top } | Root::Top1 { top } = &mut self.root {
             path.clear();
             return tree_insert::<false, OCC, NESTED>(
                 alloc,
@@ -3458,6 +3627,7 @@ impl MapCore {
                 top,
                 key,
                 val,
+                8,
             )
             .0;
         }
@@ -3567,10 +3737,36 @@ impl MapCore {
                 }
                 Some(old)
             }
+            Root::Top1 { top } => {
+                // SAFETY: `top` is this tree's live top edge.
+                let (old, now) = match unsafe { Root::top1_entry(top, key) } {
+                    // SAFETY: `child` is the top node's one child slot, and
+                    // `key`'s top byte is its digit. A `Top1` tree's
+                    // allocator was never shared, so this is the plain walk.
+                    Some(child) => tree_remove::<false, false>(
+                        alloc,
+                        &mut self.tree_pop,
+                        unsafe { &mut *child },
+                        key,
+                        7,
+                    ),
+                    None => tree_remove::<false, false>(alloc, &mut self.tree_pop, top, key, 8),
+                };
+                if old.is_some() {
+                    if now == 0 {
+                        debug_assert!(top.is_null());
+                        self.root = Root::Empty;
+                    } else if now < ROOT_LEAF_CAP as u64 {
+                        self.condense_to_root_leaf::<false>(alloc, path);
+                    }
+                }
+                old
+            }
             Root::Tree { top } => {
                 // One OCC check per operation, where the runtime dispatch
                 // always sat (see `insert_inner`).
-                let (old, now) = by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key));
+                let (old, now) =
+                    by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key, 8));
                 if old.is_some() {
                     if now == 0 {
                         debug_assert!(top.is_null());
@@ -3647,10 +3843,11 @@ impl MapCore {
                 }
                 Some(old)
             }
-            Root::Tree { top } => {
+            Root::Tree { top } | Root::Top1 { top } => {
                 // One OCC check per operation, where the runtime dispatch
                 // always sat (see `insert_inner`).
-                let (old, now) = by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key));
+                let (old, now) =
+                    by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key, 8));
                 if old.is_some() {
                     if now == 0 {
                         debug_assert!(top.is_null());
@@ -3689,10 +3886,10 @@ impl MapCore {
                 }
                 old
             }
-            Root::Tree { top } => {
+            Root::Tree { top } | Root::Top1 { top } => {
                 // One OCC check per operation, where the runtime dispatch
                 // always sat (see `insert_inner`).
-                let (old, now) = tree_remove::<OCC, NESTED>(alloc, &mut self.tree_pop, top, key);
+                let (old, now) = tree_remove::<OCC, NESTED>(alloc, &mut self.tree_pop, top, key, 8);
                 if old.is_some() {
                     if now == 0 {
                         debug_assert!(top.is_null());
@@ -3734,7 +3931,7 @@ impl MapCore {
                 // SAFETY: freeing the root leaf exactly once.
                 unsafe { alloc.free_bytes_dispatch::<OCC>(*ptr, leaf_size(*pop)) };
             }
-            Root::Tree { top, .. } => {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => {
                 // SAFETY: freeing the whole owned trie exactly once.
                 unsafe { mutate::free_subtree::<OCC, true>(alloc, top) };
             }
@@ -3776,7 +3973,7 @@ impl MapCore {
                 }
                 Ok(())
             }
-            Root::Tree { top } => {
+            Root::Tree { top } | Root::Top1 { top } => {
                 if top.is_null() {
                     return Err("tree root with null top".into());
                 }
@@ -3812,7 +4009,7 @@ impl MapCore {
                 stats.node_bytes.leaf_linear =
                     crate::alloc::accounted_size(leaf_size(*pop), crate::types::RAW_ALIGN);
             }
-            Root::Tree { top, .. } => {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => {
                 // Statistics are best-effort on a corrupt tree; `validate`
                 // reports the error. Branch `pop0` may be stale on a sub-map
                 // optimistic writers touched, so it is not cross-checked
@@ -3835,7 +4032,9 @@ impl MapCore {
             Root::Leaf { pop, .. } => crate::census::root_leaf(c, *pop, leaf_size(*pop)),
             // SAFETY: the live top edge of a map-flavor tree; `&self` rules
             // out a concurrent writer on an unshared map.
-            Root::Tree { top } => unsafe { crate::census::tree::<true>(c, top, rule) },
+            Root::Tree { top } | Root::Top1 { top } => unsafe {
+                crate::census::tree::<true>(c, top, rule)
+            },
         }
     }
 }
@@ -3882,8 +4081,11 @@ impl MapCore {
                 (at < *pop).then(|| self.leaf_entry_slot(at))
             }
             // SAFETY: trie maintained/owned by this map's engine.
-            Root::Tree { top, .. } => unsafe { crate::nav::next_slot(Self::top_ptr(top), key, 8) }
-                .and_then(|(k, p)| Some((k, NonNull::new(p)?))),
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => {
+                // SAFETY: trie maintained/owned by this map's engine.
+                unsafe { crate::nav::next_slot(Self::top_ptr(top), key, 8) }
+                    .and_then(|(k, p)| Some((k, NonNull::new(p)?)))
+            }
         }
     }
 
@@ -3900,8 +4102,11 @@ impl MapCore {
                 Some(self.leaf_entry_slot(at))
             }
             // SAFETY: trie maintained/owned by this map's engine.
-            Root::Tree { top, .. } => unsafe { crate::nav::prev_slot(Self::top_ptr(top), key, 8) }
-                .and_then(|(k, p)| Some((k, NonNull::new(p)?))),
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => {
+                // SAFETY: trie maintained/owned by this map's engine.
+                unsafe { crate::nav::prev_slot(Self::top_ptr(top), key, 8) }
+                    .and_then(|(k, p)| Some((k, NonNull::new(p)?)))
+            }
         }
     }
 
@@ -3916,7 +4121,7 @@ impl MapCore {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => Some(self.leaf_entry_slot(n as usize)),
-            Root::Tree { top, .. } => {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => {
                 // SAFETY: trie maintained/owned by this map's engine; n is
                 // below the population.
                 let (k, p) =
@@ -3952,7 +4157,9 @@ impl MapCore {
                 (at < *pop).then(|| self.leaf_entry(at))
             }
             // SAFETY: trie maintained/owned by this map's engine.
-            Root::Tree { top, .. } => unsafe { crate::nav::next::<true>(top, key, 8) },
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
+                crate::nav::next::<true>(top, key, 8)
+            },
         }
     }
 
@@ -3975,7 +4182,9 @@ impl MapCore {
                 Some(self.leaf_entry(at))
             }
             // SAFETY: trie maintained/owned by this map's engine.
-            Root::Tree { top, .. } => unsafe { crate::nav::prev::<true>(top, key, 8) },
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
+                crate::nav::prev::<true>(top, key, 8)
+            },
         }
     }
 
@@ -3997,7 +4206,7 @@ impl MapCore {
                 keys.partition_point(|&k| k < key) as u64
             }
             // SAFETY: trie maintained/owned by this map's engine.
-            Root::Tree { top, .. } => unsafe {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
                 crate::nav::count_below::<true>(top, key, 8, self.tree_pop)
             },
         }
@@ -4019,7 +4228,7 @@ impl MapCore {
                 (keys.partition_point(|&k| k <= b) - keys.partition_point(|&k| k < a)) as u64
             }
             // SAFETY: trie maintained/owned by this map's engine.
-            Root::Tree { top, .. } => unsafe {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
                 crate::nav::count_range::<true>(top, a, b, 8, self.tree_pop)
             },
         }
@@ -4048,7 +4257,7 @@ impl MapCore {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => Some(self.leaf_entry(n as usize)),
-            Root::Tree { top, .. } => {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => {
                 // SAFETY: trie maintained/owned by this map's engine; n is
                 // below the population, which `tree_pop` holds.
                 Some(unsafe { crate::nav::by_count::<true>(top, n, 8, self.tree_pop) })
@@ -4067,7 +4276,9 @@ impl MapCore {
                 crate::iter::RawIter::from_root_leaf(keys_ptr, vals_ptr, *pop)
             }
             // SAFETY: tree maintained by map engine per invariants.
-            Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree(top) },
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
+                crate::iter::RawIter::from_tree(top)
+            },
         }
     }
 
@@ -4083,7 +4294,9 @@ impl MapCore {
                 }
             }
             // SAFETY: tree maintained by map engine per invariants.
-            Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree_range(top, start) },
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
+                crate::iter::RawIter::from_tree_range(top, start)
+            },
         }
     }
 
@@ -4092,7 +4305,7 @@ impl MapCore {
     #[inline]
     fn cursor_top(&self) -> Edge {
         match &self.root {
-            Root::Tree { top, .. } => *top,
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => *top,
             _ => Edge::NULL,
         }
     }
@@ -4170,9 +4383,13 @@ impl MapCore {
             }
             // SAFETY: tree maintained by map engine per invariants, as for
             // `range_fwd_raw`.
-            Root::Tree { top: edge, .. } => cursor.reset(top, |raw| unsafe {
-                raw.reset_tree_range(edge, start);
-            }),
+            Root::Tree { top: edge, .. } | Root::Top1 { top: edge, .. } => {
+                // SAFETY: tree maintained by map engine per invariants, as
+                // for `range_fwd_raw`.
+                cursor.reset(top, |raw| unsafe {
+                    raw.reset_tree_range(edge, start);
+                })
+            }
         }
     }
 
@@ -4214,7 +4431,9 @@ impl MapCore {
                 crate::iter::RawIter::from_root_leaf_rev(keys_ptr, vals_ptr, *pop)
             }
             // SAFETY: tree maintained by map engine per invariants.
-            Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree_rev(top) },
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
+                crate::iter::RawIter::from_tree_rev(top)
+            },
         }
     }
 
@@ -4230,7 +4449,7 @@ impl MapCore {
                 }
             }
             // SAFETY: tree maintained by map engine per invariants.
-            Root::Tree { top, .. } => unsafe {
+            Root::Tree { top, .. } | Root::Top1 { top, .. } => unsafe {
                 crate::iter::RawIter::from_tree_range_rev(top, end)
             },
         }
@@ -4510,7 +4729,7 @@ impl MapCore {
         alloc: &NodeAlloc,
         path: &mut crate::mutate_map::InsertPathMap,
     ) {
-        let Root::Tree { top } = &mut self.root else {
+        let (Root::Tree { top } | Root::Top1 { top }) = &mut self.root else {
             unreachable!("condense outside tree state")
         };
         let n = self.tree_pop as usize;
@@ -4840,7 +5059,7 @@ impl ExpanseMap {
         // SAFETY: `entries` is sorted with distinct keys; `out.alloc` owns
         // the built trie.
         let top = unsafe { crate::algebra_build::build_map_subtree::<OCC>(&out.alloc, entries, 8) };
-        out.core.root = Root::Tree { top };
+        out.core.root = Root::tree_of(&out.alloc, top);
         out.core.tree_pop = n as u64;
         out
     }
@@ -5558,6 +5777,149 @@ mod tests {
     /// visible through a root edge copied before them. If
     /// this ever fails, writes have become out of place and that section,
     /// and `Clone`'s documentation, are out of date.
+    /// A tree whose keys share their top byte is entered below its top node
+    /// (#1682): the root says so, and every operation answers as a model
+    /// does, through the key with another top byte that ends the hint.
+    #[test]
+    fn top1_root_answers_as_the_model_does() {
+        let mut map = ExpanseMap::new();
+        let mut model = std::collections::BTreeMap::new();
+        let mut x = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        for step in 0..60_000u64 {
+            let r = next();
+            // 40-bit keys under one top byte, until the last third.
+            let key = if step > 40_000 && r % 64 == 0 {
+                r | (0xA5 << 56)
+            } else {
+                (r >> 24) | (0x17 << 56)
+            };
+            match (r >> 8) % 4 {
+                0 => assert_eq!(map.remove(key), model.remove(&key), "remove {key:#x}"),
+                1 => {
+                    let slot = map.ins_slot_plain(key);
+                    // SAFETY: a live slot of `map`, valid until its next mutation.
+                    unsafe { *slot.as_ptr() = step };
+                    model.insert(key, step);
+                }
+                _ => assert_eq!(
+                    map.insert(key, step),
+                    model.insert(key, step),
+                    "insert {key:#x}"
+                ),
+            }
+            let probe = (next() >> 24) | (0x17 << 56);
+            assert_eq!(map.get(probe), model.get(&probe).copied(), "get {probe:#x}");
+            assert_eq!(
+                // SAFETY: a live slot of `map`, read before its next mutation.
+                map.get_slot_ptr(key).map(|p| unsafe { *p.as_ptr() }),
+                model.get(&key).copied()
+            );
+            if step == 40_000 {
+                assert!(
+                    matches!(map.core.root, Root::Top1 { .. }),
+                    "one top byte: the hint is set"
+                );
+            }
+        }
+        assert!(
+            matches!(map.core.root, Root::Tree { .. }),
+            "two top bytes: an ordinary tree"
+        );
+        assert_eq!(map.len(), model.len() as u64);
+        map.validate();
+        assert!(map.iter().eq(model.iter().map(|(k, v)| (*k, *v))));
+    }
+
+    /// The hint is re-checked on every use. A second top digit added through
+    /// an entry point that does not update the root (the pathless dispatch
+    /// insert) leaves `Root::Top1` in place over a two-child top node, and
+    /// lookups, the slot insert and removal still answer for both digits.
+    #[test]
+    fn top1_hint_survives_a_top_node_changed_behind_it() {
+        let mut map = ExpanseMap::new();
+        for k in 0..(4 * ROOT_LEAF_CAP as u64) {
+            map.insert(k, k);
+        }
+        assert!(matches!(map.core.root, Root::Top1 { .. }));
+        let other = 0xC3u64 << 56 | 7;
+        let mut path = crate::mutate_map::InsertPathMap::empty();
+        map.core
+            .insert_inner_dispatch::<false, false>(&map.alloc, other, 99, &mut path);
+        assert!(
+            matches!(map.core.root, Root::Top1 { .. }),
+            "the stale hint is the case under test"
+        );
+        assert_eq!(map.get(other), Some(99));
+        assert_eq!(map.get(5), Some(5));
+        // SAFETY: a live slot of `map`, read before its next mutation.
+        let read = map.get_slot_ptr(other).map(|p| unsafe { *p.as_ptr() });
+        assert_eq!(read, Some(99));
+        assert_eq!(map.remove(other), Some(99));
+        assert_eq!(map.get(other), None);
+        assert_eq!(map.insert(other | 1, 3), None);
+        assert_eq!(map.get(other | 1), Some(3));
+        map.validate();
+    }
+
+    /// A tree entered below its top node records no level-8 entry in the
+    /// insert-path cache: the walk starts at the top node's child, which is
+    /// node memory, so a move of the map leaves nothing stale behind.
+    #[test]
+    fn top1_insert_path_records_no_root_slot() {
+        let mut m = ExpanseMap::new();
+        for k in (0..0x200u64).chain((0x200..0x240).step_by(2)) {
+            assert_eq!(m.insert(k, k), None);
+        }
+        assert!(matches!(m.core.root, Root::Top1 { .. }));
+        let p = m.path_mut();
+        assert_eq!(p.prefix, 2, "insert must leave the cache on block 2");
+        assert!(p.depth >= 2);
+        assert!(
+            p.levels[1..p.depth].iter().all(|l| (2..=7).contains(l)),
+            "ancestor levels {:?}",
+            &p.levels[1..p.depth]
+        );
+        let m = Box::new(m);
+        let mut m = *m;
+        for k in (0x201..0x240u64).step_by(2) {
+            assert_eq!(m.insert(k, k), None);
+        }
+        for k in 0..0x240u64 {
+            assert_eq!(m.get(k), Some(k));
+        }
+        assert_eq!(m.by_count(0x23F), Some((0x23F, 0x23F)));
+        m.validate();
+    }
+
+    /// A shared tree never carries the hint: its readers and writers decode
+    /// the root by tag.
+    #[cfg(feature = "std")]
+    #[test]
+    fn a_shared_tree_root_is_never_top1() {
+        let map = ExpanseMap::new();
+        map.alloc
+            .defer_to(std::sync::Arc::new(crate::occ::Collector::new()));
+        let top = {
+            let mut plain = ExpanseMap::new();
+            for k in 0..(4 * ROOT_LEAF_CAP as u64) {
+                plain.insert(k, k);
+            }
+            let Root::Top1 { top } = plain.core.root else {
+                panic!("the plain tree carries the hint");
+            };
+            assert!(matches!(Root::tree_of(&map.alloc, top), Root::Tree { .. }));
+            core::mem::forget(plain);
+            top
+        };
+        let _ = top;
+    }
+
     #[test]
     fn a_copied_root_edge_sees_later_writes() {
         let mut map = ExpanseMap::new();
@@ -5566,7 +5928,7 @@ mod tests {
             map.insert(k, k);
         }
         let copied = match map.core.root {
-            Root::Tree { top } => top,
+            Root::Tree { top } | Root::Top1 { top } => top,
             _ => panic!("the root must be a tree"),
         };
         // SAFETY: `copied` is the live root edge's value and every node it
@@ -5977,7 +6339,7 @@ mod tests {
             model.insert(k, val(k));
         }
         assert!(
-            matches!(m.core.root, Root::Tree { .. }),
+            matches!(m.core.root, Root::Tree { .. } | Root::Top1 { .. }),
             "root must be a tree"
         );
 
@@ -6110,7 +6472,7 @@ mod tests {
         /// Address of the root edge slot while the root is a tree.
         fn root_slot(m: &ExpanseMap) -> *const Edge {
             match &m.core.root {
-                Root::Tree { top } => core::ptr::from_ref(top),
+                Root::Tree { top } | Root::Top1 { top } => core::ptr::from_ref(top),
                 _ => panic!("root must be a tree"),
             }
         }
@@ -6167,7 +6529,13 @@ mod tests {
             // Blocks 0 and 1 in full, past ROOT_LEAF_CAP, so the root is a
             // tree; then 32 even digits of block 2, past LEAF1_CAP, which
             // leave the cache on block 2's bitmap leaf.
-            for k in (0..0x200u64).chain((0x200..0x240).step_by(2)) {
+            // One key under another top byte comes first: a tree whose keys
+            // share their top byte is entered below its top node (#1682) and
+            // records no root slot, which is the entry this test is about.
+            for k in core::iter::once(0xFFu64 << 56)
+                .chain(0..0x200u64)
+                .chain((0x200..0x240).step_by(2))
+            {
                 assert_eq!(m.insert(k, val(k)), None);
                 model.insert(k, val(k));
             }
@@ -6820,7 +7188,7 @@ mod tests {
         for k in 0u64..200 {
             map.insert(k * 977, k);
         }
-        let Root::Tree { top, .. } = &mut map.core.root else {
+        let (Root::Tree { top, .. } | Root::Top1 { top, .. }) = &mut map.core.root else {
             panic!("expected a tree root");
         };
         // SAFETY: the top is a live BranchL3 (one distinct top digit in
@@ -7161,7 +7529,7 @@ mod tests {
             probes.push(xs64(&mut st));
         }
 
-        let Root::Tree { top, .. } = &map.core.root else {
+        let (Root::Tree { top, .. } | Root::Top1 { top, .. }) = &map.core.root else {
             panic!("100k random keys must build a tree root");
         };
         let depths: Vec<u32> = probes
