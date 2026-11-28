@@ -31,7 +31,9 @@ ISSUE = "[#1800](https://github.com/orieg/expanse/issues/1800)"
 RUNS = ("", "_run2")
 EVAL_N = (100_000, 1_000_000)
 ORDERS = ("sorted", "shuffled")
-FILES = {"dns_get": "get", "dns_predecessor": "predecessor",
+#: `dns_get_a2` is `dns_get` with the pre-encoded arm of METHODOLOGY amendment
+#: A2: its own artifacts, read for A2's rows only. G1 to G3 read `dns_get`.
+FILES = {"dns_get": "get", "dns_get_a2": "get_a2", "dns_predecessor": "predecessor",
          "dns_closest_encloser": "closest_encloser",
          "dns_predecessor_concurrent": "concurrent_readers", "dns_memory": "memory"}
 
@@ -218,7 +220,7 @@ def scaling(arts, arm: str, readers: int) -> list[dict | None]:
     return out
 
 
-def provenance(arts_by_stem: dict) -> list[str]:
+def provenance(arts_by_stem: dict, stem: str = "*") -> list[str]:
     lines = []
     for i, suffix in enumerate(RUNS):
         arts = [a[i] for a in arts_by_stem.values() if a[i] is not None]
@@ -235,7 +237,7 @@ def provenance(arts_by_stem: dict) -> list[str]:
                 f"from outside the run {max(foreign):.2f} core-equivalents"
                 if foreign else "no load window was measured")
         commits = sorted({a["provenance"]["commit"] for a in arts})
-        lines.append(f"- {label} (`baseline_*{suffix}.json`): {host}; core pin `{p.get('core_pin')}`; "
+        lines.append(f"- {label} (`baseline_{stem}{suffix}.json`): {host}; core pin `{p.get('core_pin')}`; "
                      f"governor `{p['host'].get('scaling_governor')}`; commit "
                      f"{', '.join(f'`{c}`' for c in commits)}; run {p.get('run_id') or 'not recorded'}; "
                      f"{load}.")
@@ -273,6 +275,7 @@ def render(results: Path = RESULTS) -> str:
     A = {wid: load(stem, results) for wid, stem in FILES.items()}
     get, pred, enc = A["dns_get"], A["dns_predecessor"], A["dns_closest_encloser"]
     conc, mem = A["dns_predecessor_concurrent"], A["dns_memory"]
+    a2 = A.pop("dns_get_a2")
     dispatches = sum(1 for i in range(len(RUNS)) if any(a[i] is not None for a in A.values()))
 
     out = ["# DNS-Shaped Keys: Expanse vs. BTreeMap and QP-Trie", "",
@@ -356,9 +359,20 @@ def render(results: Path = RESULTS) -> str:
         V[pid] = add(text, [v], [] if v == "PASS" else
                      [f"S(8) of `{arm}`: {v} ({'; '.join(iv_fmt(iv) for iv in ivs)})"])
 
+    PRE = run_all.PRE
+    for pid, name, text, pops in (
+        ("A2.P1", f"{PRE}_over_expanse_ordered",
+         f"A2 P1 `dns_get`: `{PRE}` faster than `expanse_ordered`", EVAL_N),
+        ("A2.P2", f"{PRE}_over_qp_trie",
+         f"A2 P2 `dns_get`: `{PRE}` faster than `qp_trie` at n = 1,000,000", (1_000_000,)),
+    ):
+        v, n = timing_prediction(a2, name, "below", pops)
+        V[pid] = add(text, v, n)
+
     out += ["## Pre-registered verdicts", "",
             "Evaluated at n ∈ {100,000, 1,000,000} in both build orders, under METHODOLOGY.md "
-            "§4 and §5 as amended by A1. A timing cell is PASS only when its interval lies on "
+            "§4 and §5 as amended by A1; the two A2 rows are the predictions of amendment A2, "
+            "registered after the others were judged and read on their own artifacts. A timing cell is PASS only when its interval lies on "
             "the predicted side of the threshold in both dispatches. No result here has had "
             "independent review.", "",
             "| Prediction | Cells | Verdict | Breakdown |", "|---|---|---|---|"] + rows + [""]
@@ -424,6 +438,28 @@ def render(results: Path = RESULTS) -> str:
                             ("expanse_ordered", "expanse_direct", "btreemap", "qp_trie"),
                             ("expanse_ordered_over_btreemap", "expanse_ordered_over_qp_trie",
                              "expanse_ordered_over_expanse_direct", DERIVED_NAME)) + [""]
+        if any(a is not None for a in a2):
+            out += ["## Exact lookup with the probe encoded beforehand (A2)", "",
+                    f"`{PRE}` reads `expanse_ordered`'s own map with each probe escape-encoded "
+                    "outside the timed window, so the per-lookup encoding pass is removed and the "
+                    "stored key is unchanged (METHODOLOGY.md A2). These are separate runs of "
+                    "`dns_get` with five arms; the table above and G1 to G3 are not drawn from "
+                    "them.", ""]
+            out += provenance({"a2": a2}, "get_a2") + [""]
+            out += timing_table(a2, "dns_get",
+                                ("expanse_ordered", PRE, "expanse_direct", "btreemap", "qp_trie"),
+                                (f"{PRE}_over_expanse_ordered", f"{PRE}_over_qp_trie",
+                                 f"{PRE}_over_expanse_direct", f"{PRE}_over_btreemap")) + [""]
+            for key in keys_of(a2):
+                if key[0] not in EVAL_N:
+                    continue
+                for name in (f"{PRE}_over_expanse_direct", f"{PRE}_over_btreemap") + (
+                        (f"{PRE}_over_qp_trie",) if key[0] != 1_000_000 else ()):
+                    ivs = ratio(a2, key, name)
+                    out.append(f"- `{name}` n = {n_fmt(key[0])}, {key[1]}, `{key[2]}` "
+                               f"(no prediction): {unpredicted_label(ivs)} "
+                               f"({'; '.join(iv_fmt(iv) for iv in ivs)})")
+            out += [""]
         out += ["## Predecessor of an absent name", ""]
         out += timing_table(pred, "dns_predecessor",
                             ("expanse_ordered", "expanse_ordered_owned", "expanse_direct",

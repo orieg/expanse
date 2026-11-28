@@ -3,7 +3,9 @@
 //! `docs/benchmarks/dns_names/METHODOLOGY.md` §3, operation `dns_get`. The
 //! subject is `ExpanseOrderedBytesMap` over `key_nul`, whose every probe is
 //! re-encoded before the lookup; `ExpanseStrMap` over `key_direct` skips that
-//! pass and is the control for it. Two miss classes are measured as separate
+//! pass and is the control for it. `expanse_ordered_pre_encoded` (METHODOLOGY
+//! amendment A2) reads the subject's own map with probes encoded outside the
+//! window, so the pass is removed and the stored key is not changed. Two miss classes are measured as separate
 //! rows, never averaged: a name under an absent second-level name, and a name
 //! one label below a present one. They end at different depths.
 //!
@@ -23,7 +25,7 @@
 //! | `miss_gen_method` | `miss_new_sld`: the continuation of the population's generator stream, whose second-level names the population does not hold. `miss_under_sld`: a generator-rule label in front of a uniformly drawn present two-label name, rejected on membership |
 //! | `value_dereference` | `black_box` of the returned value or 0 |
 //! | `measured_region` | Probe passes only; name generation, key encoding, builds, validation and drops are outside the window; one discarded warm-up pass per arm |
-//! | `arm_symmetry` | Identical names, values, build order and probe order on every arm, `u64` payload on all four; `expanse_direct` reads the same names in the NUL-free key form `ExpanseStrMap` requires, validated once outside the window; all arms built before any is timed |
+//! | `arm_symmetry` | Identical names, values, build order and probe order on every arm, `u64` payload on all five; `expanse_direct` reads the same names in the NUL-free key form `ExpanseStrMap` requires, validated once outside the window; `expanse_ordered_pre_encoded` reads `expanse_ordered`'s map with the same probes escape-encoded outside the window; all arms built before any is timed |
 //! | `statistics` | One round per process, arm order rotated by the round; `run_all.py` runs 12 processes and publishes the geometric mean of the per-round Expanse/twin ratio with a BCa 95% interval on the per-round log ratios |
 //! | `verdict` | **PASS** `[verified: CODE READ]`: clean timed region, same-generator misses rejected on membership, both insertion orders. |
 
@@ -34,6 +36,7 @@ use dns_common::{
     Arm, ORDERS, World, assert_nul_free, build_btree, build_direct, build_ordered, build_qp, cli,
     emit, key_direct, key_nul, nul_free, time_round,
 };
+use expanse_trie::domain::escape_encode;
 use serde_json::json;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
@@ -89,9 +92,23 @@ fn main() {
                 let probes_direct = w.get_probes(misses, true);
                 assert_nul_free(&probes_direct);
                 debug_assert_eq!(key_nul(&misses[0]).len(), key_direct(&misses[0]).len());
+                // The subject's probes in the form its map stores (A2): the
+                // encoding `get` applies on every call, done once here.
+                let probes_pre: Vec<Vec<u8>> = probes.iter().map(|k| escape_encode(k)).collect();
+                assert_nul_free(&probes_pre);
+                assert!(
+                    probes.iter().zip(&probes_pre).all(|(k, e)| k != e),
+                    "{class}: a key_nul probe needed no encoding"
+                );
+                let stored = ordered.as_inner();
 
                 let want = census(&probes, |k| ordered.get(k));
                 assert_eq!(want.0, w.hit_idx.len(), "{class}: hit count");
+                assert_eq!(
+                    census(&probes_pre, |k| stored.get(nul_free(k))),
+                    want,
+                    "{class}: expanse_ordered_pre_encoded disagrees"
+                );
                 assert_eq!(
                     census(&probes_direct, |k| direct.get(nul_free(k))),
                     want,
@@ -112,6 +129,10 @@ fn main() {
                     Arm {
                         name: "expanse_ordered",
                         pass: Box::new(|r| pass_get(&probes, r, |k| ordered.get(k))),
+                    },
+                    Arm {
+                        name: "expanse_ordered_pre_encoded",
+                        pass: Box::new(|r| pass_get(&probes_pre, r, |k| stored.get(nul_free(k)))),
                     },
                     Arm {
                         name: "expanse_direct",

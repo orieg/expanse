@@ -11,7 +11,7 @@
 
 ## Pre-registered verdicts
 
-Evaluated at n ∈ {100,000, 1,000,000} in both build orders, under METHODOLOGY.md §4 and §5 as amended by A1. A timing cell is PASS only when its interval lies on the predicted side of the threshold in both dispatches. No result here has had independent review.
+Evaluated at n ∈ {100,000, 1,000,000} in both build orders, under METHODOLOGY.md §4 and §5 as amended by A1; the two A2 rows are the predictions of amendment A2, registered after the others were judged and read on their own artifacts. A timing cell is PASS only when its interval lies on the predicted side of the threshold in both dispatches. No result here has had independent review.
 
 | Prediction | Cells | Verdict | Breakdown |
 |---|---|---|---|
@@ -29,6 +29,8 @@ Evaluated at n ∈ {100,000, 1,000,000} in both build orders, under METHODOLOGY.
 | C1 `sync_locked` does not scale: upper bound of S(8) below 2 | 1 | PASS | PASS 1 |
 | C2 `clone_per_reader` scales: lower bound of S(8) above 4 (A1.1) | 1 | PASS | PASS 1 |
 | C3 `sync_get` scales: lower bound of S(8) above 4 | 1 | REFUTED | REFUTED 1 |
+| A2 P1 `dns_get`: `expanse_ordered_pre_encoded` faster than `expanse_ordered` | 0 | not measured | |
+| A2 P2 `dns_get`: `expanse_ordered_pre_encoded` faster than `qp_trie` at n = 1,000,000 | 0 | not measured | |
 
 ## Decision (METHODOLOGY.md §6)
 

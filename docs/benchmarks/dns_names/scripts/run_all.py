@@ -4,7 +4,7 @@ Runner for the DNS-shaped key suite (docs/benchmarks/dns_names/).
 
 Five harnesses (`crates/expanse/benches/dns_*.rs`), per METHODOLOGY.md:
 
-  dns_get                     12 round processes   results/baseline_get.json
+  dns_get                     12 round processes   results/baseline_get_a2.json
   dns_predecessor             12 round processes   results/baseline_predecessor.json
   dns_closest_encloser        12 round processes   results/baseline_closest_encloser.json
   dns_predecessor_concurrent   8 round processes   results/baseline_concurrent_readers.json
@@ -74,8 +74,11 @@ ROUNDS_QUICK = 3
 SUBJECT = "expanse_ordered"
 #: The arms each timed harness runs, subject first.
 TIMED = {
-    "dns_get": ("baseline_get.json",
-                ("expanse_ordered", "expanse_direct", "btreemap", "qp_trie")),
+    # `_a2`: the five-arm harness of METHODOLOGY amendment A2. The four-arm
+    # artifacts G1 to G3 were judged on keep the name `baseline_get.json`.
+    "dns_get": ("baseline_get_a2.json",
+                ("expanse_ordered", "expanse_ordered_pre_encoded", "expanse_direct",
+                 "btreemap", "qp_trie")),
     "dns_predecessor": ("baseline_predecessor.json",
                         ("expanse_ordered", "expanse_ordered_owned", "expanse_direct",
                          "btreemap")),
@@ -83,7 +86,12 @@ TIMED = {
                              ("expanse_ordered", "expanse_direct", "btreemap", "qp_trie")),
 }
 #: Extra pairs beside subject-over-arm: the allocating predecessor against the twin.
-EXTRA_PAIRS = {"dns_predecessor": (("expanse_ordered_owned", "btreemap"),)}
+#: On `dns_get`, the pre-encoded arm (A2) against the subject and each other arm.
+PRE = "expanse_ordered_pre_encoded"
+EXTRA_PAIRS = {
+    "dns_predecessor": (("expanse_ordered_owned", "btreemap"),),
+    "dns_get": ((PRE, SUBJECT), (PRE, "qp_trie"), (PRE, "expanse_direct"), (PRE, "btreemap")),
+}
 CONCURRENT = ("dns_predecessor_concurrent", "baseline_concurrent_readers.json")
 CONCURRENT_ARMS = ("clone_per_reader", "sync_locked", "sync_get", "sync_reader_get")
 READERS = (1, 2, 4, 8)
@@ -183,7 +191,8 @@ def annotate_timed(bench: str, cells: list[dict]) -> None:
     for cell in cells:
         series = {a: by_round(cell["rounds_raw"], a, "ns_per_op") for a in arms}
         cell["ns_per_op"] = {a: statistics.median(series[a].values()) for a in arms}
-        pairs = [(SUBJECT, a) for a in arms if a != SUBJECT] + list(EXTRA_PAIRS.get(bench, ()))
+        pairs = ([(SUBJECT, a) for a in arms if a not in (SUBJECT, PRE)]
+                 + list(EXTRA_PAIRS.get(bench, ())))
         cell["ratios"] = {f"{n}_over_{d}": paired(series[n], series[d], f"{bench} {n}/{d}", True)
                           for n, d in pairs}
         cell["rounds"] = len(series[SUBJECT])
@@ -411,10 +420,14 @@ def self_test() -> int:
         arts[bench] = art
 
     # A paired ratio is formed per round, as a geometric mean: subject
-    # 100 + rd against btreemap (third arm) 300 + 3 rd is exactly 1/3 each round.
+    # 100 + rd against btreemap (fourth arm) 400 + 4 rd is exactly 1/4 each round,
+    # and the pre-encoded arm (second) over the subject exactly 2.
     cell = arts["dns_get"]["cells"][0]
     r = cell["ratios"]["expanse_ordered_over_btreemap"]
-    assert abs(r["point"] - 1 / 3) < 1e-12 and r["ci_method"] is not None, r
+    assert abs(r["point"] - 1 / 4) < 1e-12 and r["ci_method"] is not None, r
+    pre = cell["ratios"]["expanse_ordered_pre_encoded_over_expanse_ordered"]
+    assert abs(pre["point"] - 2.0) < 1e-12, pre
+    assert "expanse_ordered_over_expanse_ordered_pre_encoded" not in cell["ratios"]
     assert cell["ns_per_op"]["expanse_ordered"] == 101.0, cell["ns_per_op"]
     assert all(row["load"] == window for row in cell["rounds_raw"]), "each row carries its window"
     assert "expanse_ordered_owned_over_btreemap" in arts["dns_predecessor"]["cells"][0]["ratios"]
@@ -451,7 +464,7 @@ def self_test() -> int:
         pass
     # A payload without rounds is named by the gate rather than written quietly.
     bare = attach({"cells": [{"population": 1, "ns_per_op": {}}]}, prov)
-    got = bench_windowed.judge(SUITE, [("baseline_get.json", bare)])
+    got = bench_windowed.judge(SUITE, [("baseline_get_a2.json", bare)])
     assert any("rounds_raw" in g for g in got), f"a cell with no rounds must be a finding: {got}"
 
     # The derived bounds are the script's own, at a population its tests pin.
