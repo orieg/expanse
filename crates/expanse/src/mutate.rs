@@ -3035,8 +3035,9 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     branch_u_note_null::<OCC>(b);
                     branch_u_check_count::<OCC>(b);
                 }
-                // SAFETY: live BranchU per contract.
-                let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
+                // SAFETY: live BranchU per contract; this walk is its one
+                // writer and the slot is null.
+                let digits = unsafe { crate::mutate::branch_u_digits_after_null::<OCC>(b) };
                 cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
                     // SAFETY: empty node no longer referenced; marked
@@ -3623,8 +3624,9 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
                     branch_u_note_null::<OCC>(b);
                     branch_u_check_count::<OCC>(b);
                 }
-                // SAFETY: live BranchU per contract.
-                let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
+                // SAFETY: live BranchU per contract; this walk is its one
+                // writer and the slot is null.
+                let digits = unsafe { crate::mutate::branch_u_digits_after_null::<OCC>(b) };
                 cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
                     // SAFETY: empty node no longer referenced; marked
@@ -3821,26 +3823,6 @@ pub(crate) const fn branch_b_below_floor(digits: usize) -> bool {
     digits <= crate::types::BRANCHB_TO_L7_DOWN
 }
 
-/// The non-null slots of a `BranchU`'s edge array, for the exclusive walks'
-/// removal that has just emptied one of them: exact while the count is at or
-/// below the demotion floor, and some count above the floor otherwise. The
-/// caller asks only whether the branch is now empty and whether it is below
-/// its floor ([`branch_u_below_floor`]), and both answers read the same from
-/// either. The slots are counted in blocks of 16, and the count stops after
-/// the first block that takes it past the floor, so a branch well above the
-/// floor is not read to its end.
-#[inline(always)]
-pub(crate) fn branch_u_digits_to_floor(edges: &[Edge; crate::types::BRANCH_FANOUT]) -> usize {
-    let mut n = 0usize;
-    for block in edges.as_chunks::<16>().0 {
-        n += block.iter().filter(|e| !e.is_null()).count();
-        if !branch_u_below_floor(n) {
-            break;
-        }
-    }
-    n
-}
-
 /// Every non-null slot of a `BranchU`'s edge array, counted out of line so
 /// the removal walks that call it rarely do not carry the loop.
 #[cold]
@@ -3850,10 +3832,11 @@ pub(crate) fn branch_u_digits_exact(edges: &[Edge; crate::types::BRANCH_FANOUT])
 }
 
 /// The non-null slots of the `BranchU` at `b` after a removal has nulled one
-/// of them, for the map walks (#1679): `0` when the branch is empty, the
+/// of them, for the exclusive removal walks (#1679): `0` when the branch is empty, the
 /// exact count when it is at or below the demotion floor, and a count above
-/// the floor otherwise — the same answers [`branch_u_digits_to_floor`] gives
-/// its callers.
+/// the floor otherwise. The caller asks only whether the branch is now empty
+/// and whether it is below its floor ([`branch_u_below_floor`]), and both
+/// answers read the same from that count as from the exact one.
 ///
 /// The branch's header bound ([`BranchU::digits_lower`]) held at most its
 /// non-null slots before the null, so one less holds after it. While that
@@ -3862,6 +3845,10 @@ pub(crate) fn branch_u_digits_exact(edges: &[Edge; crate::types::BRANCH_FANOUT])
 /// slot at a time is counted once on its first removal and once more when
 /// it reaches its floor, where a count that stopped one block past the
 /// floor would be repeated every 16 removals.
+///
+/// The bound is the writer's own word: no reader loads it, so on a shared
+/// tree it is stored outside the branch's version bracket. A reader that
+/// came to depend on it would need that store moved inside the bracket.
 ///
 /// # Safety
 ///

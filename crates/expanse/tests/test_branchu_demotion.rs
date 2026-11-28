@@ -172,6 +172,59 @@ fn map_remove_lower_bound_survives_refills() {
     }
 }
 
+/// The set twin of `map_remove_lower_bound_survives_refills`: the exclusive
+/// set removal reads the same header bound, so the same drain with refills
+/// validates after every step and demotes the root at the floor.
+#[test]
+fn set_remove_lower_bound_survives_refills() {
+    let mut set = ExpanseSet::new();
+    let key = |d: u64| (d << 56) | 0x00AB_CDEF;
+    for d in 0..256u64 {
+        set.insert(key(d));
+    }
+    assert_eq!(
+        set.stats().node_counts.branch_u,
+        1,
+        "precondition: an uncompressed root"
+    );
+    let mut live: Vec<bool> = vec![true; 256];
+    let mut x = 0x2545_F491_4F6C_DD1Du64;
+    let mut demoted_at = None;
+    for step in 0..2_000u32 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let d = (x % 256) as usize;
+        // Three removals for every refill, so the population drains.
+        if x.is_multiple_of(4) {
+            if !live[d] {
+                set.insert(key(d as u64));
+                live[d] = true;
+            }
+        } else if live[d] {
+            assert!(set.remove(key(d as u64)), "step {step}");
+            live[d] = false;
+        }
+        set.validate_defensive()
+            .unwrap_or_else(|e| panic!("step {step}: {e}"));
+        let n = live.iter().filter(|&&l| l).count();
+        if demoted_at.is_none() && set.stats().node_counts.branch_u == 0 {
+            demoted_at = Some(n);
+        }
+        if n < 100 {
+            break;
+        }
+    }
+    assert_eq!(
+        demoted_at,
+        Some(expanse_trie::types::BRANCHU_TO_B_DOWN),
+        "the root is demoted when the removal reaches the floor"
+    );
+    for d in 0..256u64 {
+        assert_eq!(set.contains(key(d)), live[d as usize], "digit {d}");
+    }
+}
+
 fn deep_keys() -> Vec<u64> {
     let mut keys = Vec::new();
     for top in [0x11u64, 0x22] {
