@@ -36,6 +36,12 @@ colour map) and [`gtkwave_comparison/`](gtkwave_comparison/README.md)
 Callgrind and RSS evaluation). They are the evaluation records behind the
 top-level README's *Verified in real projects* table.
 
+**Pre-registered, not yet measured.**
+[`dns_names/`](dns_names/METHODOLOGY.md) holds the pre-registration for
+`ExpanseOrderedBytesMap` against `BTreeMap` and `qp-trie` on DNS-shaped keys
+([#1800](https://github.com/orieg/expanse/issues/1800)). It has no harness, no
+`/benchmark` token and no results yet.
+
 **Cross-language binding harnesses** are documented separately in
 [`../BINDINGS_BENCHMARKS.md`](../BINDINGS_BENCHMARKS.md).
 
